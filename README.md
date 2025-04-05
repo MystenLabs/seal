@@ -1,6 +1,6 @@
 # Seal
 
-Seal is a decentralized secrets management (DSM) service that relies on access control policies defined and validated on [Sui](https://docs.sui.io/concepts/components). Application developers and users can use Seal to secure sensitive data at rest on decentralized storage like [Walrus](https://docs.walrus.site/index.html), or on any other onchain / offchain storage.
+Seal is a decentralized secrets management (DSM) service that relies on access control policies defined and validated on [Sui](https://docs.sui.io/concepts/components). Application developers and users can use Seal to secure sensitive data at rest on decentralized storage like [Walrus](https://docs.wal.app/), or on any other onchain / offchain storage.
 
 > [!IMPORTANT]
 > Seal Beta is in Testnet. Refer to the [Seal Beta Terms of Service](TermsOfService.md).
@@ -19,8 +19,8 @@ Seal is a decentralized secrets management (DSM) service that relies on access c
 
 There are a number of Web3 use cases that could utilize Seal to secure sensitive data in a safe and scalable manner. Some of those are:
 
-- Secure personal data on [Walrus](https://docs.walrus.site/index.html) or some other storage, such that it’s only accessible by the user who uploaded it.
-- Share secure content stored on [Walrus](https://docs.walrus.site/index.html) or some other storage with a specific allowlist of users.
+- Secure personal data on [Walrus](https://docs.wal.app/) or some other storage, such that it’s only accessible by the user who uploaded it.
+- Share secure content stored on [Walrus](https://docs.wal.app/) or some other storage with a specific allowlist of users.
 - Share gated content on a content subscription application with a verified list of subscribers.
 - Realize end-to-end private messages using Sui and Walrus.
 - Implement secure voting and MEV resilient trading in Move.
@@ -39,7 +39,7 @@ We’re looking for community feedback on what other capabilities would make sen
 Even though Seal is supposed to be a generic and flexible secret management service for a variety of use cases, following are not its supposed goals. We do not recommend using Seal for such use cases and instead ask that you look for a more relevant product / service.
 
 - Seal is not a key management service like [AWS KMS](https://aws.amazon.com/kms/) or any other such Web2 service, in the sense that Seal backends do not store any application or user specific keys. A Seal key server only stores its specific master key pair, where the master public key is used by users to encrypt sensitive data, and the master private key is used to derive identity-based keys to decrypt the data.
-- Seal is not a privacy preserving technology like [zkLogin](https://docs.walrus.site/index.html). Instead Seal is supposed to be a collection of components allowing application developers and users to secure sensitive data on- or off-chain by using the security properties of threshold encryption, Sui, and Move.
+- Seal is not a privacy preserving technology like [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). Instead Seal is supposed to be a collection of components allowing application developers and users to secure sensitive data on- or off-chain by using the security properties of threshold encryption, Sui, and Move.
 - Seal should not be used to store highly sensitive data like a user’s wallet keys, or regulated personal data like PHI (personal health information), or any local / state / federal government-level secret data, or other data of similar sensitivity. Some advanced capabilities may be added to Seal in future to allow using it for some of such use cases, but those do not exist yet.
 
 ### Contact Us
