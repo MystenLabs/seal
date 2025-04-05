@@ -26,7 +26,9 @@ To access the service, the user must sign a personal message, which is then vali
 ## Run locally
 
 ```bash
-cd frontend
+cd frontendcd frontend
+pnpm install
+pnpm dev
 pnpm install
 pnpm dev
 ```
