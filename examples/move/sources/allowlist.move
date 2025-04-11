@@ -58,7 +58,26 @@ public fun add(allowlist: &mut Allowlist, cap: &Cap, account: address) {
 
 public fun remove(allowlist: &mut Allowlist, cap: &Cap, account: address) {
     assert!(cap.allowlist_id == object::id(allowlist), EInvalidCap);
-    allowlist.list = allowlist.list.filter!(|x| x != account); // TODO: more efficient impl?
+
+    let len = vector::length(&allowlist.list);
+    let mut i = 0;
+    while (i < len) {
+        if (vector::borrow(&allowlist.list, i) == account) {
+            let last_index = len - 1;
+            // If the found element is not the last one, swap it with the last element.
+            if (i != last_index) {
+                // Remove the last element from the vector.
+                let last_elem = vector::pop_back(&mut allowlist.list);
+                // Replace the element at index i with the last element.
+                *vector::borrow_mut(&mut allowlist.list, i) = last_elem;
+            } else {
+                // If it is the last element, simply remove it.
+                vector::pop_back(&mut allowlist.list);
+            };
+            break
+        };
+        i = i + 1;
+    }
 }
 
 //////////////////////////////////////////////////////////
@@ -113,6 +132,47 @@ public fun new_cap_for_testing(ctx: &mut TxContext, allowlist: &Allowlist): Cap 
 
 #[test_only]
 public fun destroy_for_testing(allowlist: Allowlist, cap: Cap) {
+    let Allowlist { id, .. } = allowlist;
+    object::delete(id);
+    let Cap { id, .. } = cap;
+    object::delete(id);
+}
+
+#[test]
+public fun test_remove_middle_last_element() {
+    use std::string::utf8;
+
+    let mut ctx = tx_context::dummy();
+    
+    let mut allowlist = Allowlist {
+        id: object::new(&mut ctx),
+        name: utf8(b"test"),
+        list: vector::empty(),
+    };
+    let cap = Cap {
+        id: object::new(&mut ctx),
+        allowlist_id: object::id(&allowlist),
+    };
+    vector::push_back(&mut allowlist.list, @0x1);
+    vector::push_back(&mut allowlist.list, @0x2);
+    vector::push_back(&mut allowlist.list, @0x3);
+    vector::push_back(&mut allowlist.list, @0x4);
+    
+    // remove middle element
+    remove(&mut allowlist, &cap, @0x2);
+
+    assert!(vector::length(&allowlist.list) == 3, 0);
+    assert!(vector::borrow(&allowlist.list, 0) == @0x1, 1);
+    assert!(vector::borrow(&allowlist.list, 1) == @0x4, 2);
+    assert!(vector::borrow(&allowlist.list, 2) == @0x3, 3);
+
+    // remove last element
+    remove(&mut allowlist, &cap, @0x3);
+
+    assert!(vector::length(&allowlist.list) == 2, 0);
+    assert!(vector::borrow(&allowlist.list, 0) == @0x1, 1);
+    assert!(vector::borrow(&allowlist.list, 1) == @0x4, 2);
+    
     let Allowlist { id, .. } = allowlist;
     object::delete(id);
     let Cap { id, .. } = cap;
