@@ -493,6 +493,7 @@ async fn handle_fetch_key(
 struct GetServiceResponse {
     service_id: ObjectID,
     pop: MasterKeyPOP,
+    version: String,
 }
 
 async fn handle_get_service(
@@ -502,6 +503,7 @@ async fn handle_get_service(
     Ok(Json(GetServiceResponse {
         service_id: app_state.server.key_server_object_id,
         pop: app_state.server.key_server_object_id_sig,
+        version: PACKAGE_VERSION.to_string(),
     }))
 }
 
