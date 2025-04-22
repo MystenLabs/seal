@@ -8,7 +8,7 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize, PartialEq)]
 pub enum InternalError {
-    InvalidPTB,
+    InvalidPTB(String),
     InvalidPackage,
     NoAccess,
     OldPackageVersion,
@@ -29,33 +29,41 @@ pub struct ErrorResponse {
 impl IntoResponse for InternalError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            InternalError::InvalidPTB => (StatusCode::FORBIDDEN, "Invalid PTB"),
-            InternalError::InvalidPackage => (StatusCode::FORBIDDEN, "Invalid package ID"),
-            InternalError::NoAccess => (StatusCode::FORBIDDEN, "Access denied"),
-            InternalError::InvalidCertificate => {
-                (StatusCode::FORBIDDEN, "Invalid certificate time or ttl")
+            InternalError::InvalidPTB(ref inner) => {
+                (StatusCode::FORBIDDEN, format!("Invalid PTB: {}", inner))
             }
+            InternalError::InvalidPackage => {
+                (StatusCode::FORBIDDEN, "Invalid package ID".to_string())
+            }
+            InternalError::NoAccess => (StatusCode::FORBIDDEN, "Access denied".to_string()),
+            InternalError::InvalidCertificate => (
+                StatusCode::FORBIDDEN,
+                "Invalid certificate time or ttl".to_string(),
+            ),
             InternalError::OldPackageVersion => (
                 StatusCode::FORBIDDEN,
-                "Package has been upgraded, please use the latest version",
+                "Package has been upgraded, please use the latest version".to_string(),
             ),
-            InternalError::InvalidSignature => (StatusCode::FORBIDDEN, "Invalid user signature"),
-            InternalError::InvalidSessionSignature => {
-                (StatusCode::FORBIDDEN, "Invalid session key signature")
+            InternalError::InvalidSignature => {
+                (StatusCode::FORBIDDEN, "Invalid user signature".to_string())
             }
             InternalError::InvalidSDKVersion => (StatusCode::FORBIDDEN, "Invalid SDK version"),
             InternalError::DeprecatedSDKVersion => {
-                (StatusCode::FORBIDDEN, "Deprecated SDK version")
+                (StatusCode::FORBIDDEN, "Deprecated SDK version".to_string())
             }
+            InternalError::InvalidSessionSignature => (
+                StatusCode::FORBIDDEN,
+                "Invalid session key signature".to_string(),
+            ),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Internal server error, please try again later",
+                "Internal server error, please try again later".to_string(),
             ),
         };
 
         let error_response = ErrorResponse {
             error: self,
-            message: message.to_string(),
+            message,
         };
 
         (status, Json(error_response)).into_response()
@@ -65,7 +73,7 @@ impl IntoResponse for InternalError {
 impl InternalError {
     pub fn as_str(&self) -> &'static str {
         match self {
-            InternalError::InvalidPTB => "InvalidPTB",
+            InternalError::InvalidPTB(_) => "InvalidPTB",
             InternalError::InvalidPackage => "InvalidPackage",
             InternalError::NoAccess => "NoAccess",
             InternalError::InvalidCertificate => "InvalidCertificate",
@@ -77,4 +85,12 @@ impl InternalError {
             InternalError::Failure => "Failure",
         }
     }
+}
+
+#[macro_export]
+macro_rules! return_err {
+    ($err:expr, $msg:expr $(, $arg:expr)*) => {{
+        debug!($msg $(, $arg)*);
+        return Err($err);
+    }};
 }
