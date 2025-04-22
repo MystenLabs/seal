@@ -42,6 +42,12 @@ Even though Seal is supposed to be a generic and flexible secret management serv
 - Seal is not a privacy preserving technology like [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). Instead Seal is supposed to be a collection of components allowing application developers and users to secure sensitive data on- or off-chain by using the security properties of threshold encryption, Sui, and Move.
 - Seal should not be used to store highly sensitive data like a user’s wallet keys, or regulated personal data like PHI (personal health information), or any local / state / federal government-level secret data, or other data of similar sensitivity. Some advanced capabilities may be added to Seal in future to allow using it for some of such use cases, but those do not exist yet.
 
+### Upgrade policy
+
+We strive to maintain backward compatibility for Seal, and any breaking changes to the Key Server API and the TypeScript SDK will be communicated in advance both on GitHub and in the Seal Discord channel.
+We will also provide a migration path for existing users to upgrade to the new version.
+New versions of the Key Server will be published on GitHub under [Releases](https://github.com/MystenLabs/seal/releases) and will be tagged with the version number.
+
 ### Contact Us
 
 For questions about Seal, use case discussions, or integration support, contact the Seal team on [Sui Discord](https://discord.com/channels/916379725201563759/1356767654265880586).

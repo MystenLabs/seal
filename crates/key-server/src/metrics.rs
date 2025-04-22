@@ -65,7 +65,7 @@ impl Metrics {
             checkpoint_timestamp_delay: register_histogram_with_registry!(
                 "checkpoint_timestamp_delay",
                 "Delay of timestamp of the latest checkpoint",
-                buckets(50.0, 60000.0, 50.0),
+                buckets(0.0, 120000.0, 1000.0),
                 registry
             )
             .unwrap(),
