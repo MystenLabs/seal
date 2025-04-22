@@ -14,6 +14,7 @@ pub enum InternalError {
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
+    InvalidSDKVersion,
     Failure, // Internal error, try again later
 }
 
@@ -40,6 +41,7 @@ impl IntoResponse for InternalError {
             InternalError::InvalidSessionSignature => {
                 (StatusCode::FORBIDDEN, "Invalid session key signature")
             }
+            InternalError::InvalidSDKVersion => (StatusCode::FORBIDDEN, "Invalid SDK version"),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later",
@@ -65,6 +67,7 @@ impl InternalError {
             InternalError::OldPackageVersion => "OldPackageVersion",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
+            InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::Failure => "Failure",
         }
     }

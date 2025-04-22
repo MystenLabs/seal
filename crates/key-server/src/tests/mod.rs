@@ -10,6 +10,7 @@ use fastcrypto::groups::bls12381::G1Element;
 use fastcrypto::groups::GroupElement;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use rand::thread_rng;
+use semver::VersionReq;
 use serde_json::json;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -64,6 +65,7 @@ impl SealTestCluster {
                     master_key,
                     key_server_object_id: ObjectID::ZERO,
                     key_server_object_id_sig: G1Element::generator(),
+                    sdk_version_requirement: VersionReq::STAR,
                 },
                 public_key,
             })

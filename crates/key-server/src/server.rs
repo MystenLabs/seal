@@ -1,5 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::errors::InternalError::InvalidSDKVersion;
 use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::signed_message::{signed_message, signed_request};
@@ -24,6 +25,7 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
@@ -74,6 +76,9 @@ const GAS_BUDGET: u64 = 500_000_000;
 
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The minimum version of the SDK that is required to use this service.
+const SDK_VERSION_REQUIREMENT: &str = ">=0.3.5";
+
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Certificate {
@@ -121,6 +126,7 @@ struct Server {
     master_key: IbeMasterKey,
     key_server_object_id: ObjectID,
     key_server_object_id_sig: MasterKeyPOP,
+    sdk_version_requirement: VersionReq,
 }
 
 impl Server {
@@ -144,12 +150,16 @@ impl Server {
         let key_server_object_id_sig =
             create_proof_of_possession(&master_key, &key_server_object_id.into_bytes());
 
+        let sdk_version_requirement =
+            VersionReq::parse(SDK_VERSION_REQUIREMENT).expect("valid SDK version requirement");
+
         Server {
             sui_client,
             network,
             master_key,
             key_server_object_id,
             key_server_object_id_sig,
+            sdk_version_requirement,
         }
     }
 
@@ -469,6 +479,12 @@ async fn handle_fetch_key(
         req_id, version, sdk_type, target_api_version
     );
 
+    // Check the SDK version. Fail if the version is not provided or invalid.
+    version
+        .ok_or(InvalidSDKVersion)
+        .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
+        .and_then(|v| app_state.validate_sdk_version(v))?;
+
     app_state.metrics.requests.inc();
     app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
 
@@ -530,6 +546,15 @@ impl MyState {
 
     fn reference_gas_price(&self) -> u64 {
         *self.reference_gas_price.borrow()
+    }
+
+    fn validate_sdk_version(&self, version_string: &str) -> Result<(), InternalError> {
+        let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
+        if !self.server.sdk_version_requirement.matches(&version) {
+            warn!("Invalid SDK version: {}", version_string);
+            return Err(InvalidSDKVersion);
+        }
+        Ok(())
     }
 }
 
