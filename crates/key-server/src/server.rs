@@ -6,11 +6,12 @@ use crate::metrics::{call_with_duration, observation_callback, status_callback, 
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
+use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::middleware::{from_fn, from_fn_with_state};
-use axum::response::{IntoResponse, Response};
+use axum::middleware::{from_fn_with_state, map_response, Next};
+use axum::response::Response;
 use axum::routing::{get, post};
-use axum::{extract, extract::State, middleware, response, Json};
+use axum::{extract::State, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
@@ -546,43 +547,39 @@ impl MyState {
     }
 }
 
+/// Middleware to validate the SDK version.
 async fn validate_sdk_version(
     state: State<MyState>,
-    request: extract::Request,
-    next: middleware::Next,
-) -> Response {
-    let headers = request.headers();
-    let req_id = headers
-        .get("Request-Id")
-        .map(|v| v.to_str().unwrap_or_default());
-    let version = headers.get("Client-Sdk-Version");
-    let sdk_type = headers.get("Client-Sdk-Type");
-    let target_api_version = headers.get("Client-Target-Api-Version");
+    request: Request,
+    next: Next,
+) -> Result<Response, InternalError> {
+    // Log the request id and SDK version
+    let version = request.headers().get("Client-Sdk-Version");
+
     info!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
-        req_id, version, sdk_type, target_api_version
+        request
+            .headers()
+            .get("Request-Id")
+            .map(|v| v.to_str().unwrap_or_default()),
+        version,
+        request.headers().get("Client-Sdk-Type"),
+        request.headers().get("Client-Target-Api-Version")
     );
 
-    // Check the SDK version. Fail if the version is not provided or invalid.
-    match version
+    version
         .ok_or(InvalidSDKVersion)
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
-        .and_then(|v| state.validate_sdk_version(v))
-    {
-        Ok(_) => next.run(request).await,
-        Err(e) => {
-            warn!("Error({}): {:?}", e.as_str(), version);
+        .and_then(|v| state.validate_sdk_version(v).map_err(|_| InvalidSDKVersion))
+        .tap_err(|e| {
+            warn!("Invalid SDK version: {:?}", e);
             state.metrics.observe_error(e.as_str());
-            e.into_response()
-        }
-    }
+        })?;
+    Ok(next.run(request).await)
 }
 
-async fn add_version_header(
-    request: extract::Request,
-    next: middleware::Next,
-) -> response::Response {
-    let mut response = next.run(request).await;
+/// Middleware to add headers to all responses.
+async fn add_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
         "X-KeyServer-Version",
         HeaderValue::from_static(PACKAGE_VERSION),
@@ -644,10 +641,10 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = get_mysten_service(package_name!(), package_version!())
-        .layer(from_fn_with_state(state.clone(), validate_sdk_version))
+        .layer(map_response(add_headers))
         .route("/v1/fetch_key", post(handle_fetch_key))
         .route("/v1/service", get(handle_get_service))
-        .layer(from_fn(add_version_header))
+        .layer(from_fn_with_state(state.clone(), validate_sdk_version))
         .with_state(state)
         .layer(cors);
 
