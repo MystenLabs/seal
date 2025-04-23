@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(
             ValidPtb::try_from(ptb).err(),
             Some(InternalError::InvalidPTB(
-                "Empty PTB input or command".to_string()
+                "Empty input or command".to_string()
             ))
         );
     }
