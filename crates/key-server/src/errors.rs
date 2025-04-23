@@ -47,7 +47,9 @@ impl IntoResponse for InternalError {
             InternalError::InvalidSignature => {
                 (StatusCode::FORBIDDEN, "Invalid user signature".to_string())
             }
-            InternalError::InvalidSDKVersion => (StatusCode::FORBIDDEN, "Invalid SDK version"),
+            InternalError::InvalidSDKVersion => {
+                (StatusCode::FORBIDDEN, "Invalid SDK version".to_string())
+            }
             InternalError::DeprecatedSDKVersion => {
                 (StatusCode::FORBIDDEN, "Deprecated SDK version".to_string())
             }

@@ -287,7 +287,7 @@ impl Server {
         let ptb_b64 = Base64::decode(ptb_str)
             .map_err(|_| InternalError::InvalidPTB("Invalid Base64".to_string()))?;
         let ptb: ProgrammableTransaction = bcs::from_bytes(&ptb_b64)
-            .map_err(|_| InternalError::InvalidPTB("Invalid BCS for PTB".to_string()))?;
+            .map_err(|_| InternalError::InvalidPTB("Invalid BCS".to_string()))?;
         let valid_ptb = ValidPtb::try_from(ptb.clone())?;
 
         // Report the number of id's in the request to the metrics.
