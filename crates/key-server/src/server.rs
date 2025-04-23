@@ -6,7 +6,8 @@ use crate::metrics::{call_with_duration, observation_callback, status_callback, 
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{extract::State, Json};
 use core::time::Duration;
@@ -467,7 +468,7 @@ async fn handle_fetch_key(
     State(app_state): State<MyState>,
     headers: HeaderMap,
     Json(payload): Json<FetchKeyRequest>,
-) -> Result<Json<FetchKeyResponse>, InternalError> {
+) -> Result<impl IntoResponse, InternalError> {
     let req_id = headers
         .get("Request-Id")
         .map(|v| v.to_str().unwrap_or_default());
@@ -479,14 +480,25 @@ async fn handle_fetch_key(
         req_id, version, sdk_type, target_api_version
     );
 
+    app_state.metrics.requests.inc();
+    app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
+
     // Check the SDK version. Fail if the version is not provided or invalid.
     version
         .ok_or(InvalidSDKVersion)
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
-        .and_then(|v| app_state.validate_sdk_version(v))?;
+        .and_then(|v| app_state.validate_sdk_version(v))
+        .tap_err(|e| {
+            warn!("Invalid SDK version: {:?}", version);
+            app_state.metrics.observe_error(e.as_str());
+        })?;
 
-    app_state.metrics.requests.inc();
-    app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
+    // Add the server's version to the response header.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "KeyServer-Version",
+        HeaderValue::from_static(PACKAGE_VERSION),
+    );
 
     app_state
         .server
@@ -501,7 +513,12 @@ async fn handle_fetch_key(
             req_id,
         )
         .await
-        .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
+        .map(|full_id| {
+            (
+                headers,
+                Json(app_state.server.create_response(&full_id, &payload.enc_key)),
+            )
+        })
         .tap_err(|e| app_state.metrics.observe_error(e.as_str()))
 }
 
@@ -551,7 +568,6 @@ impl MyState {
     fn validate_sdk_version(&self, version_string: &str) -> Result<(), InternalError> {
         let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
         if !self.server.sdk_version_requirement.matches(&version) {
-            warn!("Invalid SDK version: {}", version_string);
             return Err(InvalidSDKVersion);
         }
         Ok(())
