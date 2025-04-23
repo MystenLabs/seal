@@ -496,7 +496,7 @@ async fn handle_fetch_key(
     // Add the server's version to the response header.
     let mut headers = HeaderMap::new();
     headers.insert(
-        "KeyServer-Version",
+        "X-KeyServer-Version",
         HeaderValue::from_static(PACKAGE_VERSION),
     );
 
