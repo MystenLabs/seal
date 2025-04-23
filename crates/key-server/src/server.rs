@@ -1,6 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::errors::InternalError::InvalidSDKVersion;
+use crate::errors::InternalError::{DeprecatedSDKVersion, InvalidSDKVersion};
 use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::signed_message::{signed_message, signed_request};
@@ -489,7 +489,7 @@ async fn handle_fetch_key(
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
         .and_then(|v| app_state.validate_sdk_version(v))
         .tap_err(|e| {
-            warn!("Invalid SDK version: {:?}", version);
+            warn!("Error({}): {:?}", e.as_str(), version);
             app_state.metrics.observe_error(e.as_str());
         })?;
 
@@ -568,7 +568,7 @@ impl MyState {
     fn validate_sdk_version(&self, version_string: &str) -> Result<(), InternalError> {
         let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
         if !self.server.sdk_version_requirement.matches(&version) {
-            return Err(InvalidSDKVersion);
+            return Err(DeprecatedSDKVersion);
         }
         Ok(())
     }
