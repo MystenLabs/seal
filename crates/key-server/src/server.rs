@@ -548,7 +548,7 @@ impl MyState {
 }
 
 /// Middleware to validate the SDK version.
-async fn validate_sdk_version(
+async fn handle_request_headers(
     state: State<MyState>,
     request: Request,
     next: Next,
@@ -579,7 +579,7 @@ async fn validate_sdk_version(
 }
 
 /// Middleware to add headers to all responses.
-async fn add_headers(mut response: Response) -> Response {
+async fn add_response_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
         "X-KeyServer-Version",
         HeaderValue::from_static(PACKAGE_VERSION),
@@ -641,10 +641,10 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = get_mysten_service(package_name!(), package_version!())
-        .layer(map_response(add_headers))
+        .layer(map_response(add_response_headers))
         .route("/v1/fetch_key", post(handle_fetch_key))
         .route("/v1/service", get(handle_get_service))
-        .layer(from_fn_with_state(state.clone(), validate_sdk_version))
+        .layer(from_fn_with_state(state.clone(), handle_request_headers))
         .with_state(state)
         .layer(cors);
 
