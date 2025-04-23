@@ -7,9 +7,10 @@ use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::response::IntoResponse;
+use axum::middleware::{from_fn, from_fn_with_state};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{extract::State, Json};
+use axum::{extract, extract::State, middleware, response, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
@@ -468,37 +469,13 @@ async fn handle_fetch_key(
     State(app_state): State<MyState>,
     headers: HeaderMap,
     Json(payload): Json<FetchKeyRequest>,
-) -> Result<impl IntoResponse, InternalError> {
+) -> Result<Json<FetchKeyResponse>, InternalError> {
     let req_id = headers
         .get("Request-Id")
         .map(|v| v.to_str().unwrap_or_default());
-    let version = headers.get("Client-Sdk-Version");
-    let sdk_type = headers.get("Client-Sdk-Type");
-    let target_api_version = headers.get("Client-Target-Api-Version");
-    info!(
-        "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
-        req_id, version, sdk_type, target_api_version
-    );
 
     app_state.metrics.requests.inc();
     app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
-
-    // Check the SDK version. Fail if the version is not provided or invalid.
-    version
-        .ok_or(InvalidSDKVersion)
-        .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
-        .and_then(|v| app_state.validate_sdk_version(v))
-        .tap_err(|e| {
-            warn!("Error({}): {:?}", e.as_str(), version);
-            app_state.metrics.observe_error(e.as_str());
-        })?;
-
-    // Add the server's version to the response header.
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "X-KeyServer-Version",
-        HeaderValue::from_static(PACKAGE_VERSION),
-    );
 
     app_state
         .server
@@ -513,12 +490,7 @@ async fn handle_fetch_key(
             req_id,
         )
         .await
-        .map(|full_id| {
-            (
-                headers,
-                Json(app_state.server.create_response(&full_id, &payload.enc_key)),
-            )
-        })
+        .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
         .tap_err(|e| app_state.metrics.observe_error(e.as_str()))
 }
 
@@ -572,6 +544,50 @@ impl MyState {
         }
         Ok(())
     }
+}
+
+async fn validate_sdk_version(
+    state: State<MyState>,
+    request: extract::Request,
+    next: middleware::Next,
+) -> Response {
+    let headers = request.headers();
+    let req_id = headers
+        .get("Request-Id")
+        .map(|v| v.to_str().unwrap_or_default());
+    let version = headers.get("Client-Sdk-Version");
+    let sdk_type = headers.get("Client-Sdk-Type");
+    let target_api_version = headers.get("Client-Target-Api-Version");
+    info!(
+        "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
+        req_id, version, sdk_type, target_api_version
+    );
+
+    // Check the SDK version. Fail if the version is not provided or invalid.
+    match version
+        .ok_or(InvalidSDKVersion)
+        .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
+        .and_then(|v| state.validate_sdk_version(v))
+    {
+        Ok(_) => next.run(request).await,
+        Err(e) => {
+            warn!("Error({}): {:?}", e.as_str(), version);
+            state.metrics.observe_error(e.as_str());
+            e.into_response()
+        }
+    }
+}
+
+async fn add_version_header(
+    request: extract::Request,
+    next: middleware::Next,
+) -> response::Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        "X-KeyServer-Version",
+        HeaderValue::from_static(PACKAGE_VERSION),
+    );
+    response
 }
 
 #[tokio::main]
@@ -628,8 +644,10 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = get_mysten_service(package_name!(), package_version!())
+        .layer(from_fn_with_state(state.clone(), validate_sdk_version))
         .route("/v1/fetch_key", post(handle_fetch_key))
         .route("/v1/service", get(handle_get_service))
+        .layer(from_fn(add_version_header))
         .with_state(state)
         .layer(cors);
 
