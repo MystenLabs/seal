@@ -32,7 +32,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
         // Checked above that there is at least one command
         let Command::MoveCall(first_cmd) = &ptb.commands[0] else {
             return_err!(
-                InternalError::InvalidPTB("Invalid PTB first command".to_string()),
+                InternalError::InvalidPTB("Invalid first command".to_string()),
                 "Invalid PTB first command {:?}",
                 ptb
             );
