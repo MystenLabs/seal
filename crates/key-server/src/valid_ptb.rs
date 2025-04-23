@@ -44,7 +44,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
             let Command::MoveCall(cmd) = &cmd else {
                 return_err!(
                     InternalError::InvalidPTB("Non MoveCall command".to_string()),
-                    "Invalid PTB non move call command {:?}",
+                    "Non MoveCall command {:?}",
                     cmd
                 );
             };
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(
             ValidPtb::try_from(ptb).err(),
             Some(InternalError::InvalidPTB(
-                "Empty input or command".to_string()
+                "Empty PTB input or command".to_string()
             ))
         );
     }
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(
             ValidPtb::try_from(ptb).err(),
             Some(InternalError::InvalidPTB(
-                "Empty input or command".to_string()
+                "Empty PTB input or command".to_string()
             ))
         );
     }
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(
             ValidPtb::try_from(ptb).err(),
             Some(InternalError::InvalidPTB(
-                "Invalid PTB non move call command".to_string()
+                "Non MoveCall command".to_string()
             ))
         );
     }
