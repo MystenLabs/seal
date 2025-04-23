@@ -43,7 +43,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
             // Restriction: All commands must be a MoveCall.
             let Command::MoveCall(cmd) = &cmd else {
                 return_err!(
-                    InternalError::InvalidPTB("Invalid PTB non move call command".to_string()),
+                    InternalError::InvalidPTB("Non MoveCall command".to_string()),
                     "Invalid PTB non move call command {:?}",
                     cmd
                 );
