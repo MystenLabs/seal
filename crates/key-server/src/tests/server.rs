@@ -10,7 +10,6 @@ use crate::tests::SealTestCluster;
 
 use crate::key_server;
 use crate::Network;
-use crate::PACKAGE_VERSION;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::StatusCode;
@@ -18,6 +17,7 @@ use crypto::ibe::generate_key_pair;
 use rand::thread_rng;
 use sui_types::base_types::ObjectID;
 use tower::{Service, ServiceExt};
+use crate::PACKAGE_VERSION;
 
 #[tokio::test]
 async fn test_http_response() {
