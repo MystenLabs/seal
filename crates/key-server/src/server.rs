@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::{extract::State, Json, Router};
+use axum::{extract::State, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
@@ -588,7 +588,14 @@ async fn add_response_headers(mut response: Response) -> Response {
     response
 }
 
-async fn key_server(master_key: IbeMasterKey, network: Network, object_id: ObjectID) -> Router {
+#[tokio::main]
+async fn main() -> Result<()> {
+    let master_key = env::var("MASTER_KEY").expect("MASTER_KEY must be set");
+    let object_id = env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
+    let network = env::var("NETWORK")
+        .map(|n| Network::from_str(&n))
+        .unwrap_or(Network::Testnet);
+
     let _guard = mysten_service::logging::init();
     info!("Logging set up, setting up metrics");
 
@@ -598,7 +605,21 @@ async fn key_server(master_key: IbeMasterKey, network: Network, object_id: Objec
     let metrics = Arc::new(Metrics::new(&registry));
     info!("Metrics set up, starting service");
 
-    let server = Arc::new(Server::new(master_key, network, object_id).await);
+    info!("Starting server, version {}", PACKAGE_VERSION);
+
+    let s = Server::new(
+        IbeMasterKey::from_byte_array(
+            &Base64::decode(&master_key)
+                .expect("MASTER_KEY should be base64 encoded")
+                .try_into()
+                .expect("Invalid MASTER_KEY length"),
+        )
+        .expect("Invalid MASTER_KEY value"),
+        network,
+        ObjectID::from_hex_literal(&object_id).expect("Invalid KEY_SERVER_OBJECT_ID"),
+    )
+    .await;
+    let server = Arc::new(s);
 
     // Spawn tasks that update the state of the server.
     let latest_checkpoint_timestamp_receiver = server
@@ -620,35 +641,13 @@ async fn key_server(master_key: IbeMasterKey, network: Network, object_id: Objec
         .allow_origin(Any)
         .allow_headers(Any);
 
-    get_mysten_service(package_name!(), package_version!())
+    let app = get_mysten_service(package_name!(), package_version!())
         .route("/v1/fetch_key", post(handle_fetch_key))
         .route("/v1/service", get(handle_get_service))
         .layer(from_fn_with_state(state.clone(), handle_request_headers))
         .layer(map_response(add_response_headers))
         .with_state(state)
-        .layer(cors)
-}
+        .layer(cors);
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let master_key = IbeMasterKey::from_byte_array(
-        &Base64::decode(&env::var("MASTER_KEY").expect("MASTER_KEY must be set"))
-            .expect("MASTER_KEY should be base64 encoded")
-            .try_into()
-            .expect("Invalid MASTER_KEY length"),
-    )
-    .expect("Invalid MASTER_KEY value");
-
-    let network = env::var("NETWORK")
-        .map(|n| Network::from_str(&n))
-        .unwrap_or(Network::Testnet);
-
-    let object_id = ObjectID::from_hex_literal(
-        &env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set"),
-    )
-    .expect("Invalid KEY_SERVER_OBJECT_ID");
-
-    info!("Starting server, version {}", PACKAGE_VERSION);
-
-    serve(key_server(master_key, network, object_id).await).await
+    serve(app).await
 }
