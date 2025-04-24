@@ -642,11 +642,14 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = get_mysten_service(package_name!(), package_version!())
-        .route("/v1/fetch_key", post(handle_fetch_key))
-        .route("/v1/service", get(handle_get_service))
-        .layer(from_fn_with_state(state.clone(), handle_request_headers))
-        .layer(map_response(add_response_headers))
-        .with_state(state)
+        .merge(
+            axum::Router::new()
+                .route("/v1/fetch_key", post(handle_fetch_key))
+                .route("/v1/service", get(handle_get_service))
+                .layer(from_fn_with_state(state.clone(), handle_request_headers))
+                .layer(map_response(add_response_headers))
+                .with_state(state),
+        )
         .layer(cors);
 
     serve(app).await
