@@ -17,10 +17,9 @@ use crypto::ibe::generate_key_pair;
 use rand::thread_rng;
 use sui_types::base_types::ObjectID;
 use tower::{Service, ServiceExt};
-use crate::PACKAGE_VERSION;
 
 #[tokio::test]
-async fn test_http_response() {
+async fn response_header_is_correct() {
     let master_key = generate_key_pair(&mut thread_rng()).0;
     let network = Network::Devnet;
     let object_id = ObjectID::from_single_byte(0); // Dummy value
@@ -41,7 +40,7 @@ async fn test_http_response() {
         .await
         .unwrap();
     assert_eq!(
-        PACKAGE_VERSION,
+        "0.2.0",
         response.headers().get("X-KeyServer-Version").unwrap()
     );
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -59,7 +58,7 @@ async fn test_http_response() {
         .await
         .unwrap();
     assert_eq!(
-        PACKAGE_VERSION,
+        "0.2.0",
         response.headers().get("X-KeyServer-Version").unwrap()
     );
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -77,7 +76,7 @@ async fn test_http_response() {
         .await
         .unwrap();
     assert_eq!(
-        PACKAGE_VERSION,
+        "0.2.0",
         response.headers().get("X-KeyServer-Version").unwrap()
     );
     assert_eq!(response.status(), StatusCode::OK);
