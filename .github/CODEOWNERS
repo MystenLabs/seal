@@ -1,2 +1,4 @@
-
-@joyqvq @jonas-lj @benr-ml @mystenadmin
+/examples @joyqvq @benr-ml
+/crates @jonas-lj @benr-ml
+/move @jonas-lj @benr-ml @joyqvq
+*.md @benr-ml @abhinavg6
