@@ -3918,6 +3918,7 @@ dependencies = [
  "crypto",
  "fastcrypto",
  "hex",
+ "jsonrpsee",
  "lru 0.13.0",
  "mysten-service",
  "once_cell",

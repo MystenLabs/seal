@@ -22,6 +22,8 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
+use jsonrpsee::core::ClientError;
+use jsonrpsee::types::error::INVALID_PARAMS_CODE;
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::package_name;
@@ -35,7 +37,7 @@ use std::env;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
-use sui_sdk::error::SuiRpcResult;
+use sui_sdk::error::{Error, SuiRpcResult};
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
@@ -255,7 +257,18 @@ impl Server {
             .await
             .map_err(|e| {
                 warn!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
-                InternalError::Failure
+                // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
+                // In that case, the user gets a 503 status code (service unavailable).
+                match e {
+                    Error::RpcError(ClientError::Call(e)) => match e.code() {
+                            INVALID_PARAMS_CODE => {
+                                warn!("Invalid parameter: This could be because the FN has not yet seen the object.");
+                                InternalError::InvalidParameter
+                            }
+                            _ => InternalError::Failure
+                        },
+                    _ => InternalError::Failure
+                }
             })?;
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
         if dry_run_res.effects.status().is_err() {
