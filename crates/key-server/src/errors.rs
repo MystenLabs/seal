@@ -61,7 +61,8 @@ impl IntoResponse for InternalError {
             ),
             InternalError::InvalidParameter => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Invalid parameter".to_string(),
+                "Invalid parameter. If the object was just created, try again in a few minutes."
+                    .to_string(),
             ),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
