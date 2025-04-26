@@ -9,8 +9,8 @@ use std::string::String;
 use sui::dynamic_field as df;
 use walrus::utils::is_prefix;
 use sui::vec_set::VecSet;
-use std::address;
 use sui::vec_set;
+
 
 const EInvalidCap: u64 = 0;
 const ENoAccess: u64 = 1;
@@ -102,7 +102,7 @@ public fun new_allowlist_for_testing(ctx: &mut TxContext): Allowlist {
     Allowlist {
         id: object::new(ctx),
         name: utf8(b"test"),
-        list: vector::empty(),
+        list: vec_set::empty<address>(),
     }
 }
 
