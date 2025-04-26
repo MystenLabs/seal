@@ -8,6 +8,9 @@ module walrus::allowlist;
 use std::string::String;
 use sui::dynamic_field as df;
 use walrus::utils::is_prefix;
+use sui::vec_set::VecSet;
+use std::address;
+use sui::vec_set;
 
 const EInvalidCap: u64 = 0;
 const ENoAccess: u64 = 1;
@@ -17,7 +20,7 @@ const MARKER: u64 = 3;
 public struct Allowlist has key {
     id: UID,
     name: String,
-    list: vector<address>,
+    list: VecSet<address>,
 }
 
 public struct Cap has key {
@@ -34,7 +37,7 @@ public struct Cap has key {
 public fun create_allowlist(name: String, ctx: &mut TxContext): Cap {
     let allowlist = Allowlist {
         id: object::new(ctx),
-        list: vector::empty(),
+        list: vec_set::empty<address>(),
         name: name,
     };
     let cap = Cap {
@@ -53,12 +56,12 @@ entry fun create_allowlist_entry(name: String, ctx: &mut TxContext) {
 public fun add(allowlist: &mut Allowlist, cap: &Cap, account: address) {
     assert!(cap.allowlist_id == object::id(allowlist), EInvalidCap);
     assert!(!allowlist.list.contains(&account), EDuplicate);
-    allowlist.list.push_back(account);
+    allowlist.list.insert(account);
 }
 
 public fun remove(allowlist: &mut Allowlist, cap: &Cap, account: address) {
     assert!(cap.allowlist_id == object::id(allowlist), EInvalidCap);
-    allowlist.list = allowlist.list.filter!(|x| x != account); // TODO: more efficient impl?
+    allowlist.list.remove(&account);
 }
 
 //////////////////////////////////////////////////////////
