@@ -257,15 +257,19 @@ impl Server {
             .await
             .map_err(|e| {
                 if let Error::RpcError(ClientError::Call(ref e)) = e {
-                    if e.code() == INVALID_PARAMS_CODE {
-                        // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
-                        // In that case, the user gets a FORBIDDEN status response.
-                        debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
-                        return InternalError::InvalidParameter;
-                    } else if e.code() == METHOD_NOT_FOUND_CODE {
-                        // This means that the seal_approve function is not found on the given module.
-                        debug!("Function not found: {:?}", e);
-                        return InternalError::InvalidPTB("The seal_approve function was not found on the module".to_string());
+                    match e.code() {
+                        INVALID_PARAMS_CODE => {
+                            // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
+                            // In that case, the user gets a FORBIDDEN status response.
+                            debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
+                            return InternalError::InvalidParameter;
+                        }
+                        METHOD_NOT_FOUND_CODE => {
+                            // This means that the seal_approve function is not found on the given module.
+                            debug!("Function not found: {:?}", e);
+                            return InternalError::InvalidPTB("The seal_approve function was not found on the module".to_string());
+                        }
+                        _ => {}
                     }
                 }
                 warn!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
