@@ -141,6 +141,9 @@ const decryptedBytes = await client.decrypt({
 });
 ```
 
+> [!TIP]
+> You can call `dryRunTransactionBlock` directly to debug you transaction.
+
 The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same id is used across multiple encryptions. 
 
 To retrieve multiple keys efficiently, use the `fetchKeys` function with a multi-command PTB. This approach is recommended when multiple keys are required, as it reduces the number of requests to the key servers. Because key servers may apply rate limiting, developers should design their applications and access policies to minimize the frequency of key retrieval requests.
