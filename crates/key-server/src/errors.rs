@@ -61,8 +61,7 @@ impl IntoResponse for InternalError {
             ),
             InternalError::InvalidParameter => (
                 StatusCode::FORBIDDEN,
-                "Invalid parameter. If the object was just created, try again later."
-                    .to_string(),
+                "Invalid parameter. If the object was just created, try again later.".to_string(),
             ),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,

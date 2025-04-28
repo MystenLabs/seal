@@ -256,19 +256,16 @@ impl Server {
             .dry_run_transaction_block(tx_data)
             .await
             .map_err(|e| {
-                warn!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
-                // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
-                // In that case, the user gets a 503 status code (service unavailable).
-                match e {
-                    Error::RpcError(ClientError::Call(e)) => match e.code() {
-                            INVALID_PARAMS_CODE => {
-                                debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
-                                InternalError::InvalidParameter
-                            }
-                            _ => InternalError::Failure
-                        },
-                    _ => InternalError::Failure
+                if let Error::RpcError(ClientError::Call(ref e)) = e {
+                    if e.code() == INVALID_PARAMS_CODE {
+                        // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
+                        // In that case, the user gets a FORBIDDEN status response.
+                        debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
+                        return InternalError::InvalidParameter;
+                    }
                 }
+                warn!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
+                InternalError::Failure
             })?;
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
         if dry_run_res.effects.status().is_err() {
