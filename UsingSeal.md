@@ -142,7 +142,7 @@ const decryptedBytes = await client.decrypt({
 ```
 
 > [!TIP]
-> You can call `dryRunTransactionBlock` directly to debug you transaction.
+> You can call `dryRunTransactionBlock` directly with your transaction to debug it.
 
 The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same id is used across multiple encryptions. 
 
