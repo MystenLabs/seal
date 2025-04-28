@@ -262,7 +262,7 @@ impl Server {
                 match e {
                     Error::RpcError(ClientError::Call(e)) => match e.code() {
                             INVALID_PARAMS_CODE => {
-                                warn!("Invalid parameter: This could be because the FN has not yet seen the object.");
+                                debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
                                 InternalError::InvalidParameter
                             }
                             _ => InternalError::Failure

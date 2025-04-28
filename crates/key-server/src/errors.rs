@@ -60,8 +60,8 @@ impl IntoResponse for InternalError {
                 "Invalid session key signature".to_string(),
             ),
             InternalError::InvalidParameter => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Invalid parameter. If the object was just created, try again in a few minutes."
+                StatusCode::FORBIDDEN,
+                "Invalid parameter. If the object was just created, try again later."
                     .to_string(),
             ),
             InternalError::Failure => (
