@@ -101,6 +101,9 @@ Note that the encryption does **not** conceal the size of the message. If messag
 > [!NOTE]
 > You may use Seal to encrypt an ephemeral symmetric key, which is then used to encrypt the actual data. This approach is useful when storing encrypted content as immutable data on Walrus while keeping the encrypted ephemeral key on Sui. By storing the key separately, you can rotate it over time, for example, to switch to a different set of key servers, without modifying the underlying content.
 
+> [!TIP]
+> An encrypted data `encryptedBytes` is an object one can parse using `EncryptedObject.parse(encryptedBytes)`. It includes, among other things, the id that is associated with that encryption.
+
 Decryption involves a few additional steps:
 - The app must create a `SessionKey` object to access the decryption keys for a specific package.
 - The user must approve the request by signing it in their wallet. This grants time-limited access to the associated keys.
