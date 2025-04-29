@@ -8,6 +8,7 @@ use crate::Timestamp;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
@@ -127,6 +128,32 @@ pub(crate) fn current_epoch_time() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("fixed start time")
         .as_millis() as u64
+}
+
+/// Look up the package address for a given name in the MVR (Move Registry).
+pub(crate) async fn resolve_mvr_name(
+    network: &Network,
+    name: &str,
+) -> Result<ObjectID, InternalError> {
+    // TODO: Use the MVR crate
+    let url = match network {
+        Network::Mainnet => format!("https://mainnet.mvr.mystenlabs.com/v1/names/{name}"),
+        Network::Testnet => format!("https://testnet.mvr.mystenlabs.com/v1/names/{name}"),
+        Network::Custom { .. } => todo!(), // TODO: Use graph ql for this?
+        _ => panic!("Invalid network"),
+    };
+    let response = reqwest::get(url)
+        .await
+        .map_err(|_| InternalError::Failure)?
+        .json::<HashMap<String, String>>()
+        .await
+        .map_err(|_| InternalError::Failure)?;
+    let package_address = response
+        .get("package_address")
+        .ok_or(InternalError::InvalidMVRName)?;
+
+    // Fails only if the address returned from the MVR service is invalid.
+    ObjectID::from_str(package_address).map_err(|_| InternalError::Failure)
 }
 
 #[cfg(test)]
