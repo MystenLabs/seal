@@ -330,9 +330,7 @@ impl Server {
             return Err(InternalError::OldPackageVersion);
         }
 
-        // TODO: Can be done more elegantly
-        let mut mvr_name = None;
-        if let Some(m) = mvr_object {
+        let mvr_name = if let Some(m) = mvr_object {
             let (name, package_id) = resolve_mvr_object(&self.sui_client, &self.network, m).await?;
             let (first, _) = fetch_first_and_last_pkg_id(&package_id, &self.network).await?;
             if first != first_pkg_id {
@@ -342,8 +340,10 @@ impl Server {
                 );
                 return Err(InternalError::InvalidMVRObject);
             }
-            mvr_name = Some(name);
-        }
+            Some(name)
+        } else {
+            None
+        };
 
         // Check all conditions
         self.check_signature(
