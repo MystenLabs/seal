@@ -149,17 +149,11 @@ pub(crate) async fn resolve_mvr_object(
         .map_err(|_| InvalidMVRObject)?;
 
     match network {
-        Network::Testnet => parse_package_info(&bcs, |package_info: TestnetPkgInfo| {
-            (
-                package_info.metadata,
-                package_info.package_address.as_bytes().to_vec(),
-            )
+        Network::Testnet => parse_package_info::<TestnetPkgInfo>(&bcs, |info| {
+            (info.metadata, info.package_address.as_bytes().to_vec())
         }),
-        Network::Mainnet => parse_package_info(&bcs, |package_info: MainnetPkgInfo| {
-            (
-                package_info.metadata,
-                package_info.package_address.as_bytes().to_vec(),
-            )
+        Network::Mainnet => parse_package_info::<MainnetPkgInfo>(&bcs, |info| {
+            (info.metadata, info.package_address.as_bytes().to_vec())
         }),
         _ => {
             warn!("Network not supported for MVR object resolution");
