@@ -18,7 +18,7 @@ pub enum InternalError {
     InvalidSDKVersion,
     DeprecatedSDKVersion,
     InvalidParameter,
-    InvalidMVRName,
+    InvalidMVRObject,
     Failure, // Internal error, try again later
 }
 
@@ -64,7 +64,7 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid parameter. If the object was just created, try again later.".to_string(),
             ),
-            InternalError::InvalidMVRName => {
+            InternalError::InvalidMVRObject => {
                 (StatusCode::FORBIDDEN, "Invalid MVR name".to_string())
             }
             InternalError::Failure => (
@@ -95,7 +95,7 @@ impl InternalError {
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::InvalidParameter => "InvalidParameter",
-            InternalError::InvalidMVRName => "InvalidMVRName",
+            InternalError::InvalidMVRObject => "InvalidMVRObject",
             InternalError::Failure => "Failure",
         }
     }

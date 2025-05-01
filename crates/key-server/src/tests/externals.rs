@@ -49,6 +49,7 @@ pub(super) fn sign(
         creation_time,
         ttl_min,
         signature: cert_sig,
+        mvr_object: None,
     };
     // session sig
     let signed_msg = signed_request(ptb, eg_pk, eg_vk);
