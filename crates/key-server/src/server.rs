@@ -330,6 +330,7 @@ impl Server {
             return Err(InternalError::OldPackageVersion);
         }
 
+        // Resolve the MVR name from the MVR object if its provided
         let mvr_name = if let Some(m) = mvr_object {
             let (name, package_id) = resolve_mvr_object(&self.sui_client, &self.network, m).await?;
             let (first, _) = fetch_first_and_last_pkg_id(&package_id, &self.network).await?;

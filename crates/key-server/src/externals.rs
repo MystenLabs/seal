@@ -7,8 +7,12 @@ use crate::errors::InternalError::InvalidMVRObject;
 use crate::types::Network;
 use crate::Timestamp;
 use mvr_indexer::models::{mainnet, testnet};
+use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
+use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
+use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
 use once_cell::sync::Lazy;
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::Value;
 use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
@@ -131,54 +135,57 @@ pub(crate) fn current_epoch_time() -> u64 {
         .as_millis() as u64
 }
 
+/// Given the ID of an MVR PackageInfo object, this function fetches and parses the object and
+/// returns the MVR name and the id of the package.
 pub(crate) async fn resolve_mvr_object(
     client: &SuiClient,
     network: &Network,
-    mvr_object_id: ObjectID,
+    package_info_object_id: ObjectID,
 ) -> Result<(String, ObjectID), InternalError> {
     let bcs = client
         .read_api()
-        .get_move_object_bcs(mvr_object_id)
+        .get_move_object_bcs(package_info_object_id)
         .await
         .map_err(|_| InvalidMVRObject)?;
 
-    // TODO: Is this processing okay?
-    let (name, package) = match network {
-        Network::Testnet => {
-            let package_info: testnet::mvr_metadata::package_info::PackageInfo =
-                bcs::from_bytes(&bcs).map_err(|_| InvalidMVRObject)?;
-            let name = package_info
-                .metadata
-                .contents
-                .iter()
-                .find(|entry| entry.key == "default")
-                .ok_or(InvalidMVRObject)?
-                .value
-                .clone();
-            (name, package_info.package_address)
-        }
-        Network::Mainnet => {
-            let package_info: mainnet::mvr_metadata::package_info::PackageInfo =
-                bcs::from_bytes(&bcs).map_err(|_| InvalidMVRObject)?;
-            let name = package_info
-                .metadata
-                .contents
-                .iter()
-                .find(|entry| entry.key == "default")
-                .ok_or(InvalidMVRObject)?
-                .value
-                .clone();
-            (name, package_info.package_address)
-        }
+    match network {
+        Network::Testnet => parse_package_info(&bcs, |package_info: TestnetPkgInfo| {
+            (
+                package_info.metadata,
+                package_info.package_address.as_bytes().to_vec(),
+            )
+        }),
+        Network::Mainnet => parse_package_info(&bcs, |package_info: MainnetPkgInfo| {
+            (
+                package_info.metadata,
+                package_info.package_address.as_bytes().to_vec(),
+            )
+        }),
         _ => {
             warn!("Network not supported for MVR object resolution");
-            return Err(InternalError::Failure);
+            Err(InternalError::Failure)
         }
-    };
+    }
+}
+
+fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
+    bytes: &[u8],
+    get_metadata_and_package_id: impl FnOnce(PkgInfo) -> (VecMap<String, String>, Vec<u8>),
+) -> Result<(String, ObjectID), InternalError> {
+    let package_info: PkgInfo = bcs::from_bytes(bytes).map_err(|_| InvalidMVRObject)?;
+    let (metadata, package_id_bytes) = get_metadata_and_package_id(package_info);
+
+    // Parse the MVR name from the metadata. See https://docs.suins.io/move-registry/managing-package-info.
+    let name = metadata
+        .contents
+        .into_iter()
+        .find(|entry| entry.key == "default")
+        .ok_or(InvalidMVRObject)?
+        .value;
 
     Ok((
         name,
-        ObjectID::from_bytes(package.as_bytes().to_vec()).map_err(|_| InvalidMVRObject)?,
+        ObjectID::from_bytes(package_id_bytes).map_err(|_| InvalidMVRObject)?,
     ))
 }
 
