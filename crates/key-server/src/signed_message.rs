@@ -18,7 +18,7 @@ pub fn signed_message(
 ) -> String {
     let res = format!(
         "Accessing keys of package {} for {} mins from {}, session key {}",
-        mvr_name.unwrap_or(pkg_id.to_hex_uncompressed()), // pads with 0x and zeros
+        mvr_name.unwrap_or(pkg_id.to_hex_uncompressed()), // Use the MVR name if available, otherwise the full object id, padded with 0x and zeros
         ttl_min,
         DateTime::<Utc>::from_timestamp((creation_time / 1000) as i64, 0) // convert to seconds
             .expect("tested that in the future"),
