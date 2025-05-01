@@ -18,7 +18,7 @@ use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
 use sui_sdk::SuiClient;
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
 use tap::TapFallible;
 use tracing::{debug, warn};
 
@@ -150,10 +150,10 @@ pub(crate) async fn resolve_mvr_object(
 
     match network {
         Network::Testnet => parse_package_info::<TestnetPkgInfo>(&bcs, |info| {
-            (info.metadata, info.package_address.as_bytes().to_vec())
+            (info.metadata, info.package_address.into_inner())
         }),
         Network::Mainnet => parse_package_info::<MainnetPkgInfo>(&bcs, |info| {
-            (info.metadata, info.package_address.as_bytes().to_vec())
+            (info.metadata, info.package_address.into_inner())
         }),
         _ => {
             warn!("Network not supported for MVR object resolution");
@@ -164,7 +164,9 @@ pub(crate) async fn resolve_mvr_object(
 
 fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
     bytes: &[u8],
-    get_metadata_and_package_id: impl FnOnce(PkgInfo) -> (VecMap<String, String>, Vec<u8>),
+    get_metadata_and_package_id: impl FnOnce(
+        PkgInfo,
+    ) -> (VecMap<String, String>, [u8; SUI_ADDRESS_LENGTH]),
 ) -> Result<(String, ObjectID), InternalError> {
     let package_info: PkgInfo = bcs::from_bytes(bytes).map_err(|_| InvalidMVRObject)?;
     let (metadata, package_id_bytes) = get_metadata_and_package_id(package_info);
@@ -177,10 +179,7 @@ fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
         .ok_or(InvalidMVRObject)?
         .value;
 
-    Ok((
-        name,
-        ObjectID::from_bytes(package_id_bytes).map_err(|_| InvalidMVRObject)?,
-    ))
+    Ok((name, ObjectID::new(package_id_bytes)))
 }
 
 #[cfg(test)]
