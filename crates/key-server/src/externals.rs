@@ -3,12 +3,13 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
+use crate::errors::InternalError::InvalidMVRObject;
 use crate::types::Network;
 use crate::Timestamp;
+use mvr_indexer::models::{mainnet, testnet};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
@@ -130,35 +131,60 @@ pub(crate) fn current_epoch_time() -> u64 {
         .as_millis() as u64
 }
 
-/// Look up the package address for a given name in the MVR (Move Registry).
-pub(crate) async fn resolve_mvr_name(
+pub(crate) async fn resolve_mvr_object(
+    client: &SuiClient,
     network: &Network,
-    name: &str,
-) -> Result<ObjectID, InternalError> {
-    // TODO: Use the MVR crate
-    let url = match network {
-        Network::Mainnet => format!("https://mainnet.mvr.mystenlabs.com/v1/names/{name}"),
-        Network::Testnet => format!("https://testnet.mvr.mystenlabs.com/v1/names/{name}"),
-        Network::Custom { .. } => todo!(), // TODO: Use graph ql for this?
-        _ => panic!("Invalid network"),
-    };
-    let response = reqwest::get(url)
+    mvr_object_id: ObjectID,
+) -> Result<(String, ObjectID), InternalError> {
+    let bcs = client
+        .read_api()
+        .get_move_object_bcs(mvr_object_id)
         .await
-        .map_err(|_| InternalError::Failure)?
-        .json::<HashMap<String, String>>()
-        .await
-        .map_err(|_| InternalError::Failure)?;
-    let package_address = response
-        .get("package_address")
-        .ok_or(InternalError::InvalidMVRName)?;
+        .map_err(|_| InvalidMVRObject)?;
 
-    // Fails only if the address returned from the MVR service is invalid.
-    ObjectID::from_str(package_address).map_err(|_| InternalError::Failure)
+    // TODO: Is this processing okay?
+    let (name, package) = match network {
+        Network::Testnet => {
+            let package_info: testnet::mvr_metadata::package_info::PackageInfo =
+                bcs::from_bytes(&bcs).map_err(|_| InvalidMVRObject)?;
+            let name = package_info
+                .metadata
+                .contents
+                .iter()
+                .find(|entry| entry.key == "default")
+                .ok_or(InvalidMVRObject)?
+                .value
+                .clone();
+            (name, package_info.package_address)
+        }
+        Network::Mainnet => {
+            let package_info: mainnet::mvr_metadata::package_info::PackageInfo =
+                bcs::from_bytes(&bcs).map_err(|_| InvalidMVRObject)?;
+            let name = package_info
+                .metadata
+                .contents
+                .iter()
+                .find(|entry| entry.key == "default")
+                .ok_or(InvalidMVRObject)?
+                .value
+                .clone();
+            (name, package_info.package_address)
+        }
+        _ => {
+            warn!("Network not supported for MVR object resolution");
+            return Err(InternalError::Failure);
+        }
+    };
+
+    Ok((
+        name,
+        ObjectID::from_bytes(package.as_bytes().to_vec()).map_err(|_| InvalidMVRObject)?,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::fetch_first_and_last_pkg_id;
+    use crate::externals::{fetch_first_and_last_pkg_id, resolve_mvr_object};
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -169,7 +195,32 @@ mod tests {
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
+    use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
+
+    #[tokio::test]
+    async fn test_fetch_mvr_package() {
+        let sui_client = SuiClientBuilder::default().build_mainnet().await.unwrap();
+        let (name, package_id) = resolve_mvr_object(
+            &sui_client,
+            &Network::Mainnet,
+            ObjectID::from_str(
+                "0xa364dd21f5eb43fdd4e502be52f450c09529dfc94dea12412a6d587f17ec7f24",
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(name, "@mysten/kiosk".to_string());
+        assert_eq!(
+            package_id,
+            ObjectID::from_str(
+                "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
+            )
+            .unwrap()
+        );
+    }
 
     #[tokio::test]
     async fn test_fetch_first_and_last_pkg_id() {

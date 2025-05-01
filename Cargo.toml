@@ -22,10 +22,10 @@ tracing = "0.1.37"
 serde_with = "3.11.0"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "1f5fef23d09fb697fff9e83907c5871c08fb6c87", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "1f5fef23d09fb697fff9e83907c5871c08fb6c87", package = "mysten-service" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "1f5fef23d09fb697fff9e83907c5871c08fb6c87", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "1f5fef23d09fb697fff9e83907c5871c08fb6c87", package = "shared-crypto" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "mysten-service" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "shared-crypto" }
 
 [profile.release]
 panic = 'abort'

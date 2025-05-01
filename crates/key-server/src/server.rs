@@ -4,7 +4,8 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::{
-    current_epoch_time, duration_since, get_reference_gas_price, resolve_mvr_name,
+    current_epoch_time, duration_since, fetch_first_and_last_pkg_id, get_reference_gas_price,
+    resolve_mvr_object,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::signed_message::{signed_message, signed_request};
@@ -96,6 +97,7 @@ struct Certificate {
     pub creation_time: u64,
     pub ttl_min: u16,
     pub signature: GenericSignature,
+    pub mvr_object: Option<ObjectID>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,10 +111,6 @@ struct FetchKeyRequest {
     enc_key: ElGamalPublicKey,
     enc_verification_key: ElgamalVerificationKey,
     request_signature: Ed25519Signature,
-
-    // Optional MVR name. If given and it resolves to the package from the ptb, this is the name
-    // used in the signed message.
-    mvr: Option<String>,
 
     certificate: Certificate,
 }
@@ -313,12 +311,12 @@ impl Server {
         gas_price: u64,
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
-        mvr_name: Option<String>,
+        mvr_object: Option<ObjectID>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
         let (first_pkg_id, last_pkg_id) =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
+                fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
             })
             .await?;
 
@@ -332,11 +330,19 @@ impl Server {
             return Err(InternalError::OldPackageVersion);
         }
 
-        if let Some(name) = &mvr_name {
-            let mvr_package_id = resolve_mvr_name(&self.network, name).await?;
-            if mvr_package_id != last_pkg_id {
-                return Err(InternalError::InvalidPackage);
+        // TODO: Can be done more elegantly
+        let mut mvr_name = None;
+        if let Some(m) = mvr_object {
+            let (name, package_id) = resolve_mvr_object(&self.sui_client, &self.network, m).await?;
+            let (first, _) = fetch_first_and_last_pkg_id(&package_id, &self.network).await?;
+            if first != first_pkg_id {
+                debug!(
+                    "MVR object package id {:?} is not a version of the package, {:?} (req_id: {:?})",
+                    first, first_pkg_id, req_id
+                );
+                return Err(InternalError::InvalidMVRObject);
             }
+            mvr_name = Some(name);
         }
 
         // Check all conditions
@@ -516,7 +522,7 @@ async fn handle_fetch_key_internal(
             app_state.reference_gas_price(),
             Some(&app_state.metrics),
             req_id,
-            payload.mvr,
+            payload.certificate.mvr_object,
         )
         .await.tap_ok(|_| info!(
             "Valid request: {}",
