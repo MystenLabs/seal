@@ -149,12 +149,8 @@ pub(crate) async fn resolve_mvr_object(
         .map_err(|_| InvalidMVRObject)?;
 
     match network {
-        Network::Testnet => parse_package_info::<TestnetPkgInfo>(&bcs, |info| {
-            (info.metadata, info.package_address.into_inner())
-        }),
-        Network::Mainnet => parse_package_info::<MainnetPkgInfo>(&bcs, |info| {
-            (info.metadata, info.package_address.into_inner())
-        }),
+        Network::Testnet => parse_testnet_package_info(&bcs),
+        Network::Mainnet => parse_mainnet_package_info(&bcs),
         _ => {
             warn!("Network not supported for MVR object resolution");
             Err(InternalError::Failure)
@@ -162,6 +158,20 @@ pub(crate) async fn resolve_mvr_object(
     }
 }
 
+fn parse_testnet_package_info(bytes: &[u8]) -> Result<(String, ObjectID), InternalError> {
+    parse_package_info::<TestnetPkgInfo>(bytes, |info| {
+        (info.metadata, info.package_address.into_inner())
+    })
+}
+
+fn parse_mainnet_package_info(bytes: &[u8]) -> Result<(String, ObjectID), InternalError> {
+    parse_package_info::<MainnetPkgInfo>(bytes, |info| {
+        (info.metadata, info.package_address.into_inner())
+    })
+}
+
+/// Given the BCS bytes of a PackageInfo struct (either from testnet of mainnet), get the metadata 
+/// and the id.
 fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
     bytes: &[u8],
     get_metadata_and_package_id: impl FnOnce(
