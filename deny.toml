@@ -145,6 +145,7 @@ license-files = [
 ]
 [[licenses.clarify]]
 name = "mvr_indexer"
+version = "*"
 unlicensed = true
 
 [licenses.private]
