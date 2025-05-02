@@ -143,6 +143,9 @@ version = "*"
 expression = "Apache-2.0"
 license-files = [
 ]
+[[licenses.clarify]]
+name = "mvr_indexer"
+unlicensed = true
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
