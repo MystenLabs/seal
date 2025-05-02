@@ -170,7 +170,7 @@ fn parse_mainnet_package_info(bytes: &[u8]) -> Result<(String, ObjectID), Intern
     })
 }
 
-/// Given the BCS bytes of a PackageInfo struct (either from testnet of mainnet), get the metadata 
+/// Given the BCS bytes of a PackageInfo struct (either from testnet of mainnet), get the metadata
 /// and the id.
 fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
     bytes: &[u8],
