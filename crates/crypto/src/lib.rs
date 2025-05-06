@@ -89,6 +89,16 @@ pub enum EncryptionInput {
     Plain,
 }
 
+impl IBEEncryptions {
+    pub fn get_key_derivation_data(&self) -> Vec<u8> {
+        match self {
+            IBEEncryptions::BonehFranklinBLS12381 {
+                encrypted_shares, ..
+            } => encrypted_shares.concat(),
+        }
+    }
+}
+
 /// Encrypt the given plaintext. This is done as follows:
 ///  - Generate a random AES key and encrypt the message under this key,
 ///  - Secret share the key with one share per key-server using the protocol defined in the tss module,
@@ -121,20 +131,6 @@ pub fn seal_encrypt(
     // Generate a random base key
     let base_key = generate_random_bytes(&mut rng);
 
-    // Derive the key used by the DEM
-    let dem_key = derive_key(KeyPurpose::DEM, &base_key);
-    let ciphertext = match encryption_input {
-        EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
-            blob: Aes256Gcm::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key),
-            aad,
-        },
-        EncryptionInput::Hmac256Ctr { data, aad } => {
-            let (blob, mac) = Hmac256Ctr::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key);
-            Ciphertext::Hmac256Ctr { blob, mac, aad }
-        }
-        EncryptionInput::Plain => Ciphertext::Plain,
-    };
-
     // Secret share the derived key
     let SecretSharing {
         indices, shares, ..
@@ -161,7 +157,11 @@ pub fn seal_encrypt(
 
             let encrypted_randomness = ibe::encrypt_randomness(
                 &randomness,
-                &derive_key(KeyPurpose::EncryptedRandomness, &base_key),
+                &derive_key(
+                    KeyPurpose::EncryptedRandomness,
+                    &base_key,
+                    &encrypted_shares.concat(),
+                ),
             );
             IBEEncryptions::BonehFranklinBLS12381 {
                 nonce,
@@ -169,6 +169,24 @@ pub fn seal_encrypt(
                 encrypted_randomness,
             }
         }
+    };
+
+    // Derive the key used by the DEM
+    let dem_key = derive_key(
+        KeyPurpose::DEM,
+        &base_key,
+        &encrypted_shares.get_key_derivation_data(),
+    );
+    let ciphertext = match encryption_input {
+        EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
+            blob: Aes256Gcm::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key),
+            aad,
+        },
+        EncryptionInput::Hmac256Ctr { data, aad } => {
+            let (blob, mac) = Hmac256Ctr::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key);
+            Ciphertext::Hmac256Ctr { blob, mac, aad }
+        }
+        EncryptionInput::Plain => Ciphertext::Plain,
     };
 
     Ok((
@@ -277,7 +295,12 @@ pub fn seal_decrypt(
     }
 
     // Derive symmetric key and decrypt the ciphertext
-    let dem_key = derive_key(KeyPurpose::DEM, &base_key);
+    let dem_key = derive_key(
+        KeyPurpose::DEM,
+        &base_key,
+        &encrypted_shares.get_key_derivation_data(),
+    );
+
     match ciphertext {
         Ciphertext::Aes256Gcm { blob, aad } => {
             Aes256Gcm::decrypt(blob, aad.as_ref().map_or(&[], |v| v), &dem_key)
@@ -308,13 +331,18 @@ pub enum KeyPurpose {
     DEM,
 }
 
-/// Derive a key for a specific purpose from the base key.
-fn derive_key(purpose: KeyPurpose, derived_key: &[u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
+/// Derive a key for a specific purpose from the base key. The `encrypted_shares` is a concatenation of all encrypted shares.
+fn derive_key(
+    purpose: KeyPurpose,
+    derived_key: &[u8; KEY_SIZE],
+    encrypted_shares: &[u8],
+) -> [u8; KEY_SIZE] {
     let hmac_key = HmacKey::from_bytes(derived_key).expect("Fixed length");
-    match purpose {
-        KeyPurpose::EncryptedRandomness => hmac_sha3_256(&hmac_key, &[0]).digest,
-        KeyPurpose::DEM => hmac_sha3_256(&hmac_key, &[1]).digest,
-    }
+    let tag = match purpose {
+        KeyPurpose::EncryptedRandomness => 0,
+        KeyPurpose::DEM => 1,
+    };
+    hmac_sha3_256(&hmac_key, &[&[tag], encrypted_shares].concat()).digest
 }
 
 impl IBEEncryptions {
@@ -361,7 +389,11 @@ impl IBEEncryptions {
                 // Decrypt encrypted nonce,
                 let nonce = ibe::decrypt_and_verify_nonce(
                     encrypted_randomness,
-                    &derive_key(KeyPurpose::EncryptedRandomness, base_key),
+                    &derive_key(
+                        KeyPurpose::EncryptedRandomness,
+                        base_key,
+                        &self.get_key_derivation_data(),
+                    ),
                     nonce,
                 )?;
 
