@@ -90,7 +90,8 @@ pub enum EncryptionInput {
 }
 
 impl IBEEncryptions {
-    pub fn get_key_derivation_data(&self) -> Vec<u8> {
+    /// Returns a binary representation of all encrypted shares.
+    pub fn get_encrypted_shares(&self) -> Vec<u8> {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
@@ -175,7 +176,7 @@ pub fn seal_encrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        &encrypted_shares.get_key_derivation_data(),
+        &encrypted_shares.get_encrypted_shares(),
     );
     let ciphertext = match encryption_input {
         EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
@@ -298,7 +299,7 @@ pub fn seal_decrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        &encrypted_shares.get_key_derivation_data(),
+        &encrypted_shares.get_encrypted_shares(),
     );
 
     match ciphertext {
@@ -392,7 +393,7 @@ impl IBEEncryptions {
                     &derive_key(
                         KeyPurpose::EncryptedRandomness,
                         base_key,
-                        &self.get_key_derivation_data(),
+                        &self.get_encrypted_shares(),
                     ),
                     nonce,
                 )?;
