@@ -726,6 +726,8 @@ mod tests {
         // Consider only the first two shares
         let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([usks[0], usks[1]]));
 
+        // TODO: Fix this test. It now fails not because of share consistency but because the MAC is wrong.
+
         // Decryption with the first two valid shares succeeds.
         assert_eq!(seal_decrypt(&encrypted, &usks, None,).unwrap(), data);
 
