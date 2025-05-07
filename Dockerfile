@@ -1,5 +1,5 @@
 # Start with a Rust base image
-FROM rust:1.81-bullseye  AS builder
+FROM rust:1.82-bullseye  AS builder
 
 ARG PROFILE=release
 
