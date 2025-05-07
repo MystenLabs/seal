@@ -99,10 +99,10 @@ const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt
 Note that the encryption does **not** conceal the size of the message. If message size is considered sensitive, pad the message with zeros until its length no longer reveals meaningful information.
 
 > [!NOTE]
-> You may use Seal to encrypt an ephemeral symmetric key, which is then used to encrypt the actual data. This approach is useful when storing encrypted content as immutable data on Walrus while keeping the encrypted ephemeral key on Sui. By storing the key separately, you can rotate it over time, for example, to switch to a different set of key servers, without modifying the underlying content.
+> Seal supports encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
 
 > [!TIP]
-> `encryptedBytes` returned above is an object you can parse using `EncryptedObject.parse(encryptedBytes)`. It includes, among other things, the encryption's associated id.
+> The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an EncryptedObject instance that includes metadata such as the ID and other associated fields.
 
 Decryption involves a few additional steps:
 - The app must create a `SessionKey` object to access the decryption keys for a specific package.
@@ -145,7 +145,7 @@ const decryptedBytes = await client.decrypt({
 ```
 
 > [!TIP]
-> You can call `dryRunTransactionBlock` directly with your transaction to debug it.
+> To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
 
 The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same id is used across multiple encryptions. 
 
