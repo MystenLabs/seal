@@ -657,7 +657,8 @@ async fn main() -> Result<()> {
     let cors = CorsLayer::new()
         .allow_methods(Any)
         .allow_origin(Any)
-        .allow_headers(Any);
+        .allow_headers(Any)
+        .expose_headers(Any);
 
     let app = get_mysten_service(package_name!(), package_version!())
         .merge(
