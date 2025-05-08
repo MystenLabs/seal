@@ -165,7 +165,7 @@ See our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/pack
 Onchain decryption in Move is available as well given the derived keys. See [voting.move](./move/patterns/sources/voting.move) for an example.
 
 > [!TIP]
-> If a request to a key server fails with an `InvalidParameter` error, it may be because one of the input objects for the PTB was just created on-chain and is not yet available on the key servers' full node. In this case, repeating the request a few seconds later should succeed.
+> If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
 
 **Mysten Labs Key Servers**
 
