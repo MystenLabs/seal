@@ -162,7 +162,7 @@ await client.fetchKeys({
 
 See our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/test/unit/integration.test.ts) for an E2E example. Also, see our [example app](https://seal-example.vercel.app/) for a demonstration of allowlist/NFT gated content access.
 
-Onchain decryption in Move is available as well given the derived keys. See [voting.move](./move/patterns/sources/voting.move) for an example.
+On-chain decryption in Move is supported using derived keys. For an example, see [voting.move](./move/patterns/sources/voting.move).
 
 > [!TIP]
 > If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
