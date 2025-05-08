@@ -164,6 +164,9 @@ See our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/pack
 
 Onchain decryption in Move is available as well given the derived keys. See [voting.move](./move/patterns/sources/voting.move) for an example.
 
+> [!TIP]
+> If a request to a key server fails with an `InvalidParameter` error, it may be because one of the inputs for the PTB was just created and is not yet available on the key servers' full node. In this case, repeating the request a few seconds later should succeed.
+
 **Mysten Labs Key Servers**
 
 Mysten Labs maintains a set of key servers for the Seal project:
