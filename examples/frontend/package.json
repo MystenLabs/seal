@@ -22,9 +22,10 @@
   },
   "dependencies": {
     "@mysten/bcs": "^1.6.0",
-    "@mysten/dapp-kit": "^0.15.2",
-    "@mysten/seal": "0.3.5",
-    "@mysten/sui": "^1.26.1",
+    "@mysten/dapp-kit": "^0.16.2",
+    "@mysten/seal": "0.4.2",
+    "@mysten/sui": "^1.29.1",
+    "idb-keyval": "3.0.0",
     "@radix-ui/colors": "^3.0.0",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/react-label": "^2.1.2",

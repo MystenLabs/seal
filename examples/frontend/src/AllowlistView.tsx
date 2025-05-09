@@ -6,10 +6,10 @@ import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes';
 import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
-import { SuiClient } from '@mysten/sui/client';
 import { getAllowlistedKeyServers, SealClient, SessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
+import { set, get } from 'idb-keyval';
 
 const TTL_MIN = 10;
 export interface FeedData {
@@ -39,7 +39,6 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const [feed, setFeed] = useState<FeedData>();
   const [decryptedFileUrls, setDecryptedFileUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [currentSessionKey, setCurrentSessionKey] = useState<SessionKey | null>(null);
   const { id } = useParams();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -68,7 +67,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       .getDynamicFields({
         parentId: id!,
       })
-      .then((res) => res.data.map((obj) => obj.name.value as string));
+      .then((res: { data: any[]; }) => res.data.map((obj) => obj.name.value as string));
     const fields = (allowlist.data?.content as { fields: any })?.fields || {};
     const feedData = {
       allowlistId: id!,
@@ -79,6 +78,8 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   }
 
   const onView = async (blobIds: string[], allowlistId: string) => {
+    const imported: SessionKeyType = await get('sessionKey');
+    const currentSessionKey = await SessionKey.import(imported, {});
     if (
       currentSessionKey &&
       !currentSessionKey.isExpired() &&
@@ -99,7 +100,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       return;
     }
 
-    setCurrentSessionKey(null);
+    set('sessionKey', null);
 
     const sessionKey = new SessionKey({
       address: suiAddress,
@@ -113,7 +114,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
           message: sessionKey.getPersonalMessage(),
         },
         {
-          onSuccess: async (result) => {
+          onSuccess: async (result: { signature: string; }) => {
             await sessionKey.setPersonalMessageSignature(result.signature);
             const moveCallConstructor = await constructMoveCall(packageId, allowlistId);
             await downloadAndDecrypt(
@@ -127,7 +128,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
               setIsDialogOpen,
               setReloadKey,
             );
-            setCurrentSessionKey(sessionKey);
+            set('sessionKey', sessionKey.export());
           },
         },
       );
