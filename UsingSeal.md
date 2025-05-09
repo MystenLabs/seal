@@ -122,6 +122,11 @@ const { signature } = await keypair.signPersonalMessage(message); // User confir
 sessionKey.setPersonalMessageSignature(signature); // Initialization complete
 ```
 
+> [!NOTE]
+> Notes on Session Key
+> 1. You can also optioanlly initialize a `SessionKey` with a passed in Signer in the constructor. This is useful for classes that extend `Signer`, e.g. `EnokiSigner`. 
+> 2. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the SessionKey across tabs. See usage for `import` and `export` methods in the SessionKey class. 
+
 The simplest way to perform decryption is to call the client’s `decrypt` function. This function expects a `Transaction` object that invokes the relevant `seal_approve*` functions. The transaction must meet the following requirements:
 - It may only call `seal_approve*` functions.
 - All calls must be to  the same package.

@@ -87,6 +87,13 @@ function App() {
           4. Currently only image files are supported, and the UI is minimal, designed for demo
           purposes only!
         </p>
+        <p>
+          5. If you encounter issues when uploading to or reading from Walrus using the example frontend, it usually means the public 
+          publisher and/or aggregator configured in `vite.config.ts` is not available. This example does not guarantee performance and 
+          downstream service quality and is only for demo purpose. In your own application, consider running your own publisher and/or 
+          aggregator according to <a href="https://docs.wal.app/operator-guide/aggregator.html#operating-an-aggregator-or-publisher">the documentation</a>.
+          Or consider choosing and monitoring other reliable public publisher and aggregator from <a href="https://docs.wal.app/usage/web-api.html#public-services">the list</a>.
+        </p>
       </Card>
       {currentAccount ? (
         <BrowserRouter>
