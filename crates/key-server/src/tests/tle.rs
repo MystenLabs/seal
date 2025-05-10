@@ -47,6 +47,7 @@ async fn test_tle_policy() {
                 1000,
                 None,
                 None,
+                None,
             )
             .await;
         assert!(result.is_ok());
@@ -77,6 +78,7 @@ async fn test_tle_policy() {
                 &req_sig,
                 &cert,
                 1000,
+                None,
                 None,
                 None,
             )
@@ -115,6 +117,7 @@ async fn test_tle_certificate() {
             1000,
             None,
             None,
+            None,
         )
         .await;
     assert!(result.is_ok());
@@ -131,6 +134,7 @@ async fn test_tle_certificate() {
             &req_sig,
             &invalid_cert,
             1000,
+            None,
             None,
             None,
         )
@@ -150,6 +154,7 @@ async fn test_tle_certificate() {
             1000,
             None,
             None,
+            None,
         )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidSignature));
@@ -165,6 +170,7 @@ async fn test_tle_certificate() {
             &req_sig,
             &invalid_cert,
             1000,
+            None,
             None,
             None,
         )
@@ -183,6 +189,7 @@ async fn test_tle_certificate() {
             &req_sig,
             &cert,
             1000,
+            None,
             None,
             None,
         )
@@ -209,6 +216,7 @@ async fn test_tle_certificate() {
             &req_sig,
             &cert,
             1000,
+            None,
             None,
             None,
         )
@@ -245,6 +253,7 @@ async fn test_tle_signed_request() {
             1000,
             None,
             None,
+            None,
         )
         .await;
     assert!(result.is_ok());
@@ -259,6 +268,7 @@ async fn test_tle_signed_request() {
             &req_sig,
             &cert,
             1000,
+            None,
             None,
             None,
         )
