@@ -1,6 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::errors::InternalError::{DeprecatedSDKVersion, InvalidSDKVersion};
+use crate::errors::InternalError::{
+    DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
+};
 use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::signed_message::{signed_message, signed_request};
@@ -587,7 +589,7 @@ async fn handle_request_headers(
     );
 
     version
-        .ok_or(InvalidSDKVersion)
+        .ok_or(MissingRequiredHeader("Client-Sdk-Version".to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
         .and_then(|v| state.validate_sdk_version(v))
         .tap_err(|e| {

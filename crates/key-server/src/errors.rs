@@ -17,6 +17,7 @@ pub enum InternalError {
     InvalidCertificate,
     InvalidSDKVersion,
     DeprecatedSDKVersion,
+    MissingRequiredHeader(String),
     InvalidParameter,
     Failure, // Internal error, try again later
 }
@@ -55,6 +56,10 @@ impl IntoResponse for InternalError {
                 StatusCode::UPGRADE_REQUIRED,
                 "Deprecated SDK version".to_string(),
             ),
+            InternalError::MissingRequiredHeader(ref inner) => (
+                StatusCode::BAD_REQUEST,
+                format!("Missing required header: {}", inner).to_string(),
+            ),
             InternalError::InvalidSessionSignature => (
                 StatusCode::FORBIDDEN,
                 "Invalid session key signature".to_string(),
@@ -90,6 +95,7 @@ impl InternalError {
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
+            InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
             InternalError::InvalidParameter => "InvalidParameter",
             InternalError::Failure => "Failure",
         }
