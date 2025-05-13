@@ -3,6 +3,7 @@
 
 use crate::externals::current_epoch_time;
 use crate::signed_message::signed_request;
+use crate::valid_ptb::ValidPtb;
 use crate::{
     signed_message,
     types::{ElGamalPublicKey, ElgamalVerificationKey},
@@ -10,7 +11,6 @@ use crate::{
 };
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519Signature;
-use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::traits::{KeyPair, Signer};
 use fastcrypto::{ed25519::Ed25519KeyPair, error::FastCryptoResult, groups::bls12381::G1Element};
 use rand::thread_rng;
@@ -19,10 +19,6 @@ use sui_types::{
     base_types::ObjectID, crypto::Signature, signature::GenericSignature,
     transaction::ProgrammableTransaction,
 };
-
-pub(super) fn ptb_to_base64(ptb: &ProgrammableTransaction) -> String {
-    Base64::encode(bcs::to_bytes(ptb).unwrap())
-}
 
 pub(super) fn sign(
     pkg_id: &ObjectID,
@@ -65,7 +61,7 @@ pub(crate) async fn get_key(
     let (cert, req_sig) = sign(pkg_id, &ptb, &pk, &vk, kp, current_epoch_time(), 1);
     server
         .check_request(
-            &ptb_to_base64(&ptb),
+            &ValidPtb::try_from(ptb).unwrap(),
             &pk,
             &vk,
             &req_sig,

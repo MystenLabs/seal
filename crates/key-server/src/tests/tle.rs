@@ -1,8 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::tests::externals::{ptb_to_base64, sign};
+use crate::tests::externals::sign;
 use crate::tests::SealTestCluster;
+use crate::valid_ptb::ValidPtb;
 use crate::{current_epoch_time, InternalError};
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519KeyPair;
@@ -39,7 +40,7 @@ async fn test_tle_policy() {
         let result = tc
             .server()
             .check_request(
-                &ptb_to_base64(&ptb),
+                &ValidPtb::try_from(ptb).unwrap(),
                 &pk,
                 &vk,
                 &req_sig,
@@ -71,7 +72,7 @@ async fn test_tle_policy() {
         let result = tc
             .server()
             .check_request(
-                &ptb_to_base64(&ptb),
+                &ValidPtb::try_from(ptb).unwrap(),
                 &pk,
                 &vk,
                 &req_sig,
@@ -103,19 +104,12 @@ async fn test_tle_certificate() {
         5,
     );
 
+    let valid_ptb = ValidPtb::try_from(ptb.clone()).unwrap();
+
     // valid cert should work
     let result = tc
         .server()
-        .check_request(
-            &ptb_to_base64(&ptb),
-            &pk,
-            &vk,
-            &req_sig,
-            &cert,
-            1000,
-            None,
-            None,
-        )
+        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -125,7 +119,7 @@ async fn test_tle_certificate() {
     let result = tc
         .server()
         .check_request(
-            &ptb_to_base64(&ptb),
+            &valid_ptb,
             &pk,
             &vk,
             &req_sig,
@@ -142,7 +136,7 @@ async fn test_tle_certificate() {
     let result = tc
         .server()
         .check_request(
-            &ptb_to_base64(&ptb),
+            &valid_ptb,
             &pk,
             &vk,
             &req_sig,
@@ -159,7 +153,7 @@ async fn test_tle_certificate() {
     let result = tc
         .server()
         .check_request(
-            &ptb_to_base64(&ptb),
+            &valid_ptb,
             &pk,
             &vk,
             &req_sig,
@@ -176,16 +170,7 @@ async fn test_tle_certificate() {
     let (cert, req_sig) = sign(&package_id, &ptb, &pk, &vk, &tc.users[0].keypair, 1, 1);
     let result = tc
         .server()
-        .check_request(
-            &ptb_to_base64(&ptb),
-            &pk,
-            &vk,
-            &req_sig,
-            &cert,
-            1000,
-            None,
-            None,
-        )
+        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidCertificate));
 
@@ -202,16 +187,7 @@ async fn test_tle_certificate() {
     );
     let result = tc
         .server()
-        .check_request(
-            &ptb_to_base64(&ptb),
-            &pk,
-            &vk,
-            &req_sig,
-            &cert,
-            1000,
-            None,
-            None,
-        )
+        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidCertificate));
 }
@@ -234,34 +210,17 @@ async fn test_tle_signed_request() {
         1,
     );
 
+    let valid_ptb = ValidPtb::try_from(ptb).unwrap();
     let result = tc
         .server()
-        .check_request(
-            &ptb_to_base64(&ptb),
-            &pk,
-            &vk,
-            &req_sig,
-            &cert,
-            1000,
-            None,
-            None,
-        )
+        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
         .await;
     assert!(result.is_ok());
 
     let (_, pk2, vk2) = elgamal::genkey(&mut thread_rng());
     let result = tc
         .server()
-        .check_request(
-            &ptb_to_base64(&ptb),
-            &pk2,
-            &vk2,
-            &req_sig,
-            &cert,
-            1000,
-            None,
-            None,
-        )
+        .check_request(&valid_ptb, &pk2, &vk2, &req_sig, &cert, 1000, None, None)
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidSessionSignature));
 }

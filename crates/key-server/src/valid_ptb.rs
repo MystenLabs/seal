@@ -1,9 +1,10 @@
-// // Copyright (c), Mysten Labs, Inc.
+// Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 use crate::errors::InternalError;
 use crate::return_err;
 use crate::KeyId;
 use crypto::create_full_id;
+use fastcrypto::encoding::{Base64, Encoding};
 use sui_sdk::types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::ProgrammableMoveCall;
@@ -100,6 +101,16 @@ fn get_key_id(
 }
 
 impl ValidPtb {
+    pub fn try_from_base64(s: &str) -> Result<Self, InternalError> {
+        Base64::decode(s)
+            .map_err(|_| InternalError::InvalidPTB("Invalid Base64".to_string()))
+            .and_then(|b| {
+                bcs::from_bytes::<ProgrammableTransaction>(&b)
+                    .map_err(|_| InternalError::InvalidPTB("Invalid BCS".to_string()))
+            })
+            .and_then(ValidPtb::try_from)
+    }
+
     // The ids without the pkgId prefix
     pub fn inner_ids(&self) -> Vec<KeyId> {
         self.0

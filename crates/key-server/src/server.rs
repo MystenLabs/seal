@@ -289,7 +289,7 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn check_request(
         &self,
-        ptb_str: &str,
+        valid_ptb: &ValidPtb,
         enc_key: &ElGamalPublicKey,
         enc_verification_key: &ElgamalVerificationKey,
         request_signature: &Ed25519Signature,
@@ -298,22 +298,6 @@ impl Server {
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
     ) -> Result<Vec<KeyId>, InternalError> {
-        debug!(
-            "Checking request for ptb_str: {:?}, cert {:?} (req_id: {:?})",
-            ptb_str, certificate, req_id
-        );
-        let ptb_b64 = Base64::decode(ptb_str)
-            .map_err(|_| InternalError::InvalidPTB("Invalid Base64".to_string()))?;
-        let ptb: ProgrammableTransaction = bcs::from_bytes(&ptb_b64)
-            .map_err(|_| InternalError::InvalidPTB("Invalid BCS".to_string()))?;
-        let valid_ptb = ValidPtb::try_from(ptb.clone())?;
-
-        // Report the number of id's in the request to the metrics.
-        if let Some(m) = metrics {
-            m.requests_per_number_of_ids
-                .observe(valid_ptb.inner_ids().len() as f64);
-        }
-
         // Handle package upgrades: only call the latest version but use the first as the namespace
         let (first_pkg_id, last_pkg_id) =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
@@ -334,7 +318,7 @@ impl Server {
         // Check all conditions
         self.check_signature(
             &first_pkg_id,
-            &ptb,
+            valid_ptb.ptb(),
             enc_key,
             enc_verification_key,
             request_signature,
@@ -344,15 +328,10 @@ impl Server {
         .await?;
 
         call_with_duration(metrics.map(|m| &m.check_policy_duration), || async {
-            self.check_policy(certificate.user, &valid_ptb, gas_price, req_id)
+            self.check_policy(certificate.user, valid_ptb, gas_price, req_id)
                 .await
         })
         .await?;
-
-        info!(
-            "Valid request: {}",
-            json!({ "user": certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id })
-        );
 
         // return the full id with the first package id as prefix
         Ok(valid_ptb.full_ids(&first_pkg_id))
@@ -485,22 +464,41 @@ impl Server {
     }
 }
 
-async fn handle_fetch_key(
-    State(app_state): State<MyState>,
+async fn handle_fetch_key_internal(
+    app_state: &MyState,
     headers: HeaderMap,
     Json(payload): Json<FetchKeyRequest>,
 ) -> Result<Json<FetchKeyResponse>, InternalError> {
     let req_id = headers
         .get("Request-Id")
         .map(|v| v.to_str().unwrap_or_default());
+    let sdk_version = headers
+        .get("Client-Sdk-Version")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
 
     app_state.metrics.requests.inc();
+
+    debug!(
+        "Checking request for ptb: {:?}, cert {:?} (req_id: {:?})",
+        payload.ptb, payload.certificate, req_id
+    );
+
     app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
+
+    // Parse PTB
+    let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
+
+    // Report the number of id's in the request to the metrics.
+    app_state
+        .metrics
+        .requests_per_number_of_ids
+        .observe(valid_ptb.inner_ids().len() as f64);
 
     app_state
         .server
         .check_request(
-            &payload.ptb,
+            &valid_ptb,
             &payload.enc_key,
             &payload.enc_verification_key,
             &payload.request_signature,
@@ -511,6 +509,19 @@ async fn handle_fetch_key(
         )
         .await
         .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
+        .tap_ok(|_| info!(
+            "Valid request: {}",
+            json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version })
+        ))
+}
+
+async fn handle_fetch_key(
+    State(app_state): State<MyState>,
+    headers: HeaderMap,
+    Json(payload): Json<FetchKeyRequest>,
+) -> Result<Json<FetchKeyResponse>, InternalError> {
+    handle_fetch_key_internal(&app_state, headers, Json(payload))
+        .await
         .tap_err(|e| app_state.metrics.observe_error(e.as_str()))
 }
 
