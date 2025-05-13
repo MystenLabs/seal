@@ -466,27 +466,12 @@ impl Server {
 
 async fn handle_fetch_key_internal(
     app_state: &MyState,
-    headers: HeaderMap,
-    Json(payload): Json<FetchKeyRequest>,
-) -> Result<Json<FetchKeyResponse>, InternalError> {
-    let req_id = headers
-        .get("Request-Id")
-        .map(|v| v.to_str().unwrap_or_default());
-    let sdk_version = headers
-        .get("Client-Sdk-Version")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-
-    app_state.metrics.requests.inc();
-
-    debug!(
-        "Checking request for ptb: {:?}, cert {:?} (req_id: {:?})",
-        payload.ptb, payload.certificate, req_id
-    );
-
+    payload: &FetchKeyRequest,
+    req_id: Option<&str>,
+    sdk_version: &str,
+) -> Result<Vec<KeyId>, InternalError> {
     app_state.check_full_node_is_fresh(ALLOWED_STALENESS)?;
 
-    // Parse PTB
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
 
     // Report the number of id's in the request to the metrics.
@@ -507,9 +492,7 @@ async fn handle_fetch_key_internal(
             Some(&app_state.metrics),
             req_id,
         )
-        .await
-        .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
-        .tap_ok(|_| info!(
+        .await.tap_ok(|_| info!(
             "Valid request: {}",
             json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version })
         ))
@@ -520,9 +503,25 @@ async fn handle_fetch_key(
     headers: HeaderMap,
     Json(payload): Json<FetchKeyRequest>,
 ) -> Result<Json<FetchKeyResponse>, InternalError> {
-    handle_fetch_key_internal(&app_state, headers, Json(payload))
+    let req_id = headers
+        .get("Request-Id")
+        .map(|v| v.to_str().unwrap_or_default());
+    let sdk_version = headers
+        .get("Client-Sdk-Version")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    app_state.metrics.requests.inc();
+
+    debug!(
+        "Checking request for ptb: {:?}, cert {:?} (req_id: {:?})",
+        payload.ptb, payload.certificate, req_id
+    );
+
+    handle_fetch_key_internal(&app_state, &payload, req_id, sdk_version)
         .await
         .tap_err(|e| app_state.metrics.observe_error(e.as_str()))
+        .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
 }
 
 #[derive(Serialize, Deserialize)]
