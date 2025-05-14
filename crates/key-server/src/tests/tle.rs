@@ -192,7 +192,7 @@ async fn test_tle_certificate() {
     );
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None None, None)
+        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None, None)
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidCertificate));
 }
