@@ -6,7 +6,7 @@ import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes';
 import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
-import { getAllowlistedKeyServers, SealClient, SessionKey } from '@mysten/seal';
+import { getAllowlistedKeyServers, SealClient, SessionKey, type SessionKeyType } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { set, get } from 'idb-keyval';
@@ -79,25 +79,29 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
 
   const onView = async (blobIds: string[], allowlistId: string) => {
     const imported: SessionKeyType = await get('sessionKey');
-    const currentSessionKey = await SessionKey.import(imported, {});
-    if (
-      currentSessionKey &&
-      !currentSessionKey.isExpired() &&
-      currentSessionKey.getAddress() === suiAddress
-    ) {
-      const moveCallConstructor = constructMoveCall(packageId, allowlistId);
-      downloadAndDecrypt(
-        blobIds,
-        currentSessionKey,
-        suiClient,
-        client,
-        moveCallConstructor,
-        setError,
-        setDecryptedFileUrls,
-        setIsDialogOpen,
-        setReloadKey,
-      );
-      return;
+
+    if (imported) {
+      const currentSessionKey = await SessionKey.import(imported, {});
+      console.log('loaded currentSessionKey', currentSessionKey);
+      if (
+        currentSessionKey &&
+        !currentSessionKey.isExpired() &&
+        currentSessionKey.getAddress() === suiAddress
+      ) {
+        const moveCallConstructor = constructMoveCall(packageId, allowlistId);
+        downloadAndDecrypt(
+          blobIds,
+          currentSessionKey,
+          suiClient,
+          client,
+          moveCallConstructor,
+          setError,
+          setDecryptedFileUrls,
+          setIsDialogOpen,
+          setReloadKey,
+        );
+        return;
+      }
     }
 
     set('sessionKey', null);
