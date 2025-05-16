@@ -4,6 +4,10 @@
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
 use crate::errors::InternalError::{InvalidMVRObject, OldPackageVersion};
+use crate::externals::PackageValidationInput::{Plain, WithMVR};
+use crate::mvr;
+use crate::signed_message::PackageName;
+use crate::signed_message::PackageName::{MvrName, PackageId};
 use crate::types::Network;
 use crate::Timestamp;
 use mvr_indexer::models::{mainnet, testnet};
@@ -21,7 +25,6 @@ use sui_sdk::SuiClient;
 use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
 use tap::{Tap, TapFallible};
 use tracing::{debug, warn};
-use crate::mvr;
 
 static CACHE: Lazy<Cache<ObjectID, (ObjectID, ObjectID)>> =
     Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
@@ -43,31 +46,35 @@ pub(crate) fn add_package(pkg_id: ObjectID) {
     CACHE.insert(pkg_id, (pkg_id, pkg_id));
 }
 
+pub(crate) enum PackageValidationInput {
+    WithMVR(ObjectID, ObjectID),
+    Plain(ObjectID),
+}
+
 pub(crate) async fn validate_pkg_id_versions(
     sui_client: &SuiClient,
     network: &Network,
-    pkg_id: &ObjectID,
-    mvr_pkg_id: Option<&ObjectID>,
-) -> Result<(ObjectID, Option<String>), InternalError> {
-    match mvr_pkg_id {
-        None => {
-            let (first, latest) = fetch_first_and_last_pkg_id(pkg_id, network).await?;
-            if pkg_id != &latest {
-                return Err(OldPackageVersion(latest));
+    input: PackageValidationInput,
+) -> Result<(ObjectID, PackageName), InternalError> {
+    match input {
+        Plain(pkg_id) => {
+            let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
+            if pkg_id != latest {
+                return Err(OldPackageVersion(pkg_id, latest));
             }
-            Ok((first, None))
+            Ok((first, PackageId(first)))
         }
-        Some(mvr_pkg_id) => {
+        WithMVR(pkg_id, mvr_pkg_id) => {
             let (mvr_name, mvr_ref_pkg_id) =
-                mvr::resolve_mvr_object(sui_client, network, *mvr_pkg_id).await?;
+                mvr::resolve_mvr_object(sui_client, network, mvr_pkg_id).await?;
             let (first, latest, mvr_latest) =
-                fetch_first_and_last_pkg_id_with_other(pkg_id, network, &mvr_ref_pkg_id).await?;
-            if pkg_id != &latest {
-                return Err(OldPackageVersion(latest));
+                fetch_last_pkg_ids(&pkg_id, network, &mvr_ref_pkg_id).await?;
+            if pkg_id != latest {
+                return Err(OldPackageVersion(pkg_id, latest));
             } else if mvr_ref_pkg_id != mvr_latest {
                 return Err(InvalidMVRObject);
             }
-            Ok((first, Some(mvr_name)))
+            Ok((first, MvrName(mvr_name)))
         }
     }
 }
@@ -121,7 +128,7 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     }
 }
 
-async fn fetch_first_and_last_pkg_id_with_other(
+async fn fetch_last_pkg_ids(
     pkg_id: &ObjectID,
     network: &Network,
     other_pkg_id: &ObjectID,
@@ -157,26 +164,26 @@ async fn fetch_first_and_last_pkg_id_with_other(
         .await
         .map_err(|_| InternalError::Failure)?;
     println!("Graphql response: {:?}", response);
-    let first = response["data"]["first"]["packageAtVersion"]["address"]
-        .as_str()
-        .ok_or(InternalError::InvalidPackage)?
-        .to_string();
     let latest = response["data"]["first"]["address"]
         .as_str()
         .ok_or(InternalError::InvalidPackage)?
         .to_string();
-    let other_first = response["data"]["second"]["address"]
+    let first = response["data"]["first"]["packageAtVersion"]["address"]
+        .as_str()
+        .ok_or(InternalError::InvalidPackage)?
+        .to_string();
+    let other_latest = response["data"]["second"]["address"]
         .as_str()
         .ok_or(InternalError::InvalidPackage)?
         .to_string();
 
-    let (first, latest, other_first) = (
+    let (first, latest, other_latest) = (
         ObjectID::from_str(&first).map_err(|_| InternalError::Failure)?,
         ObjectID::from_str(&latest).map_err(|_| InternalError::Failure)?,
-        ObjectID::from_str(&other_first).map_err(|_| InternalError::Failure)?,
+        ObjectID::from_str(&other_latest).map_err(|_| InternalError::Failure)?,
     );
 
-    Ok((first, latest, other_first))
+    Ok((first, latest, other_latest))
 }
 
 /// Returns the timestamp for the latest checkpoint.
@@ -222,9 +229,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::{
-        fetch_first_and_last_pkg_id, fetch_first_and_last_pkg_id_with_other,
-    };
+    use crate::externals::{fetch_first_and_last_pkg_id, fetch_last_pkg_ids};
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -262,7 +267,7 @@ mod tests {
         )
         .unwrap();
 
-        fetch_first_and_last_pkg_id_with_other(&address, &Network::Mainnet, &address)
+        fetch_last_pkg_ids(&address, &Network::Mainnet, &address)
             .await
             .expect("TODO: panic message");
     }

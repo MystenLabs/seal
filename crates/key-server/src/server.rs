@@ -3,12 +3,12 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
+use crate::externals::PackageValidationInput::{Plain, WithMVR};
 use crate::externals::{
-    current_epoch_time, duration_since, fetch_first_and_last_pkg_id, get_reference_gas_price,
-    validate_pkg_id_versions,
+    current_epoch_time, duration_since, get_reference_gas_price, validate_pkg_id_versions,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::signed_message::{signed_message, signed_request};
+use crate::signed_message::{signed_message, signed_request, PackageName};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
 use axum::extract::Request;
@@ -53,7 +53,6 @@ use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
-use mvr::resolve_mvr_object;
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
 use valid_ptb::ValidPtb;
 
@@ -65,9 +64,9 @@ mod types;
 mod valid_ptb;
 
 mod metrics;
+mod mvr;
 #[cfg(test)]
 pub mod tests;
-mod mvr;
 
 /// The allowed staleness of the full node.
 /// When setting this duration, note a timestamp on Sui may be a bit late compared to
@@ -180,14 +179,13 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn check_signature(
         &self,
-        pkg_id: &ObjectID,
+        package_name: PackageName,
         ptb: &ProgrammableTransaction,
         enc_key: &ElGamalPublicKey,
         enc_verification_key: &ElgamalVerificationKey,
         session_sig: &Ed25519Signature,
         cert: &Certificate,
         req_id: Option<&str>,
-        mvr_name: Option<String>,
     ) -> Result<(), InternalError> {
         // Check certificate.
         if cert.ttl_min > SESSION_KEY_TTL_MAX
@@ -203,8 +201,7 @@ impl Server {
         }
 
         let msg = signed_message(
-            pkg_id,
-            mvr_name,
+            package_name,
             &cert.session_vk,
             cert.creation_time,
             cert.ttl_min,
@@ -315,38 +312,35 @@ impl Server {
         req_id: Option<&str>,
         mvr_object: Option<ObjectID>,
     ) -> Result<Vec<KeyId>, InternalError> {
+        // If an MVR object is provided, check that it is valid and that the package id matches
+        let input = match mvr_object {
+            None => Plain(valid_ptb.pkg_id()),
+            Some(mvr_object) => WithMVR(valid_ptb.pkg_id(), mvr_object),
+        };
+
         // Handle package upgrades: only call the latest version but use the first as the namespace
-        // Also fails if an MVR object is provided but does not refer to the right package
-        let (first_pkg_id, mvr_name) = validate_pkg_id_versions(
-            &self.sui_client,
-            &self.network,
-            &valid_ptb.pkg_id(),
-            mvr_object.as_ref(),
-        )
-        .await.tap_err(|e| {
-            match e {
-                InternalError::OldPackageVersion(last_pkg_id) => {
-                    debug!(
-                        "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                        last_pkg_id,
-                        valid_ptb.pkg_id(),
-                        req_id
-                    );
-                },
-                _ => {}
-            }
-        })?;
+        let (first, package_name) =
+            validate_pkg_id_versions(&self.sui_client, &self.network, input)
+                .await
+                .tap_err(|e| match e {
+                    InternalError::OldPackageVersion(given, latest) => {
+                        debug!(
+                            "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
+                            latest, given, req_id
+                        );
+                    }
+                    _ => {}
+                })?;
 
         // Check all conditions
         self.check_signature(
-            &first_pkg_id,
+            package_name,
             valid_ptb.ptb(),
             enc_key,
             enc_verification_key,
             request_signature,
             certificate,
             req_id,
-            mvr_name,
         )
         .await?;
 
@@ -357,7 +351,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first_pkg_id))
+        Ok(valid_ptb.full_ids(&first))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
