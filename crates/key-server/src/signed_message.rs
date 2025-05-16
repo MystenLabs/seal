@@ -8,16 +8,31 @@ use sui_types::base_types::ObjectID;
 use sui_types::transaction::ProgrammableTransaction;
 use tracing::debug;
 
+/// The types of names that can be used to identify a package.
+pub(crate) enum PackageName {
+    PackageId(ObjectID),
+    MvrName(String),
+}
+
+impl PackageName {
+    fn to_str(self) -> String {
+        match self {
+            PackageName::PackageId(id) => id.to_hex_uncompressed(),
+            PackageName::MvrName(name) => name.clone(),
+        }
+    }
+}
+
 /// The format of the personal message shown to the user.
 pub fn signed_message(
-    pkg_id: &ObjectID, // should use the original package id
+    package: PackageName, // should use the original package id
     vk: &Ed25519PublicKey,
     creation_time: u64,
     ttl_min: u16,
 ) -> String {
     let res = format!(
         "Accessing keys of package {} for {} mins from {}, session key {}",
-        pkg_id.to_hex_uncompressed(), // pads with 0x and zeros
+        package.to_str(),
         ttl_min,
         DateTime::<Utc>::from_timestamp((creation_time / 1000) as i64, 0) // convert to seconds
             .expect("tested that in the future"),
@@ -49,6 +64,7 @@ pub fn signed_request(
 
 #[cfg(test)]
 mod tests {
+    use crate::signed_message::PackageName::{MvrName, PackageId};
     use crate::signed_message::{signed_message, signed_request};
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -72,7 +88,27 @@ mod tests {
 
         let expected_output = "Accessing keys of package 0x0000c457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5 for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
 
-        let result = signed_message(&pkg_id, kp.public(), creation_time, ttl_min);
+        let result = signed_message(PackageId(pkg_id), kp.public(), creation_time, ttl_min);
+        assert_eq!(result, expected_output);
+    }
+
+    #[test]
+    fn test_signed_message_mvr_regression() {
+        let pkg_id =
+            ObjectID::from_str("0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5")
+                .unwrap();
+        let (_, kp): (_, Ed25519KeyPair) = deterministic_random_account_key();
+        let creation_time = 1622548800; // Fixed timestamp
+        let ttl_min = 30;
+
+        let expected_output = "Accessing keys of package @my/package for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
+
+        let result = signed_message(
+            MvrName("@my/package".to_string()),
+            kp.public(),
+            creation_time,
+            ttl_min,
+        );
         assert_eq!(result, expected_output);
     }
 

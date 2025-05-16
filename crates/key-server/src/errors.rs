@@ -5,13 +5,14 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
+use sui_types::base_types::ObjectID;
 
 #[derive(Debug, Serialize, PartialEq)]
 pub enum InternalError {
     InvalidPTB(String),
     InvalidPackage,
     NoAccess,
-    OldPackageVersion,
+    OldPackageVersion(ObjectID, ObjectID),
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
@@ -19,6 +20,7 @@ pub enum InternalError {
     DeprecatedSDKVersion,
     MissingRequiredHeader(String),
     InvalidParameter,
+    InvalidMVRObject,
     Failure, // Internal error, try again later
 }
 
@@ -42,7 +44,7 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid certificate time or ttl".to_string(),
             ),
-            InternalError::OldPackageVersion => (
+            InternalError::OldPackageVersion(_, _) => (
                 StatusCode::FORBIDDEN,
                 "Package has been upgraded, please use the latest version".to_string(),
             ),
@@ -68,6 +70,10 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid parameter. If the object was just created, try again later.".to_string(),
             ),
+            InternalError::InvalidMVRObject => (
+                StatusCode::FORBIDDEN,
+                "Invalid MVR PackageInfo object".to_string(),
+            ),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
@@ -90,13 +96,14 @@ impl InternalError {
             InternalError::InvalidPackage => "InvalidPackage",
             InternalError::NoAccess => "NoAccess",
             InternalError::InvalidCertificate => "InvalidCertificate",
-            InternalError::OldPackageVersion => "OldPackageVersion",
+            InternalError::OldPackageVersion(_, _) => "OldPackageVersion",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
             InternalError::InvalidParameter => "InvalidParameter",
+            InternalError::InvalidMVRObject => "InvalidMVRObject",
             InternalError::Failure => "Failure",
         }
     }

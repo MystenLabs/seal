@@ -3,16 +3,25 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
+use crate::errors::InternalError::{InvalidMVRObject, OldPackageVersion};
+use crate::externals::PackageValidationInput::{Plain, WithMVR};
+use crate::mvr;
+use crate::signed_message::PackageName;
+use crate::signed_message::PackageName::{MvrName, PackageId};
 use crate::types::Network;
+use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
+use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
+use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
 use once_cell::sync::Lazy;
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::Value;
 use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
 use sui_sdk::SuiClient;
-use sui_types::base_types::ObjectID;
-use tap::TapFallible;
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
+use tap::{Tap, TapFallible};
 use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, (ObjectID, ObjectID)>> =
@@ -35,6 +44,39 @@ pub(crate) fn add_package(pkg_id: ObjectID) {
     CACHE.insert(pkg_id, (pkg_id, pkg_id));
 }
 
+pub(crate) enum PackageValidationInput {
+    WithMVR(ObjectID, ObjectID),
+    Plain(ObjectID),
+}
+
+pub(crate) async fn validate_pkg_id_versions(
+    sui_client: &SuiClient,
+    network: &Network,
+    input: PackageValidationInput,
+) -> Result<(ObjectID, PackageName), InternalError> {
+    match input {
+        Plain(pkg_id) => {
+            let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
+            if pkg_id != latest {
+                return Err(OldPackageVersion(pkg_id, latest));
+            }
+            Ok((first, PackageId(first)))
+        }
+        WithMVR(pkg_id, mvr_pkg_id) => {
+            let (mvr_name, mvr_ref_pkg_id) =
+                mvr::resolve_mvr_object(sui_client, network, mvr_pkg_id).await?;
+            let (first, latest, mvr_latest) =
+                fetch_last_pkg_ids(&pkg_id, network, &mvr_ref_pkg_id).await?;
+            if pkg_id != latest {
+                return Err(OldPackageVersion(pkg_id, latest));
+            } else if mvr_ref_pkg_id != mvr_latest {
+                return Err(InvalidMVRObject);
+            }
+            Ok((first, MvrName(mvr_name)))
+        }
+    }
+}
+
 pub(crate) async fn fetch_first_and_last_pkg_id(
     pkg_id: &ObjectID,
     network: &Network,
@@ -42,14 +84,12 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     match CACHE.get(pkg_id) {
         Some((first, latest)) => Ok((first, latest)),
         None => {
-            let graphql_client = Client::new();
-            let url = network.graphql_url();
             let query = serde_json::json!({
                 "query": format!(
                     r#"
                     query {{
                         latestPackage(
-                            address: "{}"
+                            address: "{pkg_id}"
                         ) {{
                             address
                             packageAtVersion(version: 1) {{
@@ -58,33 +98,90 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
                         }}
                     }}
                     "#,
-                    pkg_id
                 )
             });
-            let response = graphql_client.post(url).json(&query).send().await;
-            debug!("Graphql response: {:?}", response);
-            let response = response
+
+            let response = Client::new()
+                .post(network.graphql_url())
+                .json(&query)
+                .send()
+                .await
                 .map_err(|_| InternalError::Failure)?
+                .tap(|r| debug!("Graphql response: {:?}", r))
                 .json::<Value>()
                 .await
                 .map_err(|_| InternalError::Failure)?;
 
             let first = response["data"]["latestPackage"]["packageAtVersion"]["address"]
                 .as_str()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_string();
+                .ok_or(InternalError::InvalidPackage)
+                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::InvalidPackage))?;
             let latest = response["data"]["latestPackage"]["address"]
                 .as_str()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_string();
-            let (first, latest) = (
-                ObjectID::from_str(&first).map_err(|_| InternalError::Failure)?,
-                ObjectID::from_str(&latest).map_err(|_| InternalError::Failure)?,
-            );
+                .ok_or(InternalError::InvalidPackage)
+                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::InvalidPackage))?;
             CACHE.insert(*pkg_id, (first, latest));
             Ok((first, latest))
         }
     }
+}
+
+async fn fetch_last_pkg_ids(
+    pkg_id: &ObjectID,
+    network: &Network,
+    other_pkg_id: &ObjectID,
+) -> Result<(ObjectID, ObjectID, ObjectID), InternalError> {
+    let graphql_client = Client::new();
+    let url = network.graphql_url();
+
+    let query = serde_json::json!({
+        "query": format!(r#"
+                    query {{
+                        first:latestPackage(
+                            address: "{pkg_id}"
+                        ) {{
+                            address
+                            packageAtVersion(version: 1) {{
+                                address
+                            }}
+                        }}
+                        second:latestPackage(
+                            address: "{other_pkg_id}"
+                        ) {{
+                            address
+                        }}
+                    }}"#)
+    });
+    let response = graphql_client
+        .post(url)
+        .json(&query)
+        .send()
+        .await
+        .map_err(|_| InternalError::Failure)?
+        .json::<Value>()
+        .await
+        .map_err(|_| InternalError::Failure)?;
+    println!("Graphql response: {:?}", response);
+    let latest = response["data"]["first"]["address"]
+        .as_str()
+        .ok_or(InternalError::InvalidPackage)?
+        .to_string();
+    let first = response["data"]["first"]["packageAtVersion"]["address"]
+        .as_str()
+        .ok_or(InternalError::InvalidPackage)?
+        .to_string();
+    let other_latest = response["data"]["second"]["address"]
+        .as_str()
+        .ok_or(InternalError::InvalidPackage)?
+        .to_string();
+
+    let (first, latest, other_latest) = (
+        ObjectID::from_str(&first).map_err(|_| InternalError::Failure)?,
+        ObjectID::from_str(&latest).map_err(|_| InternalError::Failure)?,
+        ObjectID::from_str(&other_latest).map_err(|_| InternalError::Failure)?,
+    );
+
+    Ok((first, latest, other_latest))
 }
 
 /// Returns the timestampe for the latest checkpoint.
@@ -130,7 +227,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::fetch_first_and_last_pkg_id;
+    use crate::externals::{fetch_first_and_last_pkg_id, fetch_last_pkg_ids};
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -159,6 +256,18 @@ mod tests {
             }
             Err(e) => panic!("Test failed with error: {:?}", e),
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_all_versions() {
+        let address = ObjectID::from_str(
+            "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
+        )
+        .unwrap();
+
+        fetch_last_pkg_ids(&address, &Network::Mainnet, &address)
+            .await
+            .expect("TODO: panic message");
     }
 
     #[tokio::test]

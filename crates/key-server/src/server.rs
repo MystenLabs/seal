@@ -3,9 +3,12 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
-use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
+use crate::externals::PackageValidationInput::{Plain, WithMVR};
+use crate::externals::{
+    current_epoch_time, duration_since, get_reference_gas_price, validate_pkg_id_versions,
+};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::signed_message::{signed_message, signed_request};
+use crate::signed_message::{signed_message, signed_request, PackageName};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
 use axum::extract::Request;
@@ -61,6 +64,7 @@ mod types;
 mod valid_ptb;
 
 mod metrics;
+mod mvr;
 #[cfg(test)]
 pub mod tests;
 
@@ -94,6 +98,7 @@ struct Certificate {
     pub creation_time: u64,
     pub ttl_min: u16,
     pub signature: GenericSignature,
+    pub mvr_object: Option<ObjectID>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -173,7 +178,7 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn check_signature(
         &self,
-        pkg_id: &ObjectID,
+        package_name: PackageName,
         ptb: &ProgrammableTransaction,
         enc_key: &ElGamalPublicKey,
         enc_verification_key: &ElgamalVerificationKey,
@@ -194,7 +199,12 @@ impl Server {
             return Err(InternalError::InvalidCertificate);
         }
 
-        let msg = signed_message(pkg_id, &cert.session_vk, cert.creation_time, cert.ttl_min);
+        let msg = signed_message(
+            package_name,
+            &cert.session_vk,
+            cert.creation_time,
+            cert.ttl_min,
+        );
         debug!(
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
@@ -299,27 +309,31 @@ impl Server {
         gas_price: u64,
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
+        mvr_object: Option<ObjectID>,
     ) -> Result<Vec<KeyId>, InternalError> {
-        // Handle package upgrades: only call the latest version but use the first as the namespace
-        let (first_pkg_id, last_pkg_id) =
-            call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
-            })
-            .await?;
+        // If an MVR object is provided, check that it is valid and that the package id matches
+        let input = match mvr_object {
+            None => Plain(valid_ptb.pkg_id()),
+            Some(mvr_object) => WithMVR(valid_ptb.pkg_id(), mvr_object),
+        };
 
-        if valid_ptb.pkg_id() != last_pkg_id {
-            debug!(
-                "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                last_pkg_id,
-                valid_ptb.pkg_id(),
-                req_id
-            );
-            return Err(InternalError::OldPackageVersion);
-        }
+        // Handle package upgrades: only call the latest version but use the first as the namespace
+        let (first, package_name) =
+            validate_pkg_id_versions(&self.sui_client, &self.network, input)
+                .await
+                .tap_err(|e| match e {
+                    InternalError::OldPackageVersion(given, latest) => {
+                        debug!(
+                            "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
+                            latest, given, req_id
+                        );
+                    }
+                    _ => {}
+                })?;
 
         // Check all conditions
         self.check_signature(
-            &first_pkg_id,
+            package_name,
             valid_ptb.ptb(),
             enc_key,
             enc_verification_key,
@@ -336,7 +350,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first_pkg_id))
+        Ok(valid_ptb.full_ids(&first))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
@@ -493,6 +507,7 @@ async fn handle_fetch_key_internal(
             app_state.reference_gas_price(),
             Some(&app_state.metrics),
             req_id,
+            payload.certificate.mvr_object,
         )
         .await.tap_ok(|_| info!(
             "Valid request: {}",
