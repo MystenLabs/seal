@@ -3,6 +3,7 @@
 
 use crate::externals::current_epoch_time;
 use crate::signed_message::signed_request;
+use crate::signed_message::PackageName::PackageId;
 use crate::valid_ptb::ValidPtb;
 use crate::{
     signed_message,
@@ -33,7 +34,7 @@ pub(super) fn sign(
 
     // create the cert
     let msg_to_sign =
-        signed_message::signed_message(pkg_id, None, kp.public(), creation_time, ttl_min);
+        signed_message::signed_message(PackageId(*pkg_id), kp.public(), creation_time, ttl_min);
     let personal_msg = PersonalMessage {
         message: msg_to_sign.as_bytes().to_vec(),
     };
