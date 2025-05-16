@@ -5,7 +5,7 @@ use crate::errors::InternalError::{
 };
 use crate::externals::{
     current_epoch_time, duration_since, fetch_first_and_last_pkg_id, get_reference_gas_price,
-    resolve_mvr_object,
+    validate_pkg_id_versions,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::signed_message::{signed_message, signed_request};
@@ -53,6 +53,7 @@ use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
+use mvr::resolve_mvr_object;
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
 use valid_ptb::ValidPtb;
 
@@ -66,6 +67,7 @@ mod valid_ptb;
 mod metrics;
 #[cfg(test)]
 pub mod tests;
+mod mvr;
 
 /// The allowed staleness of the full node.
 /// When setting this duration, note a timestamp on Sui may be a bit late compared to
@@ -314,37 +316,26 @@ impl Server {
         mvr_object: Option<ObjectID>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
-        let (first_pkg_id, last_pkg_id) =
-            call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
-            })
-            .await?;
-
-        if valid_ptb.pkg_id() != last_pkg_id {
-            debug!(
-                "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                last_pkg_id,
-                valid_ptb.pkg_id(),
-                req_id
-            );
-            return Err(InternalError::OldPackageVersion);
-        }
-
-        // Resolve the MVR name from the MVR object if it's provided
-        let mvr_name = if let Some(m) = mvr_object {
-            let (name, package_id) = resolve_mvr_object(&self.sui_client, &self.network, m).await?;
-            let (first, _) = fetch_first_and_last_pkg_id(&package_id, &self.network).await?;
-            if first != first_pkg_id {
-                debug!(
-                    "MVR object package id {:?} is not a version of the package, {:?} (req_id: {:?})",
-                    first, first_pkg_id, req_id
-                );
-                return Err(InternalError::InvalidMVRObject);
+        // Also fails if an MVR object is provided but does not refer to the right package
+        let (first_pkg_id, mvr_name) = validate_pkg_id_versions(
+            &self.sui_client,
+            &self.network,
+            &valid_ptb.pkg_id(),
+            mvr_object.as_ref(),
+        )
+        .await.tap_err(|e| {
+            match e {
+                InternalError::OldPackageVersion(last_pkg_id) => {
+                    debug!(
+                        "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
+                        last_pkg_id,
+                        valid_ptb.pkg_id(),
+                        req_id
+                    );
+                },
+                _ => {}
             }
-            Some(name)
-        } else {
-            None
-        };
+        })?;
 
         // Check all conditions
         self.check_signature(
