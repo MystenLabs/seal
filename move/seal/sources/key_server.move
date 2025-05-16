@@ -10,6 +10,7 @@ module seal::key_server;
 
 use std::string::String;
 use sui::{bls12381::{G2, g2_from_bytes}, group_ops::Element};
+use sui::dynamic_field as df;
 
 const EInvalidCap: u64 = 0;
 const EInvalidKeyType: u64 = 1;
@@ -22,6 +23,16 @@ public struct KeyServer has key {
     url: String,
     key_type: u8,
     pk: vector<u8>,
+    first_version: u64,
+}
+
+public struct KeyServerV1 has key, store {
+    id: UID,
+    name: String,
+    url: String,
+    key_type: u8,
+    pk: vector<u8>,
+    new_field: u64,
 }
 
 public struct Cap has key {
@@ -46,6 +57,7 @@ public fun register(
         url,
         key_type,
         pk,
+        first_version: 0
     };
 
     let cap = Cap {
@@ -99,6 +111,20 @@ public fun update(s: &mut KeyServer, cap: &Cap, url: String) {
     s.url = url;
 }
 
+public fun upgrade_to_v1(cap: &Cap, new_field: u64, key_server: &mut KeyServer, ctx: &mut TxContext) {
+    assert!(object::id(key_server) == cap.key_server_id, EInvalidCap);
+    key_server.first_version = 1;
+    let key_server_v1 = KeyServerV1 {
+        id: object::new(ctx),
+        name: key_server.name,
+        url: key_server.url,
+        key_type: key_server.key_type,
+        pk: key_server.pk,
+        new_field,
+    };
+    df::add(&mut key_server.id, 1, key_server_v1);
+}
+
 #[test_only]
 public fun destroy_cap(c: Cap) {
     let Cap { id, .. } = c;
@@ -131,6 +157,12 @@ fun test_flow() {
     assert!(pk(&s) == pk.bytes(), 0);
     s.update(&cap, string::utf8(b"https::/mysten-labs2.com"));
     assert!(url(&s) == string::utf8(b"https::/mysten-labs2.com"), 0);
+
+    upgrade_to_v1(&cap, 123, &mut s, ctx(&mut scenario));
+    assert!(s.first_version == 1, 0);
+
+    let v1: &KeyServerV1 = df::borrow_mut(&mut s.id, 1);
+    assert!(v1.new_field == 123, 0);
 
     test_scenario::return_shared(s);
     destroy_cap(cap);
