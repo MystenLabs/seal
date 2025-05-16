@@ -12,7 +12,7 @@ pub enum InternalError {
     InvalidPTB(String),
     InvalidPackage,
     NoAccess,
-    OldPackageVersion(ObjectID),
+    OldPackageVersion(ObjectID, ObjectID),
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
@@ -44,7 +44,7 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid certificate time or ttl".to_string(),
             ),
-            InternalError::OldPackageVersion(_) => (
+            InternalError::OldPackageVersion(_, _) => (
                 StatusCode::FORBIDDEN,
                 "Package has been upgraded, please use the latest version".to_string(),
             ),
@@ -96,7 +96,7 @@ impl InternalError {
             InternalError::InvalidPackage => "InvalidPackage",
             InternalError::NoAccess => "NoAccess",
             InternalError::InvalidCertificate => "InvalidCertificate",
-            InternalError::OldPackageVersion(_) => "OldPackageVersion",
+            InternalError::OldPackageVersion(_, _) => "OldPackageVersion",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",

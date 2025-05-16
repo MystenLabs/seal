@@ -1,16 +1,16 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::Deserialize;
-use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
-use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
-use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
-use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
-use sui_sdk::SuiClient;
-use tracing::warn;
 use crate::errors::InternalError;
 use crate::errors::InternalError::InvalidMVRObject;
 use crate::types::Network;
+use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
+use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
+use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
+use serde::Deserialize;
+use sui_sdk::SuiClient;
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
+use tracing::warn;
 
 /// Given the ID of an MVR PackageInfo object, this function fetches and parses the object and
 /// returns the MVR name and the id of the package.
@@ -71,11 +71,11 @@ fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
 
 #[cfg(test)]
 mod tests {
+    use crate::mvr::resolve_mvr_object;
+    use crate::types::Network;
     use std::str::FromStr;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
-    use crate::mvr::resolve_mvr_object;
-    use crate::types::Network;
 
     #[tokio::test]
     async fn test_fetch_mvr_package() {
@@ -86,10 +86,10 @@ mod tests {
             ObjectID::from_str(
                 "0xa364dd21f5eb43fdd4e502be52f450c09529dfc94dea12412a6d587f17ec7f24",
             )
-                .unwrap(),
+            .unwrap(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(name, "@mysten/kiosk".to_string());
         assert_eq!(
@@ -97,7 +97,7 @@ mod tests {
             ObjectID::from_str(
                 "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
             )
-                .unwrap()
+            .unwrap()
         );
     }
 }
