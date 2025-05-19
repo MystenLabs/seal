@@ -2,102 +2,88 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::errors::InternalError::InvalidMVRObject;
 use crate::types::Network;
-use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
-use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
-use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
-use serde::Deserialize;
+use move_core_types::identifier::Identifier;
+use move_core_types::language_storage::StructTag;
+use serde_json::json;
+use std::str::FromStr;
+use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClient;
-use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
-use tracing::warn;
+use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::dynamic_field::DynamicFieldName;
+use sui_types::TypeTag;
 
-/// Given the ID of an MVR PackageInfo object, this function fetches and parses the object and
-/// returns the MVR name and the id of the package.
-pub(crate) async fn resolve_mvr_object(
+const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
+const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
+
+/// Given an MVR name, look up the package it points to.
+pub(crate) async fn mvr_forward_resolution(
     client: &SuiClient,
-    network: &Network,
-    package_info_object_id: ObjectID,
-) -> Result<(String, ObjectID), InternalError> {
-    let bcs = client
-        .read_api()
-        .get_move_object_bcs(package_info_object_id)
-        .await
-        .map_err(|_| InvalidMVRObject)?;
+    _network: &Network,
+    mvr_name: &str,
+) -> Result<ObjectID, InternalError> {
+    let registry = SuiAddress::from_str(MVR_REGISTRY).unwrap();
+    let mvr_core = SuiAddress::from_str(MVR_CORE).unwrap();
 
-    match network {
-        Network::Testnet => parse_testnet_package_info(&bcs),
-        Network::Mainnet => parse_mainnet_package_info(&bcs),
-        _ => {
-            warn!("Network not supported for MVR object resolution");
-            Err(InternalError::Failure)
-        }
+    let parsed_name = mvr_types::name::VersionedName::from_str(mvr_name).unwrap();
+    if parsed_name.version.is_some() {
+        return Err(InternalError::InvalidParameter);
     }
-}
+    let mvr_name = json!(parsed_name.name);
 
-fn parse_testnet_package_info(bytes: &[u8]) -> Result<(String, ObjectID), InternalError> {
-    parse_package_info::<TestnetPkgInfo>(bytes, |info| {
-        (info.metadata, info.package_address.into_inner())
-    })
-}
+    let dynamic_field_name = DynamicFieldName {
+        type_: TypeTag::Struct(Box::new(StructTag {
+            address: mvr_core.into(),
+            module: Identifier::from_str("name").unwrap(),
+            name: Identifier::from_str("Name").unwrap(),
+            type_params: vec![],
+        })),
+        value: mvr_name,
+    };
 
-fn parse_mainnet_package_info(bytes: &[u8]) -> Result<(String, ObjectID), InternalError> {
-    parse_package_info::<MainnetPkgInfo>(bytes, |info| {
-        (info.metadata, info.package_address.into_inner())
-    })
-}
+    let dynamic_field = client
+        .read_api()
+        .get_dynamic_field_object(registry.into(), dynamic_field_name)
+        .await
+        .unwrap()
+        .data
+        .unwrap()
+        .content
+        .unwrap();
 
-/// Given the BCS bytes of a PackageInfo struct (either from testnet of mainnet), get the metadata
-/// and the id.
-fn parse_package_info<PkgInfo: for<'a> Deserialize<'a>>(
-    bytes: &[u8],
-    get_metadata_and_package_id: impl FnOnce(
-        PkgInfo,
-    ) -> (VecMap<String, String>, [u8; SUI_ADDRESS_LENGTH]),
-) -> Result<(String, ObjectID), InternalError> {
-    let package_info: PkgInfo = bcs::from_bytes(bytes).map_err(|_| InvalidMVRObject)?;
-    let (metadata, package_id_bytes) = get_metadata_and_package_id(package_info);
+    let package_address_as_str = match dynamic_field {
+        SuiParsedData::MoveObject(obj) => obj.fields.to_json_value()["value"]["app_info"]
+            ["package_address"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        SuiParsedData::Package(_) => panic!(),
+    };
+    let package_address = ObjectID::from_str(&package_address_as_str).unwrap();
 
-    // Parse the MVR name from the metadata. See https://docs.suins.io/move-registry/managing-package-info.
-    let name = metadata
-        .contents
-        .into_iter()
-        .find(|entry| entry.key == "default")
-        .ok_or(InvalidMVRObject)?
-        .value;
-
-    Ok((name, ObjectID::new(package_id_bytes)))
+    Ok(package_address)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::mvr::resolve_mvr_object;
+    use crate::mvr::mvr_forward_resolution;
     use crate::types::Network;
     use std::str::FromStr;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
-    async fn test_fetch_mvr_package() {
+    async fn test_forward_resolution() {
         let sui_client = SuiClientBuilder::default().build_mainnet().await.unwrap();
-        let (name, package_id) = resolve_mvr_object(
-            &sui_client,
-            &Network::Mainnet,
-            ObjectID::from_str(
-                "0xa364dd21f5eb43fdd4e502be52f450c09529dfc94dea12412a6d587f17ec7f24",
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(name, "@mysten/kiosk".to_string());
+        let package_id = mvr_forward_resolution(&sui_client, &Network::Mainnet, "@mysten/kiosk")
+            .await
+            .unwrap();
         assert_eq!(
             package_id,
             ObjectID::from_str(
                 "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
             )
             .unwrap()
-        );
+        )
     }
 }
