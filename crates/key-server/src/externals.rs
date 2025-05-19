@@ -4,10 +4,9 @@
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
 use crate::errors::InternalError::{InvalidMVRObject, OldPackageVersion};
-use crate::externals::PackageValidationInput::{Plain, WithMVR};
+use crate::externals::PackageInfo::{MVRName, PackageID};
+use crate::externals::VerifiedPackage::{Plain, WithMVR};
 use crate::mvr;
-use crate::signed_message::PackageName;
-use crate::signed_message::PackageName::{MvrName, PackageId};
 use crate::types::Network;
 use crate::Timestamp;
 use mvr_indexer::models::{mainnet, testnet};
@@ -16,13 +15,12 @@ use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
 use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
 use once_cell::sync::Lazy;
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::Value;
 use std::str::FromStr;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
 use sui_sdk::SuiClient;
-use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
+use sui_types::base_types::ObjectID;
 use tap::{Tap, TapFallible};
 use tracing::{debug, warn};
 
@@ -46,35 +44,58 @@ pub(crate) fn add_package(pkg_id: ObjectID) {
     CACHE.insert(pkg_id, (pkg_id, pkg_id));
 }
 
-pub(crate) enum PackageValidationInput {
-    WithMVR(ObjectID, ObjectID),
+pub(crate) enum PackageInfo {
+    PackageID(ObjectID),
+    MVRName(ObjectID, String),
+}
+
+impl PackageInfo {
+    pub async fn verify(
+        self,
+        sui_client: &SuiClient,
+        network: &Network,
+    ) -> Result<VerifiedPackage, InternalError> {
+        match self {
+            PackageID(pkg_id) => {
+                let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
+                if pkg_id != latest {
+                    return Err(OldPackageVersion(pkg_id, latest));
+                }
+                Ok(Plain(first))
+            }
+            MVRName(pkg_id, mvr_name) => {
+                let mvr_ref_pkg_id =
+                    mvr::mvr_forward_resolution(sui_client, network, &mvr_name).await?;
+                let (first, latest, mvr_latest) =
+                    fetch_last_pkg_ids(&pkg_id, network, &mvr_ref_pkg_id).await?;
+                if pkg_id != latest {
+                    return Err(OldPackageVersion(pkg_id, latest));
+                } else if mvr_ref_pkg_id != mvr_latest {
+                    return Err(InvalidMVRObject);
+                }
+                Ok(WithMVR(first, mvr_name))
+            }
+        }
+    }
+}
+
+pub(crate) enum VerifiedPackage {
+    WithMVR(ObjectID, String),
     Plain(ObjectID),
 }
 
-pub(crate) async fn validate_pkg_id_versions(
-    sui_client: &SuiClient,
-    network: &Network,
-    input: PackageValidationInput,
-) -> Result<(ObjectID, PackageName), InternalError> {
-    match input {
-        Plain(pkg_id) => {
-            let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
-            if pkg_id != latest {
-                return Err(OldPackageVersion(pkg_id, latest));
-            }
-            Ok((first, PackageId(first)))
+impl VerifiedPackage {
+    pub fn to_str(&self) -> String {
+        match self {
+            WithMVR(_, name) => name.clone(),
+            Plain(pkg_id) => pkg_id.to_hex_uncompressed(),
         }
-        WithMVR(pkg_id, mvr_pkg_id) => {
-            let (mvr_name, mvr_ref_pkg_id) =
-                mvr::resolve_mvr_object(sui_client, network, mvr_pkg_id).await?;
-            let (first, latest, mvr_latest) =
-                fetch_last_pkg_ids(&pkg_id, network, &mvr_ref_pkg_id).await?;
-            if pkg_id != latest {
-                return Err(OldPackageVersion(pkg_id, latest));
-            } else if mvr_ref_pkg_id != mvr_latest {
-                return Err(InvalidMVRObject);
-            }
-            Ok((first, MvrName(mvr_name)))
+    }
+
+    pub fn first_pkg_id(&self) -> ObjectID {
+        match self {
+            WithMVR(pkg_id, _) => *pkg_id,
+            Plain(pkg_id) => *pkg_id,
         }
     }
 }

@@ -21,7 +21,8 @@ sui_types.workspace = true
 mysten-service.workspace = true
 sui_sdk.workspace = true
 shared_crypto.workspace = true
-mvr_indexer = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-indexer" }
+move-core-types.workspace = true
+mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
 
 tokio = { version = "1.44.2", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }

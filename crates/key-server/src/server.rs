@@ -3,12 +3,12 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
-use crate::externals::PackageValidationInput::{Plain, WithMVR};
+use crate::externals::PackageInfo::{MVRName, PackageID};
 use crate::externals::{
-    current_epoch_time, duration_since, get_reference_gas_price, validate_pkg_id_versions,
+    current_epoch_time, duration_since, get_reference_gas_price, VerifiedPackage,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::signed_message::{signed_message, signed_request, PackageName};
+use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
 use axum::extract::Request;
@@ -98,7 +98,7 @@ struct Certificate {
     pub creation_time: u64,
     pub ttl_min: u16,
     pub signature: GenericSignature,
-    pub mvr_object: Option<ObjectID>,
+    pub mvr_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -179,7 +179,7 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn check_signature(
         &self,
-        package_name: PackageName,
+        package_name: &VerifiedPackage,
         ptb: &ProgrammableTransaction,
         enc_key: &ElGamalPublicKey,
         enc_verification_key: &ElgamalVerificationKey,
@@ -310,31 +310,20 @@ impl Server {
         gas_price: u64,
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
-        mvr_object: Option<ObjectID>,
+        mvr_name: Option<&String>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // If an MVR object is provided, check that it is valid and that the package id matches
-        let input = match mvr_object {
-            None => Plain(valid_ptb.pkg_id()),
-            Some(mvr_object) => WithMVR(valid_ptb.pkg_id(), mvr_object),
+        let package = match mvr_name {
+            None => PackageID(valid_ptb.pkg_id()),
+            Some(mvr_name) => MVRName(valid_ptb.pkg_id(), mvr_name.to_string()),
         };
 
         // Handle package upgrades: only call the latest version but use the first as the namespace
-        let (first, package_name) =
-            validate_pkg_id_versions(&self.sui_client, &self.network, input)
-                .await
-                .tap_err(|e| match e {
-                    InternalError::OldPackageVersion(given, latest) => {
-                        debug!(
-                            "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                            latest, given, req_id
-                        );
-                    }
-                    _ => {}
-                })?;
+        let verified_package = package.verify(&self.sui_client, &self.network).await?;
 
         // Check all conditions
         self.check_signature(
-            package_name,
+            &verified_package,
             valid_ptb.ptb(),
             enc_key,
             enc_verification_key,
@@ -351,7 +340,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first))
+        Ok(valid_ptb.full_ids(&verified_package.first_pkg_id()))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
@@ -508,7 +497,7 @@ async fn handle_fetch_key_internal(
             app_state.reference_gas_price(),
             Some(&app_state.metrics),
             req_id,
-            payload.certificate.mvr_object,
+            payload.certificate.mvr_name.as_ref(),
         )
         .await.tap_ok(|_| info!(
             "Valid request: {}",

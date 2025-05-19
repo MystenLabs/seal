@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::current_epoch_time;
+use crate::externals::VerifiedPackage::Plain;
 use crate::signed_message::signed_request;
-use crate::signed_message::PackageName::PackageId;
 use crate::valid_ptb::ValidPtb;
 use crate::{
     signed_message,
@@ -34,7 +34,7 @@ pub(super) fn sign(
 
     // create the cert
     let msg_to_sign =
-        signed_message::signed_message(PackageId(*pkg_id), kp.public(), creation_time, ttl_min);
+        signed_message::signed_message(&Plain(*pkg_id), kp.public(), creation_time, ttl_min);
     let personal_msg = PersonalMessage {
         message: msg_to_sign.as_bytes().to_vec(),
     };
@@ -46,7 +46,7 @@ pub(super) fn sign(
         creation_time,
         ttl_min,
         signature: cert_sig,
-        mvr_object: None,
+        mvr_name: None,
     };
     // session sig
     let signed_msg = signed_request(ptb, eg_pk, eg_vk);
