@@ -43,7 +43,7 @@ This setup gives you the ability to **rotate or update** the Seal key servers in
 
 Seal uses **client-side encryption** by default. That means applications or users retrieve the decryption key from Seal’s key servers and use it locally to decrypt the data.
 
-If a user or application leaks the decryption key - intentionally or not - the encrypted data could be decrypted by unauthorized parties. Because Seal key servers do not currently emit on-chain logs of key delivery events, there is no on-chain audit trail showing which user or wallet obtained the key.
+If a user or application leaks the decryption key - intentionally or not - the encrypted data could be decrypted by unauthorized parties. Because Seal key servers do not emit on-chain logs of key delivery events, there is no on-chain audit trail showing which user or wallet obtained the key.
 
 To help detect or respond to such incidents:
 
