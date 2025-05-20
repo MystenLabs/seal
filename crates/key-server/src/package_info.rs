@@ -1,5 +1,5 @@
 use crate::errors::InternalError;
-use crate::errors::InternalError::{InvalidMVRName, OldPackageVersion};
+use crate::errors::InternalError::InvalidMVRName;
 use crate::types::Network;
 use crate::{externals, mvr};
 use sui_sdk::SuiClient;
