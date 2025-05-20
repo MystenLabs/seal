@@ -184,7 +184,7 @@ impl Server {
         session_sig: &Ed25519Signature,
         cert: &Certificate,
         req_id: Option<&str>,
-        first_package_name: String,
+        package_name: String,
     ) -> Result<(), InternalError> {
         // Check certificate.
         if cert.ttl_min > SESSION_KEY_TTL_MAX
@@ -200,7 +200,7 @@ impl Server {
         }
 
         let msg = signed_message(
-            first_package_name,
+            package_name,
             &cert.session_vk,
             cert.creation_time,
             cert.ttl_min,
@@ -312,6 +312,8 @@ impl Server {
         mvr_name: Option<String>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
+
+        // Get first and last package IDs
         let package_info = fetch_package_info(
             valid_ptb.pkg_id(),
             &self.sui_client,
@@ -320,6 +322,7 @@ impl Server {
         )
         .await?;
 
+        // The call to seal_approve must be using the latest package ID
         if package_info.latest != valid_ptb.pkg_id() {
             return Err(InternalError::OldPackageVersion);
         }
@@ -388,7 +391,7 @@ impl Server {
         let local_client = self.sui_client.clone();
         let mut interval = tokio::time::interval(update_interval);
 
-        // In case of a missed tick due to a slow responding full node, we don't need to
+        // In case of a missed tick due to a slow-responding full node, we don't need to
         // catch up but rather just delay the next tick.
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
