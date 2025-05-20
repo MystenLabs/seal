@@ -381,7 +381,7 @@ fun test_parse_encrypted_object() {
 fun test_seal_decrypt() {
     use sui::bls12381::{g1_from_bytes};
     use sui::test_scenario::{Self, next_tx, ctx};
-    use seal::key_server::{register, destroy_cap};
+    use seal::key_server::{create_v1, destroy_cap};
     use std::string;
 
     let addr1 = @0xA;
@@ -389,7 +389,7 @@ fun test_seal_decrypt() {
 
     let pk0 =
         x"aeb258b9fb9a2f29f74eb0a1a895860bb1c6ba3f9ea7075366de159e4764413e9ec0597ac9c0dad409723935440a45f40eee4728630ae3ea40a68a819375bba1d78d7810f901d8a469d785d00cfed6bd28f01d41e49c5652d924e9d19fddcf62";
-    let cap0 = register(
+    let cap0 = create_v1(
         string::utf8(b"mysten0"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -401,7 +401,7 @@ fun test_seal_decrypt() {
 
     let pk1 =
         x"b1076a26f4f82f39d0e767fcd2118659362afe40bce4e8d553258c86756bb74f888bca79f2d6b71edf6e25af89efa83713a223b48a19d2e551897ac92ac7458336cd489be3be025e348ca93f4c94d22594f96f0e08990e51a7de9da8ff29c98f";
-    let cap1 = register(
+    let cap1 = create_v1(
         string::utf8(b"mysten1"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -413,7 +413,7 @@ fun test_seal_decrypt() {
 
     let pk2 =
         x"95fcb465af3791f31d53d80db6c8dcf9f83a419b2570614ecfbb068f47613da17cb9ffc66bb052b9546f17196929538f0bd2d38e1f515d9916e2db13dc43e0ccbd4cb3d7cbb13ffecc0b68b37481ebaaaa17cad18096a9c2c27a797f17d78623";
-    let cap2 = register(
+    let cap2 = create_v1(
         string::utf8(b"mysten2"),
         string::utf8(b"https://mysten-labs.com"),
         0,

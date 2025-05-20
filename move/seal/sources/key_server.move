@@ -34,7 +34,7 @@ public struct Cap has key {
     key_server_id: ID,
 }
 
-public fun register(
+public fun create_v1(
     name: String,
     url: String,
     key_type: u8,
@@ -68,14 +68,14 @@ public fun register(
 }
 
 // Helper function to register a key server and transfer the cap to the caller.
-entry fun register_and_transfer(
+entry fun register_and_transfer_v1(
     name: String,
     url: String,
     key_type: u8,
     pk: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    let cap = register(name, url, key_type, pk, ctx);
+    let cap = create_v1(name, url, key_type, pk, ctx);
     transfer::transfer(cap, ctx.sender());
 }
 
@@ -85,22 +85,22 @@ public fun v1(s: &KeyServer): &KeyServerV1 {
 }
 
 public fun name(s: &KeyServer): String {
-    let v1: &KeyServerV1 = v1(s);
+    let v1 = v1(s);
     v1.name
 }
 
 public fun url(s: &KeyServer): String {
-    let v1: &KeyServerV1 = v1(s);
+    let v1 = v1(s);
     v1.url
 }
 
 public fun key_type(s: &mut KeyServer): u8 {
-    let v1: &KeyServerV1 = v1(s);
+    let v1 = v1(s);
     v1.key_type
 }
 
 public fun pk(s: &KeyServer): &vector<u8> {
-    let v1: &KeyServerV1 = v1(s);
+    let v1 = v1(s);
     &v1.pk
 }
 
@@ -134,7 +134,7 @@ fun test_flow() {
 
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
-    let cap = register(
+    let cap = create_v1(
         string::utf8(b"mysten"),
         string::utf8(b"https::/mysten-labs.com"),
         0,

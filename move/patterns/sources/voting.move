@@ -113,7 +113,7 @@ public fun finalize_vote(
 #[test]
 fun test_vote() {
     use seal::bf_hmac_encryption::{verify_derived_keys, get_public_key};
-    use seal::key_server::{register, destroy_cap, KeyServer};
+    use seal::key_server::{create_v1, destroy_cap, KeyServer};
     use std::string;
     use seal::bf_hmac_encryption::parse_encrypted_object;
     use sui::test_scenario::{Self, next_tx, ctx};
@@ -125,7 +125,7 @@ fun test_vote() {
     // Setup key servers.
     let pk0 =
         x"a6b8194ba6ffa1bf4c4e13ab1e56833f99f45f97874e77b845b361305ddaa741174febc307d3e07f7d4d5bb08c0adf3d11a5b8774c84006fb0ba7435f045f56a61905bc283049c2175984528e40a36e0096aabd401a67b1ccc442416c33b5df9";
-    let cap0 = register(
+    let cap0 = create_v1(
         string::utf8(b"mysten0"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -137,7 +137,7 @@ fun test_vote() {
 
     let pk1 =
         x"ac1c15fe6c5476ebc8b5bc432dcea06a30c87f89d21b89159ceab06afb84e0e7edefaadb896771ee281d25b6845aa3a20bda9324de39a9909c00f09b344b053da835dfde943c995576ec5e2fcf93221006bb2fcec8ef5096b4b88c36e1aa861c";
-    let cap1 = register(
+    let cap1 = create_v1(
         string::utf8(b"mysten1"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -149,7 +149,7 @@ fun test_vote() {
 
     let pk2 =
         x"a8750277f240eb4d94c159b2ec47c1c19396f6e33691fbf50514906b3e70c0454d9a79cf1f1f5562e4ddad9c4505bfb405a9901ac6ba2a51c24919d7599c74a5155f83606f80c1a302de9865deb4577911493dc1608754d67051f755cd44c391";
-    let cap2 = register(
+    let cap2 = create_v1(
         string::utf8(b"mysten2"),
         string::utf8(b"https://mysten-labs.com"),
         0,
