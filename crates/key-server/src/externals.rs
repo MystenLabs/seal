@@ -223,18 +223,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_all_versions() {
-        let address = ObjectID::from_str(
-            "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
-        )
-        .unwrap();
-
-        fetch_first_and_last_pkg_ids(&address, &address, &Network::Mainnet)
-            .await
-            .expect("TODO: panic message");
-    }
-
-    #[tokio::test]
     async fn test_fetch_first_and_last_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
         let result = fetch_first_and_last_pkg_id(&invalid_address, &Network::Mainnet).await;
