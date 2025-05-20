@@ -89,67 +89,8 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     }
 }
 
-/// Fetch the first and last package IDs for a given package ID and the latest for another package ID.
-pub(crate) async fn fetch_first_and_last_pkg_ids(
-    pkg_id: &ObjectID,
-    other_pkg_id: &ObjectID,
-    network: &Network,
-) -> Result<(ObjectID, ObjectID, ObjectID), InternalError> {
-    let graphql_client = Client::new();
-    let url = network.graphql_url();
-
-    let query = serde_json::json!({
-        "query": format!(r#"
-                    query {{
-                        first:latestPackage(
-                            address: "{pkg_id}"
-                        ) {{
-                            address
-                            packageAtVersion(version: 1) {{
-                                address
-                            }}
-                        }}
-                        second:latestPackage(
-                            address: "{other_pkg_id}"
-                        ) {{
-                            address
-                        }}
-                    }}"#)
-    });
-    let response = graphql_client
-        .post(url)
-        .json(&query)
-        .send()
-        .await
-        .map_err(|_| InternalError::Failure)?
-        .json::<Value>()
-        .await
-        .map_err(|_| InternalError::Failure)?;
-    println!("Graphql response: {:?}", response);
-    let latest = response["data"]["first"]["address"]
-        .as_str()
-        .ok_or(InternalError::InvalidPackage)?
-        .to_string();
-    let first = response["data"]["first"]["packageAtVersion"]["address"]
-        .as_str()
-        .ok_or(InternalError::InvalidPackage)?
-        .to_string();
-    let other_latest = response["data"]["second"]["address"]
-        .as_str()
-        .ok_or(InternalError::InvalidPackage)?
-        .to_string();
-
-    let (first, latest, other_latest) = (
-        ObjectID::from_str(&first).map_err(|_| InternalError::Failure)?,
-        ObjectID::from_str(&latest).map_err(|_| InternalError::Failure)?,
-        ObjectID::from_str(&other_latest).map_err(|_| InternalError::Failure)?,
-    );
-
-    Ok((first, latest, other_latest))
-}
-
-/// Returns the timestamp for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpcResult<Timestamp> {
+/// Returns the timestampe for the latest checkpoint.
+pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpcResult<u64> {
     let latest_checkpoint_sequence_number = client
         .read_api()
         .get_latest_checkpoint_sequence_number()
@@ -191,7 +132,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::{fetch_first_and_last_pkg_id, fetch_first_and_last_pkg_ids};
+    use crate::externals::fetch_first_and_last_pkg_id;
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
