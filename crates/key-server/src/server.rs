@@ -321,10 +321,7 @@ impl Server {
         .await?;
 
         if package_info.latest != valid_ptb.pkg_id() {
-            return Err(InternalError::OldPackageVersion(
-                package_info.first,
-                package_info.latest,
-            ));
+            return Err(InternalError::OldPackageVersion);
         }
 
         // Check all conditions
