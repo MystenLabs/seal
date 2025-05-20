@@ -5,7 +5,7 @@ use crate::errors::InternalError::{
 };
 use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::package_info::get_first_version_and_name;
+use crate::package_info::fetch_package_info;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
@@ -312,13 +312,20 @@ impl Server {
         mvr_name: Option<String>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
-        let (first_package_id, name) = get_first_version_and_name(
+        let package_info = fetch_package_info(
             valid_ptb.pkg_id(),
             &self.sui_client,
             &self.network,
             mvr_name.as_ref(),
         )
         .await?;
+
+        if package_info.latest != valid_ptb.pkg_id() {
+            return Err(InternalError::OldPackageVersion(
+                package_info.first,
+                package_info.latest,
+            ));
+        }
 
         // Check all conditions
         self.check_signature(
@@ -328,7 +335,7 @@ impl Server {
             request_signature,
             certificate,
             req_id,
-            name,
+            package_info.name(),
         )
         .await?;
 
@@ -339,7 +346,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first_package_id))
+        Ok(valid_ptb.full_ids(&package_info.first))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
