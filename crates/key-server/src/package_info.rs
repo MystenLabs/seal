@@ -13,6 +13,7 @@ pub(crate) struct PackageInfo {
 }
 
 impl PackageInfo {
+    /// Get the name used to identify this package in the signed message.
     pub(crate) fn name(&self) -> String {
         match &self.mvr_name {
             Some(name) => name.clone(),
