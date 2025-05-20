@@ -143,6 +143,12 @@ version = "*"
 expression = "Apache-2.0"
 license-files = [
 ]
+[[licenses.clarify]]
+crate = "mvr-types"
+expression = "Apache-2.0"
+license-files = [
+    { path = "../../LICENSE", hash = 0x002c7e6c },
+]
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
