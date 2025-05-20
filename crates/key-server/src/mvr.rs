@@ -10,7 +10,7 @@ use serde_json::json;
 use std::str::FromStr;
 use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClient;
-use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::base_types::ObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 
