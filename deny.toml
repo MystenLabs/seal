@@ -144,7 +144,7 @@ expression = "Apache-2.0"
 license-files = [
 ]
 [[licenses.clarify]]
-name = "mvr_types"
+name = "mvr-types"
 version = "*"
 unlicensed = true
 
