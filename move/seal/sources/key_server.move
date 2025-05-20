@@ -14,25 +14,19 @@ use sui::dynamic_field as df;
 
 const EInvalidCap: u64 = 0;
 const EInvalidKeyType: u64 = 1;
-
+const EInvalidVersion: u64 = 2;
 const KeyTypeBonehFranklinBLS12381: u8 = 0;
 
 public struct KeyServer has key {
     id: UID,
-    name: String,
-    url: String,
-    key_type: u8,
-    pk: vector<u8>,
     first_version: u64,
 }
 
-public struct KeyServerV1 has key, store {
-    id: UID,
+public struct KeyServerV1 has store {
     name: String,
     url: String,
     key_type: u8,
     pk: vector<u8>,
-    new_field: u64,
 }
 
 public struct Cap has key {
@@ -51,14 +45,18 @@ public fun register(
     assert!(key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
     let _ = g2_from_bytes(&pk);
 
-    let key_server = KeyServer {
+    let mut key_server = KeyServer {
         id: object::new(ctx),
+        first_version: 1
+    };
+
+    let key_server_v1 = KeyServerV1 {
         name,
         url,
         key_type,
         pk,
-        first_version: 0
     };
+    df::add(&mut key_server.id, 1, key_server_v1);
 
     let cap = Cap {
         id: object::new(ctx),
@@ -81,48 +79,42 @@ entry fun register_and_transfer(
     transfer::transfer(cap, ctx.sender());
 }
 
+public fun v1(s: &KeyServer): &KeyServerV1 {
+    assert!(s.first_version == 1, EInvalidVersion);
+    df::borrow(&s.id, 1)
+}
+
 public fun name(s: &KeyServer): String {
-    s.name
+    let v1: &KeyServerV1 = v1(s);
+    v1.name
 }
 
 public fun url(s: &KeyServer): String {
-    s.url
+    let v1: &KeyServerV1 = v1(s);
+    v1.url
 }
 
-public fun key_type(s: &KeyServer): u8 {
-    s.key_type
+public fun key_type(s: &mut KeyServer): u8 {
+    let v1: &KeyServerV1 = v1(s);
+    v1.key_type
 }
 
 public fun pk(s: &KeyServer): &vector<u8> {
-    &s.pk
-}
-
-public fun id(s: &KeyServer): &UID {
-    &s.id
+    let v1: &KeyServerV1 = v1(s);
+    &v1.pk
 }
 
 public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
-    assert!(s.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
-    g2_from_bytes(&s.pk)
+    let v1: &KeyServerV1 = v1(s);
+    assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
+    g2_from_bytes(&v1.pk)
 }
 
 public fun update(s: &mut KeyServer, cap: &Cap, url: String) {
     assert!(object::id(s) == cap.key_server_id, EInvalidCap);
-    s.url = url;
-}
-
-public fun upgrade_to_v1(cap: &Cap, new_field: u64, key_server: &mut KeyServer, ctx: &mut TxContext) {
-    assert!(object::id(key_server) == cap.key_server_id, EInvalidCap);
-    key_server.first_version = 1;
-    let key_server_v1 = KeyServerV1 {
-        id: object::new(ctx),
-        name: key_server.name,
-        url: key_server.url,
-        key_type: key_server.key_type,
-        pk: key_server.pk,
-        new_field,
-    };
-    df::add(&mut key_server.id, 1, key_server_v1);
+    assert!(s.first_version == 1, EInvalidVersion);
+    let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
+    v1.url = url;
 }
 
 #[test_only]
@@ -157,12 +149,6 @@ fun test_flow() {
     assert!(pk(&s) == pk.bytes(), 0);
     s.update(&cap, string::utf8(b"https::/mysten-labs2.com"));
     assert!(url(&s) == string::utf8(b"https::/mysten-labs2.com"), 0);
-
-    upgrade_to_v1(&cap, 123, &mut s, ctx(&mut scenario));
-    assert!(s.first_version == 1, 0);
-
-    let v1: &KeyServerV1 = df::borrow_mut(&mut s.id, 1);
-    assert!(v1.new_field == 123, 0);
 
     test_scenario::return_shared(s);
     destroy_cap(cap);
