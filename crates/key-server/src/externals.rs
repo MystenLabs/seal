@@ -89,10 +89,11 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     }
 }
 
-pub(crate) async fn fetch_last_pkg_ids(
+/// Fetch the first and last package IDs for a given package ID and the latest for another package ID.
+pub(crate) async fn fetch_first_and_last_pkg_ids(
     pkg_id: &ObjectID,
-    network: &Network,
     other_pkg_id: &ObjectID,
+    network: &Network,
 ) -> Result<(ObjectID, ObjectID, ObjectID), InternalError> {
     let graphql_client = Client::new();
     let url = network.graphql_url();
@@ -190,7 +191,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::{fetch_first_and_last_pkg_id, fetch_last_pkg_ids};
+    use crate::externals::{fetch_first_and_last_pkg_id, fetch_first_and_last_pkg_ids};
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -228,7 +229,7 @@ mod tests {
         )
         .unwrap();
 
-        fetch_last_pkg_ids(&address, &Network::Mainnet, &address)
+        fetch_first_and_last_pkg_ids(&address, &address, &Network::Mainnet)
             .await
             .expect("TODO: panic message");
     }
