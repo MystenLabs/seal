@@ -3,10 +3,6 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
-use crate::errors::InternalError::{InvalidMVRObject, OldPackageVersion};
-use crate::externals::PackageInfo::{MVRName, PackageID};
-use crate::externals::VerifiedPackage::{Plain, WithMVR};
-use crate::mvr;
 use crate::types::Network;
 use crate::Timestamp;
 use mvr_indexer::models::{mainnet, testnet};
@@ -42,62 +38,6 @@ pub(crate) fn add_latest(pkg_id: ObjectID, latest: ObjectID) {
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
     CACHE.insert(pkg_id, (pkg_id, pkg_id));
-}
-
-pub(crate) enum PackageInfo {
-    PackageID(ObjectID),
-    MVRName(ObjectID, String),
-}
-
-impl PackageInfo {
-    pub async fn verify(
-        self,
-        sui_client: &SuiClient,
-        network: &Network,
-    ) -> Result<VerifiedPackage, InternalError> {
-        match self {
-            PackageID(pkg_id) => {
-                let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
-                if pkg_id != latest {
-                    return Err(OldPackageVersion(pkg_id, latest));
-                }
-                Ok(Plain(first))
-            }
-            MVRName(pkg_id, mvr_name) => {
-                let mvr_ref_pkg_id =
-                    mvr::mvr_forward_resolution(sui_client, network, &mvr_name).await?;
-                let (first, latest, mvr_latest) =
-                    fetch_last_pkg_ids(&pkg_id, network, &mvr_ref_pkg_id).await?;
-                if pkg_id != latest {
-                    return Err(OldPackageVersion(pkg_id, latest));
-                } else if mvr_ref_pkg_id != mvr_latest {
-                    return Err(InvalidMVRObject);
-                }
-                Ok(WithMVR(first, mvr_name))
-            }
-        }
-    }
-}
-
-pub(crate) enum VerifiedPackage {
-    WithMVR(ObjectID, String),
-    Plain(ObjectID),
-}
-
-impl VerifiedPackage {
-    pub fn to_str(&self) -> String {
-        match self {
-            WithMVR(_, name) => name.clone(),
-            Plain(pkg_id) => pkg_id.to_hex_uncompressed(),
-        }
-    }
-
-    pub fn first_pkg_id(&self) -> ObjectID {
-        match self {
-            WithMVR(pkg_id, _) => *pkg_id,
-            Plain(pkg_id) => *pkg_id,
-        }
-    }
 }
 
 pub(crate) async fn fetch_first_and_last_pkg_id(
@@ -149,7 +89,7 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     }
 }
 
-async fn fetch_last_pkg_ids(
+pub(crate) async fn fetch_last_pkg_ids(
     pkg_id: &ObjectID,
     network: &Network,
     other_pkg_id: &ObjectID,

@@ -20,7 +20,7 @@ pub enum InternalError {
     DeprecatedSDKVersion,
     MissingRequiredHeader(String),
     InvalidParameter,
-    InvalidMVRObject,
+    InvalidMVRName,
     Failure, // Internal error, try again later
 }
 
@@ -70,7 +70,7 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid parameter. If the object was just created, try again later.".to_string(),
             ),
-            InternalError::InvalidMVRObject => (
+            InternalError::InvalidMVRName => (
                 StatusCode::FORBIDDEN,
                 "Invalid MVR PackageInfo object".to_string(),
             ),
@@ -103,7 +103,7 @@ impl InternalError {
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
             InternalError::InvalidParameter => "InvalidParameter",
-            InternalError::InvalidMVRObject => "InvalidMVRObject",
+            InternalError::InvalidMVRName => "InvalidMVRObject",
             InternalError::Failure => "Failure",
         }
     }

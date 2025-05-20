@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::current_epoch_time;
-use crate::externals::VerifiedPackage::Plain;
 use crate::signed_message::signed_request;
 use crate::valid_ptb::ValidPtb;
 use crate::{
@@ -33,8 +32,12 @@ pub(super) fn sign(
     // We use the same eddsa keypair for both the certificate and the request signature
 
     // create the cert
-    let msg_to_sign =
-        signed_message::signed_message(&Plain(*pkg_id), kp.public(), creation_time, ttl_min);
+    let msg_to_sign = signed_message::signed_message(
+        pkg_id.to_hex_uncompressed(),
+        kp.public(),
+        creation_time,
+        ttl_min,
+    );
     let personal_msg = PersonalMessage {
         message: msg_to_sign.as_bytes().to_vec(),
     };
