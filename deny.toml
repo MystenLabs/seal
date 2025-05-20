@@ -143,12 +143,6 @@ version = "*"
 expression = "Apache-2.0"
 license-files = [
 ]
-[[licenses.clarify]]
-name = "mvr-types"
-version = "*"
-unlicensed = true
-license-files = [
-]
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
