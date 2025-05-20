@@ -319,11 +319,18 @@ impl Server {
             &self.sui_client,
             &self.network,
             mvr_name,
+            metrics,
         )
         .await?;
 
         // The call to seal_approve must be using the latest package ID
         if package_info.latest != valid_ptb.pkg_id() {
+            debug!(
+                "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
+                package_info.latest,
+                valid_ptb.pkg_id(),
+                req_id
+            );
             return Err(InternalError::OldPackageVersion);
         }
 
