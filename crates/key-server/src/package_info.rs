@@ -1,6 +1,6 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::InvalidMVRName;
-use crate::externals::{fetch_first_and_last_pkg_id, fetch_first_and_last_pkg_ids};
+use crate::externals::fetch_first_and_last_pkg_id;
 use crate::metrics::{call_with_duration, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::types::Network;
@@ -32,20 +32,18 @@ pub async fn fetch_package_info(
     mvr_name: Option<String>,
     metrics: Option<&Metrics>,
 ) -> Result<PackageInfo, InternalError> {
+    let (first, latest) =
+        call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
+            fetch_first_and_last_pkg_id(&pkg_id, network).await
+        })
+            .await?;
     match mvr_name {
         Some(mvr_name) => {
+            // Check that the MVR name points to the first version of the given package
             let mvr_reference = mvr_forward_resolution(sui_client, &mvr_name).await?;
-            let (first, latest, mvr_latest) =
-                call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                    fetch_first_and_last_pkg_ids(&pkg_id, &mvr_reference, network).await
-                })
-                .await?;
-
-            // Check that the MVR name points to the given package
-            if mvr_latest != latest {
+            if mvr_reference != first {
                 return Err(InvalidMVRName);
             }
-
             Ok(PackageInfo {
                 first,
                 latest,
@@ -53,11 +51,6 @@ pub async fn fetch_package_info(
             })
         }
         None => {
-            let (first, latest) =
-                call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                    fetch_first_and_last_pkg_id(&pkg_id, network).await
-                })
-                .await?;
             Ok(PackageInfo {
                 first,
                 latest,
