@@ -316,7 +316,7 @@ impl Server {
             valid_ptb.pkg_id(),
             &self.sui_client,
             &self.network,
-            mvr_name.as_ref(),
+            mvr_name,
         )
         .await?;
 
