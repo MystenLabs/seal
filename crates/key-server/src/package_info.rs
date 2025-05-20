@@ -1,5 +1,7 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::InvalidMVRName;
+use crate::externals::{fetch_first_and_last_pkg_id, fetch_first_and_last_pkg_ids};
+use crate::mvr::mvr_forward_resolution;
 use crate::types::Network;
 use crate::{externals, mvr};
 use sui_sdk::SuiClient;
@@ -28,9 +30,11 @@ pub async fn fetch_package_info(
 ) -> Result<PackageInfo, InternalError> {
     match mvr_name {
         Some(mvr_name) => {
-            let mvr_reference = mvr::mvr_forward_resolution(sui_client, network, mvr_name).await?;
+            let mvr_reference = mvr_forward_resolution(sui_client, network, mvr_name).await?;
             let (first, latest, mvr_latest) =
-                externals::fetch_last_pkg_ids(&pkg_id, network, &mvr_reference).await?;
+                fetch_first_and_last_pkg_ids(&pkg_id, &mvr_reference, network).await?;
+
+            // Check that the MVR name points to the given package
             if latest != mvr_latest {
                 return Err(InvalidMVRName);
             }
@@ -41,7 +45,7 @@ pub async fn fetch_package_info(
             })
         }
         None => {
-            let (first, latest) = externals::fetch_first_and_last_pkg_id(&pkg_id, network).await?;
+            let (first, latest) = fetch_first_and_last_pkg_id(&pkg_id, network).await?;
             Ok(PackageInfo {
                 first,
                 latest,
