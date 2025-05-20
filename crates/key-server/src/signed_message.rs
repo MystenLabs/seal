@@ -1,6 +1,5 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::externals::VerifiedPackage;
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
 use fastcrypto::ed25519::Ed25519PublicKey;
@@ -10,14 +9,14 @@ use tracing::debug;
 
 /// The format of the personal message shown to the user.
 pub fn signed_message(
-    package: &VerifiedPackage, // should use the original package id
+    package_name: String, // should use the original package id
     vk: &Ed25519PublicKey,
     creation_time: u64,
     ttl_min: u16,
 ) -> String {
     let res = format!(
         "Accessing keys of package {} for {} mins from {}, session key {}",
-        package.to_str(),
+        package_name,
         ttl_min,
         DateTime::<Utc>::from_timestamp((creation_time / 1000) as i64, 0) // convert to seconds
             .expect("tested that in the future"),
@@ -49,7 +48,6 @@ pub fn signed_request(
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::VerifiedPackage;
     use crate::signed_message::{signed_message, signed_request};
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -74,7 +72,7 @@ mod tests {
         let expected_output = "Accessing keys of package 0x0000c457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5 for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
 
         let result = signed_message(
-            &VerifiedPackage::Plain(pkg_id),
+            pkg_id.to_hex_uncompressed(),
             kp.public(),
             creation_time,
             ttl_min,
@@ -84,9 +82,6 @@ mod tests {
 
     #[test]
     fn test_signed_message_mvr_regression() {
-        let pkg_id =
-            ObjectID::from_str("0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5")
-                .unwrap();
         let (_, kp): (_, Ed25519KeyPair) = deterministic_random_account_key();
         let creation_time = 1622548800; // Fixed timestamp
         let ttl_min = 30;
@@ -94,7 +89,7 @@ mod tests {
         let expected_output = "Accessing keys of package @my/package for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
 
         let result = signed_message(
-            &VerifiedPackage::WithMVR(pkg_id, "@my/package".to_string()),
+            "@my/package".to_string(),
             kp.public(),
             creation_time,
             ttl_min,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
+use crate::errors::InternalError::{Failure, InvalidMVRName};
 use crate::types::Network;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
@@ -25,11 +26,11 @@ pub(crate) async fn mvr_forward_resolution(
     let registry = SuiAddress::from_str(MVR_REGISTRY).unwrap();
     let mvr_core = SuiAddress::from_str(MVR_CORE).unwrap();
 
-    let parsed_name = mvr_types::name::VersionedName::from_str(mvr_name).unwrap();
+    let parsed_name =
+        mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
     if parsed_name.version.is_some() {
-        return Err(InternalError::InvalidParameter);
+        return Err(InvalidMVRName);
     }
-    let mvr_name = json!(parsed_name.name);
 
     let dynamic_field_name = DynamicFieldName {
         type_: TypeTag::Struct(Box::new(StructTag {
@@ -38,26 +39,26 @@ pub(crate) async fn mvr_forward_resolution(
             name: Identifier::from_str("Name").unwrap(),
             type_params: vec![],
         })),
-        value: mvr_name,
+        value: json!(parsed_name.name),
     };
 
     let dynamic_field = client
         .read_api()
         .get_dynamic_field_object(registry.into(), dynamic_field_name)
         .await
-        .unwrap()
+        .map_err(|_| InvalidMVRName)?
         .data
-        .unwrap()
+        .ok_or(Failure)?
         .content
-        .unwrap();
+        .ok_or(Failure)?;
 
     let package_address_as_str = match dynamic_field {
         SuiParsedData::MoveObject(obj) => obj.fields.to_json_value()["value"]["app_info"]
             ["package_address"]
             .as_str()
-            .unwrap()
+            .ok_or(Failure)?
             .to_string(),
-        SuiParsedData::Package(_) => panic!(),
+        _ => return Err(Failure),
     };
     let package_address = ObjectID::from_str(&package_address_as_str).unwrap();
 
