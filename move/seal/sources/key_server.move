@@ -20,6 +20,7 @@ const KeyTypeBonehFranklinBLS12381: u8 = 0;
 public struct KeyServer has key {
     id: UID,
     first_version: u64,
+    last_version: u64,
 }
 
 public struct KeyServerV1 has store {
@@ -47,7 +48,8 @@ public fun create_v1(
 
     let mut key_server = KeyServer {
         id: object::new(ctx),
-        first_version: 1
+        first_version: 1,
+        last_version: 1,
     };
 
     let key_server_v1 = KeyServerV1 {
@@ -68,7 +70,7 @@ public fun create_v1(
 }
 
 // Helper function to register a key server and transfer the cap to the caller.
-entry fun register_and_transfer_v1(
+entry fun create_and_transfer_v1(
     name: String,
     url: String,
     key_type: u8,
@@ -80,7 +82,7 @@ entry fun register_and_transfer_v1(
 }
 
 public fun v1(s: &KeyServer): &KeyServerV1 {
-    assert!(s.first_version == 1, EInvalidVersion);
+    assert!(df::exists_(&s.id, 1), EInvalidVersion);
     df::borrow(&s.id, 1)
 }
 
@@ -104,6 +106,10 @@ public fun pk(s: &KeyServer): &vector<u8> {
     &v1.pk
 }
 
+public fun id(s: &KeyServer): &UID {
+    &s.id
+}
+
 public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
     let v1: &KeyServerV1 = v1(s);
     assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
@@ -112,7 +118,7 @@ public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
 
 public fun update(s: &mut KeyServer, cap: &Cap, url: String) {
     assert!(object::id(s) == cap.key_server_id, EInvalidCap);
-    assert!(s.first_version == 1, EInvalidVersion);
+    assert!(df::exists_(&s.id, 1), EInvalidVersion);
     let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
     v1.url = url;
 }

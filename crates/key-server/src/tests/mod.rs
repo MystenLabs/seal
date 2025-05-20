@@ -202,7 +202,7 @@ impl SealTestCluster {
                 self.cluster.get_address_0(),
                 package_id,
                 "key_server",
-                "register_and_transfer",
+                "create_and_transfer_v1",
                 vec![],
                 vec![
                     SuiJsonValue::from_str(description).unwrap(),
