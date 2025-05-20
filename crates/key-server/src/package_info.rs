@@ -24,7 +24,7 @@ impl PackageInfo {
 }
 
 /// Get the first and last package IDs for a given package ID.
-/// If an MVR name is provided, it will be checked that this points to the given package ID.
+/// If an MVR name is provided, it will be checked that this points to the first version of the given package.
 pub async fn fetch_package_info(
     pkg_id: ObjectID,
     sui_client: &SuiClient,
