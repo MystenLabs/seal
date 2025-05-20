@@ -147,6 +147,8 @@ license-files = [
 name = "mvr-types"
 version = "*"
 unlicensed = true
+license-files = [
+]
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
