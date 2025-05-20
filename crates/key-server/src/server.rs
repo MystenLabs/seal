@@ -183,8 +183,8 @@ impl Server {
         enc_verification_key: &ElgamalVerificationKey,
         session_sig: &Ed25519Signature,
         cert: &Certificate,
-        req_id: Option<&str>,
         package_name: String,
+        req_id: Option<&str>,
     ) -> Result<(), InternalError> {
         // Check certificate.
         if cert.ttl_min > SESSION_KEY_TTL_MAX
@@ -324,7 +324,7 @@ impl Server {
         .await?;
 
         // The call to seal_approve must be using the latest package ID
-        if package_info.latest != valid_ptb.pkg_id() {
+        if valid_ptb.pkg_id() != package_info.latest {
             debug!(
                 "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
                 package_info.latest,
@@ -341,8 +341,8 @@ impl Server {
             enc_verification_key,
             request_signature,
             certificate,
-            req_id,
             package_info.name(),
+            req_id,
         )
         .await?;
 
