@@ -3,7 +3,7 @@
 
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName};
-use crate::types::Network;
+use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
 use serde_json::json;
@@ -20,31 +20,14 @@ const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6
 /// Given an MVR name, look up the package it points to.
 pub(crate) async fn mvr_forward_resolution(
     client: &SuiClient,
-    _network: &Network,
     mvr_name: &str,
 ) -> Result<ObjectID, InternalError> {
-    let registry = SuiAddress::from_str(MVR_REGISTRY).unwrap();
-    let mvr_core = SuiAddress::from_str(MVR_CORE).unwrap();
-
-    let parsed_name =
-        mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
-    if parsed_name.version.is_some() {
-        return Err(InvalidMVRName);
-    }
-
-    let dynamic_field_name = DynamicFieldName {
-        type_: TypeTag::Struct(Box::new(StructTag {
-            address: mvr_core.into(),
-            module: Identifier::from_str("name").unwrap(),
-            name: Identifier::from_str("Name").unwrap(),
-            type_params: vec![],
-        })),
-        value: json!(parsed_name.name),
-    };
-
     let dynamic_field = client
         .read_api()
-        .get_dynamic_field_object(registry.into(), dynamic_field_name)
+        .get_dynamic_field_object(
+            ObjectID::from_str(MVR_REGISTRY).unwrap(),
+            dynamic_field_name(mvr_name)?,
+        )
         .await
         .map_err(|_| InvalidMVRName)?
         .data
@@ -60,15 +43,31 @@ pub(crate) async fn mvr_forward_resolution(
             .to_string(),
         _ => return Err(Failure),
     };
-    let package_address = ObjectID::from_str(&package_address_as_str).unwrap();
 
-    Ok(package_address)
+    ObjectID::from_str(&package_address_as_str).map_err(|_| Failure)
+}
+
+fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
+    let parsed_name =
+        mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
+    if parsed_name.version.is_some() {
+        return Err(InvalidMVRName);
+    }
+
+    Ok(DynamicFieldName {
+        type_: TypeTag::Struct(Box::new(StructTag {
+            address: AccountAddress::from_str(MVR_CORE).unwrap(),
+            module: Identifier::from_str("name").unwrap(),
+            name: Identifier::from_str("Name").unwrap(),
+            type_params: vec![],
+        })),
+        value: json!(parsed_name.name),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use crate::mvr::mvr_forward_resolution;
-    use crate::types::Network;
     use std::str::FromStr;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
@@ -76,7 +75,7 @@ mod tests {
     #[tokio::test]
     async fn test_forward_resolution() {
         let sui_client = SuiClientBuilder::default().build_mainnet().await.unwrap();
-        let package_id = mvr_forward_resolution(&sui_client, &Network::Mainnet, "@mysten/kiosk")
+        let package_id = mvr_forward_resolution(&sui_client, "@mysten/kiosk")
             .await
             .unwrap();
         assert_eq!(
