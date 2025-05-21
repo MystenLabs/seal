@@ -12,7 +12,7 @@ use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
 use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
-use tap::TapFallible;
+use tap::{Tap, TapFallible};
 use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, (ObjectID, ObjectID)>> =
@@ -42,14 +42,12 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     match CACHE.get(pkg_id) {
         Some((first, latest)) => Ok((first, latest)),
         None => {
-            let graphql_client = Client::new();
-            let url = network.graphql_url();
             let query = serde_json::json!({
                 "query": format!(
                     r#"
                     query {{
                         latestPackage(
-                            address: "{}"
+                            address: "{pkg_id}"
                         ) {{
                             address
                             packageAtVersion(version: 1) {{
@@ -58,29 +56,28 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
                         }}
                     }}
                     "#,
-                    pkg_id
                 )
             });
-            let response = graphql_client.post(url).json(&query).send().await;
-            debug!("Graphql response: {:?}", response);
-            let response = response
+
+            let response = Client::new()
+                .post(network.graphql_url())
+                .json(&query)
+                .send()
+                .await
                 .map_err(|_| InternalError::Failure)?
+                .tap(|r| debug!("Graphql response: {:?}", r))
                 .json::<Value>()
                 .await
                 .map_err(|_| InternalError::Failure)?;
 
             let first = response["data"]["latestPackage"]["packageAtVersion"]["address"]
                 .as_str()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_string();
+                .ok_or(InternalError::Failure)
+                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
             let latest = response["data"]["latestPackage"]["address"]
                 .as_str()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_string();
-            let (first, latest) = (
-                ObjectID::from_str(&first).map_err(|_| InternalError::Failure)?,
-                ObjectID::from_str(&latest).map_err(|_| InternalError::Failure)?,
-            );
+                .ok_or(InternalError::Failure)
+                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
             CACHE.insert(*pkg_id, (first, latest));
             Ok((first, latest))
         }

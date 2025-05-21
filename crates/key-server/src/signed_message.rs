@@ -4,20 +4,19 @@ use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
 use fastcrypto::ed25519::Ed25519PublicKey;
 use serde::{Deserialize, Serialize};
-use sui_types::base_types::ObjectID;
 use sui_types::transaction::ProgrammableTransaction;
 use tracing::debug;
 
 /// The format of the personal message shown to the user.
 pub fn signed_message(
-    pkg_id: &ObjectID, // should use the original package id
+    package_name: String, // should use the original package id
     vk: &Ed25519PublicKey,
     creation_time: u64,
     ttl_min: u16,
 ) -> String {
     let res = format!(
         "Accessing keys of package {} for {} mins from {}, session key {}",
-        pkg_id.to_hex_uncompressed(), // pads with 0x and zeros
+        package_name,
         ttl_min,
         DateTime::<Utc>::from_timestamp((creation_time / 1000) as i64, 0) // convert to seconds
             .expect("tested that in the future"),
@@ -72,7 +71,29 @@ mod tests {
 
         let expected_output = "Accessing keys of package 0x0000c457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5 for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
 
-        let result = signed_message(&pkg_id, kp.public(), creation_time, ttl_min);
+        let result = signed_message(
+            pkg_id.to_hex_uncompressed(),
+            kp.public(),
+            creation_time,
+            ttl_min,
+        );
+        assert_eq!(result, expected_output);
+    }
+
+    #[test]
+    fn test_signed_message_mvr_regression() {
+        let (_, kp): (_, Ed25519KeyPair) = deterministic_random_account_key();
+        let creation_time = 1622548800; // Fixed timestamp
+        let ttl_min = 30;
+
+        let expected_output = "Accessing keys of package @my/package for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
+
+        let result = signed_message(
+            "@my/package".to_string(),
+            kp.public(),
+            creation_time,
+            ttl_min,
+        );
         assert_eq!(result, expected_output);
     }
 

@@ -5,6 +5,7 @@ use crate::errors::InternalError::{
 };
 use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
+use crate::package_info::fetch_package_info;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
@@ -61,6 +62,8 @@ mod types;
 mod valid_ptb;
 
 mod metrics;
+mod mvr;
+mod package_info;
 #[cfg(test)]
 pub mod tests;
 
@@ -94,6 +97,7 @@ struct Certificate {
     pub creation_time: u64,
     pub ttl_min: u16,
     pub signature: GenericSignature,
+    pub mvr_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -173,12 +177,12 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn check_signature(
         &self,
-        pkg_id: &ObjectID,
         ptb: &ProgrammableTransaction,
         enc_key: &ElGamalPublicKey,
         enc_verification_key: &ElgamalVerificationKey,
         session_sig: &Ed25519Signature,
         cert: &Certificate,
+        package_name: String,
         req_id: Option<&str>,
     ) -> Result<(), InternalError> {
         // Check certificate.
@@ -194,7 +198,12 @@ impl Server {
             return Err(InternalError::InvalidCertificate);
         }
 
-        let msg = signed_message(pkg_id, &cert.session_vk, cert.creation_time, cert.ttl_min);
+        let msg = signed_message(
+            package_name,
+            &cert.session_vk,
+            cert.creation_time,
+            cert.ttl_min,
+        );
         debug!(
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
@@ -299,18 +308,25 @@ impl Server {
         gas_price: u64,
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
+        mvr_name: Option<String>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
-        let (first_pkg_id, last_pkg_id) =
-            call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
-            })
-            .await?;
 
-        if valid_ptb.pkg_id() != last_pkg_id {
+        // Get first and last package IDs
+        let package_info = fetch_package_info(
+            valid_ptb.pkg_id(),
+            &self.sui_client,
+            &self.network,
+            mvr_name,
+            metrics,
+        )
+        .await?;
+
+        // The call to seal_approve must be using the latest package ID
+        if valid_ptb.pkg_id() != package_info.latest {
             debug!(
                 "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                last_pkg_id,
+                package_info.latest,
                 valid_ptb.pkg_id(),
                 req_id
             );
@@ -319,12 +335,12 @@ impl Server {
 
         // Check all conditions
         self.check_signature(
-            &first_pkg_id,
             valid_ptb.ptb(),
             enc_key,
             enc_verification_key,
             request_signature,
             certificate,
+            package_info.name(),
             req_id,
         )
         .await?;
@@ -336,7 +352,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first_pkg_id))
+        Ok(valid_ptb.full_ids(&package_info.first))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
@@ -381,7 +397,7 @@ impl Server {
         let local_client = self.sui_client.clone();
         let mut interval = tokio::time::interval(update_interval);
 
-        // In case of a missed tick due to a slow responding full node, we don't need to
+        // In case of a missed tick due to a slow-responding full node, we don't need to
         // catch up but rather just delay the next tick.
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -493,6 +509,7 @@ async fn handle_fetch_key_internal(
             app_state.reference_gas_price(),
             Some(&app_state.metrics),
             req_id,
+            payload.certificate.mvr_name.clone(),
         )
         .await.tap_ok(|_| info!(
             "Valid request: {}",

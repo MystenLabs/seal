@@ -32,7 +32,12 @@ pub(super) fn sign(
     // We use the same eddsa keypair for both the certificate and the request signature
 
     // create the cert
-    let msg_to_sign = signed_message::signed_message(pkg_id, kp.public(), creation_time, ttl_min);
+    let msg_to_sign = signed_message::signed_message(
+        pkg_id.to_hex_uncompressed(),
+        kp.public(),
+        creation_time,
+        ttl_min,
+    );
     let personal_msg = PersonalMessage {
         message: msg_to_sign.as_bytes().to_vec(),
     };
@@ -44,6 +49,7 @@ pub(super) fn sign(
         creation_time,
         ttl_min,
         signature: cert_sig,
+        mvr_name: None,
     };
     // session sig
     let signed_msg = signed_request(ptb, eg_pk, eg_vk);
@@ -67,6 +73,7 @@ pub(crate) async fn get_key(
             &req_sig,
             &cert,
             1000,
+            None,
             None,
             None,
         )

@@ -48,6 +48,7 @@ async fn test_tle_policy() {
                 1000,
                 None,
                 None,
+                None,
             )
             .await;
         assert!(result.is_ok());
@@ -80,6 +81,7 @@ async fn test_tle_policy() {
                 1000,
                 None,
                 None,
+                None,
             )
             .await;
         assert_eq!(result, Err(InternalError::NoAccess));
@@ -109,7 +111,9 @@ async fn test_tle_certificate() {
     // valid cert should work
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
+        .check_request(
+            &valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None, None,
+        )
         .await;
     assert!(result.is_ok());
 
@@ -125,6 +129,7 @@ async fn test_tle_certificate() {
             &req_sig,
             &invalid_cert,
             1000,
+            None,
             None,
             None,
         )
@@ -144,6 +149,7 @@ async fn test_tle_certificate() {
             1000,
             None,
             None,
+            None,
         )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidSignature));
@@ -161,6 +167,7 @@ async fn test_tle_certificate() {
             1000,
             None,
             None,
+            None,
         )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidSignature));
@@ -170,7 +177,9 @@ async fn test_tle_certificate() {
     let (cert, req_sig) = sign(&package_id, &ptb, &pk, &vk, &tc.users[0].keypair, 1, 1);
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
+        .check_request(
+            &valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None, None,
+        )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidCertificate));
 
@@ -187,7 +196,9 @@ async fn test_tle_certificate() {
     );
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
+        .check_request(
+            &valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None, None,
+        )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidCertificate));
 }
@@ -213,14 +224,18 @@ async fn test_tle_signed_request() {
     let valid_ptb = ValidPtb::try_from(ptb).unwrap();
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None)
+        .check_request(
+            &valid_ptb, &pk, &vk, &req_sig, &cert, 1000, None, None, None,
+        )
         .await;
     assert!(result.is_ok());
 
     let (_, pk2, vk2) = elgamal::genkey(&mut thread_rng());
     let result = tc
         .server()
-        .check_request(&valid_ptb, &pk2, &vk2, &req_sig, &cert, 1000, None, None)
+        .check_request(
+            &valid_ptb, &pk2, &vk2, &req_sig, &cert, 1000, None, None, None,
+        )
         .await;
     assert_eq!(result.err(), Some(InternalError::InvalidSessionSignature));
 }
