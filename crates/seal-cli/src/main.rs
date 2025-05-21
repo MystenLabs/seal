@@ -147,6 +147,9 @@ enum Command {
         /// The address for the Move objects representing the key servers used for this decryption.
         #[arg(num_args = 1.., last = true)]
         object_ids: Vec<ObjectID>,
+        /// The hex-encoded public keys for the key servers
+        #[arg(value_parser = parse_serializable::<G2Element, DefaultEncoding>, num_args = 1..)]
+        public_keys: Vec<G2Element>,
     },
     /// Parse a Seal encrypted object.
     /// This outputs the parts of the parsed encrypted object as a hex-encoded BCS serialization.
@@ -257,12 +260,14 @@ fn main() -> FastCryptoResult<()> {
             encrypted_object,
             secret_keys,
             object_ids,
+            public_keys,
         } => DecryptionOutput(seal_decrypt(
             &encrypted_object, // TODO
             &IBEUserSecretKeys::BonehFranklinBLS12381(
                 object_ids.into_iter().zip(secret_keys).collect(),
             ),
-            None,
+            &IBEPublicKeys::BonehFranklinBLS12381(public_keys),
+            true,
         )?)
         .to_string(),
         Command::Parse { encrypted_object } => ParseOutput(encrypted_object).to_string(),

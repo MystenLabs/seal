@@ -17,6 +17,9 @@ use typenum::U16;
 
 pub struct Aes256Gcm;
 
+const ENCRYPTION_DST: &[u8] = &[1];
+const MAC_DST: &[u8] = &[2];
+
 impl Aes256Gcm {
     pub fn encrypt(msg: &[u8], aad: &[u8], key: &[u8; KEY_SIZE]) -> Vec<u8> {
         ExternalAes256Gcm::new(AesKey::from_bytes(key).expect("Never fails for 32 byte input"))
@@ -78,19 +81,23 @@ impl Hmac256Ctr {
 /// Encrypts the message in CTR mode using hmac_sha3_256 as a PRF.
 fn encrypt_in_ctr_mode(key: &[u8; KEY_SIZE], msg: &[u8]) -> Vec<u8> {
     // Derive encryption key
-    let encryption_key = hmac_sha3_256(key, &[1]);
     msg.chunks(KEY_SIZE)
         .enumerate()
-        .flat_map(|(i, ci)| xor_unchecked(ci, &hmac_sha3_256(&encryption_key, &to_bytes(i))))
+        .flat_map(|(i, ci)| {
+            xor_unchecked(
+                ci,
+                &hmac_sha3_256(&key, &[ENCRYPTION_DST, &to_bytes(i)].concat()),
+            )
+        })
         .collect()
 }
 
 fn compute_mac(key: &[u8; KEY_SIZE], aad: &[u8], ciphertext: &[u8]) -> [u8; KEY_SIZE] {
-    // Derive MAC key
-    let mac_key = hmac_sha3_256(key, &[2]);
-
     // The length of the aad may vary, so add the length as a prefix to ensure uniqueness of the input.
-    hmac_sha3_256(&mac_key, &[&to_bytes(aad.len()), aad, ciphertext].concat())
+    hmac_sha3_256(
+        &key,
+        &[MAC_DST, &to_bytes(aad.len()), aad, ciphertext].concat(),
+    )
 }
 
 /// Convenience function for hmac_sha3_256.
@@ -191,9 +198,9 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        let ciphertext: Vec<u8> = hex::decode("b0c4eee6fbd97a2fb86bbd1e0dafa47d2ce5c9e8975a50c2d9eae02ebede8fee6b6434e68584be475b89089fce4c451cbd4c0d6e00dbcae1241abaf237df2eccdd86b890d35e4e8ae9418386012891d8413483d64179ce1d7fe69ad25d546495df54a1").unwrap();
+        let ciphertext: Vec<u8> = hex::decode("ecd9282c3a382caf2c1d34026669724461e50e575c9165a7e05afa41bb3ef88e728591d5cbc6b99f98ac4e2db3879683849dda44de47c85a741d395fb0943cb1fda6358ffc7a9854f845e80ac059ccef89eb5054c73e4be3646273629b79164a3f98e6").unwrap();
         let mac: [u8; KEY_SIZE] =
-            hex::decode("5de3ffdd9d7a258e651ebdba7d80839df2e19ea40cd35b6e1b06375181a0c2f2")
+            hex::decode("20072e4509193a344b7ff465ea1827f2397da461ec94e1fd5e7bfae22b3b9fb9")
                 .unwrap()
                 .try_into()
                 .unwrap();

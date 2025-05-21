@@ -95,7 +95,8 @@ async fn test_e2e() {
     let decryption = seal_decrypt(
         &encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk0, usk1]).collect()),
-        Some(&pks),
+        &pks,
+        true,
     )
     .unwrap();
 
