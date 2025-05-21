@@ -21,7 +21,7 @@ use crypto::ibe::create_proof_of_possession;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Base64, Encoding};
+use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
@@ -621,6 +621,11 @@ async fn add_response_headers(mut response: Response) -> Response {
 #[tokio::main]
 async fn main() -> Result<()> {
     let master_key = env::var("MASTER_KEY").expect("MASTER_KEY must be set");
+    let bytes = if Base64::decode(&master_key).is_ok() {
+        Base64::decode(&master_key).expect("MASTER_KEY should be base64 encoded")
+    } else {
+        Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
+    };
     let object_id = env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
     let network = env::var("NETWORK")
         .map(|n| Network::from_str(&n))
@@ -638,13 +643,8 @@ async fn main() -> Result<()> {
     info!("Starting server, version {}", PACKAGE_VERSION);
 
     let s = Server::new(
-        IbeMasterKey::from_byte_array(
-            &Base64::decode(&master_key)
-                .expect("MASTER_KEY should be base64 encoded")
-                .try_into()
-                .expect("Invalid MASTER_KEY length"),
-        )
-        .expect("Invalid MASTER_KEY value"),
+        IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
+            .expect("Invalid MASTER_KEY value"),
         network,
         ObjectID::from_hex_literal(&object_id).expect("Invalid KEY_SERVER_OBJECT_ID"),
     )
