@@ -9,6 +9,7 @@ use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::groups::bls12381::G1Element;
 use fastcrypto::groups::GroupElement;
 use fastcrypto::serde_helpers::ToFromByteArray;
+use futures::future::join_all;
 use rand::thread_rng;
 use semver::VersionReq;
 use serde_json::json;
@@ -236,35 +237,58 @@ impl SealTestCluster {
         service_objects[0].1
     }
 
-    /// Get the public keys of the key servers with the given Object IDs.
+    /// Get the public keys of the key servers v1 with the given Object IDs.
     pub async fn get_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
+        let futures = object_ids.iter().map(|id| {
+            self.cluster
+                .sui_client()
+                .read_api()
+                .get_dynamic_fields(*id, None, None)
+        });
+
+        let res = join_all(futures).await;
+
+        // filter df that has type KeyServerV1
+        let object_ids = res
+            .into_iter()
+            .filter_map(|page| {
+                page.ok().and_then(|p| {
+                    p.data
+                        .into_iter()
+                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV1"))
+                        .map(|df| df.object_id)
+                })
+            })
+            .collect::<Vec<_>>();
         let objects = self
             .cluster
             .sui_client()
             .read_api()
-            .multi_get_object_with_options(
-                object_ids.to_vec(),
-                SuiObjectDataOptions::full_content(),
-            )
+            .multi_get_object_with_options(object_ids, SuiObjectDataOptions::full_content())
             .await
             .unwrap();
-
         objects
             .into_iter()
             .map(|o| {
-                o.data
+                let value = o
+                    .data
                     .unwrap()
                     .content
                     .unwrap()
                     .try_as_move()
                     .unwrap()
                     .fields
-                    .field_value("pk")
+                    .field_value("value")
                     .unwrap()
-                    .to_json_value()
+                    .to_json_value();
+                let pk = value
+                    .as_object()
+                    .unwrap()
+                    .get("pk")
+                    .unwrap()
                     .as_array()
-                    .unwrap()
-                    .iter()
+                    .unwrap();
+                pk.iter()
                     .map(|v| v.as_u64().unwrap() as u8)
                     .collect::<Vec<_>>()
             })
