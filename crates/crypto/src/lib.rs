@@ -167,7 +167,7 @@ pub fn seal_encrypt(
                     &base_key,
                     &encrypted_shares.concat(),
                     threshold,
-                    &public_keys,
+                    public_keys,
                 ),
             );
             IBEEncryptions::BonehFranklinBLS12381 {

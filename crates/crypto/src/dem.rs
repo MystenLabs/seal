@@ -1,10 +1,11 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::dem::Purpose::{Encryption, MAC};
 use crate::utils::xor_unchecked;
 use crate::KEY_SIZE;
 use fastcrypto::error::FastCryptoError;
-use fastcrypto::hmac::HmacKey;
+use fastcrypto::hmac::{hmac_sha3_256, HmacKey};
 use fastcrypto::{
     aes::{
         Aes256Gcm as ExternalAes256Gcm, AesKey, AuthenticatedCipher, GenericByteArray,
@@ -16,9 +17,6 @@ use fastcrypto::{
 use typenum::U16;
 
 pub struct Aes256Gcm;
-
-const ENCRYPTION_DST: &[u8] = &[1];
-const MAC_DST: &[u8] = &[2];
 
 impl Aes256Gcm {
     pub fn encrypt(msg: &[u8], aad: &[u8], key: &[u8; KEY_SIZE]) -> Vec<u8> {
@@ -83,35 +81,46 @@ fn encrypt_in_ctr_mode(key: &[u8; KEY_SIZE], msg: &[u8]) -> Vec<u8> {
     // Derive encryption key
     msg.chunks(KEY_SIZE)
         .enumerate()
-        .flat_map(|(i, ci)| {
-            xor_unchecked(
-                ci,
-                &hmac_sha3_256(&key, &[ENCRYPTION_DST, &to_bytes(i)].concat()),
-            )
-        })
+        .flat_map(|(i, ci)| xor_unchecked(ci, &hmac(Encryption, key, &to_bytes(i as u64))))
         .collect()
 }
 
 fn compute_mac(key: &[u8; KEY_SIZE], aad: &[u8], ciphertext: &[u8]) -> [u8; KEY_SIZE] {
     // The length of the aad may vary, so add the length as a prefix to ensure uniqueness of the input.
-    hmac_sha3_256(
-        &key,
-        &[MAC_DST, &to_bytes(aad.len()), aad, ciphertext].concat(),
+    hmac(
+        MAC,
+        key,
+        &[&to_bytes(aad.len() as u64), aad, ciphertext].concat(),
     )
 }
 
-/// Convenience function for hmac_sha3_256.
-fn hmac_sha3_256(key: &[u8; KEY_SIZE], data: &[u8]) -> [u8; KEY_SIZE] {
-    fastcrypto::hmac::hmac_sha3_256(
+enum Purpose {
+    Encryption,
+    #[allow(clippy::upper_case_acronyms)]
+    MAC,
+}
+
+impl Purpose {
+    fn dst(&self) -> &[u8] {
+        match self {
+            Encryption => &[1],
+            MAC => &[2],
+        }
+    }
+}
+
+fn hmac(purpose: Purpose, key: &[u8; KEY_SIZE], data: &[u8]) -> [u8; KEY_SIZE] {
+    let data = &[purpose.dst(), data].concat();
+    hmac_sha3_256(
         &HmacKey::from_bytes(key).expect("Never fails for 32 byte input"),
         data,
     )
     .digest
 }
 
-/// Convenience function for converting a usize to a byte array.
-fn to_bytes(n: usize) -> Vec<u8> {
-    bcs::to_bytes(&(n as u64)).expect("Never fails")
+/// Convenience function for converting an u64 to a byte array.
+fn to_bytes(n: u64) -> Vec<u8> {
+    bcs::to_bytes(&n).expect("Never fails")
 }
 
 #[cfg(test)]
