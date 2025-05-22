@@ -3,7 +3,7 @@
 
 use crate::dem::Purpose::{Encryption, MAC};
 use crate::utils::xor_unchecked;
-use crate::KEY_SIZE;
+use crate::{Ciphertext, EncryptionInput, KEY_SIZE};
 use fastcrypto::error::FastCryptoError;
 use fastcrypto::hmac::{hmac_sha3_256, HmacKey};
 use fastcrypto::{
@@ -121,6 +121,36 @@ fn hmac(purpose: Purpose, key: &[u8; KEY_SIZE], data: &[u8]) -> [u8; KEY_SIZE] {
 /// Convenience function for converting an u64 to a byte array.
 fn to_bytes(n: u64) -> Vec<u8> {
     bcs::to_bytes(&n).expect("Never fails")
+}
+
+impl EncryptionInput {
+    pub(crate) fn encrypt(self, key: &[u8; KEY_SIZE]) -> Ciphertext {
+        match self {
+            EncryptionInput::Aes256Gcm { data, aad } => {
+                let blob = Aes256Gcm::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), key);
+                Ciphertext::Aes256Gcm { blob, aad }
+            }
+            EncryptionInput::Hmac256Ctr { data, aad } => {
+                let (blob, mac) = Hmac256Ctr::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), key);
+                Ciphertext::Hmac256Ctr { blob, aad, mac }
+            }
+            EncryptionInput::Plain => Ciphertext::Plain,
+        }
+    }
+}
+
+impl Ciphertext {
+    pub(crate) fn decrypt(&self, key: &[u8; KEY_SIZE]) -> FastCryptoResult<Vec<u8>> {
+        match self {
+            Ciphertext::Aes256Gcm { blob, aad } => {
+                Aes256Gcm::decrypt(blob, aad.as_ref().unwrap_or(&vec![]), key)
+            }
+            Ciphertext::Hmac256Ctr { blob, aad, mac } => {
+                Hmac256Ctr::decrypt(blob, mac, aad.as_ref().unwrap_or(&vec![]), key)
+            }
+            Ciphertext::Plain => Ok(key.to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,10 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::dem::Hmac256Ctr;
 use crate::ibe::{decrypt_deterministic, encrypt_batched_deterministic};
 use crate::tss::{combine, interpolate, SecretSharing};
-use dem::Aes256Gcm;
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
@@ -174,17 +172,7 @@ pub fn seal_encrypt(
         threshold,
         &key_servers,
     );
-    let ciphertext = match encryption_input {
-        EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
-            blob: Aes256Gcm::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key),
-            aad,
-        },
-        EncryptionInput::Hmac256Ctr { data, aad } => {
-            let (blob, mac) = Hmac256Ctr::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key);
-            Ciphertext::Hmac256Ctr { blob, mac, aad }
-        }
-        EncryptionInput::Plain => Ciphertext::Plain,
-    };
+    let ciphertext = encryption_input.encrypt(&dem_key);
 
     Ok((
         EncryptedObject {
@@ -296,18 +284,10 @@ pub fn seal_decrypt(
         &base_key,
         encrypted_shares.ciphertexts(),
         *threshold,
-        &services.into_iter().map(|(id, _)| *id).collect_vec(),
+        &services.iter().map(|(id, _)| *id).collect_vec(),
     );
 
-    match ciphertext {
-        Ciphertext::Aes256Gcm { blob, aad } => {
-            Aes256Gcm::decrypt(blob, aad.as_ref().map_or(&[], |v| v), &dem_key)
-        }
-        Ciphertext::Hmac256Ctr { blob, aad, mac } => {
-            Hmac256Ctr::decrypt(blob, mac, aad.as_ref().map_or(&[], |v| v), &dem_key)
-        }
-        Ciphertext::Plain => Ok(dem_key.to_vec()),
-    }
+    ciphertext.decrypt(&dem_key)
 }
 
 /// Create a full id from the [DST_ID], a package id and an inner id. The result has the following format:
@@ -443,6 +423,7 @@ impl IBEEncryptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dem::{Aes256Gcm, Hmac256Ctr};
     use crate::ibe::{hash_to_g1, PublicKey};
     use fastcrypto::groups::Scalar as ScalarTrait;
     use fastcrypto::{
@@ -740,7 +721,7 @@ mod tests {
         package_id: ObjectID,
         id: Vec<u8>,
         key_servers: Vec<ObjectID>,
-        pks: &Vec<PublicKey>,
+        pks: &[PublicKey],
         threshold: u8,
         encryption_input: EncryptionInput,
     ) -> FastCryptoResult<(EncryptedObject, [u8; KEY_SIZE])> {
