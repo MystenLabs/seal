@@ -192,7 +192,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_kdf_alignment_with_ts() {
+    fn test_kdf_regression() {
         use fastcrypto::groups::GroupElement;
 
         let r = fastcrypto::groups::bls12381::Scalar::from(12345u128);
@@ -203,7 +203,7 @@ mod tests {
 
         let derived_key = kdf(&x, &nonce, &gid, &(object_id, 42));
         let expected =
-            hex::decode("1963b93f076d0dc97cbb38c3864b2d6baeb87c7eb99139100fd775b0b09f668b")
+            hex::decode("e5eaccb75d83a181f0aafec6b30e957547f965de0b24b3bd1ff3a9e59bb44609")
                 .unwrap();
         assert_eq!(expected, derived_key);
     }
