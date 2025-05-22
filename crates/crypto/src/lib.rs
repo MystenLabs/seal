@@ -77,7 +77,7 @@ pub enum Ciphertext {
 pub enum IBEEncryptions {
     BonehFranklinBLS12381 {
         nonce: ibe::Nonce,
-        encrypted_shares: Vec<BonehFranklinBLS12381Ciphertext>,
+        encrypted_shares: Vec<ibe::Ciphertext>,
         encrypted_randomness: [u8; KEY_SIZE],
     },
 }
@@ -96,19 +96,6 @@ pub enum EncryptionInput {
     Aes256Gcm { data: Vec<u8>, aad: Option<Vec<u8>> },
     Hmac256Ctr { data: Vec<u8>, aad: Option<Vec<u8>> },
     Plain,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BonehFranklinBLS12381Ciphertext(ibe::Ciphertext);
-
-trait IBECiphertext {
-    fn to_bytes(&self) -> Vec<u8>;
-}
-
-impl IBECiphertext for BonehFranklinBLS12381Ciphertext {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
 }
 
 /// Encrypt the given plaintext. This is done as follows:
@@ -161,11 +148,6 @@ pub fn seal_encrypt(
             // Use the share index as the `index` parameter for the IBE decryption, allowing to encrypt shares for the same identity to the same public key.
             let (nonce, encrypted_shares) =
                 encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
-
-            let encrypted_shares = encrypted_shares
-                .into_iter()
-                .map(BonehFranklinBLS12381Ciphertext)
-                .collect_vec();
             let encrypted_randomness = ibe::encrypt_randomness(
                 &randomness,
                 &derive_key(
@@ -284,7 +266,7 @@ pub fn seal_decrypt(
                     let index = services[i].1;
                     (index, ibe::decrypt(
                         nonce,
-                        &encrypted_shares[i].0,
+                        &encrypted_shares[i],
                         user_secret_keys
                             .get(&services[i].0)
                             .expect("This shouldn't happen: It's checked above that this secret key is available"),
@@ -361,15 +343,12 @@ impl KeyPurpose {
 fn derive_key(
     purpose: KeyPurpose,
     base_key: &[u8; KEY_SIZE],
-    encrypted_shares: &[impl IBECiphertext],
+    encrypted_shares: &[impl Serialize],
     threshold: u8,
     public_keys: &IBEPublicKeys,
 ) -> [u8; KEY_SIZE] {
     let public_keys = bcs::to_bytes(&public_keys).expect("Never fails");
-    let encrypted_shares = encrypted_shares
-        .iter()
-        .flat_map(IBECiphertext::to_bytes)
-        .collect_vec();
+    let encrypted_shares = bcs::to_bytes(encrypted_shares).expect("Never fails");
     hmac(
         H3_DST,
         purpose,
@@ -452,9 +431,9 @@ impl IBEEncryptions {
                             .iter()
                             .zip(encrypted_shares)
                             .zip(services)
-                            .map(|((pk, s), service)| {
-                                decrypt_deterministic(&nonce, &s.0, pk, full_id, service)
-                                    .map(|s| (service.1, s))
+                            .map(|((pk, ciphertext), service)| {
+                                decrypt_deterministic(&nonce, ciphertext, pk, full_id, service)
+                                    .map(|plaintext| (service.1, plaintext))
                             })
                             .collect::<FastCryptoResult<_>>()
                     }
@@ -464,7 +443,7 @@ impl IBEEncryptions {
     }
 
     /// Returns a binary representation of all encrypted shares.
-    fn ciphertexts(&self) -> &Vec<impl IBECiphertext> {
+    fn ciphertexts(&self) -> &Vec<impl Serialize> {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
@@ -760,7 +739,7 @@ mod tests {
                 mut encrypted_shares,
                 encrypted_randomness,
             } => {
-                encrypted_shares[2].0[0] = encrypted_shares[2].0[0].wrapping_add(1);
+                encrypted_shares[2][0] = encrypted_shares[2][0].wrapping_add(1);
                 IBEEncryptions::BonehFranklinBLS12381 {
                     nonce,
                     encrypted_shares,
