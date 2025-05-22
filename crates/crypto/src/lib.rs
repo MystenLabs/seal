@@ -32,9 +32,6 @@ pub const DST_ID: &[u8] = b"SUI-SEAL-IBE-BLS12381-00";
 /// The domain separation tag for the hash-to-group function.
 pub const DST_POP: &[u8] = b"SUI-SEAL-IBE-BLS12381-POP-00";
 
-/// Domain separation tag for [ibe::hash_to_g1]
-pub const DST_HASH_TO_G1: &[u8] = b"SUI-SEAL-IBE-BLS12381-H1-00";
-
 /// Domain separation tag for [ibe::kdf]
 pub const DST_KDF: &[u8] = b"SUI-SEAL-IBE-BLS12381-H2-00";
 
