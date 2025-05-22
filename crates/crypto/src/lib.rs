@@ -785,25 +785,25 @@ mod tests {
 
         // Encrypt the shares using the IBE keys.
         // Use the share index as the `index` parameter for the IBE decryption, allowing to encrypt shares for the same identity to the same public key.
-        let (nonce, mut encrypted_shares) =
+        let (nonce, mut ciphertexts) =
             encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
 
         // Modify the first share
-        encrypted_shares[0][0] = encrypted_shares[0][0].wrapping_add(1);
+        ciphertexts[0][0] = ciphertexts[0][0].wrapping_add(1);
 
         let encrypted_randomness = ibe::encrypt_randomness(
             &randomness,
             &derive_key(
                 KeyPurpose::EncryptedRandomness,
                 &base_key,
-                &encrypted_shares,
+                &ciphertexts,
                 threshold,
                 &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
             ),
         );
-        let shares = IBEEncryptions::BonehFranklinBLS12381 {
+        let encrypted_shares = IBEEncryptions::BonehFranklinBLS12381 {
             nonce,
-            encrypted_shares,
+            encrypted_shares: ciphertexts,
             encrypted_randomness,
         };
 
@@ -811,7 +811,7 @@ mod tests {
         let dem_key = derive_key(
             KeyPurpose::DEM,
             &base_key,
-            shares.ciphertexts(),
+            encrypted_shares.ciphertexts(),
             threshold,
             &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
         );
@@ -835,7 +835,7 @@ mod tests {
                 id,
                 services,
                 threshold,
-                encrypted_shares: shares,
+                encrypted_shares,
                 ciphertext,
             },
             dem_key,
