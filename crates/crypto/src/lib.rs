@@ -34,13 +34,13 @@ pub const DST_ID: &[u8] = b"SUI-SEAL-IBE-BLS12381-ID-00";
 pub const DST_POP: &[u8] = b"SUI-SEAL-IBE-BLS12381-POP-00";
 
 /// Domain separation tag for [ibe::hash_to_g1]
-pub const HASH_TO_G1_DST: &[u8] = b"SUI-SEAL-IBE-BLS12381-H1-00";
+pub const DST_HASH_TO_G1: &[u8] = b"SUI-SEAL-IBE-BLS12381-H1-00";
 
 /// Domain separation tag for [ibe::kdf]
-pub const KDF_DST: &[u8] = b"SUI-SEAL-IBE-BLS12381-H2-00";
+pub const DST_KDF: &[u8] = b"SUI-SEAL-IBE-BLS12381-H2-00";
 
 /// Domain separation tag for [ibe::derive_key]
-pub const DERIVE_KEY_DST: &[u8] = b"SUI-SEAL-IBE-BLS12381-H3-00";
+pub const DST_DERIVE_KEY: &[u8] = b"SUI-SEAL-IBE-BLS12381-H3-00";
 
 pub const KEY_SIZE: usize = 32;
 
@@ -350,7 +350,7 @@ fn derive_key(
     let public_keys = bcs::to_bytes(&public_keys).expect("Never fails");
     let encrypted_shares = bcs::to_bytes(encrypted_shares).expect("Never fails");
     let data = &[
-        DERIVE_KEY_DST,
+        DST_DERIVE_KEY,
         purpose.tag(),
         &encrypted_shares,
         &[threshold],
