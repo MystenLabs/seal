@@ -314,6 +314,9 @@ impl KeyPurpose {
 }
 
 /// Derive a key for a specific purpose from the base key.
+///
+/// Note that in the paper, the public keys are used instead of the object id's of the key servers,
+/// but since there is a 1-1 mapping between the two, we can use the object id's instead.
 fn derive_key(
     purpose: KeyPurpose,
     base_key: &[u8; KEY_SIZE],
