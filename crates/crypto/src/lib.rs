@@ -98,17 +98,6 @@ pub enum EncryptionInput {
     Plain,
 }
 
-impl IBEEncryptions {
-    /// Returns a binary representation of all encrypted shares.
-    pub fn get_encrypted_shares(&self) -> Vec<u8> {
-        match self {
-            IBEEncryptions::BonehFranklinBLS12381 {
-                encrypted_shares, ..
-            } => encrypted_shares.concat(),
-        }
-    }
-}
-
 /// Encrypt the given plaintext. This is done as follows:
 ///  - Generate a random AES key and encrypt the message under this key,
 ///  - Secret share the key with one share per key-server using the protocol defined in the tss module,
@@ -182,7 +171,7 @@ pub fn seal_encrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        &encrypted_shares.get_encrypted_shares(),
+        &encrypted_shares.get_encrypted_shares_as_bytes(),
         threshold,
         public_keys,
     );
@@ -307,7 +296,7 @@ pub fn seal_decrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        &encrypted_shares.get_encrypted_shares(),
+        &encrypted_shares.get_encrypted_shares_as_bytes(),
         *threshold,
         public_keys,
     );
@@ -415,7 +404,7 @@ impl IBEEncryptions {
                     &derive_key(
                         KeyPurpose::EncryptedRandomness,
                         base_key,
-                        &self.get_encrypted_shares(),
+                        &self.get_encrypted_shares_as_bytes(),
                         threshold,
                         public_keys,
                     ),
@@ -440,6 +429,15 @@ impl IBEEncryptions {
                     }
                 }
             }
+        }
+    }
+
+    /// Returns a binary representation of all encrypted shares.
+    pub fn get_encrypted_shares_as_bytes(&self) -> Vec<u8> {
+        match self {
+            IBEEncryptions::BonehFranklinBLS12381 {
+                encrypted_shares, ..
+            } => encrypted_shares.concat(),
         }
     }
 }
