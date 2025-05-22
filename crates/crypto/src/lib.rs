@@ -144,7 +144,7 @@ pub fn seal_encrypt(
             let randomness = ibe::Randomness::rand(&mut rng);
 
             // Encrypt the shares using the IBE keys.
-            // Use the share index as the `index` parameter for the IBE decryption, allowing to encrypt shares for the same identity to the same public key.
+            // Use the share index as the `index` parameter for the IBE decryption, allowing encrypting shares for the same identity to the same public key.
             let (nonce, encrypted_shares) =
                 encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
             let encrypted_randomness = ibe::encrypt_randomness(
@@ -338,7 +338,7 @@ impl KeyPurpose {
     }
 }
 
-/// Derive a key for a specific purpose from the base key. The `encrypted_shares` is a concatenation of all encrypted shares.
+/// Derive a key for a specific purpose from the base key.
 fn derive_key(
     purpose: KeyPurpose,
     base_key: &[u8; KEY_SIZE],
@@ -357,9 +357,8 @@ fn derive_key(
 }
 
 impl IBEEncryptions {
-    /// Given all shares, check that the shares are consistent,
-    /// e.g., check that all subsets of shares would reconstruct the same polynomial.
-    /// Return the reconstructed secret, aka the base key.
+    /// Given all shares, check that the shares are consistent, e.g., check that all subsets of shares would reconstruct the same polynomial.
+    /// Returns the reconstructed secret which in this case is the base key.
     fn combine_and_check_share_consistency(
         &self,
         shares: &[(u8, [u8; KEY_SIZE])],
