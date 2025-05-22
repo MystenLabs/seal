@@ -101,7 +101,7 @@ enum Purpose {
 }
 
 impl Purpose {
-    fn dst(&self) -> &[u8] {
+    fn tag(&self) -> &[u8] {
         match self {
             Encryption => &[1],
             MAC => &[2],
@@ -110,7 +110,7 @@ impl Purpose {
 }
 
 fn hmac(purpose: Purpose, key: &[u8; KEY_SIZE], data: &[u8]) -> [u8; KEY_SIZE] {
-    let data = &[purpose.dst(), data].concat();
+    let data = &[purpose.tag(), data].concat();
     hmac_sha3_256(
         &HmacKey::from_bytes(key).expect("Never fails for 32 byte input"),
         data,
