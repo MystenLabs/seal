@@ -5,7 +5,7 @@
 //! It enables a symmetric key to be derived from the identity + the public key of a user and used to encrypt a fixed size message of length [KEY_LENGTH].
 
 use crate::utils::xor;
-use crate::{DST_KDF, DST_POP, KEY_SIZE};
+use crate::{DST_ID, DST_KDF, DST_POP, KEY_SIZE};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::bls12381::{G1Element, G2Element, GTElement, Scalar};
@@ -40,7 +40,7 @@ pub fn public_key_from_master_key(master_key: &MasterKey) -> PublicKey {
 
 /// Extract a user secret key from a master key and an id.
 pub fn extract(master_key: &MasterKey, id: &[u8]) -> UserSecretKey {
-    G1Element::hash_to_group_element(id) * master_key
+    hash_to_g1(id) * master_key
 }
 
 /// Verify that a user secret key is valid for a given public key and id.
@@ -49,9 +49,7 @@ pub fn verify_user_secret_key(
     id: &[u8],
     public_key: &PublicKey,
 ) -> FastCryptoResult<()> {
-    if user_secret_key.pairing(&G2Element::generator())
-        == G1Element::hash_to_group_element(id).pairing(public_key)
-    {
+    if user_secret_key.pairing(&G2Element::generator()) == hash_to_g1(id).pairing(public_key) {
         Ok(())
     } else {
         Err(InvalidInput)
@@ -72,7 +70,7 @@ pub fn encrypt_batched_deterministic(
         return Err(InvalidInput);
     }
 
-    let gid = G1Element::hash_to_group_element(id);
+    let gid = hash_to_g1(id);
     let gid_r = gid * randomness;
     let nonce = G2Element::generator() * randomness;
     Ok((
@@ -97,7 +95,7 @@ pub fn decrypt(
     id: &[u8],
     info: &Info,
 ) -> Plaintext {
-    let gid = G1Element::hash_to_group_element(id);
+    let gid = hash_to_g1(id);
     xor(
         ciphertext,
         &kdf(&secret_key.pairing(nonce), nonce, &gid, info),
@@ -121,13 +119,17 @@ pub fn decrypt_deterministic(
     id: &[u8],
     info: &Info,
 ) -> FastCryptoResult<Plaintext> {
-    let gid = G1Element::hash_to_group_element(id);
+    let gid = hash_to_g1(id);
     let gid_r = gid * randomness;
     let nonce = G2Element::generator() * randomness;
     Ok(xor(
         ciphertext,
         &kdf(&gid_r.pairing(public_key), &nonce, &gid, info),
     ))
+}
+
+pub(crate) fn hash_to_g1(id: &[u8]) -> G1Element {
+    G1Element::hash_to_group_element(&[DST_ID, id].concat())
 }
 
 /// Derive a random key from public inputs.
@@ -159,7 +161,8 @@ pub fn decrypt_and_verify_nonce(
     nonce: &Nonce,
 ) -> FastCryptoResult<Randomness> {
     let randomness = Scalar::from_byte_array(&xor(derived_key, encrypted_randomness))?;
-    verify_nonce(&randomness, nonce).map(|()| randomness)
+    verify_nonce(&randomness, nonce)?;
+    Ok(randomness)
 }
 
 pub type ProofOfPossession = G1Element;
@@ -185,12 +188,12 @@ mod tests {
         let r = fastcrypto::groups::bls12381::Scalar::from(12345u128);
         let x = GTElement::generator() * r;
         let nonce = G2Element::generator() * r;
-        let gid = G1Element::hash_to_group_element(&[0]);
+        let gid = hash_to_g1(&[0]);
         let object_id = ObjectID::new([0; 32]);
 
         let derived_key = kdf(&x, &nonce, &gid, &(object_id, 42));
         let expected =
-            hex::decode("5b93aca072116f56cb104f63da2862438d117af2c332c281c8b14d8d868def35")
+            hex::decode("89befdfd6aecdce1305ddbca891d1c29f0507cfd5225cd6b11e52e60f088ea87")
                 .unwrap();
         assert_eq!(expected, derived_key);
     }

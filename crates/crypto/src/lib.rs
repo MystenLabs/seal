@@ -131,7 +131,11 @@ pub fn seal_encrypt(
         indices, shares, ..
     } = split(&mut rng, base_key, threshold, number_of_shares)?;
 
-    let services = key_servers.into_iter().zip(indices).collect::<Vec<_>>();
+    let services = key_servers
+        .iter()
+        .zip(indices)
+        .map(|(s, i)| (*s, i))
+        .collect::<Vec<_>>();
 
     let encrypted_shares = match public_keys {
         IBEPublicKeys::BonehFranklinBLS12381(pks) => {
@@ -151,7 +155,7 @@ pub fn seal_encrypt(
                     &base_key,
                     &encrypted_shares,
                     threshold,
-                    public_keys,
+                    &key_servers,
                 ),
             );
             IBEEncryptions::BonehFranklinBLS12381 {
@@ -168,7 +172,7 @@ pub fn seal_encrypt(
         &base_key,
         encrypted_shares.ciphertexts(),
         threshold,
-        public_keys,
+        &key_servers,
     );
     let ciphertext = match encryption_input {
         EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
@@ -209,8 +213,7 @@ pub fn seal_encrypt(
 pub fn seal_decrypt(
     encrypted_object: &EncryptedObject,
     user_secret_keys: &IBEUserSecretKeys,
-    public_keys: &IBEPublicKeys,
-    check_consistency: bool,
+    public_keys: Option<&IBEPublicKeys>,
 ) -> FastCryptoResult<Vec<u8>> {
     let EncryptedObject {
         version,
@@ -275,7 +278,7 @@ pub fn seal_decrypt(
     };
 
     // Create the base key from the shares
-    let base_key = if check_consistency {
+    let base_key = if let Some(public_keys) = public_keys {
         encrypted_shares.combine_and_check_share_consistency(
             &shares,
             &full_id,
@@ -293,7 +296,7 @@ pub fn seal_decrypt(
         &base_key,
         encrypted_shares.ciphertexts(),
         *threshold,
-        public_keys,
+        &services.into_iter().map(|(id, _)| *id).collect_vec(),
     );
 
     match ciphertext {
@@ -310,12 +313,7 @@ pub fn seal_decrypt(
 /// Create a full id from the [DST_ID], a package id and an inner id. The result has the following format:
 /// [len(DST)][DST][package_id][id]
 pub fn create_full_id(package_id: &[u8; 32], id: &[u8]) -> Vec<u8> {
-    assert!(DST_ID.len() < 256);
-    let mut full_id = vec![DST_ID.len() as u8];
-    full_id.extend_from_slice(DST_ID);
-    full_id.extend_from_slice(package_id);
-    full_id.extend_from_slice(id);
-    full_id
+    [package_id, id].concat()
 }
 
 /// An enum representing the different purposes of the derived key.
@@ -341,7 +339,7 @@ fn derive_key(
     base_key: &[u8; KEY_SIZE],
     encrypted_shares: &[impl Serialize],
     threshold: u8,
-    public_keys: &IBEPublicKeys,
+    key_server_ids: &[ObjectID],
 ) -> [u8; KEY_SIZE] {
     let mut hash = Sha3_256::new();
     hash.update(DST_DERIVE_KEY);
@@ -349,7 +347,7 @@ fn derive_key(
     hash.update(purpose.tag());
     hash.update(bcs::to_bytes(encrypted_shares).expect("Never fails"));
     hash.update([threshold]);
-    hash.update(bcs::to_bytes(&public_keys).expect("Never fails"));
+    hash.update(bcs::to_bytes(&key_server_ids).expect("Never fails"));
     hash.finalize().digest
 }
 
@@ -406,7 +404,7 @@ impl IBEEncryptions {
                         base_key,
                         self.ciphertexts(),
                         threshold,
-                        public_keys,
+                        &services.iter().map(|(id, _)| *id).collect_vec(),
                     ),
                     nonce,
                 )?;
@@ -445,25 +443,22 @@ impl IBEEncryptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ibe::PublicKey;
+    use crate::ibe::{hash_to_g1, PublicKey};
     use fastcrypto::groups::Scalar as ScalarTrait;
     use fastcrypto::{
         encoding::{Base64, Encoding},
-        groups::{
-            bls12381::{G1Element, Scalar},
-            HashToGroupElement,
-        },
+        groups::bls12381::Scalar,
         serde_helpers::ToFromByteArray,
     };
     use std::str::FromStr;
 
     #[test]
     fn test_hash_with_prefix_regression() {
-        let hash = G1Element::hash_to_group_element(&create_full_id(
+        let hash = hash_to_g1(&create_full_id(
             &ObjectID::from_bytes([0u8; 32]).unwrap(),
             &[1, 2, 3, 4],
         ));
-        assert_eq!(hex::encode(hash.to_byte_array()), "b32685b6ffd1f373faf3abb10c05772e033f75da8af729c3611d81aea845670db48ceadd0132d3a667dbbaa36acefac7");
+        assert_eq!(hex::encode(hash.to_byte_array()), "a2f2624fda29c88ccacd286b560572d8c1261a5687e0c0cdbdcbef93bf0ec5c373563fac64a2cb5bb326cc6181ee65d7");
     }
 
     #[test]
@@ -506,7 +501,7 @@ mod tests {
                 .map(|(s, kp)| (s, ibe::extract(&kp.0, &full_id)))
                 .collect(),
         );
-        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, &public_keys, true).unwrap();
+        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap();
 
         assert_eq!(data, decrypted.as_slice());
 
@@ -519,7 +514,7 @@ mod tests {
                     Some(ref mut aad) => aad.push(0),
                 }
                 assert!(
-                    seal_decrypt(&modified_encrypted, &user_secret_keys, &public_keys, true)
+                    seal_decrypt(&modified_encrypted, &user_secret_keys, Some(&public_keys))
                         .is_err()
                 );
             }
@@ -567,7 +562,7 @@ mod tests {
                 .map(|(s, kp)| (s, ibe::extract(&kp.0, &full_id)))
                 .collect(),
         );
-        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, &public_keys, true).unwrap();
+        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap();
 
         assert_eq!(data, decrypted.as_slice());
 
@@ -580,7 +575,7 @@ mod tests {
                     Some(ref mut aad) => aad.push(0),
                 }
                 assert!(
-                    seal_decrypt(&modified_encrypted, &user_secret_keys, &public_keys, true)
+                    seal_decrypt(&modified_encrypted, &user_secret_keys, Some(&public_keys))
                         .is_err()
                 );
             }
@@ -626,8 +621,7 @@ mod tests {
             seal_decrypt(
                 &encrypted,
                 &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-                &public_keys,
-                true
+                Some(&public_keys),
             )
             .unwrap()
         );
@@ -675,8 +669,7 @@ mod tests {
         let decrypted = seal_decrypt(
             &encryption,
             &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-            &IBEPublicKeys::BonehFranklinBLS12381(public_keys),
-            true,
+            Some(&IBEPublicKeys::BonehFranklinBLS12381(public_keys)),
         )
         .unwrap();
 
@@ -728,8 +721,7 @@ mod tests {
         assert!(seal_decrypt(
             &encrypted,
             &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from(usks)),
-            &public_keys,
-            true,
+            Some(&public_keys),
         )
         .is_err());
 
@@ -737,13 +729,10 @@ mod tests {
         let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([usks[1], usks[2]]));
 
         // Decryption with the last two, valid, shares succeeds.
-        assert_eq!(
-            seal_decrypt(&encrypted, &usks, &public_keys, false).unwrap(),
-            data
-        );
+        assert_eq!(seal_decrypt(&encrypted, &usks, None).unwrap(), data);
 
         // But not if we also check the share consistency
-        assert!(seal_decrypt(&encrypted, &usks, &public_keys, true)
+        assert!(seal_decrypt(&encrypted, &usks, Some(&public_keys))
             .is_err_and(|e| e == GeneralError("Inconsistent shares".to_string())));
     }
 
@@ -783,6 +772,8 @@ mod tests {
         // Modify the first share
         ciphertexts[0][0] = ciphertexts[0][0].wrapping_add(1);
 
+        let service_ids = services.iter().map(|(id, _)| *id).collect_vec();
+
         let encrypted_randomness = ibe::encrypt_randomness(
             &randomness,
             &derive_key(
@@ -790,7 +781,7 @@ mod tests {
                 &base_key,
                 &ciphertexts,
                 threshold,
-                &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
+                &service_ids,
             ),
         );
         let encrypted_shares = IBEEncryptions::BonehFranklinBLS12381 {
@@ -805,7 +796,7 @@ mod tests {
             &base_key,
             encrypted_shares.ciphertexts(),
             threshold,
-            &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
+            &service_ids,
         );
         let ciphertext = match encryption_input {
             EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
