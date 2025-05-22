@@ -349,17 +349,15 @@ fn derive_key(
 ) -> [u8; KEY_SIZE] {
     let public_keys = bcs::to_bytes(&public_keys).expect("Never fails");
     let encrypted_shares = bcs::to_bytes(encrypted_shares).expect("Never fails");
-    hmac(
+    let data = &[
         H3_DST,
-        purpose,
-        base_key,
-        &[encrypted_shares, vec![threshold], public_keys].concat(),
-    )
-}
-
-fn hmac(dst: &[u8], purpose: KeyPurpose, key: &[u8; KEY_SIZE], data: &[u8]) -> [u8; KEY_SIZE] {
-    let data = &[dst, purpose.tag(), data].concat();
-    hmac_sha3_256(&HmacKey::from_bytes(key).expect("Fixed length"), data).digest
+        purpose.tag(),
+        &encrypted_shares,
+        &[threshold],
+        &public_keys,
+    ]
+    .concat();
+    hmac_sha3_256(&HmacKey::from_bytes(base_key).expect("Fixed length"), data).digest
 }
 
 impl IBEEncryptions {
