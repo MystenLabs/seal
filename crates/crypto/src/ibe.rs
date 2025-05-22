@@ -5,7 +5,7 @@
 //! It enables a symmetric key to be derived from the identity + the public key of a user and used to encrypt a fixed size message of length [KEY_LENGTH].
 
 use crate::utils::xor;
-use crate::{DST_POP, H1_DST, H2_DST, KEY_SIZE};
+use crate::{DST_POP, HASH_TO_G1_DST, KDF_DST, KEY_SIZE};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::bls12381::{G1Element, G2Element, GTElement, Scalar};
@@ -136,7 +136,7 @@ fn kdf(
     gid: &G1Element,
     (object_id, index): &Info,
 ) -> [u8; KEY_SIZE] {
-    let mut bytes = H2_DST.to_vec();
+    let mut bytes = KDF_DST.to_vec();
     bytes.extend_from_slice(&input.to_byte_array());
     bytes.extend_from_slice(&nonce.to_byte_array()); // 96 bytes
     bytes.extend_from_slice(&gid.to_byte_array()); // 48 bytes
@@ -172,7 +172,7 @@ pub fn decrypt_and_verify_nonce(
 
 /// Hash an ID to a G1 group element.
 fn hash_to_g1(id: &[u8]) -> G1Element {
-    G1Element::hash_to_group_element(&[H1_DST, id].concat())
+    G1Element::hash_to_group_element(&[HASH_TO_G1_DST, id].concat())
 }
 
 pub type ProofOfPossession = G1Element;
