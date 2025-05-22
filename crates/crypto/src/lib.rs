@@ -263,15 +263,15 @@ pub fn seal_decrypt(
             service_indices
                 .into_iter()
                 .map(|i| {
-                    let index = services[i].1;
+                    let (object_id, index) = services[i];
                     (index, ibe::decrypt(
                         nonce,
                         &encrypted_shares[i],
                         user_secret_keys
-                            .get(&services[i].0)
+                            .get(&object_id)
                             .expect("This shouldn't happen: It's checked above that this secret key is available"),
                         &full_id,
-                        &services[i],
+                        &(object_id, index),
                     ))
                 })
                 .collect_vec()
@@ -352,7 +352,7 @@ fn derive_key(
     hmac(
         H3_DST,
         purpose,
-        &base_key,
+        base_key,
         &[encrypted_shares, vec![threshold], public_keys].concat(),
     )
 }
@@ -443,7 +443,7 @@ impl IBEEncryptions {
     }
 
     /// Returns a binary representation of all encrypted shares.
-    fn ciphertexts(&self) -> &Vec<impl Serialize> {
+    fn ciphertexts(&self) -> &[impl Serialize] {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
