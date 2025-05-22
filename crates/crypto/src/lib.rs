@@ -407,7 +407,7 @@ impl IBEEncryptions {
                 nonce,
             } => {
                 // Decrypt encrypted nonce,
-                let nonce = ibe::decrypt_and_verify_nonce(
+                let randomness = ibe::decrypt_and_verify_nonce(
                     encrypted_randomness,
                     &derive_key(
                         KeyPurpose::EncryptedRandomness,
@@ -430,7 +430,7 @@ impl IBEEncryptions {
                             .zip(encrypted_shares)
                             .zip(services)
                             .map(|((pk, ciphertext), service)| {
-                                decrypt_deterministic(&nonce, ciphertext, pk, full_id, service)
+                                decrypt_deterministic(&randomness, ciphertext, pk, full_id, service)
                                     .map(|plaintext| (service.1, plaintext))
                             })
                             .collect::<FastCryptoResult<_>>()
