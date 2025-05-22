@@ -54,12 +54,6 @@ impl Aes256Gcm {
 /// 5. Return <i>mac || c</i>.
 pub struct Hmac256Ctr;
 
-/// Domain separation tags for HMAC CTR encryption.
-pub const DST_ENCRYPTION: &[u8] = b"HMAC-CTR-ENC";
-
-/// Domain separation tags for HMAC CTR MAC.
-pub const DST_MAC: &[u8] = b"HMAC-CTR-MAC";
-
 impl Hmac256Ctr {
     pub fn encrypt(msg: &[u8], aad: &[u8], key: &[u8; 32]) -> (Vec<u8>, [u8; 32]) {
         let ciphertext = encrypt_in_ctr_mode(key, msg);
@@ -100,17 +94,17 @@ fn compute_mac(key: &[u8; KEY_SIZE], aad: &[u8], ciphertext: &[u8]) -> [u8; KEY_
     )
 }
 
+#[allow(clippy::upper_case_acronyms)]
 enum Purpose {
     Encryption,
-    #[allow(clippy::upper_case_acronyms)]
     MAC,
 }
 
 impl Purpose {
     fn tag(&self) -> &[u8] {
         match self {
-            Encryption => DST_ENCRYPTION,
-            MAC => DST_MAC,
+            Encryption => b"HMAC-CTR-ENC",
+            MAC => b"HMAC-CTR-MAC",
         }
     }
 }
