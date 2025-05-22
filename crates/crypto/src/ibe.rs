@@ -10,10 +10,9 @@ use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::bls12381::{G1Element, G2Element, GTElement, Scalar};
 use fastcrypto::groups::{GroupElement, HashToGroupElement, Pairing, Scalar as GenericScalar};
-use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
+use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::AllowedRng;
-use fastcrypto::traits::ToFromBytes;
 use sui_types::base_types::ObjectID;
 
 pub type MasterKey = Scalar;
@@ -136,23 +135,14 @@ fn kdf(
     gid: &G1Element,
     (object_id, index): &Info,
 ) -> [u8; KEY_SIZE] {
-    let mut bytes = DST_KDF.to_vec();
-    bytes.extend_from_slice(&input.to_byte_array());
-    bytes.extend_from_slice(&nonce.to_byte_array()); // 96 bytes
-    bytes.extend_from_slice(&gid.to_byte_array()); // 48 bytes
-
-    let mut info = object_id.to_vec();
-    info.extend_from_slice(&[*index]);
-
-    hkdf_sha3_256(
-        &HkdfIkm::from_bytes(&bytes).expect("not fixed length"),
-        &[], // no salt
-        &info,
-        KEY_SIZE,
-    )
-    .expect("kdf should not fail")
-    .try_into()
-    .expect("same length")
+    let mut hash = Sha3_256::new();
+    hash.update(DST_KDF);
+    hash.update(input.to_byte_array());
+    hash.update(nonce.to_byte_array());
+    hash.update(gid.to_byte_array());
+    hash.update(object_id.as_slice());
+    hash.update([*index]);
+    hash.finalize().digest
 }
 
 /// Encrypt the Randomness using a key.
@@ -203,7 +193,7 @@ mod tests {
 
         let derived_key = kdf(&x, &nonce, &gid, &(object_id, 42));
         let expected =
-            hex::decode("e5eaccb75d83a181f0aafec6b30e957547f965de0b24b3bd1ff3a9e59bb44609")
+            hex::decode("5b93aca072116f56cb104f63da2862438d117af2c332c281c8b14d8d868def35")
                 .unwrap();
         assert_eq!(expected, derived_key);
     }

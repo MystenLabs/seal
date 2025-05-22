@@ -55,10 +55,10 @@ impl Aes256Gcm {
 pub struct Hmac256Ctr;
 
 /// Domain separation tags for HMAC CTR encryption.
-pub const DST_ENCRYPTION: &[u8] = b"HMAC_CTR-ENCRYPTION-00";
+pub const DST_ENCRYPTION: &[u8] = b"ENC";
 
 /// Domain separation tags for HMAC CTR MAC.
-pub const DST_MAC: &[u8] = b"HMAC_CTR-MAC-00";
+pub const DST_MAC: &[u8] = b"MAC";
 
 impl Hmac256Ctr {
     pub fn encrypt(msg: &[u8], aad: &[u8], key: &[u8; 32]) -> (Vec<u8>, [u8; 32]) {
@@ -213,9 +213,9 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        let ciphertext: Vec<u8> = hex::decode("64ce0b8f39185bdfeb7a5db3c1a3d67d6393a5cd56fbcff64a5ccfdf46b407d6538a97a940383b78e354fc00d20054a6af48f551ed6d7f0b3e6ce138006971a7533ed4a82f8b4b4861ed3c0c627e16f1c37708122626e811d46b9e82c9664299268210").unwrap();
+        let ciphertext: Vec<u8> = hex::decode("53ec0ed6b2925ecefb1852e415d05bf98ddaba5596380d245aa546c982453c673fc1326f4d6791dee07659616749adb143715927751eb5bd64af9f6c0be0a2ba367735f7887c5355d0093e311b56eba719b1799638878307710cb83b1a6517fcbd136e").unwrap();
         let mac: [u8; KEY_SIZE] =
-            hex::decode("7c3c0cbb681e1ac421b59d9d8cf1a82ee93d801ab6860c190b0f7057f95b200f")
+            hex::decode("75359c0698a705f78c5400f4481fad11aafa5eaee31f725eff1a5fb20770b87a")
                 .unwrap()
                 .try_into()
                 .unwrap();

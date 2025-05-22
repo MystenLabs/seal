@@ -8,14 +8,13 @@ use dem::Aes256Gcm;
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
-use fastcrypto::hmac::{hmac_sha3_256, HmacKey};
+use fastcrypto::hash::{HashFunction, Sha3_256};
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
 pub use sui_types::base_types::ObjectID;
-use sui_types::crypto::ToFromBytes;
 use tss::split;
 use utils::generate_random_bytes;
 
@@ -347,17 +346,14 @@ fn derive_key(
     threshold: u8,
     public_keys: &IBEPublicKeys,
 ) -> [u8; KEY_SIZE] {
-    let public_keys = bcs::to_bytes(&public_keys).expect("Never fails");
-    let encrypted_shares = bcs::to_bytes(encrypted_shares).expect("Never fails");
-    let data = &[
-        DST_DERIVE_KEY,
-        purpose.tag(),
-        &encrypted_shares,
-        &[threshold],
-        &public_keys,
-    ]
-    .concat();
-    hmac_sha3_256(&HmacKey::from_bytes(base_key).expect("Fixed length"), data).digest
+    let mut hash = Sha3_256::new();
+    hash.update(DST_DERIVE_KEY);
+    hash.update(base_key);
+    hash.update(purpose.tag());
+    hash.update(bcs::to_bytes(encrypted_shares).expect("Never fails"));
+    hash.update([threshold]);
+    hash.update(bcs::to_bytes(&public_keys).expect("Never fails"));
+    hash.finalize().digest
 }
 
 impl IBEEncryptions {
