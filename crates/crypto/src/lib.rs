@@ -78,7 +78,7 @@ pub enum IBEEncryptions {
     BonehFranklinBLS12381 {
         nonce: ibe::Nonce,
         encrypted_shares: Vec<ibe::Ciphertext>,
-        encrypted_randomness: [u8; KEY_SIZE],
+        encrypted_randomness: ibe::EncryptedRandomness,
     },
 }
 

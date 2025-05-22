@@ -23,6 +23,7 @@ pub type Nonce = G2Element;
 pub type Plaintext = [u8; KEY_SIZE];
 pub type Ciphertext = [u8; KEY_SIZE];
 pub type Randomness = Scalar;
+pub type EncryptedRandomness = [u8; KEY_SIZE];
 
 // Additional info for the key derivation. Contains the object id for the key server and the share index.
 pub type Info = (ObjectID, u8);
@@ -155,13 +156,13 @@ fn kdf(
 }
 
 /// Encrypt the Randomness using a key.
-pub fn encrypt_randomness(randomness: &Randomness, key: &[u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
+pub fn encrypt_randomness(randomness: &Randomness, key: &[u8; KEY_SIZE]) -> EncryptedRandomness {
     xor(key, &randomness.to_byte_array())
 }
 
 /// Decrypt the Randomness using a key and verify that the randomness was used to create the given nonce.
 pub fn decrypt_and_verify_nonce(
-    encrypted_randomness: &[u8; KEY_SIZE],
+    encrypted_randomness: &EncryptedRandomness,
     derived_key: &[u8; KEY_SIZE],
     nonce: &Nonce,
 ) -> FastCryptoResult<Randomness> {
