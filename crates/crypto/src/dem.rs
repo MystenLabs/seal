@@ -62,10 +62,8 @@ pub const DST_MAC: &[u8] = b"HMAC_CTR-MAC-00";
 
 impl Hmac256Ctr {
     pub fn encrypt(msg: &[u8], aad: &[u8], key: &[u8; 32]) -> (Vec<u8>, [u8; 32]) {
-        println!("[HMAC256CTR] Encrypting message: {}", hex::encode(key));
         let ciphertext = encrypt_in_ctr_mode(key, msg);
         let mac = compute_mac(key, aad, &ciphertext);
-        println!("[HMAC256CTR] MAC: {}", hex::encode(mac));
         (ciphertext, mac)
     }
 
@@ -75,9 +73,7 @@ impl Hmac256Ctr {
         aad: &[u8],
         key: &[u8; 32],
     ) -> FastCryptoResult<Vec<u8>> {
-        println!("[HMAC256CTR] Decrypting ciphertext: {}", hex::encode(key));
         let actual_mac = compute_mac(key, aad, ciphertext);
-        println!("[HMAC256CTR] Actual MAC: {}", hex::encode(actual_mac));
         if mac != &actual_mac {
             return Err(FastCryptoError::GeneralError("Invalid MAC".to_string()));
         }

@@ -453,6 +453,8 @@ impl IBEEncryptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ibe::PublicKey;
+    use fastcrypto::groups::Scalar as ScalarTrait;
     use fastcrypto::{
         encoding::{Base64, Encoding},
         groups::{
@@ -705,14 +707,14 @@ mod tests {
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
 
         let threshold = 2;
-        let public_keys =
-            IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
+        let pks = keypairs.iter().map(|(_, pk)| *pk).collect_vec();
+        let public_keys = IBEPublicKeys::BonehFranklinBLS12381(pks.clone());
 
-        let mut encrypted = seal_encrypt(
+        let encrypted = seal_encrypt_and_modify_first_share(
             package_id,
             id.clone(),
             services.clone(),
-            &public_keys,
+            &pks,
             threshold,
             EncryptionInput::Hmac256Ctr {
                 data: data.to_vec(),
@@ -730,37 +732,19 @@ mod tests {
             .try_into()
             .unwrap();
 
-        // Modify the last share
-        let encrypted_valid_shares = match encrypted.encrypted_shares.clone() {
-            IBEEncryptions::BonehFranklinBLS12381 {
-                nonce,
-                mut encrypted_shares,
-                encrypted_randomness,
-            } => {
-                encrypted_shares[2][0] = encrypted_shares[2][0].wrapping_add(1);
-                IBEEncryptions::BonehFranklinBLS12381 {
-                    nonce,
-                    encrypted_shares,
-                    encrypted_randomness,
-                }
-            }
-        };
-        encrypted.encrypted_shares = encrypted_valid_shares;
-
         // Decryption fails with all shares
-        // assert!(seal_decrypt(
-        //     &encrypted,
-        //     &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from(usks)),
-        //     &public_keys,
-        //     true,
-        // ).is_err());
+        assert!(seal_decrypt(
+            &encrypted,
+            &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from(usks)),
+            &public_keys,
+            true,
+        )
+        .is_err());
 
-        // Consider only the first two shares
-        let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([usks[0], usks[1]]));
+        // Consider only the last two shares
+        let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([usks[1], usks[2]]));
 
-        // TODO: Fix this test. It now fails not because of share consistency but because the MAC is wrong.
-
-        // Decryption with the first two valid shares succeeds.
+        // Decryption with the last two, valid, shares succeeds.
         assert_eq!(
             seal_decrypt(&encrypted, &usks, &public_keys, false).unwrap(),
             data
@@ -769,5 +753,92 @@ mod tests {
         // But not if we also check the share consistency
         assert!(seal_decrypt(&encrypted, &usks, &public_keys, true)
             .is_err_and(|e| e == GeneralError("Inconsistent shares".to_string())));
+    }
+
+    fn seal_encrypt_and_modify_first_share(
+        package_id: ObjectID,
+        id: Vec<u8>,
+        key_servers: Vec<ObjectID>,
+        pks: &Vec<PublicKey>,
+        threshold: u8,
+        encryption_input: EncryptionInput,
+    ) -> FastCryptoResult<(EncryptedObject, [u8; KEY_SIZE])> {
+        let number_of_shares = key_servers.len() as u8;
+
+        let mut rng = thread_rng();
+        let full_id = create_full_id(&package_id, &id);
+
+        // Generate a random base key
+        let base_key = generate_random_bytes(&mut rng);
+
+        // Secret share the derived key
+        let SecretSharing {
+            indices, shares, ..
+        } = split(&mut rng, base_key, threshold, number_of_shares)?;
+
+        let services = key_servers.into_iter().zip(indices).collect::<Vec<_>>();
+
+        if pks.len() != number_of_shares as usize {
+            return Err(InvalidInput);
+        }
+        let randomness = ibe::Randomness::rand(&mut rng);
+
+        // Encrypt the shares using the IBE keys.
+        // Use the share index as the `index` parameter for the IBE decryption, allowing to encrypt shares for the same identity to the same public key.
+        let (nonce, mut encrypted_shares) =
+            encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
+
+        // Modify the first share
+        encrypted_shares[0][0] = encrypted_shares[0][0].wrapping_add(1);
+
+        let encrypted_randomness = ibe::encrypt_randomness(
+            &randomness,
+            &derive_key(
+                KeyPurpose::EncryptedRandomness,
+                &base_key,
+                &encrypted_shares,
+                threshold,
+                &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
+            ),
+        );
+        let shares = IBEEncryptions::BonehFranklinBLS12381 {
+            nonce,
+            encrypted_shares,
+            encrypted_randomness,
+        };
+
+        // Derive the key used by the DEM
+        let dem_key = derive_key(
+            KeyPurpose::DEM,
+            &base_key,
+            shares.ciphertexts(),
+            threshold,
+            &IBEPublicKeys::BonehFranklinBLS12381(pks.to_owned()),
+        );
+        let ciphertext = match encryption_input {
+            EncryptionInput::Aes256Gcm { data, aad } => Ciphertext::Aes256Gcm {
+                blob: Aes256Gcm::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key),
+                aad,
+            },
+            EncryptionInput::Hmac256Ctr { data, aad } => {
+                let (blob, mac) =
+                    Hmac256Ctr::encrypt(&data, aad.as_ref().unwrap_or(&vec![]), &dem_key);
+                Ciphertext::Hmac256Ctr { blob, mac, aad }
+            }
+            EncryptionInput::Plain => Ciphertext::Plain,
+        };
+
+        Ok((
+            EncryptedObject {
+                version: 0,
+                package_id,
+                id,
+                services,
+                threshold,
+                encrypted_shares: shares,
+                ciphertext,
+            },
+            dem_key,
+        ))
     }
 }
