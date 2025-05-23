@@ -622,21 +622,17 @@ mod tests {
         let inner_id = [1, 2, 3, 4];
 
         let master_keys = [
-            "KPUXJQxoijA276hI6XhNVgIewyaija8UABeFTwEeD6k=",
-            "AwuqCSqP/vHF+/roqrhjzKj070ouLFGWkYr9msDv9eQ=",
-            "JyScQKCG091JJvmedlGFO+lBmsZKynKe3h8jbUlCA7o=",
+            "Kwda8F6gx74GuI9jJdfQ0oYz0s7vC9SnuxdmxTLH9Js=",
+            "CuJQ9kmHZM5GwWLdwo4EB7sRTe5VDWG2oTW+A7bL9/8=",
+            "US97SAq/iHjKWsK7WHzClMWXxKpY6r8l8rGQCAORxCo=",
         ]
         .iter()
         .map(|key| {
             Scalar::from_byte_array(&Base64::decode(key).unwrap().try_into().unwrap()).unwrap()
         })
         .collect::<Vec<_>>();
-        let public_keys = master_keys
-            .iter()
-            .map(ibe::public_key_from_master_key)
-            .collect_vec();
 
-        let encryption = Base64::decode("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAECAwQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM3AgCEgtXcUe2iGMS8zEMEB9YVJo4WbdUuW7uqNBLEJc+xA0pnC6TNep2SGpudVO3gXtAG7W4lSNmc/xMhFv9WDfaTZfppIk7H6IXEmM8aUfjk6TyXtMO2D5T0PzB3HhTNIo4De81Z5tb7mnshJWTjJtHBoeWWUpoSunAGQQAWsGFQ5NK9AnAugziSj/SnS5I042nRGswaeMmTBG5+FyLP1FJPSadWZGTQSZzQGcRVVefDJw5gUxUVMhT+CfesAVHHZKkanKv0UhCEy3EnKc6Bkrl09fSLqo7hTKwqNxCJf9oaHhkAJ81y6phEffQ8F4xsbi87mpR05qGNtzvbyh/Y4PLhhL8yQyy4gxhPHwEEAQIDBA==").unwrap();
+        let encryption = Base64::decode("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAECAwQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPDAgCF6UGhG5cCmXYQjW/QECa1jO6z8IumgpnCGo9vDTRMA7FdVH96wwV0AlY6raDvysUNajaGWttx1GSiflb6VXu2wjwXY+G6JavpXZm2qbWqvviajHxPrqSXmzokY3QKTC0DvSzpZ32OsTJbZejl2G0vEVqIgmM4QcSbeQ9BE9Efh4mwtT2SNWWwHWFTX3hPH6PC51vYt8W5sCTmFLfATenaEpUq2lZaLjVfeI0J+peQkn35A8l6R0JKkajtOIQkCpNeQD6nbmNMPkfLhVbEIGncyTmxjjihIol/xcVmAitQ1LoAJ46uOhyP0jDbmg4JOU3JoKLDqITryCTt2meh2/vJP1ADICsKbMT9IAEEAQIDBA==").unwrap();
         let encryption: EncryptedObject = bcs::from_bytes(&encryption).unwrap();
 
         let object_ids = [
@@ -658,13 +654,12 @@ mod tests {
         let decrypted = seal_decrypt(
             &encryption,
             &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-            Some(&IBEPublicKeys::BonehFranklinBLS12381(public_keys)),
+            None,
         )
         .unwrap();
 
         assert_eq!(decrypted, b"My super secret message");
     }
-
     #[test]
     fn test_share_consistency() {
         let data = b"Hello, World!";
