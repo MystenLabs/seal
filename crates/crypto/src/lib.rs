@@ -334,7 +334,7 @@ fn derive_key(
         hash.update(encrypted_share.as_ref());
     }
     for key_server in key_servers {
-        hash.update(key_server.to_byte_array());
+        hash.update(key_server.as_slice());
     }
     hash.finalize().digest
 }
