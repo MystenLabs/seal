@@ -35,7 +35,7 @@ public(package) fun degree(x: &Polynomial): u64 {
 }
 
 fun reduce(mut x: Polynomial) {
-    while (x.coefficients[x.coefficients.length() - 1] == 0) {
+    while (x.coefficients.length() > 0 && x.coefficients[x.coefficients.length() - 1] == 0) {
         x.coefficients.pop_back();
     };
 }
