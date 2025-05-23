@@ -10,9 +10,7 @@
 ///
 module patterns::subscription;
 
-use sui::clock::Clock;
-use sui::coin::Coin;
-use sui::sui::SUI;
+use sui::{clock::Clock, coin::Coin, sui::SUI};
 
 const EInvalidFee: u64 = 12;
 const ENoAccess: u64 = 77;

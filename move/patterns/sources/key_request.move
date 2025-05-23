@@ -14,8 +14,7 @@
 /// See a test below for an example of how to use this pattern with a whitelist.
 ///
 module patterns::key_request {
-    use std::ascii::String;
-    use std::type_name;
+    use std::{ascii::String, type_name};
     use sui::clock::Clock;
 
     /// KeyRequest object has all the info needed to access a key.

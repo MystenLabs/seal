@@ -15,8 +15,7 @@
 ///
 module patterns::tle;
 
-use sui::bcs::{Self, BCS};
-use sui::clock;
+use sui::{bcs::{Self, BCS}, clock};
 
 const ENoAccess: u64 = 77;
 
