@@ -4,7 +4,8 @@
 /// Implementation of decryption for Seal using Boneh-Franklin over BLS12-381 as KEM and Hmac256Ctr as DEM.
 module seal::bf_hmac_encryption;
 
-use seal::{hmac256ctr, kdf::kdf, key_server::KeyServer, polynomial};
+use seal::{hmac256ctr, kdf::{hash_to_g1_with_dst, kdf}, key_server::KeyServer, polynomial};
+use std::hash::sha3_256;
 use sui::{
     bls12381::{
         G1,
@@ -12,18 +13,15 @@ use sui::{
         Scalar,
         pairing,
         g2_from_bytes,
-        hash_to_g1,
         g2_generator,
         scalar_from_bytes,
         g1_mul,
         g2_mul
     },
-    group_ops::Element,
-    hmac::hmac_sha3_256
+    group_ops::Element
 };
 
-const DST: vector<u8> = b"SUI-SEAL-IBE-BLS12381-00";
-const DST_LENGTH: u8 = 24;
+const DST_DERIVE_KEY: vector<u8> = b"SUI-SEAL-IBE-BLS12381-H3-00";
 
 public struct EncryptedObject has copy, drop, store {
     package_id: address,
@@ -103,7 +101,7 @@ public fun decrypt(
         let symmetric_key = kdf(
             &pairing(&vdk.derived_key, nonce),
             nonce,
-            &hash_to_g1(&full_id),
+            &hash_to_g1_with_dst(&full_id),
             services[*i],
             indices[*i] as u8,
         );
@@ -121,7 +119,16 @@ public fun decrypt(
 
     // The encryption randomness can now be decrypted and used to decrypt the rest of the shares.
     let randomness = scalar_from_bytes(
-        &xor(encrypted_randomness, &derive_key(KeyPurpose::EncryptedRandomness, &base_key)),
+        &xor(
+            encrypted_randomness,
+            &derive_key(
+                KeyPurpose::EncryptedRandomness,
+                &base_key,
+                encrypted_shares,
+                *threshold,
+                services,
+            ),
+        ),
     );
     assert!(nonce == g2_mul(&randomness, &g2_generator()));
     let (remaining_shares, remaining_indices) = decrypt_shares_with_randomness(
@@ -144,7 +151,7 @@ public fun decrypt(
         blob,
         mac,
         &aad.get_with_default(vector[]),
-        &derive_key(KeyPurpose::DEM, &base_key),
+        &derive_key(KeyPurpose::DEM, &base_key, encrypted_shares, *threshold, services),
     )
 }
 
@@ -156,8 +163,6 @@ fun verify_share(polynomials: &vector<polynomial::Polynomial>, share: &vector<u8
 
 fun create_full_id(package_id: address, id: vector<u8>): vector<u8> {
     let mut full_id = vector::empty();
-    full_id.push_back(DST_LENGTH);
-    full_id.append(DST);
     full_id.append(package_id.to_bytes());
     full_id.append(id);
     full_id
@@ -170,11 +175,24 @@ public enum KeyPurpose {
 }
 
 /// Derives a key for a specific purpose from the base key.
-fun derive_key(purpose: KeyPurpose, key: &vector<u8>): vector<u8> {
-    match (purpose) {
-        KeyPurpose::EncryptedRandomness => hmac_sha3_256(key, &vector[0]),
-        KeyPurpose::DEM => hmac_sha3_256(key, &vector[1]),
-    }
+fun derive_key(
+    purpose: KeyPurpose,
+    key: &vector<u8>,
+    encrypted_shares: &vector<vector<u8>>,
+    threshold: u8,
+    key_servers: &vector<address>,
+): vector<u8> {
+    let tag = match (purpose) {
+        KeyPurpose::EncryptedRandomness => vector[0],
+        KeyPurpose::DEM => vector[1],
+    };
+    let mut bytes = DST_DERIVE_KEY;
+    bytes.append(*key);
+    bytes.append(tag);
+    bytes.push_back(threshold);
+    encrypted_shares.do_ref!(|share| bytes.append(*share));
+    key_servers.do_ref!(|key_server| bytes.append((*key_server).to_bytes()));
+    sha3_256(bytes)
 }
 
 fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
@@ -197,8 +215,8 @@ fun decrypt_shares_with_randomness(
     assert!(n == public_keys.length());
     assert!(n == object_ids.length());
 
-    let gid = hash_to_g1(full_id);
-    let gid_r = g1_mul(randomness, &hash_to_g1(full_id));
+    let gid = hash_to_g1_with_dst(full_id);
+    let gid_r = g1_mul(randomness, &gid);
     let mut decrypted_shares = vector::empty();
     let mut remaining_indices = vector::empty();
 
@@ -233,10 +251,10 @@ public fun verify_derived_keys(
     public_keys: &vector<PublicKey>,
 ): vector<VerifiedDerivedKey> {
     assert!(public_keys.length() == derived_keys.length());
-    let hash_of_full_id = hash_to_g1(&create_full_id(package_id, id));
+    let gid = hash_to_g1_with_dst(&create_full_id(package_id, id));
 
     public_keys.zip_map_ref!(derived_keys, |vpk, derived_key| {
-        assert!(verify_derived_key(derived_key, &hash_of_full_id, &vpk.pk));
+        assert!(verify_derived_key(derived_key, &gid, &vpk.pk));
         VerifiedDerivedKey {
             derived_key: *derived_key,
             key_server: vpk.key_server,
@@ -248,10 +266,10 @@ public fun verify_derived_keys(
 
 fun verify_derived_key(
     derived_key: &Element<G1>,
-    hash_of_full_id: &Element<G1>,
+    gid: &Element<G1>,
     public_key: &Element<G2>,
 ): bool {
-    pairing(derived_key, &g2_generator()) == pairing(hash_of_full_id, public_key)
+    pairing(derived_key, &g2_generator()) == pairing(gid, public_key)
 }
 
 /// Deserialize a BCS encoded EncryptedObject.
@@ -387,8 +405,9 @@ fun test_seal_decrypt() {
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
 
+    // sk0 = 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
     let pk0 =
-        x"aeb258b9fb9a2f29f74eb0a1a895860bb1c6ba3f9ea7075366de159e4764413e9ec0597ac9c0dad409723935440a45f40eee4728630ae3ea40a68a819375bba1d78d7810f901d8a469d785d00cfed6bd28f01d41e49c5652d924e9d19fddcf62";
+        x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
     let cap0 = create_v1(
         string::utf8(b"mysten0"),
         string::utf8(b"https://mysten-labs.com"),
@@ -399,8 +418,9 @@ fun test_seal_decrypt() {
     next_tx(&mut scenario, addr1);
     let s0: KeyServer = test_scenario::take_shared(&scenario);
 
+    // sk1 = 09ba20939b2300c5ffa42e71809d3dc405b1e68259704b3cb8e04c36b0033e24
     let pk1 =
-        x"b1076a26f4f82f39d0e767fcd2118659362afe40bce4e8d553258c86756bb74f888bca79f2d6b71edf6e25af89efa83713a223b48a19d2e551897ac92ac7458336cd489be3be025e348ca93f4c94d22594f96f0e08990e51a7de9da8ff29c98f";
+        x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
     let cap1 = create_v1(
         string::utf8(b"mysten1"),
         string::utf8(b"https://mysten-labs.com"),
@@ -411,8 +431,9 @@ fun test_seal_decrypt() {
     next_tx(&mut scenario, addr1);
     let s1: KeyServer = test_scenario::take_shared(&scenario);
 
+    // sk2 = 692071ce90e2eea0ddfe16c5656879fa18b094f0eaa759759f4c3bb20db58cf3
     let pk2 =
-        x"95fcb465af3791f31d53d80db6c8dcf9f83a419b2570614ecfbb068f47613da17cb9ffc66bb052b9546f17196929538f0bd2d38e1f515d9916e2db13dc43e0ccbd4cb3d7cbb13ffecc0b68b37481ebaaaa17cad18096a9c2c27a797f17d78623";
+        x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
     let cap2 = create_v1(
         string::utf8(b"mysten2"),
         string::utf8(b"https://mysten-labs.com"),
@@ -424,14 +445,16 @@ fun test_seal_decrypt() {
     let s2: KeyServer = test_scenario::take_shared(&scenario);
 
     // For reference, the encryption was created with the following CLI command:
-    // cargo run --bin seal-cli encrypt-hmac --message 48656C6C6F2C20776F726C6421 --aad 0x0000000000000000000000000000000000000000000000000000000000000001 --package-id 0x0 --id 0x381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --threshold 2 aeb258b9fb9a2f29f74eb0a1a895860bb1c6ba3f9ea7075366de159e4764413e9ec0597ac9c0dad409723935440a45f40eee4728630ae3ea40a68a819375bba1d78d7810f901d8a469d785d00cfed6bd28f01d41e49c5652d924e9d19fddcf62 b1076a26f4f82f39d0e767fcd2118659362afe40bce4e8d553258c86756bb74f888bca79f2d6b71edf6e25af89efa83713a223b48a19d2e551897ac92ac7458336cd489be3be025e348ca93f4c94d22594f96f0e08990e51a7de9da8ff29c98f 95fcb465af3791f31d53d80db6c8dcf9f83a419b2570614ecfbb068f47613da17cb9ffc66bb052b9546f17196929538f0bd2d38e1f515d9916e2db13dc43e0ccbd4cb3d7cbb13ffecc0b68b37481ebaaaa17cad18096a9c2c27a797f17d78623 -- 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96 0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3 0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97
+    // cargo run --bin seal-cli encrypt-hmac --message 48656C6C6F2C20776F726C6421 --aad 0x0000000000000000000000000000000000000000000000000000000000000001 --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --threshold 2 a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161 a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6 93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651 -- 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96 0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3 0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97
     let encrypted_object =
-        x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab9601d726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97030200b7f57f44e5302b684737612ebf4561ce4b4c5fea496731914f78d402db1c3c712fae396125a150e8eb1582e05a1f98140afc3214db2060c80471d6d97a173407c41fa4ca58396f6f879826e4f78b7f58282c8e48c664c9f8c953ab2e7a727125030fbf02ffa94172ae1a5c5b1be1b8bddb20ea698d49150aa361ed56504daa3c8f6f7bc1e58f024dff40892db134da0b61e58fa82317afa6884ae14f5d739b5e95fc1b56d645b75d60302775aac94d1bf52a103eefbad9cecd61fbbad37c9dbccceeb9007861ee3f34e4a546b7fe6b5b195ef1fee6ba8080d5d228bd721904b0d5010dab6e4eca9b82653721946aac8401200000000000000000000000000000000000000000000000000000000000000001a5fb3bfe499a0fa285e7129a88962e278fc65e821851d4234ada909ac72a77e5";
+        x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab9601d726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97030200b687baf3e9b78786fa50237861cb07f5f25febd790769eec41859f353deed5ab6301cbbf4e2616effe8a04a0b46dd2101531117eed7514e59f9ddbf33119eaeb2fd85c35e9c01cccc5a1d20c7000afbc4ad95ff11de52e098ee129be51d6b63b034693204591c2f2904595850da29007772266e36faecf2385c19daca728d8cd4fa354f4cb57faee6f19bff2d7f2736646bb07048a9355869a6975f0c338030d6d422ddfc436e3d077be2c53b521dd73416e9c57ccf53003456d9bc18c1e9b6020825d9248023240d255fe4897349d2e0a0f5a1c32c68a48c45eba309fd5fa8510010d59416fff28cf98412a42787bbc012000000000000000000000000000000000000000000000000000000000000000017b70af332dbf79873c7fa4996aceec9e9507210e34f0bc3066e7328beedeabc8";
 
+    // cargo run --bin seal-cli extract --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --master-key 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
     let usk0 =
-        x"8244fcbe49870a4d4aa947b7034a873e168580e18b5834ea34940dc9f492eda03a9b20c3c3c120b1a462f1642575e0cc";
+        x"8cb19351dbd351d02292a77a18e2f0f4ec0d3becf23f37cc87e4870bf35522c3e59487e0ee5023d5e2e383e40b77bd98";
+    // cargo run --bin seal-cli extract --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --master-key 09ba20939b2300c5ffa42e71809d3dc405b1e68259704b3cb8e04c36b0033e24
     let usk1 =
-        x"a0f04b759ed2ff477f0fe5b672992235205d2af502f659d4bbb484b745e35fd7a9ff11e37e12111023a891c3fa98a2d3";
+        x"a7f6b22719b8ca2e3bfc07bf22ea59245b4aec7a394020cf826199b3cc71e58045e5d6b52506145851e71370e524c362";
 
     let user_secret_keys = vector[g1_from_bytes(&usk0), g1_from_bytes(&usk1)];
     let pks = vector[get_public_key(&s0), get_public_key(&s1)];

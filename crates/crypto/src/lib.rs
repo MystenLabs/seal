@@ -33,7 +33,7 @@ pub const DST_POP: &[u8] = b"SUI-SEAL-IBE-BLS12381-POP-00";
 /// Domain separation tag for [ibe::kdf]
 pub const DST_KDF: &[u8] = b"SUI-SEAL-IBE-BLS12381-H2-00";
 
-/// Domain separation tag for [ibe::derive_key]
+/// Domain separation tag for [crate::derive_key]
 pub const DST_DERIVE_KEY: &[u8] = b"SUI-SEAL-IBE-BLS12381-H3-00";
 
 pub const KEY_SIZE: usize = 32;
