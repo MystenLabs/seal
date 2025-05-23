@@ -24,10 +24,10 @@ mod polynomial;
 pub mod tss;
 mod utils;
 
-/// The domain separation tag for generating the full id
+/// The domain separation tag for generating H1(id)
 pub const DST_ID: &[u8] = b"SUI-SEAL-IBE-BLS12381-00";
 
-/// The domain separation tag for the hash-to-group function.
+/// The domain separation tag for the hash-to-group unction used in PoP.
 pub const DST_POP: &[u8] = b"SUI-SEAL-IBE-BLS12381-POP-00";
 
 /// Domain separation tag for [ibe::kdf]
@@ -290,8 +290,7 @@ pub fn seal_decrypt(
     ciphertext.decrypt(&dem_key)
 }
 
-/// Create a full id from the [DST_ID], a package id and an inner id. The result has the following format:
-/// [len(DST)][DST][package_id][id]
+/// Create a full id from a package id and an inner id. The result has the following format: [package_id][id].
 pub fn create_full_id(package_id: &[u8; 32], id: &[u8]) -> Vec<u8> {
     [package_id, id].concat()
 }
