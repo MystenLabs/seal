@@ -320,17 +320,22 @@ impl KeyPurpose {
 fn derive_key(
     purpose: KeyPurpose,
     base_key: &[u8; KEY_SIZE],
-    encrypted_shares: &[impl Serialize],
+    encrypted_shares: &[impl AsRef<[u8]>],
     threshold: u8,
-    key_server_ids: &[ObjectID],
+    key_servers: &[ObjectID],
 ) -> [u8; KEY_SIZE] {
+    assert_eq!(encrypted_shares.len(), key_servers.len());
     let mut hash = Sha3_256::new();
     hash.update(DST_DERIVE_KEY);
     hash.update(base_key);
     hash.update(purpose.tag());
-    hash.update(bcs::to_bytes(encrypted_shares).expect("Never fails"));
     hash.update([threshold]);
-    hash.update(bcs::to_bytes(&key_server_ids).expect("Never fails"));
+    for encrypted_share in encrypted_shares {
+        hash.update(encrypted_share.as_ref());
+    }
+    for key_server in key_servers {
+        hash.update(key_server.to_byte_array());
+    }
     hash.finalize().digest
 }
 
@@ -414,7 +419,7 @@ impl IBEEncryptions {
     }
 
     /// Returns a binary representation of all encrypted shares.
-    fn ciphertexts(&self) -> &[impl Serialize] {
+    fn ciphertexts(&self) -> &[impl AsRef<[u8]>] {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
