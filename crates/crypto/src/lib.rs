@@ -432,7 +432,7 @@ impl IBEEncryptions {
 mod tests {
     use super::*;
     use crate::dem::{Aes256Gcm, Hmac256Ctr};
-    use crate::ibe::{hash_to_g1, PublicKey};
+    use crate::ibe::{hash_to_g1, public_key_from_master_key, PublicKey};
     use fastcrypto::groups::Scalar as ScalarTrait;
     use fastcrypto::{
         encoding::{Base64, Encoding},
@@ -622,17 +622,21 @@ mod tests {
         let inner_id = [1, 2, 3, 4];
 
         let master_keys = [
-            "Kwda8F6gx74GuI9jJdfQ0oYz0s7vC9SnuxdmxTLH9Js=",
-            "CuJQ9kmHZM5GwWLdwo4EB7sRTe5VDWG2oTW+A7bL9/8=",
-            "US97SAq/iHjKWsK7WHzClMWXxKpY6r8l8rGQCAORxCo=",
+            "GpR7SBGd3si0yeCtH/Zf5SbMT8b7wwTi532/NPGNCZI=",
+            "bbcjgCVjr8bl3To5S7cQdYEA/o1Tnr4jTk+uZ1ifs8A=",
+            "QHBhV16RiH4JfZBofMLa4yHS4qX6Nv8Je0MlB4W2BV0=",
         ]
         .iter()
         .map(|key| {
             Scalar::from_byte_array(&Base64::decode(key).unwrap().try_into().unwrap()).unwrap()
         })
         .collect::<Vec<_>>();
+        let public_keys = master_keys
+            .iter()
+            .map(|mk| public_key_from_master_key(mk))
+            .collect_vec();
 
-        let encryption = Base64::decode("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAECAwQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPDAgCF6UGhG5cCmXYQjW/QECa1jO6z8IumgpnCGo9vDTRMA7FdVH96wwV0AlY6raDvysUNajaGWttx1GSiflb6VXu2wjwXY+G6JavpXZm2qbWqvviajHxPrqSXmzokY3QKTC0DvSzpZ32OsTJbZejl2G0vEVqIgmM4QcSbeQ9BE9Efh4mwtT2SNWWwHWFTX3hPH6PC51vYt8W5sCTmFLfATenaEpUq2lZaLjVfeI0J+peQkn35A8l6R0JKkajtOIQkCpNeQD6nbmNMPkfLhVbEIGncyTmxjjihIol/xcVmAitQ1LoAJ46uOhyP0jDbmg4JOU3JoKLDqITryCTt2meh2/vJP1ADICsKbMT9IAEEAQIDBA==").unwrap();
+        let encryption = Base64::decode("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAECAwQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMeAgCEy0p0JVyGZjTiAwvuhfbZgRbVf6B/7mt4YBW+QVwzyxJvwg7EWKC3fsVYdwiazbEZrmUt+DVDuTiiIvecSoBHN0eOW5WN77xC9ZX5IDVDqyLgP0/CzLPZav3kQES7HlkDUTPTRQGs51AtW3VBP7XW8eVDynrkuNBIAlmK8VpacwqhfgGc9jEeEyI8Radr3vFWawYpBc9NHdRgvD9GRmqhg0aGM4iKmAvnny2XR2i+O59QCk8K77YYsMPCSybazYjQGnUB2DGYvu/mXWg1dle5PPqH004F0vjlyHbNU+IQ+j4AJ2JiOXauUC7qc6NHcDrPkrdwyo4vMO7sxDK54lb719lK5r0M86MwXQEEAQIDBA==").unwrap();
         let encryption: EncryptedObject = bcs::from_bytes(&encryption).unwrap();
 
         let object_ids = [
@@ -654,7 +658,7 @@ mod tests {
         let decrypted = seal_decrypt(
             &encryption,
             &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-            None,
+            Some(&IBEPublicKeys::BonehFranklinBLS12381(public_keys)),
         )
         .unwrap();
 
