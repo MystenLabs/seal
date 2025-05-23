@@ -40,12 +40,6 @@ pub fn public_key_from_master_key(master_key: &MasterKey) -> PublicKey {
 
 /// Extract a user secret key from a master key and an id.
 pub fn extract(master_key: &MasterKey, id: &[u8]) -> UserSecretKey {
-    println!(
-        "Extracting user secret key for id {} and master key {}/{}",
-        hex::encode(id),
-        hex::encode(master_key.to_byte_array()),
-        hex::encode(public_key_from_master_key(&master_key).to_byte_array())
-    );
     hash_to_g1(id) * master_key
 }
 
