@@ -113,6 +113,7 @@ struct FetchKeyRequest {
 
 type KeyId = Vec<u8>;
 
+/// UNIX timestamp in milliseconds.
 type Timestamp = u64;
 
 #[derive(Serialize, Deserialize)]

@@ -16,12 +16,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
         with:
           fetch-depth: 1
 
       - name: Install Sui
-        uses: cloudposse-github-actions/install-gh-releases@v1.4.0
+        uses: cloudposse-github-actions/install-gh-releases@5a4dcf2f959d64832a8e2fe3e8063e4adac6af88 # pin@v1.4.1
         with:
           config: |-
             mystenlabs/sui:
@@ -29,7 +29,7 @@ jobs:
               arch: x86_64
               extension-matching: true
               tag: testnet-v1.49.1
-            
+
       - name: Run move tests
         run: |
           for dir in move/*; do

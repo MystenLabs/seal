@@ -499,7 +499,7 @@ mod tests {
             Ciphertext::Aes256Gcm { ref mut aad, .. } => {
                 match aad {
                     None => panic!(),
-                    Some(ref mut aad) => aad.push(0),
+                    Some(aad) => aad.push(0),
                 }
                 assert!(
                     seal_decrypt(&modified_encrypted, &user_secret_keys, Some(&public_keys))
@@ -560,7 +560,7 @@ mod tests {
             Ciphertext::Hmac256Ctr { ref mut aad, .. } => {
                 match aad {
                     None => panic!(),
-                    Some(ref mut aad) => aad.push(0),
+                    Some(aad) => aad.push(0),
                 }
                 assert!(
                     seal_decrypt(&modified_encrypted, &user_secret_keys, Some(&public_keys))

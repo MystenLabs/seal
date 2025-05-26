@@ -52,7 +52,10 @@ impl SealTestCluster {
     /// Create a new SealTestCluster with the given number of servers and users.
     /// Key servers are not registered by default. Use `register_key_server` to register them.
     pub async fn new(servers: usize, users: usize) -> Self {
-        let cluster = TestClusterBuilder::new().build().await;
+        let cluster = TestClusterBuilder::new()
+            .with_num_validators(1)
+            .build()
+            .await;
 
         let mut rng = thread_rng();
 

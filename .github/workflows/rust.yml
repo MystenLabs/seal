@@ -34,9 +34,12 @@ jobs:
     name: license-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3
-      - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # pin@v1
-      - run: scripts/license_check.sh
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Install licensesnip
+        uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
+        with:
+          tool: licensesnip@1.7.0
+      - run: licensesnip check
 
   test:
     runs-on: ${{ matrix.os }}
@@ -48,26 +51,24 @@ jobs:
     env:
       RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3
-      - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # pin@v1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Install correct Rust toolchain
+        run: rustup update && rustup toolchain install
       - uses: taiki-e/install-action@d30f7ecb94d4d882276efb3967be14b8ef34d289 # pin@nextest
-      # make sure benches don't bit-rot
-      - name: cargo test
-      # TODO: `cargo nextest run` doesn't work on windows, so we use `cargo test` instead
-        run: cargo test --all-features
-      - name: Doctests
+      - name: Run tests
+        run: cargo nextest run --all-features
+      - name: Run doctests
         run: |
           cargo test --doc --all-features
-      # Ensure there are no uncommitted changes in the repo after running tests
-      - run: scripts/changed-files.sh
+      - name: Check for uncommitted changes
+        run: scripts/changed-files.sh
 
   clippy:
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3
-      - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # pin@v1
-        with:
-          components: clippy
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Install correct Rust toolchain
+        run: rustup update && rustup toolchain install
       # See '.cargo/config' for list of enabled/disabled clippy lints
       - name: cargo clippy
         run: cargo xclippy -D warnings
@@ -75,22 +76,18 @@ jobs:
   rustfmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3
-      - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # pin@v1
-        with:
-          components: rustfmt
-      - name: rustfmt
-        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # pin@v1
-        with:
-          command: fmt
-          args: --all --check
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Install correct Rust toolchain
+        run: rustup update && rustup toolchain install
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
   cargo-deny:
     name: cargo-deny (advisories, licenses, bans, ...)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: EmbarkStudios/cargo-deny-action@v1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # pin@v2
         with:
           command: check
           arguments: --all-features
