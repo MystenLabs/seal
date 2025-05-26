@@ -1,0 +1,56 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-symlinks
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: https://github.com/notken12/licensesnip
+    rev: f01f898
+    hooks:
+      - id: licensesnip
+        args: []
+        pass_filenames: false
+  - repo: https://github.com/EmbarkStudios/cargo-deny
+    rev: 0.18.2
+    hooks:
+      - id: cargo-deny
+        args: ["--all-features", "check", "--hide-inclusion-graph"]
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo-fmt
+        entry: cargo fmt
+        language: rust
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo-test
+        entry: cargo nextest run
+        language: rust
+        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
+        pass_filenames: false
+        verbose: true
+      - id: cargo-doctests
+        name: cargo-doctests
+        entry: cargo test --doc
+        language: rust
+        files: (^crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
+      - id: clippy-with-tests
+        name: clippy-with-tests
+        entry: cargo clippy
+        args: ["--all-features", "--tests", "--", "-D", "warnings"]
+        language: rust
+        files: ^(crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
+      - id: clippy
+        name: clippy
+        entry: cargo clippy
+        args: ["--all-features", "--", "-D", "warnings"]
+        language: rust
+        files: ^(crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false

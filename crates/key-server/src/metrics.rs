@@ -133,14 +133,17 @@ pub(crate) fn call_with_duration<T>(metrics: Option<&Histogram>, closure: impl F
 }
 
 /// Create a callback function which when called will add the input transformed by f to the histogram.
-pub(crate) fn observation_callback<T>(histogram: &Histogram, f: impl Fn(T) -> f64) -> impl Fn(T) {
+pub(crate) fn observation_callback<T, U: Fn(T) -> f64>(
+    histogram: &Histogram,
+    f: U,
+) -> impl Fn(T) + use<T, U> {
     let histogram = histogram.clone();
     move |t| {
         histogram.observe(f(t));
     }
 }
 
-pub(crate) fn status_callback(metrics: &IntCounterVec) -> impl Fn(bool) {
+pub(crate) fn status_callback(metrics: &IntCounterVec) -> impl Fn(bool) + use<> {
     let metrics = metrics.clone();
     move |status: bool| {
         let value = match status {

@@ -158,7 +158,7 @@ fn split_byte<R: AllowedRng>(
     if threshold == 0
         || number_of_shares == 0
         || threshold > number_of_shares
-        || indices.iter().any(|i| *i == 0)
+        || indices.iter().contains(&0)
         || !indices.iter().all_unique()
     {
         return Err(InvalidInput);
