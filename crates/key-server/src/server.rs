@@ -84,7 +84,7 @@ const GAS_BUDGET: u64 = 500_000_000;
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The minimum version of the SDK that is required to use this service.
-const SDK_VERSION_REQUIREMENT: &str = ">=0.3.5";
+const SDK_VERSION_REQUIREMENT: &str = ">=0.4.5";
 
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
