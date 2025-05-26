@@ -15,8 +15,8 @@ importers:
         specifier: ^0.16.2
         version: 0.16.2(@tanstack/react-query@5.71.10(react@19.1.0))(@types/react-dom@19.1.1(@types/react@19.1.0))(@types/react@19.1.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(typescript@5.8.2)
       '@mysten/seal':
-        specifier: 0.4.4
-        version: 0.4.4(typescript@5.8.2)
+        specifier: 0.4.5
+        version: 0.4.5(typescript@5.8.2)
       '@mysten/sui':
         specifier: ^1.29.1
         version: 1.29.1(typescript@5.8.2)
@@ -491,8 +491,8 @@ packages:
       '@tanstack/react-query': ^5.0.0
       react: '*'
 
-  '@mysten/seal@0.4.4':
-    resolution: {integrity: sha512-Rmvm4iWTnnDoQBqCqcDToe4nnubClec2bCXpDBeZeWH0OPtH51aJOKpNy8ulh4M8wGgofsNmQlvgWAaWtboawQ==}
+  '@mysten/seal@0.4.5':
+    resolution: {integrity: sha512-csR5tBuPxA/peVFj6Z9Ir1m3pIlNoSHiNIWFAh8Gll3vQ3s9f9YCzx3jGdqQe/lc3XgRuiFetj4dyMH6HDy4GA==}
 
   '@mysten/slush-wallet@0.1.2':
     resolution: {integrity: sha512-V2PNXASXcD2b+K4PTw1eeUtkGS9VvyQdc8qMn4aZfQv1qTP2TkTVbqZX5cL4nj5kDzw/Pif8De4tCIV0qAErzw==}
@@ -501,8 +501,8 @@ packages:
     resolution: {integrity: sha512-VkmaLIgXpuRMBFe47SC0swHemDx9qfhGQyxybFr2r3dTnh42gTFi0BlyW3aLr0Y2GxWbNlLphB5C3ELR7aqacw==}
     engines: {node: '>=18'}
 
-  '@mysten/sui@1.30.0':
-    resolution: {integrity: sha512-mVEq3HQQTqw/ieiyoNbg7WDieFzUuBIKaTBvJaPKMOmjhrQutZiqJWXyHt8V+8iLEeAzhRg83eae8eHDOhklsQ==}
+  '@mysten/sui@1.30.1':
+    resolution: {integrity: sha512-WnyDpc5Fw6cvkJwXXmPWV80LA5YhvUgrKf86Pix0KLBSIc7aqwZi0GTPRWqiCedvayR6C3TkZqEhoDrVMusL7A==}
     engines: {node: '>=18'}
 
   '@mysten/utils@0.0.0':
@@ -3295,10 +3295,10 @@ snapshots:
       - react-dom
       - typescript
 
-  '@mysten/seal@0.4.4(typescript@5.8.2)':
+  '@mysten/seal@0.4.5(typescript@5.8.2)':
     dependencies:
       '@mysten/bcs': 1.6.1
-      '@mysten/sui': 1.30.0(typescript@5.8.2)
+      '@mysten/sui': 1.30.1(typescript@5.8.2)
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       shamir-secret-sharing: 0.0.3
@@ -3339,7 +3339,7 @@ snapshots:
       - '@gql.tada/vue-support'
       - typescript
 
-  '@mysten/sui@1.30.0(typescript@5.8.2)':
+  '@mysten/sui@1.30.1(typescript@5.8.2)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.11.0)
       '@mysten/bcs': 1.6.1
