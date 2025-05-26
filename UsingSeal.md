@@ -63,6 +63,8 @@ The recommended way to encrypt and decrypt the data is to use the [Seal SDK](htt
 
 First, the app must select the set of key servers it intends to use. Each key server registers its name, public key, and URL onchain by creating a `KeyServer` object. To reference a key server, use the object ID of its corresponding `KeyServer`. A common approach for app developers is to use a fixed, preconfigured set of key servers within their app. Alternatively, the app can support a dynamic selection of key servers, for example, allowing users to choose which servers to use. In this case, the app should display a list of available key servers along with their URLs. After the user selects one or more servers, the app must verify that each provided URL corresponds to the claimed key server.
 
+A key server may be used multiple times to enable weighting, which allows the app to specify how many times a key server can contribute towards reaching the decryption threshold. This is useful for scenarios where some key servers are more reliable or trusted than others, or when the app wants to ensure that certain key servers are always included in the decryption process.
+
 > [!IMPORTANT]
 > Anyone can create an onchain `KeyServer` object that references a known URL (such as `seal.mystenlabs.com`) but uses a different public key. To prevent impersonation, the SDK performs a verification step: it fetches the object ID from the server’s `/v1/service` endpoint and compares it with the object ID registered onchain.
 
@@ -73,10 +75,11 @@ Next, the app should create a `SealClient` object for the selected key servers.
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const client = new SealClient({
     suiClient,
-    serverObjectIds: keyServerIds,
+    serverObjectIds: keyServerIds.map((id) => [id, 1]),
     verifyKeyServers: false,
 });
 ```
+The `serverObjectIds` is a list of tuples, where each tuple contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this case, all key servers are given equal weight 1.
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described above. Note that enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
 
@@ -179,7 +182,7 @@ Mysten Labs maintains a set of key servers for the Seal project:
 - mysten-testnet-1: https://seal-key-server-testnet-1.mystenlabs.com
 - mysten-testnet-2: https://seal-key-server-testnet-2.mystenlabs.com
 
-Currently, access to above key servers is permissive. However, rate limiting is planned for future, with a target of 4-5 requests per second per user.
+Currently, access to above key servers is permissive. However, rate limiting is planned for the future, with a target of 4–5 requests per second per user.
 
 ## For key server operators
 
@@ -205,7 +208,7 @@ export NETWORK="testnet"
 cargo run --bin key-server
 ```
 
-Alternativelly Docker can be used to run the key server. For example:
+Alternatively, Docker can be used to run the key server. For example:
 
 ```shell
 docker build -t seal-key-server .
@@ -266,6 +269,10 @@ which gives an output like the following:
 Encrypted object (bcs): 0000000000000000000000000000000000000000000000000000000000000000000d53e66d756e6472206672f3f069030000000000000000000000000000000000000000000000000000000000000001010000000000000000000000000000000000000000000000000000000000000002020000000000000000000000000000000000000000000000000000000000000003030200841b3a59241e099e8b8d9cec1d531b1e8fe4b4170433e30d9aaa9fc764201f69e589a0b2a0e65bfb279d4b25ee1ce8141812bfb785abdb05134c3958f53c2e81e7bc06e5c1f1ebd7e489b5cf652216b13e6b7c2b13da70a4a7c05c3544a1ddf703b627cb3268d74c74ead83fb827c60fa23c1d192fb8a7db50ea8721bf7c95bd1748b5ed7da6873f4a5b539cb16085e5cd174206db776c04902c7d8c02d6fa47aada89c2fa0692973a83a7a900f2b0dd7f7475e55095d0df7b0483ae1192761d368985e51d72597df02764c654536130c905a8de4a6c9169643e9dd01efab17a9200723b7d7b2ede8924cfb3687a0c41599b87bebc9d913d8eb81a2027ba8286a7b2cd9f5303b6b551fa545189e2f13cb65642b66595ca4256f42cdda2ac78af39abde06184da29131437e1417ebb35c7136d2c74b8ab9fa4147077bbcdbfafc2b05458792eefe0424fedef10247b8b3c787e7772800
 Symmetric key: e39651e5aa01949ba5174c67a2c37f58ee8217392ba2275a5789f0ac2c3540d8
 ```
+
+> [!TIP]
+> The encryption is randomized, so the output will be different each time you run the command, even with the same input message and keys.
+
 Note that the output contains both the encrypted object in BCS format and the symmetric key, that was used to encrypt the message.
 The encrypted object can be shared, e.g., onchain or using Walrus, but the symmetric key should be kept secret because it can be used to decrypt the message directly as follows:
 ```shell
@@ -276,7 +283,8 @@ which returns the original message:
 Decrypted message: 54686520646966666572656e6365206265747765656e2061204d697261636c6520616e64206120466163742069732065786163746c792074686520646966666572656e6365206265747765656e2061206d65726d61696420616e642061207365616c
 ```
 
-To decrypt the message, we extract user secret keys for the key servers using their master keys. (In practice those would be retrieved from the key servers as described above.)
+To decrypt the message, we extract user secret keys for the key servers using their master keys. In practice, those would be retrieved from the key servers as described above.
+
 For the first key server, the command is as follows:
 ```shell
 cargo run --bin seal-cli extract --package-id 0x0 --id 53e66d756e6472206672f3f069 --master-key 6b2eb410ad729f5b2ffa54ca5a2186ef95a1e31df3cccdd346b24f2262279440
