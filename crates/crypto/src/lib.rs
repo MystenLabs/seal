@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::elgamal::encrypt;
 use crate::ibe::{decrypt_deterministic, encrypt_batched_deterministic};
 use crate::tss::{combine, interpolate, SecretSharing};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
