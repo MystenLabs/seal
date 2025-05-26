@@ -1,12 +1,14 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::elgamal::encrypt;
 use crate::ibe::{decrypt_deterministic, encrypt_batched_deterministic};
 use crate::tss::{combine, interpolate, SecretSharing};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
 use fastcrypto::hash::{HashFunction, Sha3_256};
+use fastcrypto::traits::AllowedRng;
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -135,34 +137,8 @@ pub fn seal_encrypt(
         .map(|(s, i)| (*s, i))
         .collect::<Vec<_>>();
 
-    let encrypted_shares = match public_keys {
-        IBEPublicKeys::BonehFranklinBLS12381(pks) => {
-            if pks.len() != number_of_shares as usize {
-                return Err(InvalidInput);
-            }
-            let randomness = ibe::Randomness::rand(&mut rng);
-
-            // Encrypt the shares using the IBE keys.
-            // Use the share index as the `index` parameter for the IBE decryption, allowing encrypting shares for the same identity to the same public key.
-            let (nonce, encrypted_shares) =
-                encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
-            let encrypted_randomness = ibe::encrypt_randomness(
-                &randomness,
-                &derive_key(
-                    KeyPurpose::EncryptedRandomness,
-                    &base_key,
-                    &encrypted_shares,
-                    threshold,
-                    &key_servers,
-                ),
-            );
-            IBEEncryptions::BonehFranklinBLS12381 {
-                nonce,
-                encrypted_shares,
-                encrypted_randomness,
-            }
-        }
-    };
+    let encrypted_shares = public_keys
+        .encrypt_batched(&mut rng, &shares, &base_key, &services, &full_id, threshold)?;
 
     // Derive the key used by the DEM
     let dem_key = derive_key(
@@ -221,49 +197,7 @@ pub fn seal_decrypt(
     let full_id = create_full_id(package_id, id);
 
     // Decap IBE keys and decrypt shares
-    let shares = match (&encrypted_shares, user_secret_keys) {
-        (
-            IBEEncryptions::BonehFranklinBLS12381 {
-                nonce,
-                encrypted_shares,
-                ..
-            },
-            IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-        ) => {
-            // Check that the encrypted object is valid,
-            // e.g., that there is an encrypted share of the key per service
-            if encrypted_shares.len() != services.len() {
-                return Err(InvalidInput);
-            }
-
-            // The indices of the services for which we have a secret key
-            let service_indices: Vec<usize> = services
-                .iter()
-                .enumerate()
-                .filter(|(_, (id, _))| user_secret_keys.contains_key(id))
-                .map(|(i, _)| i)
-                .collect();
-            if service_indices.len() < *threshold as usize {
-                return Err(InvalidInput);
-            }
-
-            service_indices
-                .into_iter()
-                .map(|i| {
-                    let (object_id, index) = services[i];
-                    (index, ibe::decrypt(
-                        nonce,
-                        &encrypted_shares[i],
-                        user_secret_keys
-                            .get(&object_id)
-                            .expect("This shouldn't happen: It's checked above that this secret key is available"),
-                        &full_id,
-                        &(object_id, index),
-                    ))
-                })
-                .collect_vec()
-        }
-    };
+    let shares = encrypted_shares.decrypt(user_secret_keys, &full_id, services, *threshold)?;
 
     // Create the base key from the shares
     let base_key = if let Some(public_keys) = public_keys {
@@ -423,6 +357,104 @@ impl IBEEncryptions {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
             } => encrypted_shares,
+        }
+    }
+
+    fn decrypt(
+        &self,
+        user_secret_keys: &IBEUserSecretKeys,
+        full_id: &[u8],
+        services: &[(ObjectID, u8)],
+        threshold: u8,
+    ) -> FastCryptoResult<Vec<(u8, [u8; KEY_SIZE])>> {
+        match (&self, user_secret_keys) {
+            (
+                IBEEncryptions::BonehFranklinBLS12381 {
+                    nonce,
+                    encrypted_shares,
+                    ..
+                },
+                IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
+            ) => {
+                // Check that the encrypted object is valid,
+                // e.g., that there is an encrypted share of the key per service
+                if encrypted_shares.len() != services.len() {
+                    return Err(InvalidInput);
+                }
+
+                // The indices of the services for which we have a secret key
+                let service_indices: Vec<usize> = services
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (id, _))| user_secret_keys.contains_key(id))
+                    .map(|(i, _)| i)
+                    .collect();
+                if service_indices.len() < threshold as usize {
+                    return Err(InvalidInput);
+                }
+
+                Ok(service_indices
+                    .into_iter()
+                    .map(|i| {
+                        let (object_id, index) = services[i];
+                        (index, ibe::decrypt(
+                            nonce,
+                            &encrypted_shares[i],
+                            user_secret_keys
+                                .get(&object_id)
+                                .expect("This shouldn't happen: It's checked above that this secret key is available"),
+                            &full_id,
+                            &(object_id, index),
+                        ))
+                    })
+                    .collect_vec())
+            }
+        }
+    }
+}
+
+impl IBEPublicKeys {
+    fn encrypt_batched(
+        &self,
+        rng: &mut impl AllowedRng,
+        plaintexts: &[[u8; KEY_SIZE]],
+        base_key: &[u8; KEY_SIZE],
+        services: &[(ObjectID, u8)],
+        full_id: &[u8],
+        threshold: u8,
+    ) -> FastCryptoResult<IBEEncryptions> {
+        match self {
+            IBEPublicKeys::BonehFranklinBLS12381(pks) => {
+                if pks.len() != plaintexts.len() || pks.len() != services.len() {
+                    return Err(InvalidInput);
+                }
+                let randomness = ibe::Randomness::rand(rng);
+
+                // Encrypt the shares using the IBE keys.
+                // Use the share index as the `index` parameter for the IBE decryption, allowing encrypting shares for the same identity to the same public key.
+                let (nonce, encrypted_shares) = encrypt_batched_deterministic(
+                    &randomness,
+                    &plaintexts,
+                    pks,
+                    &full_id,
+                    &services,
+                )?;
+                let encrypted_randomness = ibe::encrypt_randomness(
+                    &randomness,
+                    &derive_key(
+                        KeyPurpose::EncryptedRandomness,
+                        &base_key,
+                        &encrypted_shares,
+                        threshold,
+                        &services.iter().map(|(id, _)| *id).collect_vec(),
+                    ),
+                );
+                Ok(IBEEncryptions::BonehFranklinBLS12381 {
+                    nonce,
+                    encrypted_shares,
+                    encrypted_randomness,
+                })
+            }
         }
     }
 }
