@@ -82,7 +82,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     const imported: SessionKeyType = await get('sessionKey');
 
     if (imported) {
-      const currentSessionKey = await SessionKey.import(imported, {});
+      const currentSessionKey = await SessionKey.import(imported, { client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),});
       console.log('loaded currentSessionKey', currentSessionKey);
       if (
         currentSessionKey &&
