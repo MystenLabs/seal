@@ -59,9 +59,9 @@ pub(crate) async fn mvr_forward_resolution(
             .await?
             .value
             .app_info
-            .ok_or(Failure)?
+            .ok_or(InvalidMVRName)?
             .package_address
-            .ok_or(InvalidMVRName)?,
+            .ok_or(Failure)?,
         Network::Testnet => {
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
@@ -78,10 +78,10 @@ pub(crate) async fn mvr_forward_resolution(
             // For testnet, we need to look up the package info ID
             let package_info_id = networks
                 .get(TESTNET_ID)
-                .ok_or(Failure)?
+                .ok_or(InvalidMVRName)?
                 .package_info_id
-                .ok_or(InvalidMVRName)
-                .and_then(|id| ObjectID::from_bytes(id.as_bytes()).map_err(|_| InvalidMVRName))?;
+                .ok_or(Failure)
+                .map(|id| ObjectID::new(id.into_inner()))?;
             let package_info: PackageInfo = bcs::from_bytes(
                 client
                     .read_api()
@@ -96,7 +96,7 @@ pub(crate) async fn mvr_forward_resolution(
         }
         _ => return Err(Failure),
     };
-    Ok(ObjectID::from_bytes(package_address.as_bytes()).map_err(|_| Failure)?)
+    Ok(ObjectID::new(package_address.into_inner()))
 }
 
 /// Given an MVR name, look up the record in the MVR registry.
