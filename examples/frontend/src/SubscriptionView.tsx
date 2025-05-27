@@ -12,6 +12,7 @@ import { AlertDialog, Button, Card, Dialog, Flex } from '@radix-ui/themes';
 import { coinWithBalance, Transaction } from '@mysten/sui/transactions';
 import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 import { SealClient, SessionKey, getAllowlistedKeyServers } from '@mysten/seal';
+import { SuiGraphQLClient } from '@mysten/sui/graphql';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 
@@ -34,6 +35,7 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     suiClient,
     serverObjectIds: getAllowlistedKeyServers('testnet').map(id => [id, 1] as [string, number]),
     verifyKeyServers: false,
+    client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),    
   });
   const [feed, setFeed] = useState<FeedData>();
   const [decryptedFileUrls, setDecryptedFileUrls] = useState<string[]>([]);
