@@ -43,7 +43,7 @@ pub async fn fetch_package_info(
 
     if let Some(mvr_name) = mvr_name.as_ref() {
         // Check that the MVR name points to the first version of the given package
-        let mvr_reference = mvr_forward_resolution(sui_client, mvr_name).await?;
+        let mvr_reference = mvr_forward_resolution(sui_client, mvr_name, network).await?;
         if mvr_reference != first {
             return Err(InvalidMVRName);
         }
