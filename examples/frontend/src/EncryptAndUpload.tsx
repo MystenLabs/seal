@@ -50,7 +50,6 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
     suiClient,
     serverObjectIds: getAllowlistedKeyServers('testnet').map(id => [id, 1] as [string, number]),
     verifyKeyServers: false,
-    client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),    
   });
 
   const services: WalrusService[] = [

@@ -34,7 +34,6 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     suiClient,
     serverObjectIds: getAllowlistedKeyServers('testnet').map(id => [id, 1] as [string, number]),
     verifyKeyServers: false,
-    client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),
   });
   const packageId = useNetworkVariable('packageId');
 
@@ -112,6 +111,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       address: suiAddress,
       packageId,
       ttlMin: TTL_MIN,
+      client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),
     });
 
     try {
