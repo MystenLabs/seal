@@ -40,6 +40,11 @@ chrono = "0.4.39"
 semver = "1.0.26"
 jsonrpsee = "0.24.0"
 
+move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
+move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
+sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", package = "sui-sdk-types", features = ["serde"], rev = "86a9e06" }
+sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
+
 [dev-dependencies]
 tracing-test = "0.2.5"
 test_cluster = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "test-cluster" }
