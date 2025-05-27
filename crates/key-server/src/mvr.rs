@@ -32,9 +32,9 @@ pub(crate) async fn mvr_forward_resolution(
             dynamic_field_name(mvr_name)?,
         )
         .await
-        .map_err(|_| InvalidMVRName)?
+        .map_err(|_| Failure)?
         .data
-        .ok_or(Failure)?
+        .ok_or(InvalidMVRName)?
         .content
         .ok_or(Failure)?;
 
@@ -51,7 +51,7 @@ pub(crate) async fn mvr_forward_resolution(
             SuiParsedData::MoveObject(obj) => obj.fields.clone().to_json_value()["value"]
                 ["networks"]["contents"]
                 .as_array()
-                .unwrap()
+                .ok_or(Failure)?
                 .iter()
                 .find(|x| x["key"].as_str().unwrap() == TESTNET_ID)
                 .ok_or(Failure)?["value"]
@@ -87,6 +87,7 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::InternalError::InvalidMVRName;
     use crate::mvr::mvr_forward_resolution;
     use crate::types::Network;
     use std::str::FromStr;
@@ -120,6 +121,33 @@ mod tests {
                 "0xe308bb3ed5367cd11a9c7f7e7aa95b2f3c9a8f10fa1d2b3cff38240f7898555d"
             )
             .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_name() {
+        assert_eq!(
+            mvr_forward_resolution(
+                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                "@saemundur/seal",
+                &Network::Mainnet
+            )
+            .await
+            .err()
+            .unwrap(),
+            InvalidMVRName
+        );
+
+        assert_eq!(
+            mvr_forward_resolution(
+                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                "invalid_name",
+                &Network::Mainnet
+            )
+            .await
+            .err()
+            .unwrap(),
+            InvalidMVRName
         );
     }
 }
