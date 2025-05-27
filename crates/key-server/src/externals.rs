@@ -77,11 +77,11 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
 
             let first = response["data"]["latestPackage"]["packageAtVersion"]["address"]
                 .as_str()
-                .ok_or(InternalError::Failure)
+                .ok_or(InternalError::InvalidPackage)
                 .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
             let latest = response["data"]["latestPackage"]["address"]
                 .as_str()
-                .ok_or(InternalError::Failure)
+                .ok_or(InternalError::InvalidPackage)
                 .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
             CACHE.insert(*pkg_id, (first, latest));
             Ok((first, latest))
