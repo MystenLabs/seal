@@ -26,6 +26,7 @@ const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
 const TESTNET_ID: &str = "4c78adac";
 
+#[allow(clippy::too_many_arguments)]
 pub mod mainnet {
     use move_binding_derive::move_contract;
     move_contract! {alias = "sui", package = "0x2"}
@@ -174,7 +175,7 @@ mod tests {
         );
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                &SuiClientBuilder::default().build_testnet().await.unwrap(),
                 "@mysten/kiosk",
                 &Network::Testnet
             )
@@ -185,6 +186,20 @@ mod tests {
             )
             .unwrap()
         );
+
+        assert!(mvr_forward_resolution(
+            &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+            "vesca@scallop/core",
+            &Network::Mainnet
+        ).await.is_ok());
+
+        // This MVR name is not registered on testnet.
+        // If it ever registered, please update the test.
+        assert_eq!(mvr_forward_resolution(
+            &SuiClientBuilder::default().build_testnet().await.unwrap(),
+            "vesca@scallop/core",
+            &Network::Testnet
+        ).await.err().unwrap(), InvalidMVRName);
     }
 
     #[tokio::test]
