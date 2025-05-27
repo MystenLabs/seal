@@ -54,16 +54,26 @@ pub(crate) async fn mvr_forward_resolution(
     mvr_name: &str,
     network: &Network,
 ) -> Result<ObjectID, InternalError> {
-    let record = get_mvr_registry_entry(mvr_name).await?;
     let package_address = match network {
-        Network::Mainnet => record
+        Network::Mainnet => get_from_mvr_registry(mvr_name, client)
+            .await?
             .value
             .app_info
             .ok_or(Failure)?
             .package_address
             .ok_or(InvalidMVRName)?,
         Network::Testnet => {
-            let networks: HashMap<_, _> = record.value.networks.into();
+            let networks: HashMap<_, _> = get_from_mvr_registry(
+                mvr_name,
+                &SuiClientBuilder::default()
+                    .build_mainnet()
+                    .await
+                    .map_err(|_| Failure)?,
+            )
+            .await?
+            .value
+            .networks
+            .into();
 
             // For testnet, we need to look up the package info ID
             let package_info_id = networks
@@ -89,12 +99,11 @@ pub(crate) async fn mvr_forward_resolution(
     Ok(ObjectID::from_bytes(package_address.as_bytes()).map_err(|_| Failure)?)
 }
 
-async fn get_mvr_registry_entry(mvr_name: &str) -> Result<Field<Name, AppRecord>, InternalError> {
-    let mainnet_client = SuiClientBuilder::default()
-        .build_mainnet()
-        .await
-        .map_err(|_| Failure)?;
-
+/// Given an MVR name, look up the record in the MVR registry.
+async fn get_from_mvr_registry(
+    mvr_name: &str,
+    mainnet_client: &SuiClient,
+) -> Result<Field<Name, AppRecord>, InternalError> {
     let record_id = mainnet_client
         .read_api()
         .get_dynamic_field_object(
@@ -119,6 +128,7 @@ async fn get_mvr_registry_entry(mvr_name: &str) -> Result<Field<Name, AppRecord>
     .map_err(|_| InvalidPackage)
 }
 
+/// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
 fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
     let parsed_name =
         mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
