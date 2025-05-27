@@ -2,15 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::errors::InternalError::{Failure, InvalidMVRName};
+use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
+use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
+use crate::mvr::mainnet::mvr_core::name::Name;
+use crate::mvr::mainnet::sui::dynamic_field::Field;
+use crate::mvr::mainnet::sui::vec_map::VecMap;
+use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
 use serde_json::json;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::str::FromStr;
-use sui_sdk::rpc_types::SuiParsedData;
-use sui_sdk::SuiClient;
+use sui_sdk::rpc_types::SuiObjectDataOptions;
+use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
@@ -19,13 +26,76 @@ const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
 const TESTNET_ID: &str = "4c78adac";
 
+pub mod mainnet {
+    use move_binding_derive::move_contract;
+    move_contract! {alias = "sui", package = "0x2"}
+    move_contract! {alias = "suins", package = "0xd22b24490e0bae52676651b4f56660a5ff8022a2576e0089f79b3c88d44e08f0", deps = [crate::mvr::mainnet::sui]}
+    move_contract! {alias = "mvr_core", package = "@mvr/core", deps = [crate::mvr::mainnet::sui, crate::mvr::mainnet::suins, crate::mvr::mainnet::mvr_metadata]}
+    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", deps = [crate::mvr::mainnet::sui]}
+}
+pub mod testnet {
+    use move_binding_derive::move_contract;
+    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", network = "testnet", deps = [crate::mvr::mainnet::sui]}
+}
+
+impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
+    fn from(value: VecMap<K, V>) -> Self {
+        value
+            .contents
+            .into_iter()
+            .map(|entry| (entry.key, entry.value))
+            .collect::<HashMap<K, V>>()
+    }
+}
+
 /// Given an MVR name, look up the package it points to.
 pub(crate) async fn mvr_forward_resolution(
     client: &SuiClient,
     mvr_name: &str,
     network: &Network,
 ) -> Result<ObjectID, InternalError> {
-    let dynamic_field = client
+    let record = get_mvr_registry_entry(mvr_name).await?;
+    let package_address = match network {
+        Network::Mainnet => record
+            .value
+            .app_info
+            .ok_or(Failure)?
+            .package_address
+            .ok_or(InvalidMVRName)?,
+        Network::Testnet => {
+            let networks: HashMap<_, _> = record.value.networks.into();
+
+            // For testnet, we need to look up the package info ID
+            let package_info_id = networks
+                .get(TESTNET_ID)
+                .ok_or(Failure)?
+                .package_info_id
+                .ok_or(InvalidMVRName)
+                .and_then(|id| ObjectID::from_bytes(id.as_bytes()).map_err(|_| InvalidMVRName))?;
+            let package_info: PackageInfo = bcs::from_bytes(
+                client
+                    .read_api()
+                    .get_object_with_options(package_info_id, SuiObjectDataOptions::bcs_lossless())
+                    .await
+                    .map_err(|_| Failure)?
+                    .move_object_bcs()
+                    .ok_or(Failure)?,
+            )
+            .map_err(|_| InvalidPackage)?;
+            package_info.package_address
+        }
+        _ => return Err(Failure),
+    };
+    Ok(ObjectID::from_bytes(package_address.as_bytes()).map_err(|_| Failure)?)
+}
+
+async fn get_mvr_registry_entry(mvr_name: &str) -> Result<Field<Name, AppRecord>, InternalError> {
+    let mainnet_client = SuiClientBuilder::default()
+        .build_mainnet()
+        .await
+        .map_err(|_| Failure)?;
+
+    let record_id = mainnet_client
         .read_api()
         .get_dynamic_field_object(
             ObjectID::from_str(MVR_REGISTRY).unwrap(),
@@ -33,46 +103,20 @@ pub(crate) async fn mvr_forward_resolution(
         )
         .await
         .map_err(|_| Failure)?
-        .data
-        .ok_or(InvalidMVRName)?
-        .content
-        .ok_or(Failure)?;
+        .object_id()
+        .map_err(|_| InvalidMVRName)?;
 
-    let package_address = match network {
-        Network::Mainnet => match dynamic_field {
-            SuiParsedData::MoveObject(obj) => obj.fields.to_json_value()["value"]["app_info"]
-                ["package_address"]
-                .as_str()
-                .ok_or(Failure)?
-                .to_string(),
-            _ => return Err(Failure),
-        },
-        Network::Testnet => match dynamic_field {
-            SuiParsedData::MoveObject(obj) => obj.fields.clone().to_json_value()["value"]
-                ["networks"]["contents"]
-                .as_array()
-                .ok_or(Failure)?
-                .iter()
-                .find_map(|x| {
-                    let key = x["key"].as_str()?;
-                    if key == TESTNET_ID {
-                        Some(
-                            x["value"]
-                                .as_object()?
-                                .get("package_address")?
-                                .as_str()?
-                                .to_string(),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .ok_or(Failure)?,
-            _ => return Err(Failure),
-        },
-        _ => panic!("Unsupported network for MVR resolution"),
-    };
-    ObjectID::from_str(&package_address).map_err(|_| Failure)
+    // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
+    bcs::from_bytes(
+        mainnet_client
+            .read_api()
+            .get_object_with_options(record_id, SuiObjectDataOptions::bcs_lossless())
+            .await
+            .map_err(|_| Failure)?
+            .move_object_bcs()
+            .ok_or(Failure)?,
+    )
+    .map_err(|_| InvalidPackage)
 }
 
 fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
