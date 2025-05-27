@@ -152,6 +152,7 @@ mod tests {
     use crate::errors::InternalError::InvalidMVRName;
     use crate::mvr::mvr_forward_resolution;
     use crate::types::Network;
+    use mvr_types::name::VersionedName;
     use std::str::FromStr;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
@@ -211,5 +212,16 @@ mod tests {
             .unwrap(),
             InvalidMVRName
         );
+    }
+
+    #[test]
+    fn test_mvr_names() {
+        assert!(VersionedName::from_str("@saemundur/seal").is_ok());
+        assert!(VersionedName::from_str("saemundur/seal").is_err());
+        assert!(VersionedName::from_str("saemundur").is_err());
+        assert!(VersionedName::from_str(
+            "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b"
+        )
+        .is_err())
     }
 }
