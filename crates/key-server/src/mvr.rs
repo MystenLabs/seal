@@ -191,15 +191,23 @@ mod tests {
             &SuiClientBuilder::default().build_mainnet().await.unwrap(),
             "vesca@scallop/core",
             &Network::Mainnet
-        ).await.is_ok());
+        )
+        .await
+        .is_ok());
 
         // This MVR name is not registered on testnet.
         // If it ever registered, please update the test.
-        assert_eq!(mvr_forward_resolution(
-            &SuiClientBuilder::default().build_testnet().await.unwrap(),
-            "vesca@scallop/core",
-            &Network::Testnet
-        ).await.err().unwrap(), InvalidMVRName);
+        assert_eq!(
+            mvr_forward_resolution(
+                &SuiClientBuilder::default().build_testnet().await.unwrap(),
+                "vesca@scallop/core",
+                &Network::Testnet
+            )
+            .await
+            .err()
+            .unwrap(),
+            InvalidMVRName
+        );
     }
 
     #[tokio::test]
