@@ -53,13 +53,21 @@ pub(crate) async fn mvr_forward_resolution(
                 .as_array()
                 .ok_or(Failure)?
                 .iter()
-                .find(|x| x["key"].as_str().unwrap() == TESTNET_ID)
-                .ok_or(Failure)?["value"]
-                .as_object()
-                .ok_or(Failure)?["package_address"]
-                .as_str()
-                .ok_or(Failure)?
-                .to_string(),
+                .find_map(|x| {
+                    let key = x["key"].as_str()?;
+                    if key == TESTNET_ID {
+                        Some(
+                            x["value"]
+                                .as_object()?
+                                .get("package_address")?
+                                .as_str()?
+                                .to_string(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(Failure)?,
             _ => return Err(Failure),
         },
         _ => panic!("Unsupported network for MVR resolution"),
