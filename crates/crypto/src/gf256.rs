@@ -154,7 +154,7 @@ impl From<GF256> for u8 {
 
 impl GF256 {
     pub fn rand<R: AllowedRng>(rng: &mut R) -> Self {
-        Self(rng.gen())
+        Self(rng.r#gen())
     }
 
     pub fn zero() -> Self {

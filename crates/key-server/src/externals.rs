@@ -4,6 +4,7 @@
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
 use crate::types::Network;
+use crate::Timestamp;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::Value;
@@ -87,8 +88,8 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
     }
 }
 
-/// Returns the timestampe for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpcResult<u64> {
+/// Returns the timestamp for the latest checkpoint.
+pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpcResult<Timestamp> {
     let latest_checkpoint_sequence_number = client
         .read_api()
         .get_latest_checkpoint_sequence_number()
