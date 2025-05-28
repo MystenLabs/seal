@@ -65,7 +65,6 @@ mod valid_ptb;
 
 mod metrics;
 mod mvr;
-mod package_info;
 #[cfg(test)]
 pub mod tests;
 
@@ -316,14 +315,17 @@ impl Server {
         // Handle package upgrades: only call the latest version but use the first as the namespace
 
         // Get first and last package IDs
-        let (first, latest) =
-            fetch_package_info(valid_ptb.pkg_id(), &self.network, metrics).await?;
+        let (first_pkg_id, last_pkg_id) =
+            call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
+                externals::fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
+            })
+            .await?;
 
         // The call to seal_approve must be using the latest package ID
-        if valid_ptb.pkg_id() != latest {
+        if valid_ptb.pkg_id() != last_pkg_id {
             debug!(
                 "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                latest,
+                last_pkg_id,
                 valid_ptb.pkg_id(),
                 req_id
             );
@@ -334,10 +336,10 @@ impl Server {
         if let Some(mvr_name) = &mvr_name {
             let mvr_package_id =
                 mvr_forward_resolution(&self.sui_client, mvr_name, &self.network).await?;
-            if mvr_package_id != first {
+            if mvr_package_id != first_pkg_id {
                 debug!(
                     "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
-                    mvr_name, mvr_package_id, first, req_id
+                    mvr_name, mvr_package_id, first_pkg_id, req_id
                 );
                 return Err(InternalError::InvalidMVRName);
             }
@@ -350,7 +352,7 @@ impl Server {
             enc_verification_key,
             request_signature,
             certificate,
-            mvr_name.unwrap_or(first.to_hex_uncompressed()),
+            mvr_name.unwrap_or(first_pkg_id.to_hex_uncompressed()),
             req_id,
         )
         .await?;
@@ -362,7 +364,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first))
+        Ok(valid_ptb.full_ids(&first_pkg_id))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
