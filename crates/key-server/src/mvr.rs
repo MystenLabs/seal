@@ -93,6 +93,15 @@ pub(crate) async fn mvr_forward_resolution(
                     .ok_or(Failure)?,
             )
             .map_err(|_| InvalidPackage)?;
+
+            let metadata: HashMap<_, _> = package_info.metadata.into();
+            let name_in_package_info = metadata
+                .get("default")
+                .ok_or(Failure)?;
+            if name_in_package_info != mvr_name {
+                return Err(InvalidMVRName);
+            }
+
             package_info.package_address
         }
         _ => return Err(Failure),
