@@ -139,18 +139,20 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
     })
 }
 
-async fn get_object<T: Deserialize>(
+async fn get_object<T: for<'a> Deserialize<'a>>(
     object_id: ObjectID,
     client: &SuiClient,
 ) -> Result<T, InternalError> {
-    let object = client
-        .read_api()
-        .get_object_with_options(object_id, SuiObjectDataOptions::bcs_lossless())
-        .await
-        .map_err(|_| Failure)?
-        .move_object_bcs()
-        .ok_or(Failure)?;
-    bcs::from_bytes(object).map_err(|_| InvalidPackage)
+    bcs::from_bytes(
+        client
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::bcs_lossless())
+            .await
+            .map_err(|_| Failure)?
+            .move_object_bcs()
+            .ok_or(Failure)?,
+    )
+    .map_err(|_| InvalidPackage)
 }
 
 #[cfg(test)]
