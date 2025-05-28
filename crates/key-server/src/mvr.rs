@@ -12,6 +12,7 @@ use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -83,21 +84,11 @@ pub(crate) async fn mvr_forward_resolution(
                 .package_info_id
                 .ok_or(Failure)
                 .map(|id| ObjectID::new(id.into_inner()))?;
-            let package_info: PackageInfo = bcs::from_bytes(
-                client
-                    .read_api()
-                    .get_object_with_options(package_info_id, SuiObjectDataOptions::bcs_lossless())
-                    .await
-                    .map_err(|_| Failure)?
-                    .move_object_bcs()
-                    .ok_or(Failure)?,
-            )
-            .map_err(|_| InvalidPackage)?;
+            let package_info: PackageInfo = get_object(package_info_id, client).await?;
 
+            // Check that the name in the package info matches the MVR name.
             let metadata: HashMap<_, _> = package_info.metadata.into();
-            let name_in_package_info = metadata
-                .get("default")
-                .ok_or(Failure)?;
+            let name_in_package_info = metadata.get("default").ok_or(Failure)?;
             if name_in_package_info != mvr_name {
                 return Err(InvalidMVRName);
             }
@@ -109,7 +100,7 @@ pub(crate) async fn mvr_forward_resolution(
     Ok(ObjectID::new(package_address.into_inner()))
 }
 
-/// Given an MVR name, look up the record in the MVR registry.
+/// Given an MVR name, look up the record in the MVR registry on mainnet.
 async fn get_from_mvr_registry(
     mvr_name: &str,
     mainnet_client: &SuiClient,
@@ -126,16 +117,7 @@ async fn get_from_mvr_registry(
         .map_err(|_| InvalidMVRName)?;
 
     // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
-    bcs::from_bytes(
-        mainnet_client
-            .read_api()
-            .get_object_with_options(record_id, SuiObjectDataOptions::bcs_lossless())
-            .await
-            .map_err(|_| Failure)?
-            .move_object_bcs()
-            .ok_or(Failure)?,
-    )
-    .map_err(|_| InvalidPackage)
+    get_object(record_id, mainnet_client).await
 }
 
 /// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
@@ -155,6 +137,20 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
         })),
         value: json!(parsed_name.name),
     })
+}
+
+async fn get_object<T: Deserialize>(
+    object_id: ObjectID,
+    client: &SuiClient,
+) -> Result<T, InternalError> {
+    let object = client
+        .read_api()
+        .get_object_with_options(object_id, SuiObjectDataOptions::bcs_lossless())
+        .await
+        .map_err(|_| Failure)?
+        .move_object_bcs()
+        .ok_or(Failure)?;
+    bcs::from_bytes(object).map_err(|_| InvalidPackage)
 }
 
 #[cfg(test)]
