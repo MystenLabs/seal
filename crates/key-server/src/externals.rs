@@ -3,6 +3,8 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
+use crate::metrics::{call_with_duration, Metrics};
+use crate::package_info::PackageInfo;
 use crate::types::Network;
 use crate::Timestamp;
 use mvr_indexer::models::{mainnet, testnet};
@@ -38,6 +40,20 @@ pub(crate) fn add_latest(pkg_id: ObjectID, latest: ObjectID) {
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
     CACHE.insert(pkg_id, (pkg_id, pkg_id));
+}
+
+/// Get the first and last package IDs for a given package ID.
+pub async fn fetch_package_info(
+    pkg_id: ObjectID,
+    network: &Network,
+    metrics: Option<&Metrics>,
+) -> Result<(ObjectID, ObjectID), InternalError> {
+    let (first, latest) =
+        call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
+            fetch_first_and_last_pkg_id(&pkg_id, network).await
+        })
+        .await?;
+    Ok((first, latest))
 }
 
 pub(crate) async fn fetch_first_and_last_pkg_id(

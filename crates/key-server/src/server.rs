@@ -3,9 +3,11 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
-use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
+use crate::externals::{
+    current_epoch_time, duration_since, fetch_package_info, get_reference_gas_price,
+};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::package_info::fetch_package_info;
+use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
@@ -314,24 +316,31 @@ impl Server {
         // Handle package upgrades: only call the latest version but use the first as the namespace
 
         // Get first and last package IDs
-        let package_info = fetch_package_info(
-            valid_ptb.pkg_id(),
-            &self.sui_client,
-            &self.network,
-            mvr_name,
-            metrics,
-        )
-        .await?;
+        let (first, latest) =
+            fetch_package_info(valid_ptb.pkg_id(), &self.network, metrics).await?;
 
         // The call to seal_approve must be using the latest package ID
-        if valid_ptb.pkg_id() != package_info.latest {
+        if valid_ptb.pkg_id() != latest {
             debug!(
                 "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                package_info.latest,
+                latest,
                 valid_ptb.pkg_id(),
                 req_id
             );
             return Err(InternalError::OldPackageVersion);
+        }
+
+        // If an MVR name is provided, check that it points to the first package ID
+        if let Some(mvr_name) = &mvr_name {
+            let mvr_package_id =
+                mvr_forward_resolution(&self.sui_client, mvr_name, &self.network).await?;
+            if mvr_package_id != first {
+                debug!(
+                    "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
+                    mvr_name, mvr_package_id, first, req_id
+                );
+                return Err(InternalError::InvalidMVRName);
+            }
         }
 
         // Check all conditions
@@ -341,7 +350,7 @@ impl Server {
             enc_verification_key,
             request_signature,
             certificate,
-            package_info.name(),
+            mvr_name.unwrap_or(first.to_hex_uncompressed()),
             req_id,
         )
         .await?;
@@ -353,7 +362,7 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&package_info.first))
+        Ok(valid_ptb.full_ids(&first))
     }
 
     fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
