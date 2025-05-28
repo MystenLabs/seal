@@ -3,7 +3,6 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
-use crate::metrics::{call_with_duration, Metrics};
 use crate::types::Network;
 use once_cell::sync::Lazy;
 use reqwest::Client;
