@@ -120,6 +120,7 @@ const sessionKey = new SessionKey({
     address: suiAddress,
     packageId: fromHEX(packageId),
     ttlMin: 10, // TTL of 10 minutes
+    suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
 });
 const message = sessionKey.getPersonalMessage();
 const { signature } = await keypair.signPersonalMessage(message); // User confirms in wallet
