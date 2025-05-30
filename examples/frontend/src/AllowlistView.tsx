@@ -11,6 +11,7 @@ import { getAllowlistedKeyServers, SealClient, SessionKey, type SessionKeyType }
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { set, get } from 'idb-keyval';
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 
 const TTL_MIN = 10;
 export interface FeedData {
@@ -111,7 +112,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       address: suiAddress,
       packageId,
       ttlMin: TTL_MIN,
-      client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),
+      suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
     });
 
     try {
