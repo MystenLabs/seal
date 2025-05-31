@@ -74,9 +74,12 @@ Next, the app should create a `SealClient` object for the selected key servers.
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const client = new SealClient({
-    suiClient,
-    serverObjectIds: keyServerIds.map((id) => [id, 1]),
-    verifyKeyServers: false,
+  suiClient,
+  serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    objectId: id,
+    weight: 1,
+  })),
+  verifyKeyServers: false,
 });
 ```
 The `serverObjectIds` is a list of tuples, where each tuple contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this case, all key servers are given equal weight 1.

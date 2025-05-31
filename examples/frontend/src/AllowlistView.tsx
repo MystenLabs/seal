@@ -7,7 +7,13 @@ import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes'
 import { fromHex } from '@mysten/sui/utils';
 import { SuiGraphQLClient } from '@mysten/sui/graphql';
 import { Transaction } from '@mysten/sui/transactions';
-import { getAllowlistedKeyServers, SealClient, SessionKey, type SessionKeyType } from '@mysten/seal';
+import {
+  getAllowlistedKeyServers,
+  KeyServerConfig,
+  SealClient,
+  SessionKey,
+  type SessionKeyType,
+} from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { set, get } from 'idb-keyval';
@@ -33,7 +39,10 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
   const client = new SealClient({
     suiClient,
-    serverObjectIds: getAllowlistedKeyServers('testnet').map(id => [id, 1] as [string, number]),
+    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+      objectId: id,
+      weight: 1,
+    })),
     verifyKeyServers: false,
   });
   const packageId = useNetworkVariable('packageId');
@@ -69,7 +78,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       .getDynamicFields({
         parentId: id!,
       })
-      .then((res: { data: any[]; }) => res.data.map((obj) => obj.name.value as string));
+      .then((res: { data: any[] }) => res.data.map((obj) => obj.name.value as string));
     const fields = (allowlist.data?.content as { fields: any })?.fields || {};
     const feedData = {
       allowlistId: id!,
@@ -83,26 +92,33 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     const imported: SessionKeyType = await get('sessionKey');
 
     if (imported) {
-      const currentSessionKey = await SessionKey.import(imported, { client: new SuiGraphQLClient({ url: 'https://sui-testnet.mystenlabs.com/graphql', }),});
-      console.log('loaded currentSessionKey', currentSessionKey);
-      if (
-        currentSessionKey &&
-        !currentSessionKey.isExpired() &&
-        currentSessionKey.getAddress() === suiAddress
-      ) {
-        const moveCallConstructor = constructMoveCall(packageId, allowlistId);
-        downloadAndDecrypt(
-          blobIds,
-          currentSessionKey,
-          suiClient,
-          client,
-          moveCallConstructor,
-          setError,
-          setDecryptedFileUrls,
-          setIsDialogOpen,
-          setReloadKey,
+      try {
+        const currentSessionKey = await SessionKey.import(
+          imported,
+          new SuiClient({ url: getFullnodeUrl('testnet') }),
         );
-        return;
+        console.log('loaded currentSessionKey', currentSessionKey);
+        if (
+          currentSessionKey &&
+          !currentSessionKey.isExpired() &&
+          currentSessionKey.getAddress() === suiAddress
+        ) {
+          const moveCallConstructor = constructMoveCall(packageId, allowlistId);
+          downloadAndDecrypt(
+            blobIds,
+            currentSessionKey,
+            suiClient,
+            client,
+            moveCallConstructor,
+            setError,
+            setDecryptedFileUrls,
+            setIsDialogOpen,
+            setReloadKey,
+          );
+          return;
+        }
+      } catch (error) {
+        console.log('Imported session key is expired', error);
       }
     }
 
@@ -121,7 +137,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
           message: sessionKey.getPersonalMessage(),
         },
         {
-          onSuccess: async (result: { signature: string; }) => {
+          onSuccess: async (result: { signature: string }) => {
             await sessionKey.setPersonalMessageSignature(result.signature);
             const moveCallConstructor = await constructMoveCall(packageId, allowlistId);
             await downloadAndDecrypt(
