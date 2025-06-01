@@ -82,7 +82,7 @@ const client = new SealClient({
   verifyKeyServers: false,
 });
 ```
-The `serverObjectIds` is a list of tuples, where each tuple contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this case, all key servers are given equal weight 1.
+The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1. The object may contain also the fields `apiKeyName` and `apiKey` to send the HTTP header `apiKeyName: apiKey` in case  a key server expects an API key.
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described above. Note that enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
 
