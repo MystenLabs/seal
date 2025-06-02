@@ -54,7 +54,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
-      - uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@nextest
+      - uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@v2.52.4
+        with:
+          tool: cargo-nextest
       - name: Run tests
         run: cargo nextest run --all-features
       - name: Run doctests
