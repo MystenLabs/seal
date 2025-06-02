@@ -20,11 +20,14 @@ use std::str::FromStr;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
-use sui_types::dynamic_field::DynamicFieldName;
+use sui_types::dynamic_field::{derive_dynamic_field_id, DynamicFieldName};
 use sui_types::TypeTag;
+use tap::Tap;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
+
+/// Testnet records are stored on mainnet on the registry defined above, but under the 'networks' section using the following ID as key
 const TESTNET_ID: &str = "4c78adac";
 
 #[allow(clippy::too_many_arguments)]
@@ -105,11 +108,12 @@ async fn get_from_mvr_registry(
     mvr_name: &str,
     mainnet_client: &SuiClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
+    let dynamic_field_name = dynamic_field_name(mvr_name)?;
     let record_id = mainnet_client
         .read_api()
         .get_dynamic_field_object(
             ObjectID::from_str(MVR_REGISTRY).unwrap(),
-            dynamic_field_name(mvr_name)?,
+            dynamic_field_name,
         )
         .await
         .map_err(|_| Failure)?
@@ -146,7 +150,7 @@ async fn get_object<T: for<'a> Deserialize<'a>>(
     bcs::from_bytes(
         client
             .read_api()
-            .get_object_with_options(object_id, SuiObjectDataOptions::bcs_lossless())
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())
             .await
             .map_err(|_| Failure)?
             .move_object_bcs()
@@ -194,26 +198,32 @@ mod tests {
             .unwrap()
         );
 
-        assert!(mvr_forward_resolution(
-            &SuiClientBuilder::default().build_mainnet().await.unwrap(),
-            "vesca@scallop/core",
-            &Network::Mainnet
-        )
-        .await
-        .is_ok());
-
-        // This MVR name is not registered on testnet.
-        // If it ever registered, please update the test.
+        // This MVR name is not registered on mainnet.
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_testnet().await.unwrap(),
-                "vesca@scallop/core",
-                &Network::Testnet
+                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                "@pkg/seal-demo-1234",
+                &Network::Mainnet
             )
             .await
             .err()
             .unwrap(),
             InvalidMVRName
+        );
+
+        // ..but it is on testnet.
+        assert_eq!(
+            mvr_forward_resolution(
+                &SuiClientBuilder::default().build_testnet().await.unwrap(),
+                "@pkg/seal-demo-1234",
+                &Network::Testnet
+            )
+            .await
+            .unwrap(),
+            ObjectID::from_str(
+                "0xc5ce2742cac46421b62028557f1d7aea8a4c50f651379a79afdf12cd88628807"
+            )
+            .unwrap()
         );
     }
 
