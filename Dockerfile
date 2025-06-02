@@ -1,5 +1,5 @@
 # Start with a Rust base image
-FROM rust:1.87-bookworm  AS builder
+FROM rust:1.87-bullseye  AS builder
 
 ARG PROFILE=release
 
