@@ -20,7 +20,7 @@ use std::str::FromStr;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
-use sui_types::dynamic_field::{derive_dynamic_field_id, DynamicFieldName};
+use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 use tap::Tap;
 
