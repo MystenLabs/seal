@@ -1,6 +1,18 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! This module provides functionality to interact with the Move Registry (MVR) on behalf of Seal.
+//!
+//! MVR (Move Registry) is a registry for Move packages and their metadata.
+//!
+//! A few facts about MVR that are important regarding its usage in Seal:
+//! * Only the owner of a Move package can register an MVR name for it using its `UpgradeCap`. It may point to a Move package on mainnet, testnet or neither.
+//! * There is a registry on mainnet that is used to store all MVR records (see [MVR_REGISTRY]). Using the MVR name, we can look up an `app_record` here.
+//! * If there is an `app_info` field in the `app_record`, there is a package address in this that points to the package address on mainnet.
+//! * The `app_record` has a `networks` field which contains a mapping of network IDs to metadata. If there is an entry with name [TESTNET_ID], it contains the package info for the testnet. The package address information here is <i>not</i> guaranteed to be accurate, so for testnet we should instead look up the package info object on testnet and get the package address from there.
+//! * A valid name is of the form `subname@name/mvr-app` or, equivalently, `subname.name.sui/mvr-app`. The subname is optional, but there is always an `/` in the name, meaning that it is not possible to register an object ID like `0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b` as an MVR name.
+//! * The app record and package info objects point to the package address that was used when the name was registered, but there could be more recent versions of the package.
+
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
@@ -22,7 +34,6 @@ use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::base_types::ObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
-use tap::Tap;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
