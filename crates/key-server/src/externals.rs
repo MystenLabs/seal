@@ -4,11 +4,6 @@
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
 use crate::types::Network;
-use crate::Timestamp;
-use mvr_indexer::models::mainnet::mvr_metadata::package_info::PackageInfo as MainnetPkgInfo;
-use mvr_indexer::models::mainnet::sui::vec_map::VecMap;
-use mvr_indexer::models::testnet::mvr_metadata::package_info::PackageInfo as TestnetPkgInfo;
-use mvr_indexer::models::{mainnet, testnet};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::Value;
