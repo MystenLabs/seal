@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Install licensesnip
-        uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
+        uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@v2.52.4
         with:
           tool: licensesnip@1.7.0
       - run: licensesnip check
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
-      - uses: taiki-e/install-action@d30f7ecb94d4d882276efb3967be14b8ef34d289 # pin@nextest
+      - uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@nextest
       - name: Run tests
         run: cargo nextest run --all-features
       - name: Run doctests
