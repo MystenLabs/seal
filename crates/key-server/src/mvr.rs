@@ -30,6 +30,7 @@ const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6
 /// Testnet records are stored on mainnet on the registry defined above, but under the 'networks' section using the following ID as key
 const TESTNET_ID: &str = "4c78adac";
 
+/// Bindings for Move structs used in the MVR registry, specifically AppRecord and PackageInfo.
 #[allow(clippy::too_many_arguments)]
 pub mod mainnet {
     use move_binding_derive::move_contract;
