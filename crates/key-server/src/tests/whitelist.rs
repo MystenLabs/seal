@@ -51,7 +51,8 @@ async fn test_whitelist() {
 async fn test_whitelist_with_upgrade() {
     let mut tc = SealTestCluster::new(1, 1).await;
 
-    let (package_id_1, upgrade_cap) = tc.publish("patterns").await;
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
+    let (package_id_1, upgrade_cap) = tc.publish_path(path).await;
     println!("Old pkg: {}", package_id_1);
 
     let (whitelist, cap) = create_whitelist(tc.get_mut(), package_id_1).await;
@@ -72,8 +73,7 @@ async fn test_whitelist_with_upgrade() {
     .await
     .is_ok());
 
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.extend(["..", "..", "move", "patterns"]);
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");
     let package_id_2 = tc.upgrade(package_id_1, upgrade_cap, path).await;
 
     // Succeeds with old package id (since we didn't upgrade)

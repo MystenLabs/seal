@@ -13,7 +13,7 @@ const EDuplicate: u64 = 3;
 const ENotInWhitelist: u64 = 4;
 const EWrongVersion: u64 = 5;
 
-const VERSION: u64 = 2;
+const VERSION: u64 = 1;
 
 public struct Whitelist has key {
     id: UID,
@@ -62,12 +62,6 @@ public fun remove(wl: &mut Whitelist, cap: &Cap, account: address) {
     assert!(cap.wl_id == object::id(wl), EInvalidCap);
     assert!(wl.addresses.contains(account), ENotInWhitelist);
     wl.addresses.remove(account);
-}
-
-entry fun upgrade_version(wl: &mut Whitelist, cap: &Cap) {
-    assert!(cap.wl_id == object::id(wl), EInvalidCap);
-    assert!(wl.version < VERSION, EWrongVersion);
-    wl.version = VERSION;
 }
 
 //////////////////////////////////////////////////////////
