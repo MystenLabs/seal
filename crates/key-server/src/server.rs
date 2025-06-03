@@ -310,7 +310,7 @@ impl Server {
         req_id: Option<&str>,
         mvr_name: Option<String>,
     ) -> Result<Vec<KeyId>, InternalError> {
-        // Handle package upgrades: only call the latest version but use the first as the namespace
+        // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
                 externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.network).await
