@@ -7,6 +7,10 @@
 /// - After all the voters have submitted votes, anyone can retrieve the encryption keys and submit them. The votes are then decrypted on-chain.
 ///
 /// This is an example of on-chain decryption. Other use cases of this include auctions, timelocked voting, etc.
+///
+/// This pattern does NOT implement versioning, please see other patterns for 
+/// examples of versioning.
+///
 module patterns::voting;
 
 use seal::bf_hmac_encryption::{EncryptedObject, VerifiedDerivedKey, PublicKey, decrypt};

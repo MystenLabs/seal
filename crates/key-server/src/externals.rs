@@ -16,32 +16,24 @@ use sui_types::base_types::ObjectID;
 use tap::{Tap, TapFallible};
 use tracing::{debug, warn};
 
-static CACHE: Lazy<Cache<ObjectID, (ObjectID, ObjectID)>> =
-    Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
-
-#[cfg(test)]
-pub(crate) fn add_latest(pkg_id: ObjectID, latest: ObjectID) {
-    match CACHE.get(&pkg_id) {
-        Some((first, old_latest)) => {
-            CACHE.insert(pkg_id, (first, latest));
-            CACHE.insert(latest, (first, latest));
-            CACHE.insert(old_latest, (first, latest));
-        }
-        None => panic!("Package is not in cache"),
-    }
-}
+static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
 
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
-    CACHE.insert(pkg_id, (pkg_id, pkg_id));
+    CACHE.insert(pkg_id, pkg_id);
 }
 
-pub(crate) async fn fetch_first_and_last_pkg_id(
+#[cfg(test)]
+pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
+    CACHE.insert(new_pkg_id, pkg_id);
+}
+
+pub(crate) async fn fetch_first_pkg_id(
     pkg_id: &ObjectID,
     network: &Network,
-) -> Result<(ObjectID, ObjectID), InternalError> {
+) -> Result<ObjectID, InternalError> {
     match CACHE.get(pkg_id) {
-        Some((first, latest)) => Ok((first, latest)),
+        Some(first) => Ok(first),
         None => {
             let query = serde_json::json!({
                 "query": format!(
@@ -75,12 +67,8 @@ pub(crate) async fn fetch_first_and_last_pkg_id(
                 .as_str()
                 .ok_or(InternalError::InvalidPackage)
                 .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
-            let latest = response["data"]["latestPackage"]["address"]
-                .as_str()
-                .ok_or(InternalError::InvalidPackage)
-                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
-            CACHE.insert(*pkg_id, (first, latest));
-            Ok((first, latest))
+               CACHE.insert(*pkg_id, first);
+            Ok(first)
         }
     }
 }
@@ -128,7 +116,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::fetch_first_and_last_pkg_id;
+    use crate::externals::fetch_first_pkg_id;
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -142,32 +130,30 @@ mod tests {
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
-    async fn test_fetch_first_and_last_pkg_id() {
+    async fn test_fetch_first_pkg_id() {
         let address = ObjectID::from_str(
             "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
         )
         .unwrap();
 
-        match fetch_first_and_last_pkg_id(&address, &Network::Mainnet).await {
-            Ok((first, latest)) => {
+        match fetch_first_pkg_id(&address, &Network::Mainnet).await {
+            Ok(first) => {
                 assert!(!first.is_empty(), "First address should not be empty");
-                assert!(!latest.is_empty(), "Latest address should not be empty");
                 println!("First address: {:?}", first);
-                println!("Latest address: {:?}", latest);
             }
             Err(e) => panic!("Test failed with error: {:?}", e),
         }
     }
 
     #[tokio::test]
-    async fn test_fetch_first_and_last_pkg_id_with_invalid_id() {
+    async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
-        let result = fetch_first_and_last_pkg_id(&invalid_address, &Network::Mainnet).await;
+        let result = fetch_first_pkg_id(&invalid_address, &Network::Mainnet).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
     }
 
     #[tokio::test]
-    async fn test_fetch_first_and_last_pkg_id_with_invalid_graphql_url() {
+    async fn test_fetch_first_pkg_id_with_invalid_graphql_url() {
         let address = ObjectID::from_str(
             "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
         )
@@ -179,7 +165,7 @@ mod tests {
             node_url: "http://invalid-url".to_string(),
         };
 
-        let result = fetch_first_and_last_pkg_id(&address, &invalid_network).await;
+        let result = fetch_first_pkg_id(&address, &invalid_network).await;
         assert!(matches!(result, Err(InternalError::Failure)));
     }
 

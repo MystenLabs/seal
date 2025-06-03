@@ -311,37 +311,11 @@ impl Server {
         mvr_name: Option<String>,
     ) -> Result<Vec<KeyId>, InternalError> {
         // Handle package upgrades: only call the latest version but use the first as the namespace
-
-        // Get first and last package IDs
-        let (first_pkg_id, last_pkg_id) =
+        let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_and_last_pkg_id(&valid_ptb.pkg_id(), &self.network).await
+                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.network).await
             })
             .await?;
-
-        // The call to seal_approve must be using the latest package ID
-        if valid_ptb.pkg_id() != last_pkg_id {
-            debug!(
-                "Last package version is {:?} while ptb uses {:?} (req_id: {:?})",
-                last_pkg_id,
-                valid_ptb.pkg_id(),
-                req_id
-            );
-            return Err(InternalError::OldPackageVersion);
-        }
-
-        // If an MVR name is provided, check that it points to the first package ID
-        if let Some(mvr_name) = &mvr_name {
-            let mvr_package_id =
-                mvr_forward_resolution(&self.sui_client, mvr_name, &self.network).await?;
-            if mvr_package_id != first_pkg_id {
-                debug!(
-                    "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
-                    mvr_name, mvr_package_id, first_pkg_id, req_id
-                );
-                return Err(InternalError::InvalidMVRName);
-            }
-        }
 
         // Check all conditions
         self.check_signature(

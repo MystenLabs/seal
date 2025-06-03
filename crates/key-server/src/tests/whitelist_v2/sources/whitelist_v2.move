@@ -1,21 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Whitelist pattern:
-/// - Anyone can create a whitelist which defines a unique key-id.
-/// - Anyone can encrypt to that key-id.
-/// - Anyone on the whitelist can request the key associated with the whitelist's key-id,
-///   allowing it to decrypt all data encrypted to that key-id.
-///
-/// Use cases that can be built on top of this: subscription based access to encrypted files.
-///
-/// Similar patterns:
-/// - Whitelist with temporary privacy: same whitelist as below, but also store created_at: u64.
-///   After a fixed TTL anyone can access the key, regardless of being on the whitelist.
-///   Temporary privacy can be useful for compliance reasons, e.g., GDPR.
-///
-/// This pattern implements versioning per whitelist.
-///
+// copy of whitelist.move, just updated the version
+
 module patterns::whitelist;
 
 use sui::table;
@@ -26,7 +13,7 @@ const EDuplicate: u64 = 3;
 const ENotInWhitelist: u64 = 4;
 const EWrongVersion: u64 = 5;
 
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 public struct Whitelist has key {
     id: UID,
@@ -77,8 +64,11 @@ public fun remove(wl: &mut Whitelist, cap: &Cap, account: address) {
     wl.addresses.remove(account);
 }
 
-// Cap can also be used to upgrade the version of Whitelist in future versions,
-// see https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects
+entry fun upgrade_version(wl: &mut Whitelist, cap: &Cap) {
+    assert!(cap.wl_id == object::id(wl), EInvalidCap);
+    assert!(wl.version < VERSION, EWrongVersion);
+    wl.version = VERSION;
+}
 
 //////////////////////////////////////////////////////////
 /// Access control

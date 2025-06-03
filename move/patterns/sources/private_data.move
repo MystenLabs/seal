@@ -7,6 +7,9 @@
 ///
 /// Use cases that can be built on top of this: personal key storage, private NFTs.
 ///
+/// This pattern does NOT implement versioning, please see other patterns for 
+/// examples of versioning.
+///
 module patterns::private_data;
 
 const ENoAccess: u64 = 77;

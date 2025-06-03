@@ -7,6 +7,9 @@
 ///
 /// Use cases that can be built on top of this: offchain secure messaging.
 ///
+/// This pattern does NOT implement versioning, please see other patterns for 
+/// examples of versioning.
+///
 module patterns::account_based;
 
 use sui::bcs;
