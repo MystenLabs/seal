@@ -55,6 +55,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
 use valid_ptb::ValidPtb;
+use duration_str::deserialize_duration;
 
 mod cache;
 mod errors;
@@ -127,11 +128,14 @@ struct Server {
 pub struct KeyServerOptions {
     pub network: Network,
     pub key_server_object_id: ObjectID,
+    #[serde(deserialize_with = "deserialize_duration")]
     pub checkpoint_update_interval: Duration,
+    #[serde(deserialize_with = "deserialize_duration")]
     pub rgp_update_interval: Duration,
-    pub gas_budget: u64,
     pub sdk_version_requirement: VersionReq,
+    #[serde(deserialize_with = "deserialize_duration")]
     pub allowed_staleness: Duration,
+    #[serde(deserialize_with = "deserialize_duration")]
     pub session_key_ttl_max: Duration,
 }
 
