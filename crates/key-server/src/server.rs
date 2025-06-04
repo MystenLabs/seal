@@ -317,6 +317,19 @@ impl Server {
             })
             .await?;
 
+        // If an MVR name is provided, check that it points to the first package ID
+        if let Some(mvr_name) = &mvr_name {
+            let mvr_package_id =
+                mvr_forward_resolution(&self.sui_client, mvr_name, &self.network).await?;
+            if mvr_package_id != first_pkg_id {
+                debug!(
+                    "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
+                    mvr_name, mvr_package_id, first_pkg_id, req_id
+                );
+                return Err(InternalError::InvalidMVRName);
+            }
+        }
+
         // Check all conditions
         self.check_signature(
             valid_ptb.ptb(),

@@ -67,7 +67,7 @@ pub(crate) async fn fetch_first_pkg_id(
                 .as_str()
                 .ok_or(InternalError::InvalidPackage)
                 .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
-               CACHE.insert(*pkg_id, first);
+            CACHE.insert(*pkg_id, first);
             Ok(first)
         }
     }
