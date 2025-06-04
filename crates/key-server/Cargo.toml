@@ -26,7 +26,6 @@ mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b
 
 tokio = { version = "1.44.2", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
-tower = "0.4.13"
 reqwest = { version = "0.12.15", features = ["json"] }
 tower-http = { version = "0.6.0", features = ["cors"] }
 crypto = { path = "../crypto" }
@@ -37,8 +36,10 @@ lru = "0.13.0"
 parking_lot = "0.12.3"
 once_cell = "1.20.2"
 chrono = "0.4.39"
-semver = "1.0.26"
+semver = { version = "1.0.26", features = ["serde"] }
 jsonrpsee = "0.24.0"
+serde_yaml = "0.9"
+serde_with = { version = "3.12.0", features = ["macros"] }
 
 move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }

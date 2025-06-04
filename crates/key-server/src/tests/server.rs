@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use core::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_test::traced_test;
 
@@ -30,11 +29,9 @@ async fn test_get_latest_checkpoint_timestamp() {
 async fn test_timestamp_updater() {
     let tc = SealTestCluster::new(1, 0).await;
 
-    let update_interval = Duration::from_secs(1);
-
     let mut receiver = tc
         .server()
-        .spawn_latest_checkpoint_timestamp_updater(update_interval, None)
+        .spawn_latest_checkpoint_timestamp_updater(None)
         .await;
 
     let tolerance = 20000;
@@ -62,12 +59,7 @@ async fn test_timestamp_updater() {
 async fn test_rgp_updater() {
     let tc = SealTestCluster::new(1, 0).await;
 
-    let update_interval = Duration::from_secs(1);
-
-    let mut receiver = tc
-        .server()
-        .spawn_reference_gas_price_updater(update_interval, None)
-        .await;
+    let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await;
 
     let price = *receiver.borrow_and_update();
     assert_eq!(price, tc.cluster.get_reference_gas_price().await);

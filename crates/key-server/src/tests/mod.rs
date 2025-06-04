@@ -3,7 +3,7 @@
 
 use crate::externals::{add_package, add_upgraded_package};
 use crate::types::Network;
-use crate::Server;
+use crate::{from_mins, KeyServerOptions, Server};
 use crypto::ibe;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::groups::bls12381::G1Element;
@@ -15,6 +15,7 @@ use semver::VersionReq;
 use serde_json::json;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
@@ -60,18 +61,27 @@ impl SealTestCluster {
         let mut rng = thread_rng();
 
         // TODO: We could publish the seal module and register key servers on-chain, but no tests need this right now so to speed up tests we don't do it.
+        let options = KeyServerOptions {
+            network: Network::TestCluster,
+            key_server_object_id: ObjectID::ZERO,
+            checkpoint_update_interval: Duration::from_secs(10),
+            rgp_update_interval: Duration::from_secs(60),
+            gas_budget: 5_000_000,
+            sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+            allowed_staleness: Duration::from_secs(120),
+            session_key_ttl_max: from_mins(30),
+        };
+
         let servers = (0..servers)
             .map(|_| ibe::generate_key_pair(&mut rng))
             .map(|(master_key, public_key)| SealKeyServer {
                 server: Server {
                     sui_client: cluster.sui_client().clone(),
-                    network: Network::TestCluster,
                     master_key,
                     legacy_key_server_object_id: ObjectID::ZERO,
                     legacy_key_server_object_id_sig: G1Element::generator(),
-                    key_server_object_id: ObjectID::ZERO,
                     key_server_object_id_sig: G1Element::generator(),
-                    sdk_version_requirement: VersionReq::STAR,
+                    options: options.clone(),
                 },
                 public_key,
             })

@@ -2344,7 +2344,7 @@ name = "enum-compat-util"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=42ba6c0#42ba6c03128233cdeb3fc6e0a22dabd0bfc55385"
 dependencies = [
- "serde_yaml",
+ "serde_yaml 0.8.26",
 ]
 
 [[package]]
@@ -4000,6 +4000,8 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_with",
+ "serde_yaml 0.9.34+deprecated",
  "shared-crypto",
  "sui-move-build",
  "sui-sdk",
@@ -4009,7 +4011,6 @@ dependencies = [
  "tap",
  "test-cluster",
  "tokio",
- "tower 0.4.13",
  "tower-http 0.6.2",
  "tracing",
  "tracing-test",
@@ -4756,7 +4757,7 @@ dependencies = [
  "petgraph 0.5.1",
  "regex",
  "serde",
- "serde_yaml",
+ "serde_yaml 0.8.26",
  "sha2 0.9.9",
  "tempfile",
  "toml 0.5.11",
@@ -7310,6 +7311,9 @@ name = "semver"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6fa9c48d24d85fb3de5ad847117517440f6beceb7798af16b4a87d616b8d0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "serde"
@@ -7479,6 +7483,19 @@ dependencies = [
  "ryu",
  "serde",
  "yaml-rust",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.7.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -8086,7 +8103,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_with",
- "serde_yaml",
+ "serde_yaml 0.8.26",
  "sui-keys",
  "sui-protocol-config",
  "sui-rpc-api",
@@ -8212,7 +8229,7 @@ name = "sui-enum-compat-util"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=42ba6c0#42ba6c03128233cdeb3fc6e0a22dabd0bfc55385"
 dependencies = [
- "serde_yaml",
+ "serde_yaml 0.8.26",
 ]
 
 [[package]]
@@ -8315,7 +8332,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "serde_yaml",
+ "serde_yaml 0.8.26",
  "shared-crypto",
  "sui-config",
  "sui-execution",
@@ -9231,7 +9248,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "serde_yaml",
+ "serde_yaml 0.8.26",
  "shared-crypto",
  "sui-config",
  "sui-genesis-builder",
@@ -10676,6 +10693,12 @@ dependencies = [
  "crypto-common",
  "subtle",
 ]
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unsigned-varint"
