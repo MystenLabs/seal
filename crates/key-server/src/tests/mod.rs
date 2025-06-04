@@ -66,7 +66,6 @@ impl SealTestCluster {
             key_server_object_id: ObjectID::ZERO,
             checkpoint_update_interval: Duration::from_secs(10),
             rgp_update_interval: Duration::from_secs(60),
-            gas_budget: 5_000_000,
             sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
             allowed_staleness: Duration::from_secs(120),
             session_key_ttl_max: from_mins(30),
