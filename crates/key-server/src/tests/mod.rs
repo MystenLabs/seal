@@ -67,6 +67,8 @@ impl SealTestCluster {
                     sui_client: cluster.sui_client().clone(),
                     network: Network::TestCluster,
                     master_key,
+                    legacy_key_server_object_id: ObjectID::ZERO,
+                    legacy_key_server_object_id_sig: G1Element::generator(),
                     key_server_object_id: ObjectID::ZERO,
                     key_server_object_id_sig: G1Element::generator(),
                     sdk_version_requirement: VersionReq::STAR,

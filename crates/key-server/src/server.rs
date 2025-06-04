@@ -88,6 +88,8 @@ const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The minimum version of the SDK that is required to use this service.
 const SDK_VERSION_REQUIREMENT: &str = ">=0.4.5";
 
+const VERSION_REQUIREMENT_FOR_NEW_OBJECT_ID: &str = ">=0.4.7";
+
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Certificate {
@@ -135,7 +137,9 @@ struct Server {
     sui_client: SuiClient,
     network: Network,
     master_key: IbeMasterKey,
+    legacy_key_server_object_id: ObjectID,
     key_server_object_id: ObjectID,
+    legacy_key_server_object_id_sig: MasterKeyPOP,
     key_server_object_id_sig: MasterKeyPOP,
     sdk_version_requirement: VersionReq,
 }
@@ -144,6 +148,7 @@ impl Server {
     async fn new(
         master_key: IbeMasterKey,
         network: Network,
+        legacy_key_server_object_id: ObjectID,
         key_server_object_id: ObjectID,
     ) -> Self {
         let sui_client = SuiClientBuilder::default()
@@ -158,6 +163,9 @@ impl Server {
             network
         );
 
+        let legacy_key_server_object_id_sig =
+            create_proof_of_possession(&master_key, &legacy_key_server_object_id.into_bytes());
+
         let key_server_object_id_sig =
             create_proof_of_possession(&master_key, &key_server_object_id.into_bytes());
 
@@ -168,7 +176,9 @@ impl Server {
             sui_client,
             network,
             master_key,
+            legacy_key_server_object_id,
             key_server_object_id,
+            legacy_key_server_object_id_sig,
             key_server_object_id_sig,
             sdk_version_requirement,
         }
@@ -562,11 +572,33 @@ struct GetServiceResponse {
 
 async fn handle_get_service(
     State(app_state): State<MyState>,
+    headers: HeaderMap,
 ) -> Result<Json<GetServiceResponse>, InternalError> {
     app_state.metrics.service_requests.inc();
+
+    let sdk_version = headers
+        .get("Client-Sdk-Version")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    let version = Version::parse(sdk_version).map_err(|_| InvalidSDKVersion)?;
+    let version_requirement =
+        VersionReq::parse(VERSION_REQUIREMENT_FOR_NEW_OBJECT_ID).map_err(|_| InvalidSDKVersion)?;
+    let (service_id, pop) = if version_requirement.matches(&version) {
+        (
+            app_state.server.key_server_object_id,
+            app_state.server.key_server_object_id_sig,
+        )
+    } else {
+        (
+            app_state.server.legacy_key_server_object_id,
+            app_state.server.legacy_key_server_object_id_sig,
+        )
+    };
+
     Ok(Json(GetServiceResponse {
-        service_id: app_state.server.key_server_object_id,
-        pop: app_state.server.key_server_object_id_sig,
+        service_id,
+        pop,
         version: PACKAGE_VERSION.to_string(),
     }))
 }
@@ -653,7 +685,10 @@ async fn main() -> Result<()> {
     } else {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
-    let object_id = env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
+    let legacy_object_id =
+        env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
+    let object_id =
+        env::var("NEW_KEY_SERVER_OBJECT_ID").expect("NEW_KEY_SERVER_OBJECT_ID must be set");
     let network = env::var("NETWORK")
         .map(|n| Network::from_str(&n))
         .unwrap_or(Network::Testnet);
@@ -673,7 +708,8 @@ async fn main() -> Result<()> {
         IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
             .expect("Invalid MASTER_KEY value"),
         network,
-        ObjectID::from_hex_literal(&object_id).expect("Invalid KEY_SERVER_OBJECT_ID"),
+        ObjectID::from_hex_literal(&legacy_object_id).expect("Invalid KEY_SERVER_OBJECT_ID"),
+        ObjectID::from_hex_literal(&object_id).expect("Invalid NEW_KEY_SERVER_OBJECT_ID"),
     )
     .await;
     let server = Arc::new(s);

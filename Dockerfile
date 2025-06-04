@@ -12,6 +12,7 @@ RUN cargo build --bin key-server --profile $PROFILE --config net.git-fetch-with-
 FROM debian:bullseye-slim AS runtime
 ARG master_key
 ARG key_server_object_id
+ARG new_key_server_object_id
 ARG network
 
 EXPOSE 2024
@@ -22,6 +23,7 @@ COPY --from=builder /work/target/release/key-server /opt/key-server/bin/
 
 ENV MASTER_KEY=$master_key
 ENV KEY_SERVER_OBJECT_ID=$key_server_object_id
+ENV NEW_KEY_SERVER_OBJECT_ID=$new_key_server_object_id
 ENV NETWORK=$network
 
 ENTRYPOINT ["/opt/key-server/bin/key-server"]
