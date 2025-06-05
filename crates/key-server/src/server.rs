@@ -88,8 +88,6 @@ const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The minimum version of the SDK that is required to use this service.
 const SDK_VERSION_REQUIREMENT: &str = ">=0.4.5";
 
-const VERSION_REQUIREMENT_FOR_NEW_OBJECT_ID: &str = ">=0.4.7";
-
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Certificate {
@@ -564,6 +562,11 @@ async fn handle_fetch_key(
 }
 
 #[derive(Serialize, Deserialize)]
+struct GetServiceRequest {
+    service_id: ObjectID,
+}
+
+#[derive(Serialize, Deserialize)]
 struct GetServiceResponse {
     service_id: ObjectID,
     pop: MasterKeyPOP,
@@ -572,28 +575,29 @@ struct GetServiceResponse {
 
 async fn handle_get_service(
     State(app_state): State<MyState>,
-    headers: HeaderMap,
+    payload: Option<Json<GetServiceRequest>>,
 ) -> Result<Json<GetServiceResponse>, InternalError> {
     app_state.metrics.service_requests.inc();
-
-    let sdk_version = headers
-        .get("Client-Sdk-Version")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-
-    let version = Version::parse(sdk_version).map_err(|_| InvalidSDKVersion)?;
-    let version_requirement =
-        VersionReq::parse(VERSION_REQUIREMENT_FOR_NEW_OBJECT_ID).map_err(|_| InvalidSDKVersion)?;
-    let (service_id, pop) = if version_requirement.matches(&version) {
-        (
-            app_state.server.key_server_object_id,
-            app_state.server.key_server_object_id_sig,
-        )
-    } else {
-        (
+    let (service_id, pop) = match payload {
+        Some(Json(req)) => {
+            if req.service_id == app_state.server.key_server_object_id {
+                (
+                    app_state.server.key_server_object_id,
+                    app_state.server.key_server_object_id_sig,
+                )
+            } else if req.service_id == app_state.server.legacy_key_server_object_id {
+                (
+                    app_state.server.legacy_key_server_object_id,
+                    app_state.server.legacy_key_server_object_id_sig,
+                )
+            } else {
+                return Err(InternalError::InvalidServiceId);
+            }
+        }
+        None => (
             app_state.server.legacy_key_server_object_id,
             app_state.server.legacy_key_server_object_id_sig,
-        )
+        ),
     };
 
     Ok(Json(GetServiceResponse {
@@ -685,10 +689,10 @@ async fn main() -> Result<()> {
     } else {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
+    // TODO: remove this when the legacy key server is no longer needed
     let legacy_object_id =
-        env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
-    let object_id =
-        env::var("NEW_KEY_SERVER_OBJECT_ID").expect("NEW_KEY_SERVER_OBJECT_ID must be set");
+        env::var("LEGACY_KEY_SERVER_OBJECT_ID").expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
+    let object_id = env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
     let network = env::var("NETWORK")
         .map(|n| Network::from_str(&n))
         .unwrap_or(Network::Testnet);

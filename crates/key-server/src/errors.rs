@@ -20,6 +20,7 @@ pub enum InternalError {
     MissingRequiredHeader(String),
     InvalidParameter,
     InvalidMVRName,
+    InvalidServiceId,
     Failure, // Internal error, try again later
 }
 
@@ -72,6 +73,9 @@ impl IntoResponse for InternalError {
             InternalError::InvalidMVRName => {
                 (StatusCode::FORBIDDEN, "Invalid MVR name".to_string())
             }
+            InternalError::InvalidServiceId => {
+                (StatusCode::BAD_REQUEST, "Invalid service ID".to_string())
+            }
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
@@ -102,6 +106,7 @@ impl InternalError {
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
             InternalError::InvalidParameter => "InvalidParameter",
             InternalError::InvalidMVRName => "InvalidMVRName",
+            InternalError::InvalidServiceId => "InvalidServiceId",
             InternalError::Failure => "Failure",
         }
     }
