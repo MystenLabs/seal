@@ -15,7 +15,7 @@ Packages should define `seal_approve*` functions in their modules to control acc
 - A package can include multiple `seal_approve*` functions, each implementing different access control logic and accepting different input parameters.
 - The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`.
 - If access is not granted, the function should abort without returning a value.
-- To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a shared global object with the latest version (see [whitelist](https://github.com/MystenLabs/seal/pull/133/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/pull/133/move/patterns/sources/subscription.move) examples).
+- To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a shared global object with the latest version (see [whitelist](./move/patterns/sources/whitelist.move) and [subscription](./move/patterns/sources/subscription.move) examples).
 
 See [move/patterns](./move/patterns) for examples and useful patterns.
 
