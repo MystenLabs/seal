@@ -298,7 +298,7 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.options.network).await
+                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_client).await
             })
             .await?;
 

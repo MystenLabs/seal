@@ -3,7 +3,6 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
-use crate::types::Network;
 use crate::Timestamp;
 use once_cell::sync::Lazy;
 use reqwest::Client;
@@ -11,11 +10,11 @@ use serde_json::Value;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_sdk::error::SuiRpcResult;
-use sui_sdk::rpc_types::CheckpointId;
+use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
 use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
-use tap::{Tap, TapFallible};
-use tracing::{debug, warn};
+use tap::TapFallible;
+use tracing::warn;
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
 
@@ -31,43 +30,28 @@ pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
 
 pub(crate) async fn fetch_first_pkg_id(
     pkg_id: &ObjectID,
-    network: &Network,
+    sui_client: &SuiClient,
 ) -> Result<ObjectID, InternalError> {
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let query = serde_json::json!({
-                "query": format!(
-                    r#"
-                    query {{
-                        latestPackage(
-                            address: "{pkg_id}"
-                        ) {{
-                            address
-                            packageAtVersion(version: 1) {{
-                                address
-                            }}
-                        }}
-                    }}
-                    "#,
-                )
-            });
-
-            let response = Client::new()
-                .post(network.graphql_url())
-                .json(&query)
-                .send()
+            let first = sui_client
+                .read_api()
+                .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
                 .await
-                .map_err(|_| InternalError::Failure)?
-                .tap(|r| debug!("Graphql response: {:?}", r))
-                .json::<Value>()
-                .await
-                .map_err(|_| InternalError::Failure)?;
+                .map_err(|_| InternalError::InvalidPackage)?
+                .into_object()
+                .map_err(|_| InternalError::InvalidPackage)?;
 
-            let first = response["data"]["latestPackage"]["packageAtVersion"]["address"]
-                .as_str()
-                .ok_or(InternalError::InvalidPackage)
-                .and_then(|s| ObjectID::from_str(s).map_err(|_| InternalError::Failure))?;
+            let package = first
+                .bcs
+                .ok_or(InternalError::InvalidPackage)?
+                .try_as_package()
+                .ok_or(InternalError::InvalidPackage)?
+                .to_move_package(u64::MAX)
+                .map_err(|_| InternalError::InvalidPackage)?;
+
+            let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
             Ok(first)
         }
@@ -139,18 +123,26 @@ mod tests {
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
+    use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
     async fn test_fetch_first_pkg_id() {
         let address = ObjectID::from_str(
-            "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
+            "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
         .unwrap();
-
-        match fetch_first_pkg_id(&address, &Network::Mainnet).await {
+        let sui_client = SuiClientBuilder::default()
+            .build(&Network::Testnet.node_url())
+            .await
+            .expect("SuiClientBuilder should not failed unless provided with invalid network url");
+        match fetch_first_pkg_id(&address, &sui_client).await {
             Ok(first) => {
-                assert!(!first.is_empty(), "First address should not be empty");
+                assert_eq!(
+                    first.to_hex_literal(),
+                    "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16"
+                        .to_string()
+                );
                 println!("First address: {:?}", first);
             }
             Err(e) => panic!("Test failed with error: {:?}", e),
@@ -160,25 +152,12 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
-        let result = fetch_first_pkg_id(&invalid_address, &Network::Mainnet).await;
+        let sui_client = SuiClientBuilder::default()
+            .build(&Network::Mainnet.node_url())
+            .await
+            .expect("SuiClientBuilder should not failed unless provided with invalid network url");
+        let result = fetch_first_pkg_id(&invalid_address, &sui_client).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_first_pkg_id_with_invalid_graphql_url() {
-        let address = ObjectID::from_str(
-            "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
-        )
-        .unwrap();
-
-        // Use a custom network with an invalid URL to emulate fetch failure
-        let invalid_network = Network::Custom {
-            graphql_url: "http://invalid-url".to_string(),
-            node_url: "http://invalid-url".to_string(),
-        };
-
-        let result = fetch_first_pkg_id(&address, &invalid_network).await;
-        assert!(matches!(result, Err(InternalError::Failure)));
     }
 
     #[tokio::test]
