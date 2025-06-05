@@ -51,7 +51,6 @@ public fun create_whitelist(ctx: &mut TxContext): (Cap, Whitelist) {
     (cap, wl)
 }
 
-// Share a Whitelist created by create_whitelist.
 public fun share_whitelist(wl: Whitelist) {
     transfer::share_object(wl);
 }
