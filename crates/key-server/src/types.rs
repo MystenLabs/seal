@@ -24,7 +24,6 @@ pub enum Network {
     Mainnet,
     Custom {
         node_url: String,
-        graphql_url: String,
     },
     #[cfg(test)]
     TestCluster,
@@ -42,17 +41,6 @@ impl Network {
         }
     }
 
-    pub fn graphql_url(&self) -> String {
-        match self {
-            Network::Devnet => "https://sui-devnet.mystenlabs.com/graphql".into(),
-            Network::Testnet => "https://sui-testnet.mystenlabs.com/graphql".into(),
-            Network::Mainnet => "https://sui-mainnet.mystenlabs.com/graphql".into(),
-            Network::Custom { graphql_url, .. } => graphql_url.clone(),
-            #[cfg(test)]
-            Network::TestCluster => panic!("GraphQL is not available on test cluster"),
-        }
-    }
-
     pub fn from_str(str: &str) -> Self {
         match str.to_ascii_lowercase().as_str() {
             "devnet" => Network::Devnet,
@@ -60,7 +48,6 @@ impl Network {
             "mainnet" => Network::Mainnet,
             "custom" => Network::Custom {
                 node_url: std::env::var("NODE_URL").expect("NODE_URL must be set"),
-                graphql_url: std::env::var("GRAPHQL_URL").expect("GRAPHQL_URL must be set"),
             },
             _ => panic!("Unknown network: {}", str),
         }
