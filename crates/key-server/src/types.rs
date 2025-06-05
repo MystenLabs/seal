@@ -25,7 +25,6 @@ pub enum Network {
     Mainnet,
     Custom {
         node_url: String,
-        graphql_url: String,
     },
     #[cfg(test)]
     TestCluster,
@@ -50,7 +49,6 @@ impl Network {
             "mainnet" => Network::Mainnet,
             "custom" => Network::Custom {
                 node_url: std::env::var("NODE_URL").expect("NODE_URL must be set"),
-                graphql_url: std::env::var("GRAPHQL_URL").expect("GRAPHQL_URL must be set"),
             },
             _ => panic!("Unknown network: {}", str),
         }
