@@ -53,7 +53,7 @@ Time-lock encryption can be applied to a variety of onchain use cases, including
 
 The framework is fully generic. Developers can define custom authorization logic within `seal_approve*` functions and choose which key servers to use based on their application's needs. For example, they may use a fixed set of trusted key servers or allow users to select their preferred servers.
 
-When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see [move/patterns](https://github.com/MystenLabs/seal/pull/133/move/patterns).
+When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see [move/patterns](./move/patterns).
 Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
 
 ### Decentralization and trust model
