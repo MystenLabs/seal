@@ -9,7 +9,7 @@ use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
 use anyhow::Result;
-use axum::extract::Request;
+use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
@@ -36,6 +36,7 @@ use rand::thread_rng;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::env;
 use std::future::Future;
 use std::sync::Arc;
@@ -562,11 +563,6 @@ async fn handle_fetch_key(
 }
 
 #[derive(Serialize, Deserialize)]
-struct GetServiceRequest {
-    service_id: ObjectID,
-}
-
-#[derive(Serialize, Deserialize)]
 struct GetServiceResponse {
     service_id: ObjectID,
     pop: MasterKeyPOP,
@@ -575,17 +571,19 @@ struct GetServiceResponse {
 
 async fn handle_get_service(
     State(app_state): State<MyState>,
-    payload: Option<Json<GetServiceRequest>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<GetServiceResponse>, InternalError> {
     app_state.metrics.service_requests.inc();
-    let (service_id, pop) = match payload {
-        Some(Json(req)) => {
-            if req.service_id == app_state.server.key_server_object_id {
+    let (service_id, pop) = match params.get("service_id") {
+        Some(id) => {
+            let object_id =
+                ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)?;
+            if object_id == app_state.server.key_server_object_id {
                 (
                     app_state.server.key_server_object_id,
                     app_state.server.key_server_object_id_sig,
                 )
-            } else if req.service_id == app_state.server.legacy_key_server_object_id {
+            } else if object_id == app_state.server.legacy_key_server_object_id {
                 (
                     app_state.server.legacy_key_server_object_id,
                     app_state.server.legacy_key_server_object_id_sig,
