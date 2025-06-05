@@ -119,7 +119,7 @@ Decryption involves a few additional steps:
 Once initialized, the session key can be used to retrieve multiple decryption keys for the specified package without requiring further user confirmation.
 
 ```typescript
-const sessionKey = new SessionKey({
+const sessionKey = await SessionKey.create({
     address: suiAddress,
     packageId: fromHEX(packageId),
     ttlMin: 10, // TTL of 10 minutes

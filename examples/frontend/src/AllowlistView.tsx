@@ -5,7 +5,6 @@ import { useSignPersonalMessage, useSuiClient } from '@mysten/dapp-kit';
 import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes';
 import { fromHex } from '@mysten/sui/utils';
-import { SuiGraphQLClient } from '@mysten/sui/graphql';
 import { Transaction } from '@mysten/sui/transactions';
 import {
   getAllowlistedKeyServers,
@@ -124,11 +123,11 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
 
     set('sessionKey', null);
 
-    const sessionKey = new SessionKey({
+    const sessionKey = await SessionKey.create({
       address: suiAddress,
       packageId,
       ttlMin: TTL_MIN,
-      suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+      suiClient,
     });
 
     try {

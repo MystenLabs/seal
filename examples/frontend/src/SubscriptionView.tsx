@@ -217,11 +217,11 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     }
     setCurrentSessionKey(null);
 
-    const sessionKey = new SessionKey({
+    const sessionKey = await SessionKey.create({
       address: suiAddress,
       packageId,
       ttlMin: TTL_MIN,
-      suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+      suiClient,
     });
 
     try {

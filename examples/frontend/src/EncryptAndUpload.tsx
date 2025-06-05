@@ -7,7 +7,6 @@ import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Button, Card, Flex, Spinner, Text } from '@radix-ui/themes';
 import { getAllowlistedKeyServers, SealClient } from '@mysten/seal';
 import { fromHex, toHex } from '@mysten/sui/utils';
-import { SuiGraphQLClient } from '@mysten/sui/graphql';
 
 export type Data = {
   status: string;

@@ -9,7 +9,6 @@ const { networkConfig, useNetworkVariable, useNetworkVariables } = createNetwork
     url: getFullnodeUrl('testnet'),
     variables: {
       packageId: TESTNET_PACKAGE_ID,
-      gqlClient: 'https://sui-testnet.mystenlabs.com/graphql',
     },
   },
 });
