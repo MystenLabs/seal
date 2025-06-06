@@ -4,8 +4,6 @@ legacy_key_server_object_id: '0x000000000000000000000000000000000000000000000000
 # The on-chain object ID of the key server object.
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-# The port that the prometheus agent can use to poll for the metrics.
-
 # Optional configurations:
 #
 # The network to use. Should be one of:
@@ -16,7 +14,7 @@ key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000
 #   graphql_url: 'url_to_graphql_endpoint'
 #   node_url: 'url_to_node_endpoint'
 #
-# The port for the metrics server.
+# The port that the prometheus agent can use to poll for the metrics.
 # metrics_host_port: 9184
 #
 # The minimum version of the SDK that is required to use this service.
