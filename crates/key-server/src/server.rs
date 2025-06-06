@@ -41,7 +41,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
-use std::env::VarError;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
@@ -652,13 +651,19 @@ async fn main() -> Result<()> {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
 
+    // If CONFIG_PATH is set, read the configuration from the file.
+    // Otherwise, use the legacy environment variables.
     let options: KeyServerOptions = match env::var("CONFIG_PATH") {
-        Ok(config_path) => serde_yaml::from_reader(
-            std::fs::File::open(&config_path)
-                .context(format!("Cannot open configuration file {config_path}"))?,
-        )
-        .expect("Failed to parse configuration file"),
+        Ok(config_path) => {
+            info!("Loading config file: {}", config_path);
+            serde_yaml::from_reader(
+                std::fs::File::open(&config_path)
+                    .context(format!("Cannot open configuration file {config_path}"))?,
+            )
+            .expect("Failed to parse configuration file")
+        }
         Err(_) => {
+            info!("Using legacy environment variables for configuration");
             let legacy_object_id = env::var("LEGACY_KEY_SERVER_OBJECT_ID")
                 .expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
             let object_id =
