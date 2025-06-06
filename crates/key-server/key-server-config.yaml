@@ -1,7 +1,3 @@
-
-# The minimum version of the SDK that is required to use this service.
-sdk_version_requirement: '>=0.4.5'
-
 # The on-chain object ID of the legacy key server object.
 legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
@@ -9,7 +5,6 @@ legacy_key_server_object_id: '0x000000000000000000000000000000000000000000000000
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
 # The port that the prometheus agent can use to poll for the metrics.
-metrics_host_port: 9184
 
 # Optional configurations:
 #
@@ -20,6 +15,12 @@ metrics_host_port: 9184
 # network: Custom
 #   graphql_url: 'url_to_graphql_endpoint'
 #   node_url: 'url_to_node_endpoint'
+#
+# The port for the metrics server.
+# metrics_host_port: 9184
+#
+# The minimum version of the SDK that is required to use this service.
+# sdk_version_requirement: '>=0.4.5'
 #
 # Update intervals and timeouts for various operations. Example values are shown below.
 # checkpoint_update_interval: '10s'
