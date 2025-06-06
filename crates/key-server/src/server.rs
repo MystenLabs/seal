@@ -8,8 +8,8 @@ use crate::metrics::{call_with_duration, observation_callback, status_callback, 
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::MasterKeyPOP;
-use axum::extract::{Query, Request};
 use anyhow::{Context, Result};
+use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
@@ -118,7 +118,6 @@ struct FetchKeyResponse {
 struct Server {
     sui_client: SuiClient,
     master_key: IbeMasterKey,
-    legacy_key_server_object_id: ObjectID,
     legacy_key_server_object_id_sig: MasterKeyPOP,
     key_server_object_id_sig: MasterKeyPOP,
     options: KeyServerOptions,
@@ -127,6 +126,8 @@ struct Server {
 #[derive(Debug, Clone, Deserialize)]
 pub struct KeyServerOptions {
     pub network: Network,
+    // TODO: remove this when the legacy key server is no longer needed
+    pub legacy_key_server_object_id: ObjectID,
     pub key_server_object_id: ObjectID,
     #[serde(deserialize_with = "deserialize_duration")]
     pub checkpoint_update_interval: Duration,
@@ -140,12 +141,6 @@ pub struct KeyServerOptions {
 }
 
 impl Server {
-    async fn new(
-        master_key: IbeMasterKey,
-        network: Network,
-        legacy_key_server_object_id: ObjectID,
-        key_server_object_id: ObjectID,
-    ) -> Self {
     async fn new(master_key: IbeMasterKey, options: KeyServerOptions) -> Self {
         let network = options.network.clone();
 
@@ -161,16 +156,17 @@ impl Server {
             network
         );
 
-        let legacy_key_server_object_id_sig =
-            create_proof_of_possession(&master_key, &legacy_key_server_object_id.into_bytes());
-
         let key_server_object_id_sig =
             create_proof_of_possession(&master_key, &options.key_server_object_id.into_bytes());
+
+        let legacy_key_server_object_id_sig = create_proof_of_possession(
+            &master_key,
+            &options.legacy_key_server_object_id.into_bytes(),
+        );
 
         Server {
             sui_client,
             master_key,
-            legacy_key_server_object_id,
             legacy_key_server_object_id_sig,
             key_server_object_id_sig,
             options,
@@ -316,7 +312,7 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.network).await
+                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.options.network).await
             })
             .await?;
 
@@ -554,14 +550,14 @@ async fn handle_get_service(
         Some(id) => {
             let object_id =
                 ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)?;
-            if object_id == app_state.server.key_server_object_id {
+            if object_id == app_state.server.options.key_server_object_id {
                 (
                     app_state.server.options.key_server_object_id,
                     app_state.server.key_server_object_id_sig,
                 )
-            } else if object_id == app_state.server.legacy_key_server_object_id {
+            } else if object_id == app_state.server.options.legacy_key_server_object_id {
                 (
-                    app_state.server.legacy_key_server_object_id,
+                    app_state.server.options.legacy_key_server_object_id,
                     app_state.server.legacy_key_server_object_id_sig,
                 )
             } else {
@@ -569,7 +565,7 @@ async fn handle_get_service(
             }
         }
         None => (
-            app_state.server.legacy_key_server_object_id,
+            app_state.server.options.legacy_key_server_object_id,
             app_state.server.legacy_key_server_object_id_sig,
         ),
     };
@@ -673,13 +669,6 @@ async fn main() -> Result<()> {
     } else {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
-    // TODO: remove this when the legacy key server is no longer needed
-    let legacy_object_id =
-        env::var("LEGACY_KEY_SERVER_OBJECT_ID").expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
-    let object_id = env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
-    let network = env::var("NETWORK")
-        .map(|n| Network::from_str(&n))
-        .unwrap_or(Network::Testnet);
 
     let _guard = mysten_service::logging::init();
     info!("Logging set up, setting up metrics");
@@ -692,8 +681,7 @@ async fn main() -> Result<()> {
 
     info!("Starting server, version {}", PACKAGE_VERSION);
 
-    let config_path =
-        env::var("CONFIG_PATH").unwrap_or_else(|_| "key-server-config.yaml".to_string());
+    let config_path = env::var("CONFIG_PATH").expect("CONFIG_PATH must be set");
     let options = serde_yaml::from_reader(
         std::fs::File::open(&config_path)
             .context(format!("Cannot open configuration file {config_path}"))?,
@@ -705,7 +693,6 @@ async fn main() -> Result<()> {
         IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
             .expect("Invalid MASTER_KEY value"),
         options,
-        ObjectID::from_hex_literal(&legacy_object_id).expect("Invalid KEY_SERVER_OBJECT_ID"),
     )
     .await;
     let server = Arc::new(s);

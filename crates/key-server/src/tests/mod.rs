@@ -63,6 +63,7 @@ impl SealTestCluster {
         // TODO: We could publish the seal module and register key servers on-chain, but no tests need this right now so to speed up tests we don't do it.
         let options = KeyServerOptions {
             network: Network::TestCluster,
+            legacy_key_server_object_id: ObjectID::ZERO,
             key_server_object_id: ObjectID::ZERO,
             checkpoint_update_interval: Duration::from_secs(10),
             rgp_update_interval: Duration::from_secs(60),
@@ -77,7 +78,6 @@ impl SealTestCluster {
                 server: Server {
                     sui_client: cluster.sui_client().clone(),
                     master_key,
-                    legacy_key_server_object_id: ObjectID::ZERO,
                     legacy_key_server_object_id_sig: G1Element::generator(),
                     key_server_object_id_sig: G1Element::generator(),
                     options: options.clone(),

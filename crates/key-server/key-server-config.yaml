@@ -19,3 +19,6 @@ allowed_staleness: '120s'
 
 # The maximum time to live for a session key.
 session_key_ttl_max: '30m'
+
+# The on-chain object ID of the legacy key server object.
+legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
