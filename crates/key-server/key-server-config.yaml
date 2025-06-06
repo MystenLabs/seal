@@ -8,6 +8,7 @@ legacy_key_server_object_id: '0x000000000000000000000000000000000000000000000000
 # The on-chain object ID of the key server object.
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
+# The port that the prometheus agent can use to poll for the metrics.
 metrics_host_port: 9184
 
 # Optional configurations:

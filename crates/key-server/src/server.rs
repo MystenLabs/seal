@@ -4,7 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::{
-    current_epoch_time, duration_since, safe_duration_since, get_reference_gas_price,
+    current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
@@ -662,11 +662,11 @@ async fn main() -> Result<()> {
     info!("Logging set up, setting up metrics");
 
     // initialize metrics
-    let addr = SocketAddr::new(
+    let registry = start_prometheus_server(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         options.metrics_host_port,
-    );
-    let registry = start_prometheus_server(addr).default_registry();
+    ))
+    .default_registry();
 
     // hook up custom application metrics
     let metrics = Arc::new(Metrics::new(&registry));
