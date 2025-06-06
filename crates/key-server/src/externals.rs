@@ -35,17 +35,17 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let first = sui_client
+            let object = sui_client
                 .read_api()
                 .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
                 .await
-                .map_err(|_| InternalError::InvalidPackage)?
+                .map_err(|_| InternalError::Failure)?
                 .into_object()
-                .map_err(|_| InternalError::InvalidPackage)?;
+                .map_err(|_| InternalError::Failure)?;
 
-            let package = first
+            let package = object
                 .bcs
-                .ok_or(InternalError::InvalidPackage)?
+                .ok_or(InternalError::Failure)?
                 .try_as_package()
                 .ok_or(InternalError::InvalidPackage)?
                 .to_move_package(u64::MAX)
