@@ -27,6 +27,7 @@ use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
+use key_server_options::KeyServerOptions;
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::package_name;
@@ -53,7 +54,6 @@ use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
-use key_server_options::KeyServerOptions;
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
 use valid_ptb::ValidPtb;
 
@@ -64,11 +64,11 @@ mod signed_message;
 mod types;
 mod valid_ptb;
 
+mod key_server_options;
 mod metrics;
 mod mvr;
 #[cfg(test)]
 pub mod tests;
-mod key_server_options;
 
 const GAS_BUDGET: u64 = 500_000_000;
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");

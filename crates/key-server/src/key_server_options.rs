@@ -1,10 +1,13 @@
-use serde::Deserialize;
-use sui_types::base_types::ObjectID;
-use std::time::Duration;
-use semver::VersionReq;
+// Copyright (c), Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use crate::from_mins;
 use crate::types::Network;
 use duration_str::deserialize_duration;
-use crate::from_mins;
+use semver::VersionReq;
+use serde::Deserialize;
+use std::time::Duration;
+use sui_types::base_types::ObjectID;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct KeyServerOptions {
@@ -18,19 +21,30 @@ pub struct KeyServerOptions {
 
     pub key_server_object_id: ObjectID,
 
-    #[serde(default = "default_checkpoint_update_interval", deserialize_with = "deserialize_duration")]
+    #[serde(
+        default = "default_checkpoint_update_interval",
+        deserialize_with = "deserialize_duration"
+    )]
     pub checkpoint_update_interval: Duration,
 
-    #[serde(default = "default_rgp_update_interval", deserialize_with = "deserialize_duration")]
+    #[serde(
+        default = "default_rgp_update_interval",
+        deserialize_with = "deserialize_duration"
+    )]
     pub rgp_update_interval: Duration,
-    
-    #[serde(default = "default_allowed_staleness", deserialize_with = "deserialize_duration")]
+
+    #[serde(
+        default = "default_allowed_staleness",
+        deserialize_with = "deserialize_duration"
+    )]
     pub allowed_staleness: Duration,
 
-    #[serde(default = "default_session_key_ttl_max", deserialize_with = "deserialize_duration")]
+    #[serde(
+        default = "default_session_key_ttl_max",
+        deserialize_with = "deserialize_duration"
+    )]
     pub session_key_ttl_max: Duration,
 }
-
 
 fn default_network() -> Network {
     Network::Testnet

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
+use crate::key_server_options::KeyServerOptions;
 use crate::types::Network;
 use crate::{from_mins, Server};
 use crypto::ibe;
@@ -23,7 +24,6 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::move_package::UpgradePolicy;
 use test_cluster::{TestCluster, TestClusterBuilder};
-use crate::key_server_options::KeyServerOptions;
 
 mod e2e;
 mod externals;
