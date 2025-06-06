@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::str::FromStr;
 use crate::from_mins;
 use crate::types::Network;
 use duration_str::deserialize_duration;
@@ -66,4 +67,37 @@ fn default_session_key_ttl_max() -> Duration {
 
 fn default_allowed_staleness() -> Duration {
     from_mins(2)
+}
+
+#[test]
+fn test_parse_config() {
+    let valid_configuration =
+        "network: Mainnet\nsdk_version_requirement: '>=0.2.7'\nmetrics_host_port: 1234\nlegacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000001'\nkey_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000002'\ncheckpoint_update_interval: '13s'";
+
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration)
+        .expect("Failed to parse valid configuration");
+    assert_eq!(options.network, Network::Mainnet);
+    assert_eq!(options.sdk_version_requirement.to_string(), ">=0.2.7");
+    assert_eq!(options.metrics_host_port, 1234);
+    assert_eq!(
+        options.legacy_key_server_object_id, ObjectID::from_str("0x0000000000000000000000000000000000000000000000000000000000000001").unwrap());
+    assert_eq!(
+        options.key_server_object_id, ObjectID::from_str("0x0x0000000000000000000000000000000000000000000000000000000000000002").unwrap());
+    assert_eq!(
+        options.checkpoint_update_interval,
+        Duration::from_secs(13)
+    );
+
+    let valid_configuration_custom_network =
+        "network: !Custom\n  graphql_url: https://graphql.dk\n  node_url: https://node.dk\nsdk_version_requirement: '>=0.2.7'\nmetrics_host_port: 0\nlegacy_key_server_object_id: '0x0'\nkey_server_object_id: '0x0'\n";
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
+        .expect("Failed to parse valid configuration");
+    assert_eq!(options.network, Network::Custom {
+        graphql_url: "https://graphql.dk".to_string(),
+        node_url: "https://node.dk".to_string(),
+    });
+
+    let missing_port =
+        "network: Mainnet\nsdk_version_requirement: '>=0.2.7'\nlegacy_key_server_object_id: '0x0'\nkey_server_object_id: '0x0'\n";
+    assert!(serde_yaml::from_str::<KeyServerOptions>(missing_port).is_err());
 }
