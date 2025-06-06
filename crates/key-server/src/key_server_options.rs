@@ -14,6 +14,7 @@ pub struct KeyServerOptions {
     #[serde(default = "default_network")]
     pub network: Network,
 
+    /// The minimum version of the SDK that is required to use this service.
     pub sdk_version_requirement: VersionReq,
 
     // TODO: remove this when the legacy key server is no longer needed
@@ -23,24 +24,30 @@ pub struct KeyServerOptions {
 
     pub metrics_host_port: u16,
 
+    /// The interval at which the latest checkpoint timestamp is updated.
     #[serde(
         default = "default_checkpoint_update_interval",
         deserialize_with = "deserialize_duration"
     )]
     pub checkpoint_update_interval: Duration,
 
+    /// The interval at which the reference gas price is updated.
     #[serde(
         default = "default_rgp_update_interval",
         deserialize_with = "deserialize_duration"
     )]
     pub rgp_update_interval: Duration,
 
+    /// The allowed staleness of the full node.
+    /// When setting this duration, note a timestamp on Sui may be a bit late compared to
+    /// the current time, but it shouldn't be more than a second.
     #[serde(
         default = "default_allowed_staleness",
         deserialize_with = "deserialize_duration"
     )]
     pub allowed_staleness: Duration,
 
+    /// The maximum time to live for a session key.
     #[serde(
         default = "default_session_key_ttl_max",
         deserialize_with = "deserialize_duration"
