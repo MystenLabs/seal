@@ -9,7 +9,7 @@ use crate::externals::{
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
-use crate::types::MasterKeyPOP;
+use crate::types::{MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -41,8 +41,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
+use std::env::VarError;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use sui_sdk::error::{Error, SuiRpcResult};
@@ -650,13 +652,27 @@ async fn main() -> Result<()> {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
 
-    let config_path = env::var("CONFIG_PATH").expect("CONFIG_PATH must be set");
-    let options: KeyServerOptions = serde_yaml::from_reader(
-        std::fs::File::open(&config_path)
-            .context(format!("Cannot open configuration file {config_path}"))?,
-    )
-    .unwrap_or_else(|_| panic!("Cannot parse configuration from {config_path}"));
-    info!("Configuration loaded: {:?}", options);
+    let options: KeyServerOptions = match env::var("CONFIG_PATH") {
+        Ok(config_path) => serde_yaml::from_reader(
+            std::fs::File::open(&config_path)
+                .context(format!("Cannot open configuration file {config_path}"))?,
+        )
+        .expect("Failed to parse configuration file"),
+        Err(_) => {
+            let legacy_object_id = env::var("LEGACY_KEY_SERVER_OBJECT_ID")
+                .expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
+            let object_id =
+                env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
+            let network = env::var("NETWORK")
+                .map(|n| Network::from_str(&n))
+                .unwrap_or(Network::Testnet);
+            KeyServerOptions::new_with_default_values(
+                network,
+                ObjectID::from_str(&legacy_object_id).expect("Invalid legacy object id"),
+                ObjectID::from_str(&object_id).expect("Invalid object id"),
+            )
+        }
+    };
 
     let _guard = mysten_service::logging::init();
     info!("Logging set up, setting up metrics");

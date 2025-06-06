@@ -53,4 +53,17 @@ impl Network {
             Network::TestCluster => panic!("GraphQL is not available on test cluster"),
         }
     }
+
+    pub fn from_str(str: &str) -> Self {
+        match str.to_ascii_lowercase().as_str() {
+            "devnet" => Network::Devnet,
+            "testnet" => Network::Testnet,
+            "mainnet" => Network::Mainnet,
+            "custom" => Network::Custom {
+                node_url: std::env::var("NODE_URL").expect("NODE_URL must be set"),
+                graphql_url: std::env::var("GRAPHQL_URL").expect("GRAPHQL_URL must be set"),
+            },
+            _ => panic!("Unknown network: {}", str),
+        }
+    }
 }
