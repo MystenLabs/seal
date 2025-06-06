@@ -21,6 +21,8 @@ pub struct KeyServerOptions {
 
     pub key_server_object_id: ObjectID,
 
+    pub metrics_host_port: u16,
+
     #[serde(
         default = "default_checkpoint_update_interval",
         deserialize_with = "deserialize_duration"

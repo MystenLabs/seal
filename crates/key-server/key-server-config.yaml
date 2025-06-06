@@ -7,3 +7,21 @@ legacy_key_server_object_id: '0x000000000000000000000000000000000000000000000000
 
 # The on-chain object ID of the key server object.
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+
+metrics_host_port: 9184
+
+# Optional configurations:
+#
+# The network to use. Should be one of:
+# network: Mainnet
+# network: Testnet
+# network: Devnet
+# network: Custom
+#   graphql_url: 'url_to_graphql_endpoint'
+#   node_url: 'url_to_node_endpoint'
+#
+# Update intervals and timeouts for various operations. Example values are shown below.
+# checkpoint_update_interval: '10s'
+# rgp_update_interval: '60s'
+# allowed_staleness: '2m'
+# session_key_ttl_max: '30m'

@@ -4,7 +4,6 @@
 use crypto::elgamal;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;

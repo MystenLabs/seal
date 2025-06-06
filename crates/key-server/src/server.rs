@@ -3,7 +3,9 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
-use crate::externals::{current_epoch_time, duration_since, get_reference_gas_price};
+use crate::externals::{
+    current_epoch_time, duration_since, duration_since_safe, get_reference_gas_price,
+};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
@@ -29,7 +31,7 @@ use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use mysten_service::get_mysten_service;
-use mysten_service::metrics::start_basic_prometheus_server;
+use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
@@ -37,10 +39,10 @@ use rand::thread_rng;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::cmp::max;
 use std::collections::HashMap;
 use std::env;
 use std::future::Future;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 use sui_sdk::error::{Error, SuiRpcResult};
@@ -54,7 +56,7 @@ use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
-use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
+use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey};
 use valid_ptb::ValidPtb;
 
 mod cache;
@@ -570,11 +572,7 @@ struct MyState {
 impl MyState {
     fn check_full_node_is_fresh(&self) -> Result<(), InternalError> {
         // Compute the staleness of the latest checkpoint timestamp.
-        // In case there are some imprecisions, and the difference is negative, we set it to 0.
-        let staleness = Duration::from_millis(max(
-            0,
-            duration_since(*self.latest_checkpoint_timestamp_receiver.borrow()),
-        ) as u64);
+        let staleness = duration_since_safe(*self.latest_checkpoint_timestamp_receiver.borrow());
         if staleness > self.server.options.allowed_staleness {
             warn!(
                 "Full node is stale. Latest checkpoint is {} ms old.",
@@ -652,32 +650,38 @@ async fn main() -> Result<()> {
         Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
     };
 
-    let _guard = mysten_service::logging::init();
-    info!("Logging set up, setting up metrics");
-
-    // initialize metrics
-    let registry = start_basic_prometheus_server();
-    // hook up custom application metrics
-    let metrics = Arc::new(Metrics::new(&registry));
-    info!("Metrics set up, starting service");
-
-    info!("Starting server, version {}", PACKAGE_VERSION);
-
     let config_path = env::var("CONFIG_PATH").expect("CONFIG_PATH must be set");
-    let options = serde_yaml::from_reader(
+    let options: KeyServerOptions = serde_yaml::from_reader(
         std::fs::File::open(&config_path)
             .context(format!("Cannot open configuration file {config_path}"))?,
     )
     .unwrap_or_else(|_| panic!("Cannot parse configuration from {config_path}"));
     info!("Configuration loaded: {:?}", options);
 
-    let s = Server::new(
-        IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
-            .expect("Invalid MASTER_KEY value"),
-        options,
-    )
-    .await;
-    let server = Arc::new(s);
+    let _guard = mysten_service::logging::init();
+    info!("Logging set up, setting up metrics");
+
+    // initialize metrics
+    let addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        options.metrics_host_port,
+    );
+    let registry = start_prometheus_server(addr).default_registry();
+
+    // hook up custom application metrics
+    let metrics = Arc::new(Metrics::new(&registry));
+    info!("Metrics set up, starting service");
+
+    info!("Starting server, version {}", PACKAGE_VERSION);
+
+    let server = Arc::new(
+        Server::new(
+            IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
+                .expect("Invalid MASTER_KEY value"),
+            options,
+        )
+        .await,
+    );
 
     // Spawn tasks that update the state of the server.
     let latest_checkpoint_timestamp_receiver = server

@@ -66,6 +66,7 @@ impl SealTestCluster {
             network: Network::TestCluster,
             legacy_key_server_object_id: ObjectID::ZERO,
             key_server_object_id: ObjectID::ZERO,
+            metrics_host_port: 0,
             checkpoint_update_interval: Duration::from_secs(10),
             rgp_update_interval: Duration::from_secs(60),
             sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
@@ -321,21 +322,4 @@ async fn test_pkg_upgrade() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");
     let new_package_id = setup.upgrade(package_id, upgrade_cap, path).await;
     assert_ne!(package_id, new_package_id);
-}
-
-#[test]
-fn test_options_format() {
-    // TODO: We could publish the seal module and register key servers on-chain, but no tests need this right now so to speed up tests we don't do it.
-    let options = KeyServerOptions {
-        network: Network::Testnet,
-        legacy_key_server_object_id: ObjectID::ZERO,
-        key_server_object_id: ObjectID::ZERO,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-    };
-
-    print!("{}", serde_yaml::to_string(&options).unwrap());
 }

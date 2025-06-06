@@ -9,6 +9,7 @@ use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::Value;
 use std::str::FromStr;
+use std::time::Duration;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::CheckpointId;
 use sui_sdk::SuiClient;
@@ -105,6 +106,17 @@ pub(crate) async fn get_reference_gas_price(client: SuiClient) -> SuiRpcResult<u
 pub(crate) fn duration_since(offset: u64) -> i64 {
     let now = current_epoch_time() as i64;
     now - offset as i64
+}
+
+/// Returns the duration since the offset in milliseconds.
+/// Returns `Duration::ZERO` if the offset is greater than the current time.
+pub(crate) fn duration_since_safe(offset: u64) -> Duration {
+    let duration = duration_since(offset);
+    if duration < 0 {
+        warn!("Offset is greater than current time, returning 0");
+        return Duration::ZERO;
+    }
+    Duration::from_millis(duration as u64)
 }
 
 pub(crate) fn current_epoch_time() -> u64 {
