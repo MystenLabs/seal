@@ -5,11 +5,11 @@ use crate::from_mins;
 use crate::types::Network;
 use duration_str::deserialize_duration;
 use semver::VersionReq;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_types::base_types::ObjectID;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyServerOptions {
     #[serde(default = "default_network")]
     pub network: Network,

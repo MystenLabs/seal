@@ -126,10 +126,8 @@ struct Server {
 
 impl Server {
     async fn new(master_key: IbeMasterKey, options: KeyServerOptions) -> Self {
-        let network = options.network.clone();
-
         let sui_client = SuiClientBuilder::default()
-            .build(&network.node_url())
+            .build(&options.network.node_url())
             .await
             .expect("SuiClientBuilder should not failed unless provided with invalid network url");
         info!(
@@ -137,7 +135,7 @@ impl Server {
             Base64::encode(
                 bcs::to_bytes(&ibe::public_key_from_master_key(&master_key)).expect("valid pk")
             ),
-            network
+            options.network
         );
 
         let key_server_object_id_sig =

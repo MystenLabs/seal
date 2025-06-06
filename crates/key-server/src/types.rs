@@ -3,7 +3,7 @@
 
 use crypto::elgamal;
 use crypto::ibe;
-use serde_with::DeserializeFromStr;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// The Identity-based encryption types.
@@ -19,7 +19,7 @@ pub type ElgamalVerificationKey = elgamal::VerificationKey<IbePublicKey>;
 /// Proof-of-possession of a key-servers master key.
 pub type MasterKeyPOP = ibe::ProofOfPossession;
 
-#[derive(Clone, Debug, PartialEq, DeserializeFromStr)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
     Devnet,
     Testnet,
@@ -53,22 +53,5 @@ impl Network {
             #[cfg(test)]
             Network::TestCluster => panic!("GraphQL is not available on test cluster"),
         }
-    }
-}
-
-impl FromStr for Network {
-    type Err = String;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        Ok(match str.to_ascii_lowercase().as_str() {
-            "devnet" => Network::Devnet,
-            "testnet" => Network::Testnet,
-            "mainnet" => Network::Mainnet,
-            "custom" => Network::Custom {
-                node_url: std::env::var("NODE_URL").expect("NODE_URL must be set"),
-                graphql_url: std::env::var("GRAPHQL_URL").expect("GRAPHQL_URL must be set"),
-            },
-            _ => panic!("Unknown network: {}", str),
-        })
     }
 }
