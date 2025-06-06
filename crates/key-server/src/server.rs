@@ -19,7 +19,6 @@ use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
 use crypto::ibe::create_proof_of_possession;
-use duration_str::deserialize_duration;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
@@ -34,7 +33,7 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
-use semver::{Version, VersionReq};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::cmp::max;
@@ -54,6 +53,7 @@ use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
+use key_server_options::KeyServerOptions;
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey, Network};
 use valid_ptb::ValidPtb;
 
@@ -68,6 +68,7 @@ mod metrics;
 mod mvr;
 #[cfg(test)]
 pub mod tests;
+mod key_server_options;
 
 const GAS_BUDGET: u64 = 500_000_000;
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -121,23 +122,6 @@ struct Server {
     legacy_key_server_object_id_sig: MasterKeyPOP,
     key_server_object_id_sig: MasterKeyPOP,
     options: KeyServerOptions,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct KeyServerOptions {
-    pub network: Network,
-    // TODO: remove this when the legacy key server is no longer needed
-    pub legacy_key_server_object_id: ObjectID,
-    pub key_server_object_id: ObjectID,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub checkpoint_update_interval: Duration,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub rgp_update_interval: Duration,
-    pub sdk_version_requirement: VersionReq,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub allowed_staleness: Duration,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub session_key_ttl_max: Duration,
 }
 
 impl Server {

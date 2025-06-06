@@ -3,7 +3,7 @@
 
 use crate::externals::{add_package, add_upgraded_package};
 use crate::types::Network;
-use crate::{from_mins, KeyServerOptions, Server};
+use crate::{from_mins, Server};
 use crypto::ibe;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::groups::bls12381::G1Element;
@@ -23,6 +23,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::move_package::UpgradePolicy;
 use test_cluster::{TestCluster, TestClusterBuilder};
+use crate::key_server_options::KeyServerOptions;
 
 mod e2e;
 mod externals;
