@@ -110,7 +110,7 @@ pub(crate) fn duration_since(offset: u64) -> i64 {
 
 /// Returns the duration since the offset in milliseconds.
 /// Returns `Duration::ZERO` if the offset is greater than the current time.
-pub(crate) fn duration_since_safe(offset: u64) -> Duration {
+pub(crate) fn safe_duration_since(offset: u64) -> Duration {
     let duration = duration_since(offset);
     if duration < 0 {
         warn!("Offset is greater than current time, returning 0");

@@ -4,7 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::{
-    current_epoch_time, duration_since, duration_since_safe, get_reference_gas_price,
+    current_epoch_time, duration_since, safe_duration_since, get_reference_gas_price,
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
@@ -572,7 +572,7 @@ struct MyState {
 impl MyState {
     fn check_full_node_is_fresh(&self) -> Result<(), InternalError> {
         // Compute the staleness of the latest checkpoint timestamp.
-        let staleness = duration_since_safe(*self.latest_checkpoint_timestamp_receiver.borrow());
+        let staleness = safe_duration_since(*self.latest_checkpoint_timestamp_receiver.borrow());
         if staleness > self.server.options.allowed_staleness {
             warn!(
                 "Full node is stale. Latest checkpoint is {} ms old.",
