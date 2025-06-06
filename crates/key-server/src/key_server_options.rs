@@ -18,8 +18,7 @@ pub struct KeyServerOptions {
     /// The object ID of the key server object.
     pub key_server_object_id: ObjectID,
 
-    /// The network this key server is running on. Defaults to Testnet.
-    #[serde(default = "default_network")]
+    /// The network this key server is running on.
     pub network: Network,
 
     /// The minimum version of the SDK that is required to use this service.
@@ -78,10 +77,6 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
         }
     }
-}
-
-fn default_network() -> Network {
-    Network::Testnet
 }
 
 fn default_checkpoint_update_interval() -> Duration {
@@ -146,4 +141,7 @@ fn test_parse_config() {
 
     let missing_object_id = "legacy_key_server_object_id: '0x0'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(missing_object_id).is_err());
+
+    let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
+    assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
 }

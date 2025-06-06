@@ -4,15 +4,16 @@ legacy_key_server_object_id: '0x000000000000000000000000000000000000000000000000
 # The on-chain object ID of the key server object.
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-# Optional configurations:
-#
 # The network to use. Should be one of:
+network: Testnet
 # network: Mainnet
 # network: Testnet
 # network: Devnet
 # network: Custom
 #   graphql_url: 'url_to_graphql_endpoint'
 #   node_url: 'url_to_node_endpoint'
+
+# Optional configurations:
 #
 # The port that the prometheus agent can use to poll for the metrics.
 # metrics_host_port: 9184
