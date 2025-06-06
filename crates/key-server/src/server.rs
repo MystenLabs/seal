@@ -664,6 +664,7 @@ async fn main() -> Result<()> {
         }
         Err(_) => {
             info!("Using legacy environment variables for configuration");
+            // TODO: remove this when the legacy key server is no longer needed
             let legacy_object_id = env::var("LEGACY_KEY_SERVER_OBJECT_ID")
                 .expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
             let object_id =
