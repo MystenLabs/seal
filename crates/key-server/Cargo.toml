@@ -46,6 +46,7 @@ move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", 
 move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", features = ["serde"], rev = "86a9e06" }
 sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "prometheus-closure-metric" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"

@@ -642,6 +642,24 @@ async fn add_response_headers(mut response: Response) -> Response {
     response
 }
 
+/// Creates a [prometheus::core::Collector] that tracks the uptime of the server.
+fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
+    let opts = prometheus::opts!("uptime", "uptime of the node service in seconds")
+        .variable_label("version");
+
+    let start_time = std::time::Instant::now();
+    let uptime = move || start_time.elapsed().as_secs();
+    let metric = prometheus_closure_metric::ClosureMetric::new(
+        opts,
+        prometheus_closure_metric::ValueType::Counter,
+        uptime,
+        &[version],
+    )
+    .unwrap();
+
+    Box::new(metric)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let master_key = env::var("MASTER_KEY").expect("MASTER_KEY must be set");
@@ -689,6 +707,14 @@ async fn main() -> Result<()> {
         options.metrics_host_port,
     ))
     .default_registry();
+
+    // Tracks the uptime of the server.
+    let registry_clone = registry.clone();
+    tokio::task::spawn(async move {
+        registry_clone
+            .register(uptime_metric(PACKAGE_VERSION))
+            .expect("metrics defined at compile time must be valid");
+    });
 
     // hook up custom application metrics
     let metrics = Arc::new(Metrics::new(&registry));
