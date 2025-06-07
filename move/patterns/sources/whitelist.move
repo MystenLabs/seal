@@ -34,7 +34,7 @@ public struct Whitelist has key {
     addresses: table::Table<address, bool>,
 }
 
-public struct Cap has key {
+public struct Cap has key, store {
     id: UID,
     wl_id: ID,
 }
@@ -58,11 +58,15 @@ public fun create_whitelist(ctx: &mut TxContext): (Cap, Whitelist) {
     (cap, wl)
 }
 
+public fun share_whitelist(wl: Whitelist) {
+    transfer::share_object(wl);
+}
+
 // Helper function for creating a whitelist and send it back to sender.
 entry fun create_whitelist_entry(ctx: &mut TxContext) {
     let (cap, wl) = create_whitelist(ctx);
-    transfer::share_object(wl);
-    transfer::transfer(cap, ctx.sender());
+    share_whitelist(wl);
+    transfer::public_transfer(cap, ctx.sender());
 }
 
 public fun add(wl: &mut Whitelist, cap: &Cap, account: address) {
