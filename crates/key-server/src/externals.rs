@@ -39,17 +39,17 @@ pub(crate) async fn fetch_first_pkg_id(
                 .read_api()
                 .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
                 .await
-                .map_err(|_| InternalError::Failure)?
+                .map_err(|_| InternalError::Failure)? // internal error that fullnode fails to respond, check fullnode.
                 .into_object()
-                .map_err(|_| InternalError::Failure)?;
+                .map_err(|_| InternalError::InvalidPackage)?; // user error that object does not exist or deleted.
 
             let package = object
                 .bcs
-                .ok_or(InternalError::Failure)?
+                .ok_or(InternalError::Failure)? // internal error that fullnode does not respond with bcs even though request includes the bcs option.
                 .try_as_package()
                 .ok_or(InternalError::InvalidPackage)?
                 .to_move_package(u64::MAX)
-                .map_err(|_| InternalError::InvalidPackage)?;
+                .map_err(|_| InternalError::InvalidPackage)?; // user error if the provided package throw MovePackageTooBig.
 
             let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
