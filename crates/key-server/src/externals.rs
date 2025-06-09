@@ -32,6 +32,7 @@ pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
 pub(crate) async fn fetch_first_pkg_id(
     pkg_id: &ObjectID,
     network: &Network,
+    rpc_timeout: Duration,
 ) -> Result<ObjectID, InternalError> {
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
@@ -53,7 +54,10 @@ pub(crate) async fn fetch_first_pkg_id(
                 )
             });
 
-            let response = Client::new()
+            let response = Client::builder()
+                .timeout(rpc_timeout)
+                .build()
+                .expect("Client::new()")
                 .post(network.graphql_url())
                 .json(&query)
                 .send()

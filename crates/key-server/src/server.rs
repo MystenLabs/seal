@@ -131,6 +131,7 @@ struct Server {
 impl Server {
     async fn new(master_key: IbeMasterKey, options: KeyServerOptions) -> Self {
         let sui_client = SuiClientBuilder::default()
+            .request_timeout(options.rpc_timeout)
             .build(&options.network.node_url())
             .await
             .expect("SuiClientBuilder should not failed unless provided with invalid network url");
@@ -298,14 +299,19 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.options.network).await
+                externals::fetch_first_pkg_id(
+                    &valid_ptb.pkg_id(),
+                    &self.options.network,
+                    self.options.rpc_timeout,
+                )
+                .await
             })
             .await?;
 
         // If an MVR name is provided, check that it points to the first package ID
         if let Some(mvr_name) = &mvr_name {
             let mvr_package_id =
-                mvr_forward_resolution(&self.sui_client, mvr_name, &self.options.network).await?;
+                mvr_forward_resolution(&self.sui_client, mvr_name, &self.options).await?;
             if mvr_package_id != first_pkg_id {
                 debug!(
                     "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",

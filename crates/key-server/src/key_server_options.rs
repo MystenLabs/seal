@@ -57,6 +57,13 @@ pub struct KeyServerOptions {
         deserialize_with = "deserialize_duration"
     )]
     pub session_key_ttl_max: Duration,
+
+    /// The timeout for RPC requests.
+    #[serde(
+        default = "default_rpc_timeout",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub rpc_timeout: Duration,
 }
 
 impl KeyServerOptions {
@@ -75,6 +82,7 @@ impl KeyServerOptions {
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
+            rpc_timeout: default_rpc_timeout(),
         }
     }
 }
@@ -101,6 +109,10 @@ fn default_metrics_host_port() -> u16 {
 
 fn default_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.4.5").expect("Failed to parse default SDK version requirement")
+}
+
+fn default_rpc_timeout() -> Duration {
+    Duration::from_secs(60)
 }
 
 #[test]
