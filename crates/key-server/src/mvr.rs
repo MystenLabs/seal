@@ -15,6 +15,7 @@
 
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
+use crate::key_server_options::KeyServerOptions;
 use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
 use crate::mvr::mainnet::mvr_core::name::Name;
 use crate::mvr::mainnet::sui::dynamic_field::Field;
@@ -69,9 +70,9 @@ impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
 pub(crate) async fn mvr_forward_resolution(
     client: &SuiClient,
     mvr_name: &str,
-    network: &Network,
+    key_server_options: &KeyServerOptions,
 ) -> Result<ObjectID, InternalError> {
-    let package_address = match network {
+    let package_address = match key_server_options.network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, client)
             .await?
             .value
@@ -83,6 +84,7 @@ pub(crate) async fn mvr_forward_resolution(
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
                 &SuiClientBuilder::default()
+                    .request_timeout(key_server_options.rpc_timeout)
                     .build_mainnet()
                     .await
                     .map_err(|_| Failure)?,
