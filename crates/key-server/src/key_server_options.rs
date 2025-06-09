@@ -128,13 +128,12 @@ fn test_parse_config() {
     assert_eq!(options.checkpoint_update_interval, Duration::from_secs(13));
 
     let valid_configuration_custom_network =
-        "network: !Custom\n  graphql_url: https://graphql.dk\n  node_url: https://node.dk\nlegacy_key_server_object_id: '0x0'\nkey_server_object_id: '0x0'\n";
+        "network: !Custom\n  node_url: https://node.dk\nlegacy_key_server_object_id: '0x0'\nkey_server_object_id: '0x0'\n";
     let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
         .expect("Failed to parse valid configuration");
     assert_eq!(
         options.network,
         Network::Custom {
-            graphql_url: "https://graphql.dk".to_string(),
             node_url: "https://node.dk".to_string(),
         }
     );
