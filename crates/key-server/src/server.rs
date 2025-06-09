@@ -644,7 +644,7 @@ async fn add_response_headers(mut response: Response) -> Response {
 
 /// Creates a [prometheus::core::Collector] that tracks the uptime of the server.
 fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
-    let opts = prometheus::opts!("uptime", "uptime of the node service in seconds")
+    let opts = prometheus::opts!("uptime", "uptime of the key server in seconds")
         .variable_label("version");
 
     let start_time = std::time::Instant::now();
