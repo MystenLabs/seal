@@ -43,7 +43,7 @@ pub(crate) struct Metrics {
     /// Total number of requests per number of ids
     pub requests_per_number_of_ids: Histogram,
 
-    /// HTTP request latency by route
+    /// HTTP request latency by route and status code
     pub http_request_duration_millis: HistogramVec,
 
     /// HTTP request count by route and status code
@@ -127,7 +127,7 @@ impl Metrics {
             http_request_duration_millis: register_histogram_vec_with_registry!(
                 "http_request_duration_millis",
                 "HTTP request duration in milliseconds",
-                &["route"],
+                &["route", "status"],
                 default_fast_call_duration_buckets(),
                 registry
             )
@@ -208,6 +208,7 @@ fn default_fast_call_duration_buckets() -> Vec<f64> {
     buckets(10.0, 100.0, 10.0)
 }
 
+/// Middleware that tracks metrics for HTTP requests and response status.
 pub(crate) async fn metrics_middleware(
     State(metrics): State<Arc<Metrics>>,
     request: axum::extract::Request,
@@ -227,12 +228,13 @@ pub(crate) async fn metrics_middleware(
         .http_request_in_flight
         .with_label_values(&[&route])
         .dec();
+
     let duration = start.elapsed().as_millis() as f64;
     let status = response.status().as_str().to_string();
 
     metrics
         .http_request_duration_millis
-        .with_label_values(&[&route])
+        .with_label_values(&[&route, &status])
         .observe(duration);
     metrics
         .http_requests_total
