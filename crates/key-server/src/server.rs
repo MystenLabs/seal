@@ -55,8 +55,9 @@ use sui_sdk::verify_personal_message_signature::verify_personal_message_signatur
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
+use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey};
 use valid_ptb::ValidPtb;
 
@@ -366,7 +367,7 @@ impl Server {
         subscriber: Option<G>,
         duration_callback: Option<H>,
         success_callback: Option<I>,
-    ) -> Receiver<u64>
+    ) -> (Receiver<u64>, JoinHandle<()>)
     where
         F: Fn(SuiClient) -> Fut + Send + 'static,
         Fut: Future<Output = SuiRpcResult<u64>> + Send,
@@ -382,7 +383,7 @@ impl Server {
         // catch up but rather just delay the next tick.
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        tokio::task::spawn(async move {
+        let handle = tokio::task::spawn(async move {
             loop {
                 let now = Instant::now();
                 let result = fetch_fn(local_client.clone()).await;
@@ -415,7 +416,7 @@ impl Server {
             .changed()
             .await
             .unwrap_or_else(|_| panic!("Failed to get {}", value_name));
-        receiver
+        (receiver, handle)
     }
 
     /// Spawns a thread that fetches the latest checkpoint timestamp and sends it to a [Receiver] once per `update_interval`.
@@ -423,7 +424,7 @@ impl Server {
     async fn spawn_latest_checkpoint_timestamp_updater(
         &self,
         metrics: Option<&Metrics>,
-    ) -> Receiver<Timestamp> {
+    ) -> (Receiver<Timestamp>, JoinHandle<()>) {
         self.spawn_periodic_updater(
             self.options.checkpoint_update_interval,
             get_latest_checkpoint_timestamp,
@@ -445,7 +446,10 @@ impl Server {
 
     /// Spawns a thread that fetches RGP and sends it to a [Receiver] once per `update_interval`.
     /// Returns the [Receiver].
-    async fn spawn_reference_gas_price_updater(&self, metrics: Option<&Metrics>) -> Receiver<u64> {
+    async fn spawn_reference_gas_price_updater(
+        &self,
+        metrics: Option<&Metrics>,
+    ) -> (Receiver<u64>, JoinHandle<()>) {
         self.spawn_periodic_updater(
             self.options.rgp_update_interval,
             get_reference_gas_price,
@@ -567,7 +571,7 @@ struct MyState {
     metrics: Arc<Metrics>,
     server: Arc<Server>,
     latest_checkpoint_timestamp_receiver: Receiver<Timestamp>,
-    reference_gas_price: Receiver<u64>,
+    reference_gas_price_receiver: Receiver<u64>,
 }
 
 impl MyState {
@@ -585,7 +589,7 @@ impl MyState {
     }
 
     fn reference_gas_price(&self) -> u64 {
-        *self.reference_gas_price.borrow()
+        *self.reference_gas_price_receiver.borrow()
     }
 
     fn validate_sdk_version(&self, version_string: &str) -> Result<(), InternalError> {
@@ -660,6 +664,62 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
     Box::new(metric)
 }
 
+/// Spawn server's background tasks:
+///  - background checkpoint downloader
+///  - reference gas price updater.
+///
+/// The returned JoinHandle can be used to catch any tasks error or panic.
+async fn start_server_background_tasks(
+    server: Arc<Server>,
+    metrics: Arc<Metrics>,
+) -> (
+    Receiver<Timestamp>,
+    Receiver<u64>,
+    JoinHandle<anyhow::Result<()>>,
+) {
+    // Spawn background checkpoint timestamp updater.
+    let (latest_checkpoint_timestamp_receiver, latest_checkpoint_timestamp_handle) = server
+        .spawn_latest_checkpoint_timestamp_updater(Some(&metrics))
+        .await;
+
+    // Spawn background reference gas price updater.
+    let (reference_gas_price_receiver, reference_gas_price_handle) = server
+        .spawn_reference_gas_price_updater(Some(&metrics))
+        .await;
+
+    // Spawn a monitor task that will exit the program if either updater task panics
+    let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
+        tokio::select! {
+            result = latest_checkpoint_timestamp_handle => {
+                if let Err(e) = result {
+                    error!("Latest checkpoint timestamp updater panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+            result = reference_gas_price_handle => {
+                if let Err(e) = result {
+                    error!("Reference gas price updater panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+        }
+
+        unreachable!("One of the background tasks should have returned an error");
+    });
+
+    (
+        latest_checkpoint_timestamp_receiver,
+        reference_gas_price_receiver,
+        handle,
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let master_key = env::var("MASTER_KEY").expect("MASTER_KEY must be set");
@@ -731,19 +791,14 @@ async fn main() -> Result<()> {
         .await,
     );
 
-    // Spawn tasks that update the state of the server.
-    let latest_checkpoint_timestamp_receiver = server
-        .spawn_latest_checkpoint_timestamp_updater(Some(&metrics))
-        .await;
-    let reference_gas_price = server
-        .spawn_reference_gas_price_updater(Some(&metrics))
-        .await;
+    let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
+        start_server_background_tasks(server.clone(), metrics.clone()).await;
 
     let state = MyState {
         metrics,
         server,
         latest_checkpoint_timestamp_receiver,
-        reference_gas_price,
+        reference_gas_price_receiver,
     };
 
     let cors = CorsLayer::new()
@@ -763,7 +818,16 @@ async fn main() -> Result<()> {
         )
         .layer(cors);
 
-    serve(app).await
+    tokio::select! {
+        server_result = serve(app) => {
+            error!("Server stopped with status {:?}", server_result);
+            std::process::exit(1);
+        }
+        monitor_result = monitor_handle => {
+            error!("Background tasks stopped with error: {:?}", monitor_result);
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Creates a [Duration] from a given number of minutes.
