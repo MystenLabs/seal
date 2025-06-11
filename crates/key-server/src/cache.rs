@@ -9,6 +9,7 @@ use std::num::NonZero;
 
 pub(crate) const CACHE_SIZE: usize = 1000;
 pub(crate) const CACHE_TTL: u64 = 3 * 60 * 1000; // 3 minutes
+pub(crate) const MVR_CACHE_TTL: u64 = 60 * 60 * 1000; // 1 hour
 
 // Generic LRU cache with TTL
 

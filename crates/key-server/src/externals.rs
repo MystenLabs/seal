@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
+use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL, MVR_CACHE_TTL};
 use crate::errors::InternalError;
 use crate::Timestamp;
 use once_cell::sync::Lazy;
@@ -14,6 +14,8 @@ use tap::TapFallible;
 use tracing::warn;
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
+static MVR_CACHE: Lazy<Cache<String, ObjectID>> =
+    Lazy::new(|| Cache::new(MVR_CACHE_TTL, CACHE_SIZE));
 
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
@@ -53,6 +55,14 @@ pub(crate) async fn fetch_first_pkg_id(
             Ok(first)
         }
     }
+}
+
+pub(crate) fn insert_mvr_cache(mvr_name: &str, package_id: ObjectID) {
+    MVR_CACHE.insert(mvr_name.to_string(), package_id);
+}
+
+pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
+    MVR_CACHE.get(&mvr_name.to_string())
 }
 
 /// Returns the timestamp for the latest checkpoint.

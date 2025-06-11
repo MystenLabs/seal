@@ -183,18 +183,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_forward_resolution() {
-        assert_eq!(
-            mvr_forward_resolution(
-                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
-                "@mysten/kiosk",
-                &Network::Mainnet
-            )
-            .await
-            .unwrap(),
+        assert!(crate::Server::check_mvr_package_id(
+            &Some("@mysten/kiosk".to_string()),
+            &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+            &Network::Mainnet,
             ObjectID::from_str(
                 "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
             )
-            .unwrap()
+            .unwrap(),
+            None
+        )
+        .await
+        .is_ok());
+
+        // Verify the cache is added.
+        assert_eq!(
+            crate::externals::get_mvr_cache("@mysten/kiosk"),
+            Some(
+                ObjectID::from_str(
+                    "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
+                )
+                .unwrap()
+            )
         );
         assert_eq!(
             mvr_forward_resolution(

@@ -309,18 +309,15 @@ impl Server {
         // Make sure that the package is supported.
         self.master_keys.has_key_for_package(&first_pkg_id)?;
 
-        // If an MVR name is provided, check that it points to the first package ID
-        if let Some(mvr_name) = &mvr_name {
-            let mvr_package_id =
-                mvr_forward_resolution(&self.sui_client, mvr_name, &self.options.network).await?;
-            if mvr_package_id != first_pkg_id {
-                debug!(
-                    "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
-                    mvr_name, mvr_package_id, first_pkg_id, req_id
-                );
-                return Err(InternalError::InvalidMVRName);
-            }
-        }
+        // Check if the package id that MVR name points matches the first package ID, if provided.
+        externals::check_mvr_package_id(
+            &mvr_name,
+            &self.sui_client,
+            &self.options.network,
+            first_pkg_id,
+            req_id,
+        )
+        .await?;
 
         // Check all conditions
         self.check_signature(
@@ -344,6 +341,7 @@ impl Server {
         Ok((first_pkg_id, valid_ptb.full_ids(&first_pkg_id)))
     }
 
+<<<<<<< HEAD
     fn create_response(
         &self,
         first_pkg_id: ObjectID,
@@ -355,6 +353,40 @@ impl Server {
             .master_keys
             .get_key_for_package(&first_pkg_id)
             .expect("checked already");
+=======
+    async fn check_mvr_package_id(
+        mvr_name: &Option<String>,
+        sui_client: &SuiClient,
+        network: &Network,
+        first_pkg_id: ObjectID,
+        req_id: Option<&str>,
+    ) -> Result<(), InternalError> {
+        // If an MVR name is provided, check if it's in cache already, if not, resolve it to the package
+        // id first, then check that it points to the first package ID.
+        if let Some(mvr_name) = &mvr_name {
+            if externals::get_mvr_cache(mvr_name).is_none() {
+                let mvr_package_id = mvr_forward_resolution(sui_client, mvr_name, network).await?;
+                if mvr_package_id != first_pkg_id {
+                    debug!(
+                            "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
+                            mvr_name, mvr_package_id, first_pkg_id, req_id
+                        );
+                    return Err(InternalError::InvalidMVRName);
+                }
+                externals::insert_mvr_cache(mvr_name, mvr_package_id);
+            } else {
+                debug!(
+                    "MVR name {} is already in cache (req_id: {:?})",
+                    mvr_name, req_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
+        debug!("Checking response for ids: {:?}", ids);
+>>>>>>> a5d7a8e (fix: Add cache for mvr name to package id)
         let decryption_keys = ids
             .iter()
             .map(|id| {
