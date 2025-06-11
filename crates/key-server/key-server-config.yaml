@@ -5,7 +5,6 @@
 # network: Mainnet
 # network: Devnet
 # network: !Custom
-#   graphql_url: 'url_to_graphql_endpoint'
 #   node_url: 'url_to_node_endpoint'
 # Use Custom for production deployments.
 network: Testnet

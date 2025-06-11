@@ -308,7 +308,7 @@ impl Server {
             .await?;
 
         // Make sure that the package is supported.
-        self.master_keys.get_key_for_package(&first_pkg_id)?;
+        self.master_keys.has_key_for_package(&first_pkg_id)?;
 
         // If an MVR name is provided, check that it points to the first package ID
         if let Some(mvr_name) = &mvr_name {
@@ -851,10 +851,10 @@ enum MasterKeys {
 impl MasterKeys {
     fn load(options: &KeyServerOptions) -> Result<Self> {
         info!("Loading keys from env variables");
+        let master_key = env::var("MASTER_KEY")
+            .context("MASTER_KEY environment variable must be set")?;
         match &options.server_mode {
             ServerMode::Open { .. } => {
-                let master_key = env::var("MASTER_KEY")
-                    .context("MASTER_KEY environment variable must be set")?;
                 let bytes = if Base64::decode(&master_key).is_ok() {
                     Base64::decode(&master_key).expect("checked above")
                 } else {
@@ -870,7 +870,6 @@ impl MasterKeys {
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
-                let master_key = env::var("MASTER_KEY").context("MASTER_KEY must be set")?;
                 let seed =
                     Base64::decode(&master_key).context("MASTER_KEY should be base64 encoded")?;
                 if seed.len() != 32 {
@@ -929,6 +928,10 @@ impl MasterKeys {
                 })
             }
         }
+    }
+
+    fn has_key_for_package(&self, id: &ObjectID) -> Result<(), InternalError> {
+        self.get_key_for_package(id).map(|_| ())
     }
 
     fn get_key_for_package(&self, id: &ObjectID) -> Result<&IbeMasterKey, InternalError> {
