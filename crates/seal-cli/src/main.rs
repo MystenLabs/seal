@@ -35,6 +35,15 @@ struct Arguments {
 enum Command {
     /// Generate a new master key and public key.
     Genkey,
+    /// Derive a key pair from a seed and an index for use with permissioned servers.
+    DeriveKey {
+        /// Seed for the key pair. Must be 32 bytes.
+        #[arg(long)]
+        seed: EncodedBytes,
+        /// Index for the key pair. This is used to derive a different key pair from the same seed.
+        #[arg(long)]
+        index: u16,
+    },
     /// Extract a user secret key from an id and a master key.
     Extract {
         /// The Sui address of the Move package that handles the KMS for this key
@@ -178,6 +187,15 @@ fn main() -> FastCryptoResult<()> {
 
     let output = match args.command {
         Command::Genkey => GenkeyOutput(ibe::generate_key_pair(&mut thread_rng())).to_string(),
+        Command::DeriveKey {
+            seed,
+            index: derivation_index,
+        } => {
+            if seed.0.len() != 32 {
+                return Err(FastCryptoError::InputLengthWrong(32));
+            }
+            GenkeyOutput(ibe::derive_key_pair(&seed.0, derivation_index)).to_string()
+        }
         Command::Extract {
             package_id,
             id,
