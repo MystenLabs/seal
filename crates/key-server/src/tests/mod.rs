@@ -64,7 +64,7 @@ impl SealTestCluster {
         let options = KeyServerOptions {
             network: Network::TestCluster,
             server_mode: ServerMode::Open {
-                legacy_key_server_object_id: ObjectID::ZERO,
+                legacy_key_server_object_id: Some(ObjectID::ZERO),
                 key_server_object_id: ObjectID::ZERO,
             },
             metrics_host_port: 0,

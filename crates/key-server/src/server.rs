@@ -851,8 +851,8 @@ enum MasterKeys {
 impl MasterKeys {
     fn load(options: &KeyServerOptions) -> Result<Self> {
         info!("Loading keys from env variables");
-        let master_key = env::var("MASTER_KEY")
-            .context("MASTER_KEY environment variable must be set")?;
+        let master_key =
+            env::var("MASTER_KEY").context("MASTER_KEY environment variable must be set")?;
         match &options.server_mode {
             ServerMode::Open { .. } => {
                 let bytes = if Base64::decode(&master_key).is_ok() {

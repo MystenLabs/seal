@@ -15,10 +15,8 @@ network: Testnet
 #
 # For the open mode, set the key server object ID to be used, e.g.,:
 # server_mode: !Open
-#   legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 #   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 server_mode: !Open
-  legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 #
 # For the permissioned mode, set the allowed clients and their configurations.

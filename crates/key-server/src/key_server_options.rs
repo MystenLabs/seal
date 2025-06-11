@@ -43,7 +43,8 @@ pub enum ServerMode {
 
         // TODO: remove this when the legacy key server is no longer needed
         /// The object ID of the legacy key server object.
-        legacy_key_server_object_id: ObjectID,
+        #[serde(default = "default_legacy_key_server_object_id")]
+        legacy_key_server_object_id: Option<ObjectID>,
         /// The object ID of the key server object.
         key_server_object_id: ObjectID,
     },
@@ -109,7 +110,7 @@ impl KeyServerOptions {
             network,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
-                legacy_key_server_object_id,
+                legacy_key_server_object_id: Some(legacy_key_server_object_id),
                 key_server_object_id,
             },
             metrics_host_port: default_metrics_host_port(),
@@ -192,7 +193,11 @@ impl KeyServerOptions {
                 legacy_key_server_object_id,
                 key_server_object_id,
             } => {
-                vec![*legacy_key_server_object_id, *key_server_object_id]
+                let mut ids = vec![*key_server_object_id];
+                if let Some(legacy_id) = legacy_key_server_object_id {
+                    ids.push(*legacy_id);
+                }
+                ids
             }
             ServerMode::Permissioned { client_configs } => client_configs
                 .iter()
@@ -212,7 +217,7 @@ impl KeyServerOptions {
             ServerMode::Open {
                 legacy_key_server_object_id,
                 ..
-            } => Ok(*legacy_key_server_object_id),
+            } => Ok(legacy_key_server_object_id.ok_or(InternalError::InvalidServiceId)?),
             ServerMode::Permissioned { .. } => Err(InternalError::InvalidServiceId),
         }
     }
@@ -242,6 +247,10 @@ fn default_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.4.5").expect("Failed to parse default SDK version requirement")
 }
 
+fn default_legacy_key_server_object_id() -> Option<ObjectID> {
+    None
+}
+
 #[test]
 fn test_parse_open_config() {
     use std::str::FromStr;
@@ -265,10 +274,12 @@ session_key_ttl_max: '60s'
     assert_eq!(options.metrics_host_port, 1234);
 
     let expected_server_mode = ServerMode::Open {
-        legacy_key_server_object_id: ObjectID::from_str(
-            "0x0000000000000000000000000000000000000000000000000000000000000001",
-        )
-        .unwrap(),
+        legacy_key_server_object_id: Some(
+            ObjectID::from_str(
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+            )
+            .unwrap(),
+        ),
         key_server_object_id: ObjectID::from_str(
             "0x0000000000000000000000000000000000000000000000000000000000000002",
         )
