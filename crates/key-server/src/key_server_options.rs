@@ -280,7 +280,6 @@ session_key_ttl_max: '60s'
 
     let valid_configuration_custom_network = r#"
 network: !Custom
-  graphql_url: https://graphql.dk
   node_url: https://node.dk
 server_mode: !Open
   legacy_key_server_object_id: '0x0'
@@ -291,7 +290,6 @@ server_mode: !Open
     assert_eq!(
         options.network,
         Network::Custom {
-            graphql_url: "https://graphql.dk".to_string(),
             node_url: "https://node.dk".to_string(),
         }
     );

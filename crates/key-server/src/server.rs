@@ -140,22 +140,25 @@ impl Server {
             .expect("SuiClientBuilder should not failed unless provided with invalid network url");
         info!("Server started with network: {:?}", options.network);
 
-        let master_key = MasterKeys::load(&options).unwrap_or_else(|e| {
+        let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {}", e);
         });
 
-        let mut key_server_oid_to_pop = HashMap::new();
-        for ks_oid in options.get_supported_key_server_object_ids() {
-            let key = master_key
-                .get_key_for_key_server(&ks_oid)
-                .expect("checked already");
-            let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
-            key_server_oid_to_pop.insert(ks_oid, pop);
-        }
+        let key_server_oid_to_pop = options
+            .get_supported_key_server_object_ids()
+            .into_iter()
+            .map(|ks_oid| {
+                let key = master_keys
+                    .get_key_for_key_server(&ks_oid)
+                    .expect("checked already");
+                let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                (ks_oid, pop)
+            })
+            .collect();
 
         Server {
             sui_client,
-            master_keys: master_key,
+            master_keys,
             key_server_oid_to_pop,
             options,
         }
