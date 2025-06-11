@@ -27,7 +27,6 @@ use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::buffer_to_scalar_mod_r;
-use fastcrypto::groups::GroupElement;
 use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::{ToFromBytes, VerifyingKey};
@@ -920,7 +919,7 @@ impl MasterKeys {
                     for pkg_id in &config.package_ids {
                         pkg_id_to_key.insert(*pkg_id, key);
                     }
-                    key_server_oid_to_key.insert(config.key_server_object_id, key.clone());
+                    key_server_oid_to_key.insert(config.key_server_object_id, key);
                 }
                 Ok(MasterKeys::Permissioned {
                     pkg_id_to_key,
