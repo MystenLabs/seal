@@ -959,6 +959,7 @@ impl MasterKeys {
 
 #[test]
 fn test_master_keys_open_mode() {
+    use fastcrypto::groups::GroupElement;
     use temp_env::with_vars;
 
     let options = KeyServerOptions::new_open_server_with_default_values(
@@ -987,6 +988,7 @@ fn test_master_keys_open_mode() {
 #[test]
 fn test_master_keys_permissioned_mode() {
     use crate::key_server_options::ClientConfig;
+    use fastcrypto::groups::GroupElement;
     use temp_env::with_vars;
 
     let mut options = KeyServerOptions::new_open_server_with_default_values(
