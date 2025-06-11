@@ -16,14 +16,14 @@ use tracing::info;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ClientKeyType {
     Derived {
-        derivation_index: u16, // Must be unique
+        derivation_index: u64, // Must be unique
     },
     Imported {
         env_var: String, // Expected a BLS key
     },
     Exported {
         // Indicates that the derived master key was exported and should not be used
-        deprecated_derivation_index: u16, // Must be unique
+        deprecated_derivation_index: u64, // Must be unique
     },
 }
 
