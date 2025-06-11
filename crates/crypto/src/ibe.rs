@@ -32,8 +32,7 @@ pub type Info = (ObjectID, u8);
 
 /// Generate a key pair consisting of a master key and a public key.
 pub fn generate_key_pair<R: AllowedRng>(rng: &mut R) -> (MasterKey, PublicKey) {
-    let sk = Scalar::rand(rng);
-    (sk, public_key_from_master_key(&sk))
+    into_key_pair(MasterKey::rand(rng))
 }
 
 /// Derive a public key from a master key.
@@ -41,22 +40,26 @@ pub fn public_key_from_master_key(master_key: &MasterKey) -> PublicKey {
     G2Element::generator() * master_key
 }
 
-/// Extract a user secret key from a master key and an id.
-pub fn extract(master_key: &MasterKey, id: &[u8]) -> UserSecretKey {
-    hash_to_g1(id) * master_key
+/// Create a key pair from a master key. See also [public_key_from_master_key].
+pub fn into_key_pair(master_key: MasterKey) -> (MasterKey, PublicKey) {
+    (master_key, public_key_from_master_key(&master_key))
 }
 
 /// Derive a key pair from a seed (master key) and a derivation index.
 pub fn derive_key_pair(seed: &[u8], derivation_index: u16) -> (MasterKey, PublicKey) {
     let hkdf_ikm = HkdfIkm::from_bytes(seed).expect("no length requirement");
 
-    // derive 64 bytes to reduce the bias of rounding
-    let rnd_bytes =
+    // Derive 64 bytes to reduce the bias of rounding
+    let random_bytes =
         hkdf_sha3_256(&hkdf_ikm, &[], &derivation_index.to_be_bytes(), 64).expect("valid length");
 
-    let master_key = bls12381::buffer_to_scalar_mod_r(&rnd_bytes).expect("valid length");
-    let public_key = public_key_from_master_key(&master_key);
-    (master_key, public_key)
+    let master_key = bls12381::buffer_to_scalar_mod_r(&random_bytes).expect("valid length");
+    into_key_pair(master_key)
+}
+
+/// Extract a user secret key from a master key and an id.
+pub fn extract(master_key: &MasterKey, id: &[u8]) -> UserSecretKey {
+    hash_to_g1(id) * master_key
 }
 
 /// Verify that a user secret key is valid for a given public key and id.
