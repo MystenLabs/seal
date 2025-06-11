@@ -23,8 +23,8 @@
   "dependencies": {
     "@mysten/bcs": "^1.6.0",
     "@mysten/dapp-kit": "^0.16.9",
-    "@mysten/seal": "0.4.10",
-    "@mysten/sui": "^1.30.5",
+    "@mysten/seal": "0.4.11",
+    "@mysten/sui": "^1.31.0",
     "@radix-ui/colors": "^3.0.0",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/react-label": "^2.1.2",
