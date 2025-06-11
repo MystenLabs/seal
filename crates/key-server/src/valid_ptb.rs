@@ -15,6 +15,7 @@ use tracing::debug;
 ///
 pub struct ValidPtb(ProgrammableTransaction);
 
+// Should only increase this with time.
 const MAX_COMMANDS: usize = 100;
 
 impl TryFrom<ProgrammableTransaction> for ValidPtb {
@@ -25,10 +26,12 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
 
         if ptb.commands.len() > MAX_COMMANDS {
             return_err!(
-                InternalError::InvalidPTB("Too many commands in PTB (more than 100)".to_string()),
+                InternalError::InvalidPTB(format!(
+                    "Too many commands in PTB (more than {})",
+                    MAX_COMMANDS
+                )),
                 "Too many commands in PTB: {:?}",
-                ptb,
-                MAX_COMMANDS
+                ptb
             );
         }
 
