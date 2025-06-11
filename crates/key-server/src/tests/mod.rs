@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::KeyServerOptions;
+use crate::key_server_options::{KeyServerOptions, ServerMode};
 use crate::types::Network;
-use crate::{from_mins, Server};
+use crate::{from_mins, MasterKeys, Server};
 use crypto::ibe;
 use fastcrypto::ed25519::Ed25519KeyPair;
-use fastcrypto::groups::bls12381::G1Element;
-use fastcrypto::groups::GroupElement;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
 use semver::VersionReq;
 use serde_json::json;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -64,8 +63,10 @@ impl SealTestCluster {
         // TODO: We could publish the seal module and register key servers on-chain, but no tests need this right now so to speed up tests we don't do it.
         let options = KeyServerOptions {
             network: Network::TestCluster,
-            legacy_key_server_object_id: ObjectID::ZERO,
-            key_server_object_id: ObjectID::ZERO,
+            server_mode: ServerMode::Open {
+                legacy_key_server_object_id: ObjectID::ZERO,
+                key_server_object_id: ObjectID::ZERO,
+            },
             metrics_host_port: 0,
             checkpoint_update_interval: Duration::from_secs(10),
             rgp_update_interval: Duration::from_secs(60),
@@ -76,15 +77,17 @@ impl SealTestCluster {
 
         let servers = (0..servers)
             .map(|_| ibe::generate_key_pair(&mut rng))
-            .map(|(master_key, public_key)| SealKeyServer {
-                server: Server {
-                    sui_client: cluster.sui_client().clone(),
-                    master_key,
-                    legacy_key_server_object_id_sig: G1Element::generator(),
-                    key_server_object_id_sig: G1Element::generator(),
-                    options: options.clone(),
-                },
-                public_key,
+            .map(|(master_key, public_key)| {
+                let master_keys = MasterKeys::Open { master_key };
+                SealKeyServer {
+                    server: Server {
+                        sui_client: cluster.sui_client().clone(),
+                        master_keys,
+                        key_server_oid_to_pop: HashMap::new(),
+                        options: options.clone(),
+                    },
+                    public_key,
+                }
             })
             .collect();
 

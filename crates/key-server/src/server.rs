@@ -6,11 +6,12 @@ use crate::errors::InternalError::{
 use crate::externals::{
     current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since,
 };
+use crate::key_server_options::{ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::{MasterKeyPOP, Network};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
@@ -25,8 +26,11 @@ use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Base64, Encoding, Hex};
+use fastcrypto::groups::bls12381::buffer_to_scalar_mod_r;
+use fastcrypto::groups::GroupElement;
+use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
 use fastcrypto::serde_helpers::ToFromByteArray;
-use fastcrypto::traits::VerifyingKey;
+use fastcrypto::traits::{ToFromBytes, VerifyingKey};
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
@@ -123,39 +127,36 @@ struct FetchKeyResponse {
 #[derive(Clone)]
 struct Server {
     sui_client: SuiClient,
-    master_key: IbeMasterKey,
-    legacy_key_server_object_id_sig: MasterKeyPOP,
-    key_server_object_id_sig: MasterKeyPOP,
+    master_keys: MasterKeys,
+    key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
     options: KeyServerOptions,
 }
 
 impl Server {
-    async fn new(master_key: IbeMasterKey, options: KeyServerOptions) -> Self {
+    async fn new(options: KeyServerOptions) -> Self {
         let sui_client = SuiClientBuilder::default()
             .build(&options.network.node_url())
             .await
             .expect("SuiClientBuilder should not failed unless provided with invalid network url");
-        info!(
-            "Server started with public key: {:?} and network: {:?}",
-            Base64::encode(
-                bcs::to_bytes(&ibe::public_key_from_master_key(&master_key)).expect("valid pk")
-            ),
-            options.network
-        );
+        info!("Server started with network: {:?}", options.network);
 
-        let key_server_object_id_sig =
-            create_proof_of_possession(&master_key, &options.key_server_object_id.into_bytes());
+        let master_key = MasterKeys::load(&options).unwrap_or_else(|e| {
+            panic!("Failed to load master keys: {}", e);
+        });
 
-        let legacy_key_server_object_id_sig = create_proof_of_possession(
-            &master_key,
-            &options.legacy_key_server_object_id.into_bytes(),
-        );
+        let mut key_server_oid_to_pop = HashMap::new();
+        for ks_oid in options.get_supported_key_server_object_ids() {
+            let key = master_key
+                .get_key_for_key_server(&ks_oid)
+                .expect("checked already");
+            let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+            key_server_oid_to_pop.insert(ks_oid, pop);
+        }
 
         Server {
             sui_client,
-            master_key,
-            legacy_key_server_object_id_sig,
-            key_server_object_id_sig,
+            master_keys: master_key,
+            key_server_oid_to_pop,
             options,
         }
     }
@@ -295,13 +296,16 @@ impl Server {
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
         mvr_name: Option<String>,
-    ) -> Result<Vec<KeyId>, InternalError> {
+    ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
                 externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_client).await
             })
             .await?;
+
+        // Make sure that the package is supported.
+        self.master_keys.get_key_for_package(&first_pkg_id)?;
 
         // If an MVR name is provided, check that it points to the first package ID
         if let Some(mvr_name) = &mvr_name {
@@ -335,16 +339,25 @@ impl Server {
         .await?;
 
         // return the full id with the first package id as prefix
-        Ok(valid_ptb.full_ids(&first_pkg_id))
+        Ok((first_pkg_id, valid_ptb.full_ids(&first_pkg_id)))
     }
 
-    fn create_response(&self, ids: &[KeyId], enc_key: &ElGamalPublicKey) -> FetchKeyResponse {
-        debug!("Checking response for ids: {:?}", ids);
+    fn create_response(
+        &self,
+        first_pkg_id: ObjectID,
+        ids: &[KeyId],
+        enc_key: &ElGamalPublicKey,
+    ) -> FetchKeyResponse {
+        debug!("Creating response for ids: {:?}", ids);
+        let master_key = self
+            .master_keys
+            .get_key_for_package(&first_pkg_id)
+            .expect("checked already");
         let decryption_keys = ids
             .iter()
             .map(|id| {
                 // Requested key
-                let key = ibe::extract(&self.master_key, id);
+                let key = ibe::extract(master_key, id);
                 // ElGamal encryption of key under the user's public key
                 let encrypted_key = encrypt(&mut thread_rng(), &key, enc_key);
                 DecryptionKey {
@@ -468,7 +481,7 @@ async fn handle_fetch_key_internal(
     payload: &FetchKeyRequest,
     req_id: Option<&str>,
     sdk_version: &str,
-) -> Result<Vec<KeyId>, InternalError> {
+) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
     app_state.check_full_node_is_fresh()?;
 
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
@@ -521,7 +534,13 @@ async fn handle_fetch_key(
     handle_fetch_key_internal(&app_state, &payload, req_id, sdk_version)
         .await
         .tap_err(|e| app_state.metrics.observe_error(e.as_str()))
-        .map(|full_id| Json(app_state.server.create_response(&full_id, &payload.enc_key)))
+        .map(|(first_pkg_id, full_ids)| {
+            Json(
+                app_state
+                    .server
+                    .create_response(first_pkg_id, &full_ids, &payload.enc_key),
+            )
+        })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -536,29 +555,16 @@ async fn handle_get_service(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<GetServiceResponse>, InternalError> {
     app_state.metrics.service_requests.inc();
-    let (service_id, pop) = match params.get("service_id") {
-        Some(id) => {
-            let object_id =
-                ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)?;
-            if object_id == app_state.server.options.key_server_object_id {
-                (
-                    app_state.server.options.key_server_object_id,
-                    app_state.server.key_server_object_id_sig,
-                )
-            } else if object_id == app_state.server.options.legacy_key_server_object_id {
-                (
-                    app_state.server.options.legacy_key_server_object_id,
-                    app_state.server.legacy_key_server_object_id_sig,
-                )
-            } else {
-                return Err(InternalError::InvalidServiceId);
-            }
-        }
-        None => (
-            app_state.server.options.legacy_key_server_object_id,
-            app_state.server.legacy_key_server_object_id_sig,
-        ),
+    let service_id = match params.get("service_id") {
+        Some(id) => ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)?,
+        None => app_state.server.options.get_legacy_key_server_object_id()?,
     };
+
+    let pop = *app_state
+        .server
+        .key_server_oid_to_pop
+        .get(&service_id)
+        .ok_or(InternalError::InvalidServiceId)?;
 
     Ok(Json(GetServiceResponse {
         service_id,
@@ -723,16 +729,11 @@ async fn start_server_background_tasks(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let master_key = env::var("MASTER_KEY").expect("MASTER_KEY must be set");
-    let bytes = if Base64::decode(&master_key).is_ok() {
-        Base64::decode(&master_key).expect("MASTER_KEY should be base64 encoded")
-    } else {
-        Hex::decode(&master_key).expect("MASTER_KEY should be hex encoded")
-    };
+    let _guard = mysten_service::logging::init();
 
     // If CONFIG_PATH is set, read the configuration from the file.
     // Otherwise, use the legacy environment variables.
-    let options: KeyServerOptions = match env::var("CONFIG_PATH") {
+    let options = match env::var("CONFIG_PATH") {
         Ok(config_path) => {
             info!("Loading config file: {}", config_path);
             serde_yaml::from_reader(
@@ -751,7 +752,7 @@ async fn main() -> Result<()> {
             let network = env::var("NETWORK")
                 .map(|n| Network::from_str(&n))
                 .unwrap_or(Network::Testnet);
-            KeyServerOptions::new_with_default_values(
+            KeyServerOptions::new_open_server_with_default_values(
                 network,
                 ObjectID::from_str(&legacy_object_id).expect("Invalid legacy object id"),
                 ObjectID::from_str(&object_id).expect("Invalid object id"),
@@ -759,10 +760,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let _guard = mysten_service::logging::init();
-    info!("Logging set up, setting up metrics");
-
-    // initialize metrics
+    info!("Setting up metrics");
     let registry = start_prometheus_server(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         options.metrics_host_port,
@@ -779,18 +777,10 @@ async fn main() -> Result<()> {
 
     // hook up custom application metrics
     let metrics = Arc::new(Metrics::new(&registry));
-    info!("Metrics set up, starting service");
 
     info!("Starting server, version {}", PACKAGE_VERSION);
-
-    let server = Arc::new(
-        Server::new(
-            IbeMasterKey::from_byte_array(&bytes.try_into().expect("Invalid MASTER_KEY length"))
-                .expect("Invalid MASTER_KEY value"),
-            options,
-        )
-        .await,
-    );
+    options.validate()?;
+    let server = Arc::new(Server::new(options).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone()).await;
@@ -842,4 +832,223 @@ async fn main() -> Result<()> {
 pub const fn from_mins(mins: u16) -> Duration {
     // safe cast since 64 bits is more than enough to hold 2^16 * 60 seconds
     Duration::from_secs((mins * 60) as u64)
+}
+
+#[derive(Clone)]
+enum MasterKeys {
+    Open {
+        master_key: IbeMasterKey,
+    },
+    Permissioned {
+        pkg_id_to_key: HashMap<ObjectID, IbeMasterKey>,
+        key_server_oid_to_key: HashMap<ObjectID, IbeMasterKey>,
+    },
+}
+
+impl MasterKeys {
+    fn load(options: &KeyServerOptions) -> Result<Self> {
+        info!("Loading keys from env variables");
+        match &options.server_mode {
+            ServerMode::Open { .. } => {
+                let master_key = env::var("MASTER_KEY")
+                    .context("MASTER_KEY environment variable must be set")?;
+                let bytes = if Base64::decode(&master_key).is_ok() {
+                    Base64::decode(&master_key).expect("checked above")
+                } else {
+                    // TODO: Legacy option, deprecate
+                    Hex::decode(&master_key).context("MASTER_KEY should be hex encoded")?
+                };
+                let master_key = IbeMasterKey::from_byte_array(
+                    &bytes
+                        .try_into()
+                        .map_err(|_| anyhow!("Invalid MASTER_KEY length"))?,
+                )
+                .context("Invalid key value")?;
+                Ok(MasterKeys::Open { master_key })
+            }
+            ServerMode::Permissioned { client_configs } => {
+                let master_key = env::var("MASTER_KEY").context("MASTER_KEY must be set")?;
+                let seed =
+                    Base64::decode(&master_key).context("MASTER_KEY should be base64 encoded")?;
+                if seed.len() != 32 {
+                    return Err(anyhow!(
+                        "MASTER_KEY must be 32 bytes long, got {} bytes",
+                        seed.len()
+                    ));
+                }
+                let hkdf_ikm = HkdfIkm::from_bytes(&seed).expect("no length requirement");
+
+                let mut pkg_id_to_key = HashMap::new();
+                let mut key_server_oid_to_key = HashMap::new();
+                for config in client_configs {
+                    let key = match &config.client_master_key {
+                        ClientKeyType::Derived { derivation_index } => {
+                            // derive 64byte to reduce the bias of rounding
+                            let rnd_bytes =
+                                hkdf_sha3_256(&hkdf_ikm, &[], &derivation_index.to_be_bytes(), 64)
+                                    .expect("valid length");
+                            buffer_to_scalar_mod_r(&rnd_bytes).expect("valid length")
+                        }
+                        ClientKeyType::Imported { env_var } => {
+                            let master_key = env::var(env_var).map_err(|_| {
+                                anyhow!("Environment variable {} must be set", env_var)
+                            })?;
+                            let bytes = Base64::decode(&master_key).map_err(|_| {
+                                anyhow!("Environment variable {} should be base64 encoded", env_var)
+                            })?;
+                            IbeMasterKey::from_byte_array(
+                                &bytes
+                                    .try_into()
+                                    .map_err(|_| anyhow!("Invalid MASTER_KEY length"))?,
+                            )
+                            .context("Invalid key value")?
+                        }
+                        ClientKeyType::Exported { .. } => continue,
+                    };
+
+                    info!(
+                        "Client {:?} uses public key: {:?}",
+                        config.name,
+                        Base64::encode(
+                            bcs::to_bytes(&ibe::public_key_from_master_key(&key))
+                                .expect("valid pk")
+                        )
+                    );
+
+                    for pkg_id in &config.package_ids {
+                        pkg_id_to_key.insert(*pkg_id, key);
+                    }
+                    key_server_oid_to_key.insert(config.key_server_object_id, key.clone());
+                }
+                Ok(MasterKeys::Permissioned {
+                    pkg_id_to_key,
+                    key_server_oid_to_key,
+                })
+            }
+        }
+    }
+
+    fn get_key_for_package(&self, id: &ObjectID) -> Result<&IbeMasterKey, InternalError> {
+        match self {
+            MasterKeys::Open { master_key } => Ok(master_key),
+            MasterKeys::Permissioned { pkg_id_to_key, .. } => pkg_id_to_key
+                .get(id)
+                .ok_or(InternalError::UnsupportedPackageId),
+        }
+    }
+
+    fn get_key_for_key_server(&self, id: &ObjectID) -> Result<&IbeMasterKey, InternalError> {
+        match self {
+            MasterKeys::Open { master_key } => Ok(master_key),
+            MasterKeys::Permissioned {
+                key_server_oid_to_key,
+                ..
+            } => key_server_oid_to_key
+                .get(id)
+                .ok_or(InternalError::InvalidServiceId),
+        }
+    }
+}
+
+// test master keys
+
+#[test]
+fn test_master_keys_open_mode() {
+    use temp_env::with_vars;
+
+    let options = KeyServerOptions::new_open_server_with_default_values(
+        Network::Testnet,
+        ObjectID::from_hex_literal("0x1").unwrap(),
+        ObjectID::from_hex_literal("0x2").unwrap(),
+    );
+
+    with_vars([("MASTER_KEY", None::<&str>)], || {
+        assert!(MasterKeys::load(&options).is_err());
+    });
+
+    let sk = IbeMasterKey::generator();
+    let sk_as_bytes = Base64::encode(bcs::to_bytes(&sk).unwrap());
+    with_vars([("MASTER_KEY", Some(sk_as_bytes))], || {
+        let mk = MasterKeys::load(&options);
+        assert_eq!(
+            mk.unwrap()
+                .get_key_for_package(&ObjectID::from_hex_literal("0x1").unwrap())
+                .unwrap(),
+            &sk
+        );
+    });
+}
+
+#[test]
+fn test_master_keys_permissioned_mode() {
+    use crate::key_server_options::ClientConfig;
+    use temp_env::with_vars;
+
+    let mut options = KeyServerOptions::new_open_server_with_default_values(
+        Network::Testnet,
+        ObjectID::from_hex_literal("0x1").unwrap(),
+        ObjectID::from_hex_literal("0x2").unwrap(),
+    );
+    options.server_mode = ServerMode::Permissioned {
+        client_configs: vec![
+            ClientConfig {
+                name: "alice".to_string(),
+                package_ids: vec![ObjectID::from_hex_literal("0x1").unwrap()],
+                key_server_object_id: ObjectID::from_hex_literal("0x2").unwrap(),
+                client_master_key: ClientKeyType::Imported {
+                    env_var: "ALICE_KEY".to_string(),
+                },
+            },
+            ClientConfig {
+                name: "bob".to_string(),
+                package_ids: vec![ObjectID::from_hex_literal("0x3").unwrap()],
+                key_server_object_id: ObjectID::from_hex_literal("0x4").unwrap(),
+                client_master_key: ClientKeyType::Derived {
+                    derivation_index: 100,
+                },
+            },
+            ClientConfig {
+                name: "dan".to_string(),
+                package_ids: vec![ObjectID::from_hex_literal("0x5").unwrap()],
+                key_server_object_id: ObjectID::from_hex_literal("0x6").unwrap(),
+                client_master_key: ClientKeyType::Derived {
+                    derivation_index: 200,
+                },
+            },
+        ],
+    };
+    let sk = IbeMasterKey::generator();
+    let sk_as_bytes = Base64::encode(bcs::to_bytes(&sk).unwrap());
+    let seed = [1u8; 32];
+    with_vars(
+        [
+            ("MASTER_KEY", Some(sk_as_bytes.clone())),
+            ("ALICE_KEY", Some(Base64::encode(seed))),
+        ],
+        || {
+            let mk = MasterKeys::load(&options).unwrap();
+            let k1 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x4").unwrap());
+            let k2 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x6").unwrap());
+            assert!(k1.is_ok());
+            assert_ne!(k1, k2);
+        },
+    );
+    with_vars(
+        [
+            ("MASTER_KEY", None::<&str>),
+            ("ALICE_KEY", Some(&Base64::encode(seed))),
+        ],
+        || {
+            assert!(MasterKeys::load(&options).is_err());
+        },
+    );
+    with_vars(
+        [
+            ("MASTER_KEY", Some(&sk_as_bytes)),
+            ("ALICE_KEY", None::<&String>),
+        ],
+        || {
+            assert!(MasterKeys::load(&options).is_err());
+        },
+    );
 }

@@ -52,7 +52,7 @@ async fn test_tle_policy() {
             )
             .await;
         assert!(result.is_ok());
-        let key_ids = result.unwrap();
+        let (_pkg_id, key_ids) = result.unwrap();
         assert_eq!(key_ids.len(), 2);
         assert_ne!(key_ids[0], key_ids[1]);
     }

@@ -20,6 +20,7 @@ pub enum InternalError {
     InvalidParameter,
     InvalidMVRName,
     InvalidServiceId,
+    UnsupportedPackageId,
     Failure, // Internal error, try again later
 }
 
@@ -71,6 +72,10 @@ impl IntoResponse for InternalError {
             InternalError::InvalidServiceId => {
                 (StatusCode::BAD_REQUEST, "Invalid service ID".to_string())
             }
+            InternalError::UnsupportedPackageId => (
+                StatusCode::BAD_REQUEST,
+                "Unsupported package ID".to_string(),
+            ),
             InternalError::Failure => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
@@ -101,6 +106,7 @@ impl InternalError {
             InternalError::InvalidParameter => "InvalidParameter",
             InternalError::InvalidMVRName => "InvalidMVRName",
             InternalError::InvalidServiceId => "InvalidServiceId",
+            InternalError::UnsupportedPackageId => "UnsupportedPackageId",
             InternalError::Failure => "Failure",
         }
     }

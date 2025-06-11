@@ -1,19 +1,70 @@
-# The on-chain object ID of the legacy key server object.
-legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#### Mandatory configurations ####
 
-# The on-chain object ID of the key server object.
-key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
-
-# The network to use. Should be one of:
-network: Testnet
+# Network to use. Should be one of:
+# network: Testnet
 # network: Mainnet
 # network: Devnet
-# network: Custom
+# network: !Custom
 #   graphql_url: 'url_to_graphql_endpoint'
 #   node_url: 'url_to_node_endpoint'
+# Use Custom for production deployments.
+network: Testnet
 
-# Optional configurations:
+
+# Server mode. The server can either work in open/permissionless mode that supports all packages, or
+# in permissioned mode that only supports whitelisted packages .
 #
+# For the open mode, set the key server object ID to be used, e.g.,:
+# server_mode: !Open
+#   legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+server_mode: !Open
+  legacy_key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#
+# For the permissioned mode, set the allowed clients and their configurations.
+# A client config contains the name (for debugging purposes only), the associated key server object id,
+# the allowed packages with seal policies, and the type of the client master key.
+# Allowed package ids must be unique and point to the first versions of the packages.
+# More packages can be added to the list later.
+#
+# In normal setting, use Derived for deriving the client master key from the server master key. Set
+# derivation_index to be a unique derivation index used for this client. This value must *never* change,
+# else a different key might be used for that client.
+#
+# If a client master key is exported, change the type to Exported and track the derivation index in
+# deprecated_derivation_index (to make sure it is not used in the future).
+#
+# In case the client master key is imported, use Imported and set the env_var to the environment variable
+# that contains the BLS key in hex format.
+#
+# Example of a permissioned server mode configuration:
+# server_mode: !Permissioned
+#   client_configs:
+#     - name: "alice"
+#       client_master_key: !Derived
+#         derivation_index: 1
+#       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
+#       package_ids:
+#         - "0x1111111111111111111111111111111111111111111111111111111111111111"
+#     - name: "bob"
+#       client_master_key: !Imported
+#         env_var: "BOB_BLS_KEY"
+#       key_server_object_id: "0xbbbb000000000000000000000000000000000000000000000000000000000002"
+#       package_ids:
+#         - "0x2222222222222222222222222222222222222222222222222222222222222222"
+#         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+#     - name: "carol"
+#       client_master_key: !Exported
+#         deprecated_derivation_index: 3
+#       key_server_object_id: "0xcccc000000000000000000000000000000000000000000000000000000000003"
+#       package_ids:
+#         - "0x3333333333333333333333333333333333333333333333333333333333333333"
+
+
+
+#### Optional advanced configurations ####
+
 # The port that the prometheus agent can use to poll for the metrics.
 # metrics_host_port: 9184
 #

@@ -53,3 +53,4 @@ tracing-test = "0.2.5"
 test_cluster = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "test-cluster" }
 sui_move_build = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-move-build" }
 futures = "0.3"
+temp-env = "0.3"
