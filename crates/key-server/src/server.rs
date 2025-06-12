@@ -77,7 +77,7 @@ mod mvr;
 pub mod tests;
 
 const GAS_BUDGET: u64 = 500_000_000;
-const VERSION: &str = utils::version!();
+const GIT_VERSION: &str = utils::git_version!();
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = Hex;
@@ -550,7 +550,6 @@ async fn handle_fetch_key(
 struct GetServiceResponse {
     service_id: ObjectID,
     pop: MasterKeyPOP,
-    version: String,
 }
 
 async fn handle_get_service(
@@ -569,11 +568,7 @@ async fn handle_get_service(
         .get(&service_id)
         .ok_or(InternalError::InvalidServiceId)?;
 
-    Ok(Json(GetServiceResponse {
-        service_id,
-        pop,
-        version: VERSION.to_string(),
-    }))
+    Ok(Json(GetServiceResponse { service_id, pop }))
 }
 
 #[derive(Clone)]
@@ -649,9 +644,15 @@ async fn handle_request_headers(
 
 /// Middleware to add headers to all responses.
 async fn add_response_headers(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert("X-KeyServer-Version", HeaderValue::from_static(VERSION));
+    let headers = response.headers_mut();
+    headers.insert(
+        "X-KeyServer-Version",
+        HeaderValue::from_static(package_version!()),
+    );
+    headers.insert(
+        "X-KeyServer-GitVersion",
+        HeaderValue::from_static(GIT_VERSION),
+    );
     response
 }
 
@@ -769,14 +770,19 @@ async fn main() -> Result<()> {
     let registry_clone = registry.clone();
     tokio::task::spawn(async move {
         registry_clone
-            .register(uptime_metric(VERSION))
+            .register(uptime_metric(
+                format!("{}-{}", package_version!(), GIT_VERSION).as_str(),
+            ))
             .expect("metrics defined at compile time must be valid");
     });
 
     // hook up custom application metrics
     let metrics = Arc::new(Metrics::new(&registry));
 
-    info!("Starting server, version {}", VERSION);
+    info!(
+        "Starting server, version {}",
+        format!("{}-{}", package_version!(), GIT_VERSION).as_str()
+    );
     options.validate()?;
     let server = Arc::new(Server::new(options).await);
 
