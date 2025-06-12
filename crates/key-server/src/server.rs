@@ -21,7 +21,7 @@ use axum::{extract::State, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
-use crypto::ibe::create_proof_of_possession;
+use crypto::ibe::{create_proof_of_possession, MASTER_KEY_LENGTH};
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
@@ -848,48 +848,20 @@ enum MasterKeys {
 impl MasterKeys {
     fn load(options: &KeyServerOptions) -> Result<Self> {
         info!("Loading keys from env variables");
-        let master_key =
-            env::var("MASTER_KEY").context("MASTER_KEY environment variable must be set")?;
-        let bytes = Hex::decode(&master_key).context("MASTER_KEY should be hex encoded")?;
         match &options.server_mode {
             ServerMode::Open { .. } => {
-                let master_key = IbeMasterKey::from_byte_array(
-                    &bytes
-                        .try_into()
-                        .map_err(|_| anyhow!("Invalid MASTER_KEY length"))?,
-                )
-                .context("Invalid key value")?;
-                Ok(MasterKeys::Open { master_key })
+                master_key_from_env("MASTER_KEY").map(|master_key| MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
-                if bytes.len() != 32 {
-                    return Err(anyhow!(
-                        "MASTER_KEY must be 32 bytes long, got {} bytes",
-                        bytes.len()
-                    ));
-                }
-
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
                 for config in client_configs {
                     let key = match &config.client_master_key {
-                        ClientKeyType::Derived { derivation_index } => {
-                            ibe::derive_key_pair(&bytes, *derivation_index).0
-                        }
-                        ClientKeyType::Imported { env_var } => {
-                            let master_key = env::var(env_var).map_err(|_| {
-                                anyhow!("Environment variable {} must be set", env_var)
-                            })?;
-                            let bytes = Hex::decode(&master_key).map_err(|_| {
-                                anyhow!("Environment variable {} should be hex encoded", env_var)
-                            })?;
-                            IbeMasterKey::from_byte_array(
-                                &bytes
-                                    .try_into()
-                                    .map_err(|_| anyhow!("Invalid MASTER_KEY length"))?,
-                            )
-                            .context("Invalid key value")?
-                        }
+                        ClientKeyType::Derived { derivation_index } => ibe::derive_master_key(
+                            &byte_array_from_env::<MASTER_KEY_LENGTH>("MASTER_KEY")?,
+                            *derivation_index,
+                        ),
+                        ClientKeyType::Imported { env_var } => master_key_from_env(env_var)?,
                         ClientKeyType::Exported { .. } => continue,
                     };
 
@@ -939,6 +911,26 @@ impl MasterKeys {
                 .ok_or(InternalError::InvalidServiceId),
         }
     }
+}
+
+/// Read a byte array of length N from an environment variable.
+fn byte_array_from_env<const N: usize>(env_name: &str) -> Result<[u8; N]> {
+    let hex_string =
+        env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
+    let bytes = Hex::decode(&hex_string)
+        .map_err(|_| anyhow!("Environment variable {} should be hex encoded", env_name))?;
+    bytes.try_into().map_err(|_| {
+        anyhow!(
+            "Invalid byte array length for environment variable {env_name}. Must be {N} bytes long"
+        )
+    })
+}
+
+/// Read a master key from an environment variable.
+fn master_key_from_env(env_name: &str) -> Result<IbeMasterKey> {
+    let bytes = byte_array_from_env::<MASTER_KEY_LENGTH>(env_name)?;
+    IbeMasterKey::from_byte_array(&bytes)
+        .map_err(|_| anyhow!("Invalid master key for environment variable {env_name}"))
 }
 
 // test master keys
@@ -1011,12 +1003,12 @@ fn test_master_keys_permissioned_mode() {
         ],
     };
     let sk = IbeMasterKey::generator();
-    let sk_as_bytes = Base64::encode(bcs::to_bytes(&sk).unwrap());
+    let sk_as_bytes = Hex::encode(bcs::to_bytes(&sk).unwrap());
     let seed = [1u8; 32];
     with_vars(
         [
             ("MASTER_KEY", Some(sk_as_bytes.clone())),
-            ("ALICE_KEY", Some(Base64::encode(seed))),
+            ("ALICE_KEY", Some(Hex::encode(seed))),
         ],
         || {
             let mk = MasterKeys::load(&options).unwrap();
@@ -1029,7 +1021,7 @@ fn test_master_keys_permissioned_mode() {
     with_vars(
         [
             ("MASTER_KEY", None::<&str>),
-            ("ALICE_KEY", Some(&Base64::encode(seed))),
+            ("ALICE_KEY", Some(&Hex::encode(seed))),
         ],
         || {
             assert!(MasterKeys::load(&options).is_err());

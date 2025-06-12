@@ -31,6 +31,7 @@ pub type EncryptedRandomness = [u8; KEY_SIZE];
 pub type Info = (ObjectID, u8);
 
 pub const SEED_LENGTH: usize = 32;
+pub const MASTER_KEY_LENGTH: usize = bls12381::SCALAR_LENGTH;
 
 /// Generate a key pair consisting of a master key and a public key.
 pub fn generate_key_pair<R: AllowedRng>(rng: &mut R) -> (MasterKey, PublicKey) {
@@ -53,15 +54,14 @@ pub fn generate_seed<R: AllowedRng>(rng: &mut R) -> [u8; SEED_LENGTH] {
 }
 
 /// Derive a key pair from a seed (master key) and a derivation index.
-pub fn derive_key_pair(seed: &[u8], derivation_index: u64) -> (MasterKey, PublicKey) {
+pub fn derive_master_key(seed: &[u8], derivation_index: u64) -> MasterKey {
     let hkdf_ikm = HkdfIkm::from_bytes(seed).expect("no length requirement");
 
     // Derive 64 bytes to reduce the bias of rounding
     let random_bytes =
         hkdf_sha3_256(&hkdf_ikm, &[], &derivation_index.to_be_bytes(), 64).expect("valid length");
 
-    let master_key = bls12381::buffer_to_scalar_mod_r(&random_bytes).expect("valid length");
-    into_key_pair(master_key)
+    bls12381::buffer_to_scalar_mod_r(&random_bytes).expect("valid length")
 }
 
 /// Extract a user secret key from a master key and an id.
@@ -237,7 +237,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             expected_master_key,
-            derive_key_pair(&seed, derivation_index).0
+            derive_master_key(&seed, derivation_index)
         );
     }
 }

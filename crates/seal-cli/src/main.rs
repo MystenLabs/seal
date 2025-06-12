@@ -199,7 +199,11 @@ fn main() -> FastCryptoResult<()> {
             if seed.0.len() != SEED_LENGTH {
                 return Err(FastCryptoError::InputLengthWrong(SEED_LENGTH));
             }
-            GenkeyOutput(ibe::derive_key_pair(&seed.0, derivation_index)).to_string()
+            GenkeyOutput(ibe::into_key_pair(ibe::derive_master_key(
+                &seed.0,
+                derivation_index,
+            )))
+            .to_string()
         }
         Command::Extract {
             package_id,
