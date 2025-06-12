@@ -45,7 +45,7 @@ enum Command {
         seed: EncodedByteArray<SEED_LENGTH>,
         /// Index for the key pair. This is used to derive a different key pair from the same seed.
         #[arg(long)]
-        index: u16,
+        index: u64,
     },
     /// Extract a user secret key from an id and a master key.
     Extract {

@@ -53,7 +53,7 @@ pub fn generate_seed<R: AllowedRng>(rng: &mut R) -> [u8; SEED_LENGTH] {
 }
 
 /// Derive a key pair from a seed (master key) and a derivation index.
-pub fn derive_key_pair(seed: &[u8], derivation_index: u16) -> (MasterKey, PublicKey) {
+pub fn derive_key_pair(seed: &[u8], derivation_index: u64) -> (MasterKey, PublicKey) {
     let hkdf_ikm = HkdfIkm::from_bytes(seed).expect("no length requirement");
 
     // Derive 64 bytes to reduce the bias of rounding
