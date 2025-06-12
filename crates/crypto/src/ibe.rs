@@ -30,6 +30,8 @@ pub type EncryptedRandomness = [u8; KEY_SIZE];
 // Additional info for the key derivation. Contains the object id for the key server and the share index.
 pub type Info = (ObjectID, u8);
 
+pub const SEED_LENGTH: usize = 32;
+
 /// Generate a key pair consisting of a master key and a public key.
 pub fn generate_key_pair<R: AllowedRng>(rng: &mut R) -> (MasterKey, PublicKey) {
     into_key_pair(MasterKey::rand(rng))
@@ -43,6 +45,13 @@ pub fn public_key_from_master_key(master_key: &MasterKey) -> PublicKey {
 /// Create a key pair from a master key. See also [public_key_from_master_key].
 pub fn into_key_pair(master_key: MasterKey) -> (MasterKey, PublicKey) {
     (master_key, public_key_from_master_key(&master_key))
+}
+
+/// Generate a fresh seed of length [SEED_LENGTH] using the provided random number generator.
+pub fn generate_seed<R: AllowedRng>(rng: &mut R) -> [u8; SEED_LENGTH] {
+    let mut seed = [0u8; SEED_LENGTH];
+    rng.fill_bytes(&mut seed);
+    seed
 }
 
 /// Derive a key pair from a seed (master key) and a derivation index.
