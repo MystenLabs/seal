@@ -173,7 +173,7 @@ enum Command {
         encrypted_object: EncryptedObject,
         /// The derived symmetric key from the encryption.
         #[arg(long)]
-        key: EncodedBytes,
+        key: EncodedByteArray<KEY_LENGTH>,
     },
 }
 
@@ -292,25 +292,17 @@ fn main() -> FastCryptoResult<()> {
         Command::SymmetricDecrypt {
             encrypted_object,
             key,
-        } => {
-            let dem_key = key
-                .0
-                .try_into()
-                .map_err(|_| FastCryptoError::InvalidInput)?;
-            let EncryptedObject { ciphertext, .. } = encrypted_object;
-
-            match ciphertext {
-                Ciphertext::Aes256Gcm { blob, aad } => {
-                    Aes256Gcm::decrypt(&blob, &aad.unwrap_or(vec![]), &dem_key)
-                }
-                Ciphertext::Hmac256Ctr { blob, aad, mac } => {
-                    Hmac256Ctr::decrypt(&blob, &mac, &aad.unwrap_or(vec![]), &dem_key)
-                }
-                _ => Err(FastCryptoError::InvalidInput),
+        } => match encrypted_object.ciphertext {
+            Ciphertext::Aes256Gcm { blob, aad } => {
+                Aes256Gcm::decrypt(&blob, &aad.unwrap_or(vec![]), &key.0)
             }
-            .map(SymmetricDecryptOutput)?
-            .to_string()
+            Ciphertext::Hmac256Ctr { blob, aad, mac } => {
+                Hmac256Ctr::decrypt(&blob, &mac, &aad.unwrap_or(vec![]), &key.0)
+            }
+            _ => Err(FastCryptoError::InvalidInput),
         }
+        .map(SymmetricDecryptOutput)?
+        .to_string(),
     };
     println!("{}", output);
     Ok(())
