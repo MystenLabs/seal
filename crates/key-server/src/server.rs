@@ -67,6 +67,7 @@ mod errors;
 mod externals;
 mod signed_message;
 mod types;
+mod utils;
 mod valid_ptb;
 
 mod key_server_options;
@@ -76,7 +77,7 @@ mod mvr;
 pub mod tests;
 
 const GAS_BUDGET: u64 = 500_000_000;
-const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = utils::version!();
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = Hex;
@@ -571,7 +572,7 @@ async fn handle_get_service(
     Ok(Json(GetServiceResponse {
         service_id,
         pop,
-        version: PACKAGE_VERSION.to_string(),
+        version: VERSION.to_string(),
     }))
 }
 
@@ -648,10 +649,9 @@ async fn handle_request_headers(
 
 /// Middleware to add headers to all responses.
 async fn add_response_headers(mut response: Response) -> Response {
-    response.headers_mut().insert(
-        "X-KeyServer-Version",
-        HeaderValue::from_static(PACKAGE_VERSION),
-    );
+    response
+        .headers_mut()
+        .insert("X-KeyServer-Version", HeaderValue::from_static(VERSION));
     response
 }
 
@@ -769,14 +769,14 @@ async fn main() -> Result<()> {
     let registry_clone = registry.clone();
     tokio::task::spawn(async move {
         registry_clone
-            .register(uptime_metric(PACKAGE_VERSION))
+            .register(uptime_metric(VERSION))
             .expect("metrics defined at compile time must be valid");
     });
 
     // hook up custom application metrics
     let metrics = Arc::new(Metrics::new(&registry));
 
-    info!("Starting server, version {}", PACKAGE_VERSION);
+    info!("Starting server, version {}", VERSION);
     options.validate()?;
     let server = Arc::new(Server::new(options).await);
 

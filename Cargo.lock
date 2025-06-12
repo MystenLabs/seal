@@ -3999,6 +3999,7 @@ dependencies = [
  "duration-str",
  "fastcrypto 0.1.8",
  "futures",
+ "git-version",
  "hex",
  "jsonrpsee",
  "lru 0.13.0",
