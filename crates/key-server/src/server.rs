@@ -25,11 +25,9 @@ use crypto::ibe::create_proof_of_possession;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Base64, Encoding, Hex};
-use fastcrypto::groups::bls12381::buffer_to_scalar_mod_r;
-use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
+use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
-use fastcrypto::traits::{ToFromBytes, VerifyingKey};
+use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
@@ -852,14 +850,9 @@ impl MasterKeys {
         info!("Loading keys from env variables");
         let master_key =
             env::var("MASTER_KEY").context("MASTER_KEY environment variable must be set")?;
+        let bytes = Hex::decode(&master_key).context("MASTER_KEY should be hex encoded")?;
         match &options.server_mode {
             ServerMode::Open { .. } => {
-                let bytes = if Base64::decode(&master_key).is_ok() {
-                    Base64::decode(&master_key).expect("checked above")
-                } else {
-                    // TODO: Legacy option, deprecate
-                    Hex::decode(&master_key).context("MASTER_KEY should be hex encoded")?
-                };
                 let master_key = IbeMasterKey::from_byte_array(
                     &bytes
                         .try_into()
@@ -869,33 +862,26 @@ impl MasterKeys {
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
-                let seed =
-                    Base64::decode(&master_key).context("MASTER_KEY should be base64 encoded")?;
-                if seed.len() != 32 {
+                if bytes.len() != 32 {
                     return Err(anyhow!(
                         "MASTER_KEY must be 32 bytes long, got {} bytes",
-                        seed.len()
+                        bytes.len()
                     ));
                 }
-                let hkdf_ikm = HkdfIkm::from_bytes(&seed).expect("no length requirement");
 
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
                 for config in client_configs {
                     let key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
-                            // derive 64byte to reduce the bias of rounding
-                            let rnd_bytes =
-                                hkdf_sha3_256(&hkdf_ikm, &[], &derivation_index.to_be_bytes(), 64)
-                                    .expect("valid length");
-                            buffer_to_scalar_mod_r(&rnd_bytes).expect("valid length")
+                            ibe::derive_key_pair(&bytes, *derivation_index).0
                         }
                         ClientKeyType::Imported { env_var } => {
                             let master_key = env::var(env_var).map_err(|_| {
                                 anyhow!("Environment variable {} must be set", env_var)
                             })?;
-                            let bytes = Base64::decode(&master_key).map_err(|_| {
-                                anyhow!("Environment variable {} should be base64 encoded", env_var)
+                            let bytes = Hex::decode(&master_key).map_err(|_| {
+                                anyhow!("Environment variable {} should be hex encoded", env_var)
                             })?;
                             IbeMasterKey::from_byte_array(
                                 &bytes
@@ -910,7 +896,7 @@ impl MasterKeys {
                     info!(
                         "Client {:?} uses public key: {:?}",
                         config.name,
-                        Base64::encode(
+                        Hex::encode(
                             bcs::to_bytes(&ibe::public_key_from_master_key(&key))
                                 .expect("valid pk")
                         )
@@ -973,7 +959,7 @@ fn test_master_keys_open_mode() {
     });
 
     let sk = IbeMasterKey::generator();
-    let sk_as_bytes = Base64::encode(bcs::to_bytes(&sk).unwrap());
+    let sk_as_bytes = Hex::encode(bcs::to_bytes(&sk).unwrap());
     with_vars([("MASTER_KEY", Some(sk_as_bytes))], || {
         let mk = MasterKeys::load(&options);
         assert_eq!(
