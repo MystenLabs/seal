@@ -79,6 +79,9 @@ pub mod tests;
 const GAS_BUDGET: u64 = 500_000_000;
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Default encoding used for master and public keys for the key server.
+type DefaultEncoding = Hex;
+
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Certificate {
@@ -868,7 +871,7 @@ impl MasterKeys {
                     info!(
                         "Client {:?} uses public key: {:?}",
                         config.name,
-                        Hex::encode(
+                        DefaultEncoding::encode(
                             bcs::to_bytes(&ibe::public_key_from_master_key(&key))
                                 .expect("valid pk")
                         )
@@ -917,7 +920,7 @@ impl MasterKeys {
 fn byte_array_from_env<const N: usize>(env_name: &str) -> Result<[u8; N]> {
     let hex_string =
         env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    let bytes = Hex::decode(&hex_string)
+    let bytes = DefaultEncoding::decode(&hex_string)
         .map_err(|_| anyhow!("Environment variable {} should be hex encoded", env_name))?;
     bytes.try_into().map_err(|_| {
         anyhow!(
@@ -951,7 +954,7 @@ fn test_master_keys_open_mode() {
     });
 
     let sk = IbeMasterKey::generator();
-    let sk_as_bytes = Hex::encode(bcs::to_bytes(&sk).unwrap());
+    let sk_as_bytes = DefaultEncoding::encode(bcs::to_bytes(&sk).unwrap());
     with_vars([("MASTER_KEY", Some(sk_as_bytes))], || {
         let mk = MasterKeys::load(&options);
         assert_eq!(
@@ -1003,12 +1006,12 @@ fn test_master_keys_permissioned_mode() {
         ],
     };
     let sk = IbeMasterKey::generator();
-    let sk_as_bytes = Hex::encode(bcs::to_bytes(&sk).unwrap());
+    let sk_as_bytes = DefaultEncoding::encode(bcs::to_bytes(&sk).unwrap());
     let seed = [1u8; 32];
     with_vars(
         [
             ("MASTER_KEY", Some(sk_as_bytes.clone())),
-            ("ALICE_KEY", Some(Hex::encode(seed))),
+            ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
         ],
         || {
             let mk = MasterKeys::load(&options).unwrap();
@@ -1021,7 +1024,7 @@ fn test_master_keys_permissioned_mode() {
     with_vars(
         [
             ("MASTER_KEY", None::<&str>),
-            ("ALICE_KEY", Some(&Hex::encode(seed))),
+            ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
         ],
         || {
             assert!(MasterKeys::load(&options).is_err());
