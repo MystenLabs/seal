@@ -4,7 +4,7 @@
 //! Implementation of a the Boneh-Franklin Identity-based encryption scheme from https://eprint.iacr.org/2001/090 over the BLS12-381 curve construction.
 //! It enables a symmetric key to be derived from the identity + the public key of a user and used to encrypt a fixed size message of length [KEY_LENGTH].
 
-use crate::utils::xor;
+use crate::utils::{generate_random_bytes, xor};
 use crate::{DST_ID, DST_KDF, DST_POP, KEY_SIZE};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
@@ -49,9 +49,7 @@ pub fn into_key_pair(master_key: MasterKey) -> (MasterKey, PublicKey) {
 
 /// Generate a fresh seed of length [SEED_LENGTH] using the provided random number generator.
 pub fn generate_seed<R: AllowedRng>(rng: &mut R) -> [u8; SEED_LENGTH] {
-    let mut seed = [0u8; SEED_LENGTH];
-    rng.fill_bytes(&mut seed);
-    seed
+    generate_random_bytes(rng)
 }
 
 /// Derive a key pair from a seed (master key) and a derivation index.
