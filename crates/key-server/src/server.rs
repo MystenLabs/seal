@@ -922,7 +922,7 @@ impl MasterKeys {
 // test master keys
 
 /// Read a byte array from an environment variable and decode it using the specified encoding.
-pub(crate) fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> Result<[u8; N]> {
+fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> Result<[u8; N]> {
     let hex_string =
         env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
     let bytes = E::decode(&hex_string)
@@ -935,14 +935,14 @@ pub(crate) fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> 
 }
 
 /// Read a master key from an environment variable.
-pub(crate) fn decode_master_key<E: Encoding>(env_name: &str) -> Result<IbeMasterKey> {
+fn decode_master_key<E: Encoding>(env_name: &str) -> Result<IbeMasterKey> {
     let bytes = decode_byte_array::<E, MASTER_KEY_LENGTH>(env_name)?;
     IbeMasterKey::from_byte_array(&bytes)
         .map_err(|_| anyhow!("Invalid master key for environment variable {env_name}"))
 }
 
 /// Read an ObjectID from an environment variable.
-pub(crate) fn decode_object_id(env_name: &str) -> Result<ObjectID> {
+fn decode_object_id(env_name: &str) -> Result<ObjectID> {
     let hex_string =
         env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
     ObjectID::from_hex_literal(&hex_string)
