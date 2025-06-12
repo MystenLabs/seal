@@ -1,9 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL, MVR_CACHE_TTL};
+use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
-use crate::Timestamp;
+use crate::types::Network;
+use crate::{mvr_forward_resolution, Timestamp};
 use once_cell::sync::Lazy;
 use std::time::Duration;
 use sui_sdk::error::SuiRpcResult;
@@ -11,11 +12,10 @@ use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
 use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
-use tracing::warn;
+use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
-static MVR_CACHE: Lazy<Cache<String, ObjectID>> =
-    Lazy::new(|| Cache::new(MVR_CACHE_TTL, CACHE_SIZE));
+static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
 
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
@@ -25,6 +25,41 @@ pub(crate) fn add_package(pkg_id: ObjectID) {
 #[cfg(test)]
 pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
     CACHE.insert(new_pkg_id, pkg_id);
+}
+
+pub(crate) async fn check_mvr_package_id(
+    mvr_name: &Option<String>,
+    sui_client: &SuiClient,
+    network: &Network,
+    first_pkg_id: ObjectID,
+    req_id: Option<&str>,
+) -> Result<(), InternalError> {
+    // If an MVR name is provided, get it from cache or resolve it to the package
+    // id. Then check that it points to the first package ID.
+    if let Some(mvr_name) = &mvr_name {
+        let mvr_package_id = match get_mvr_cache(mvr_name) {
+            None => {
+                let mvr_package_id = mvr_forward_resolution(sui_client, mvr_name, network).await?;
+                insert_mvr_cache(mvr_name, mvr_package_id);
+                mvr_package_id
+            }
+            Some(mvr_package_id) => {
+                debug!(
+                    "MVR name {} is already in cache (req_id: {:?})",
+                    mvr_name, req_id
+                );
+                mvr_package_id
+            }
+        };
+        if mvr_package_id != first_pkg_id {
+            debug!(
+                "MVR name {} points to package ID {:?} while the first package ID is {:?} (req_id: {:?})",
+                mvr_name, mvr_package_id, first_pkg_id, req_id
+            );
+            return Err(InternalError::InvalidMVRName);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn fetch_first_pkg_id(

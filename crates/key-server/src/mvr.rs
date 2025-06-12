@@ -183,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forward_resolution() {
-        assert!(crate::Server::check_mvr_package_id(
+        assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
             &SuiClientBuilder::default().build_mainnet().await.unwrap(),
             &Network::Mainnet,
