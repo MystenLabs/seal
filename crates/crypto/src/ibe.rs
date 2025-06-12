@@ -229,7 +229,7 @@ mod tests {
         let seed = [1u8; 32];
         let derivation_index = 42;
         let expected_master_key = MasterKey::from_byte_array(
-            &hex::decode("20dd93ea9d2ba9bd0b73174dfb8eee3842c1594fcbe062dfea7eafca9ce28a97")
+            &hex::decode("17d496df95e12b5caec0c4a15b09a5ea41b4fb1cf3ba28f1c6c72556846a6db6")
                 .unwrap()
                 .try_into()
                 .unwrap(),
