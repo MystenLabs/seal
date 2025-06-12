@@ -21,11 +21,11 @@ use axum::{extract::State, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
-use crypto::ibe::{create_proof_of_possession, MASTER_KEY_LENGTH};
+use crypto::ibe::{create_proof_of_possession, MASTER_KEY_LENGTH, SEED_LENGTH};
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
@@ -45,7 +45,6 @@ use std::collections::HashMap;
 use std::env;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use sui_sdk::error::{Error, SuiRpcResult};
@@ -748,17 +747,13 @@ async fn main() -> Result<()> {
         Err(_) => {
             info!("Using legacy environment variables for configuration");
             // TODO: remove this when the legacy key server is no longer needed
-            let legacy_object_id = env::var("LEGACY_KEY_SERVER_OBJECT_ID")
-                .expect("LEGACY_KEY_SERVER_OBJECT_ID must be set");
-            let object_id =
-                env::var("KEY_SERVER_OBJECT_ID").expect("KEY_SERVER_OBJECT_ID must be set");
             let network = env::var("NETWORK")
                 .map(|n| Network::from_str(&n))
                 .unwrap_or(Network::Testnet);
             KeyServerOptions::new_open_server_with_default_values(
                 network,
-                ObjectID::from_str(&legacy_object_id).expect("Invalid legacy object id"),
-                ObjectID::from_str(&object_id).expect("Invalid object id"),
+                decode_object_id("LEGACY_KEY_SERVER_OBJECT_ID")?,
+                decode_object_id("KEY_SERVER_OBJECT_ID")?,
             )
         }
     };
@@ -853,7 +848,13 @@ impl MasterKeys {
         info!("Loading keys from env variables");
         match &options.server_mode {
             ServerMode::Open { .. } => {
-                master_key_from_env("MASTER_KEY").map(|master_key| MasterKeys::Open { master_key })
+                let master_key = match decode_master_key::<DefaultEncoding>("MASTER_KEY") {
+                    Ok(master_key) => master_key,
+
+                    // TODO: Fallback to Base64 encoding for backward compatibility.
+                    Err(_) => decode_master_key::<Base64>("MASTER_KEY")?,
+                };
+                Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
@@ -861,10 +862,12 @@ impl MasterKeys {
                 for config in client_configs {
                     let key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => ibe::derive_master_key(
-                            &byte_array_from_env::<MASTER_KEY_LENGTH>("MASTER_KEY")?,
+                            &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_KEY")?,
                             *derivation_index,
                         ),
-                        ClientKeyType::Imported { env_var } => master_key_from_env(env_var)?,
+                        ClientKeyType::Imported { env_var } => {
+                            decode_master_key::<DefaultEncoding>(env_var)?
+                        }
                         ClientKeyType::Exported { .. } => continue,
                     };
 
@@ -916,11 +919,13 @@ impl MasterKeys {
     }
 }
 
-/// Read a byte array of length N from an environment variable.
-fn byte_array_from_env<const N: usize>(env_name: &str) -> Result<[u8; N]> {
+// test master keys
+
+/// Read a byte array from an environment variable and decode it using the specified encoding.
+pub(crate) fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> Result<[u8; N]> {
     let hex_string =
         env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    let bytes = DefaultEncoding::decode(&hex_string)
+    let bytes = E::decode(&hex_string)
         .map_err(|_| anyhow!("Environment variable {} should be hex encoded", env_name))?;
     bytes.try_into().map_err(|_| {
         anyhow!(
@@ -930,13 +935,19 @@ fn byte_array_from_env<const N: usize>(env_name: &str) -> Result<[u8; N]> {
 }
 
 /// Read a master key from an environment variable.
-fn master_key_from_env(env_name: &str) -> Result<IbeMasterKey> {
-    let bytes = byte_array_from_env::<MASTER_KEY_LENGTH>(env_name)?;
+pub(crate) fn decode_master_key<E: Encoding>(env_name: &str) -> Result<IbeMasterKey> {
+    let bytes = decode_byte_array::<E, MASTER_KEY_LENGTH>(env_name)?;
     IbeMasterKey::from_byte_array(&bytes)
         .map_err(|_| anyhow!("Invalid master key for environment variable {env_name}"))
 }
 
-// test master keys
+/// Read an ObjectID from an environment variable.
+pub(crate) fn decode_object_id(env_name: &str) -> Result<ObjectID> {
+    let hex_string =
+        env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
+    ObjectID::from_hex_literal(&hex_string)
+        .map_err(|_| anyhow!("Invalid ObjectID for environment variable {env_name}"))
+}
 
 #[test]
 fn test_master_keys_open_mode() {
