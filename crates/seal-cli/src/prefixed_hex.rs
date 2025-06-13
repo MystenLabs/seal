@@ -4,9 +4,11 @@
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::FastCryptoResult;
 
-pub(crate) struct HexPrefix;
+/// HexPrefix is a wrapper around the Hex encoding that adds a '0x' prefix to the encoded string.'
+/// Decoding accepts strings with or without the '0x' prefix.
+pub(crate) struct PrefixedHex;
 
-impl Encoding for HexPrefix {
+impl Encoding for PrefixedHex {
     fn decode(s: &str) -> FastCryptoResult<Vec<u8>> {
         Hex::decode(s)
     }

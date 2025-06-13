@@ -1,9 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-mod hex_prefix;
+mod prefixed_hex;
 
-use crate::hex_prefix::HexPrefix;
+use crate::prefixed_hex::PrefixedHex;
 use clap::{Parser, Subcommand};
 use crypto::dem::{Aes256Gcm, Hmac256Ctr};
 use crypto::ibe::{generate_seed, SEED_LENGTH};
@@ -24,7 +24,7 @@ use std::str::FromStr;
 const KEY_LENGTH: usize = 32;
 
 /// Default encoding for serializing and deserializing values.
-type DefaultEncoding = HexPrefix;
+type DefaultEncoding = PrefixedHex;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
