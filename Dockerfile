@@ -8,6 +8,9 @@ WORKDIR work
 COPY ./crates ./crates
 COPY ./Cargo.toml ./
 
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
+
 RUN cargo build --bin key-server --profile $PROFILE --config net.git-fetch-with-cli=true
 FROM debian:bullseye-slim AS runtime
 ARG master_key
