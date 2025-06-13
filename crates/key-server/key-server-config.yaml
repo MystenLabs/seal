@@ -6,34 +6,46 @@
 # network: Devnet
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'
-# Use Custom for production deployments.
+#
+# Use Custom for production deployments, and set the `node_url` 
+# with the URL of your Full Node endpoint.
+#
+# Example:
 network: Testnet
 
 
-# Server mode. The server can either work in open/permissionless mode that supports all packages, or
-# in permissioned mode that only supports whitelisted packages .
+# Server mode. The server can either work in Open/permissionless mode that 
+# supports all packages, or in Permissioned mode that only supports
+# whitelisted packages .
 #
-# For the open mode, set the key server object ID to be used, e.g.,:
+# For the Open mode, set the registered key server object ID to be used, e.g.,:
 # server_mode: !Open
 #   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#
+# Example:
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+
 #
-# For the permissioned mode, set the allowed clients and their configurations.
-# A client config contains the name (for debugging purposes only), the associated key server object id,
-# the allowed packages with seal policies, and the type of the client master key.
-# Allowed package ids must be unique and point to the first versions of the packages.
-# More packages can be added to the list later.
+# For the Permissioned mode, set the allowed clients and their configurations.
+# A client config contains:
+# - Client name - for debugging purposes only, can always be modified.
+# - The associated key server object id. Should never change.
+# - The allowed packages with Seal policies. Must be unique and point to the
+#   first versions of the packages. Packages can be added to the list later.
+# - The type of the client master key. See below.
 #
-# In normal setting, use Derived for deriving the client master key from the server master key. Set
-# derivation_index to be a unique derivation index used for this client. This value must *never* change,
-# else a different key might be used for that client.
+# In normal setting, use Derived key type for deriving the client master key
+# from the server master key. Set derivation_index to be a unique derivation
+# index used for this client. This value must *never* change, else a different
+# key might be used for that client.
 #
-# If a client master key is exported, change the type to Exported and track the derivation index in
-# deprecated_derivation_index (to make sure it is not used in the future).
+# If a client master key is exported, change the type to Exported and track
+# the derivation index in deprecated_derivation_index (to make sure it is
+# not used in the future).
 #
-# In case the client master key is imported, use Imported and set the env_var to the environment variable
-# that contains the BLS key in hex format.
+# In case the client master key is imported, use Imported and set the env_var
+# to an environment variable that contains the BLS key in hex format.
 #
 # Example of a permissioned server mode configuration:
 # server_mode: !Permissioned
@@ -59,9 +71,8 @@ server_mode: !Open
 #         - "0x3333333333333333333333333333333333333333333333333333333333333333"
 
 
-
 #### Optional advanced configurations ####
-
+#
 # The port that the prometheus agent can use to poll for the metrics.
 # metrics_host_port: 9184
 #

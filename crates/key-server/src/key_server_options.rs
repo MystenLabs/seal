@@ -122,19 +122,16 @@ impl KeyServerOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
-        info!("Validating KeyServerOptions: {:?}", self);
+        info!(
+            "Validating KeyServerOptions:\n{}",
+            serde_yaml::to_string(self).expect("should serialize")
+        );
 
         if let ServerMode::Permissioned { client_configs } = &self.server_mode {
             let mut names = std::collections::HashSet::new();
             let mut derivation_indices = std::collections::HashSet::new();
             let mut env_vars = std::collections::HashSet::new();
             let mut obj_ids = std::collections::HashSet::new();
-
-            if client_configs.is_empty() {
-                return Err(anyhow!(
-                    "Client configurations cannot be empty for a permissioned key server"
-                ));
-            }
 
             for config in client_configs {
                 if config.package_ids.is_empty() {
@@ -182,6 +179,15 @@ impl KeyServerOptions {
                         return Err(anyhow!("Duplicate object ID: {}", pkg_id));
                     }
                 }
+            }
+
+            // Check that derivation_indices has all the numbers from 0
+            if (0..derivation_indices.len())
+                .any(|derivation_index| !derivation_indices.contains(&(derivation_index as u64)))
+            {
+                return Err(anyhow!(
+                    "Derivation indexes must be incremental, starting from 0"
+                ));
             }
         }
         Ok(())
@@ -367,21 +373,13 @@ session_key_ttl_max: '60s'
 
 #[test]
 fn test_validate() {
-    let empty_client = r#"
-network: Mainnet
-server_mode: !Permissioned
-  client_configs:
-"#;
-    let empty_client_expected_error =
-        "Client configurations cannot be empty for a permissioned key server";
-
     let empty_pkg = r#"
 network: Mainnet
 server_mode: !Permissioned
   client_configs:
     - name: "alice"
       client_master_key: !Derived
-        derivation_index: 1
+        derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
       package_ids:
 "#;
@@ -393,7 +391,7 @@ server_mode: !Permissioned
   client_configs:
     - name: "alice"
       client_master_key: !Derived
-        derivation_index: 1
+        derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
       package_ids:
       - "0x1111111111111111111111111111111111111111111111111111111111111111"
@@ -414,7 +412,7 @@ server_mode: !Permissioned
   client_configs:
     - name: "alice"
       client_master_key: !Derived
-        derivation_index: 1
+        derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
       package_ids:
       - "0x1111111111111111111111111111111111111111111111111111111111111111"
@@ -456,28 +454,52 @@ server_mode: !Permissioned
   client_configs:
     - name: "alice"
       client_master_key: !Derived
-        derivation_index: 1
+        derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
       package_ids:
       - "0x1111111111111111111111111111111111111111111111111111111111111111"
     - name: "bob"
       client_master_key: !Derived
-        derivation_index: 1
+        derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000002"
       package_ids:
         - "0x2222222222222222222222222222222222222222222222222222222222222222"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
 "#;
-    let dup_derivation_index_expected_error = "Duplicate derivation index: 1";
+    let dup_derivation_index_expected_error = "Duplicate derivation index: 0";
+
+    let non_incrementing_derivation_index = r#"
+network: Mainnet
+server_mode: !Permissioned
+  client_configs:
+    - name: "alice"
+      client_master_key: !Derived
+        derivation_index: 0
+      key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
+      package_ids:
+      - "0x1111111111111111111111111111111111111111111111111111111111111111"
+    - name: "bob"
+      client_master_key: !Derived
+        derivation_index: 3
+      key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000002"
+      package_ids:
+        - "0x2222222222222222222222222222222222222222222222222222222222222222"
+        - "0x2222222222222222222222222222222222222222222222222222222222222223"
+"#;
+    let non_incrementing_index_expected_error =
+        "Derivation indexes must be incremental, starting from 0";
 
     // load each of those yaml and call validate
     let test_cases = vec![
-        (empty_client, empty_client_expected_error),
         (empty_pkg, empty_pkg_expected_error),
         (dup_ks_oid, dup_ks_oid_expected_error),
         (dup_pkg_id, dup_pkg_id_expected_error),
         (dup_env_var, dup_env_var_expected_error),
         (dup_derivation_index, dup_derivation_index_expected_error),
+        (
+            non_incrementing_derivation_index,
+            non_incrementing_index_expected_error,
+        ),
     ];
     for (yaml, expected_error) in test_cases {
         let options: KeyServerOptions =

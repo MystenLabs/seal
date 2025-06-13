@@ -418,7 +418,7 @@ impl Server {
                             subscriber(new_value);
                         }
                     }
-                    Err(e) => warn!("Failed to get {}: {:?}", value_name, e),
+                    Err(e) => debug!("Failed to get {}: {:?}", value_name, e),
                 }
                 interval.tick().await;
             }
@@ -861,18 +861,35 @@ impl MasterKeys {
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
+                let mut next_free_derivation_index: u64 = 0;
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
                 for config in client_configs {
                     let key = match &config.client_master_key {
-                        ClientKeyType::Derived { derivation_index } => ibe::derive_master_key(
-                            &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_KEY")?,
-                            *derivation_index,
-                        ),
+                        ClientKeyType::Derived { derivation_index } => {
+                            next_free_derivation_index = next_free_derivation_index.max(
+                                derivation_index
+                                    .checked_add(1)
+                                    .expect("too many derivation indexes"),
+                            );
+                            ibe::derive_master_key(
+                                &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?,
+                                *derivation_index,
+                            )
+                        }
                         ClientKeyType::Imported { env_var } => {
                             decode_master_key::<DefaultEncoding>(env_var)?
                         }
-                        ClientKeyType::Exported { .. } => continue,
+                        ClientKeyType::Exported {
+                            deprecated_derivation_index,
+                        } => {
+                            next_free_derivation_index = next_free_derivation_index.max(
+                                deprecated_derivation_index
+                                    .checked_add(1)
+                                    .expect("too many derivation indexes"),
+                            );
+                            continue;
+                        }
                     };
 
                     info!(
@@ -889,6 +906,27 @@ impl MasterKeys {
                     }
                     key_server_oid_to_key.insert(config.key_server_object_id, key);
                 }
+
+                // Log the next 10 unassigned public keys
+                for i in 0..10 {
+                    let key = ibe::derive_master_key(
+                        &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?,
+                        next_free_derivation_index + i,
+                    );
+                    info!(
+                        "Unassigned derived public key with index {}: {:?}",
+                        next_free_derivation_index + i,
+                        DefaultEncoding::encode(
+                            bcs::to_bytes(&ibe::public_key_from_master_key(&key))
+                                .expect("valid pk")
+                        )
+                    );
+                }
+                // No clients, can abort.
+                if pkg_id_to_key.is_empty() {
+                    return Err(anyhow!("No clients found in the configuration"));
+                }
+
                 Ok(MasterKeys::Permissioned {
                     pkg_id_to_key,
                     key_server_oid_to_key,
@@ -1025,7 +1063,7 @@ fn test_master_keys_permissioned_mode() {
     let seed = [1u8; 32];
     with_vars(
         [
-            ("MASTER_KEY", Some(sk_as_bytes.clone())),
+            ("MASTER_SEED", Some(sk_as_bytes.clone())),
             ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
         ],
         || {
@@ -1038,7 +1076,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_KEY", None::<&str>),
+            ("MASTER_SEED", None::<&str>),
             ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
         ],
         || {
@@ -1047,7 +1085,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_KEY", Some(&sk_as_bytes)),
+            ("MASTER_SEED", Some(&sk_as_bytes)),
             ("ALICE_KEY", None::<&String>),
         ],
         || {
