@@ -1,0 +1,32 @@
+[package]
+name = "seal-proxy"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22.1"
+clap.workspace = true
+tokio = { version = "1.44", features = ["full"] }
+tokio-util = "0.7.13"
+tower = "0.4"
+tower-http = { version = "0.6", features = ["trace", "timeout"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+anyhow.workspace = true
+axum-extra = { version = "0.9", features = ["typed-header"] }
+headers = "0.4"
+reqwest = { version = "0.11", features = ["json"] }
+prometheus = "0.13.4"
+once_cell = "1.21.3"
+serde_with = { workspace = true, features = ["base64"] }
+serde_yaml = "0.9"
+snap = "1.1.0"
+uuid = { version = "1.17.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+const-str = "0.6.2"
+git-version = "0.3.9"
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
