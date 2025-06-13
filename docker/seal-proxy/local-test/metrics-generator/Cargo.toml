@@ -1,0 +1,16 @@
+[package]
+name = "metrics-generator"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+seal-proxy = { path = "../../../../crates/seal-proxy" }
+tokio = { version = "1.44", features = ["full"] }
+tracing = "0.1"
+anyhow = "1.0"
+chrono = "0.4"
+rand = "0.8"
+reqwest = { version = "0.11", features = ["json"] }
