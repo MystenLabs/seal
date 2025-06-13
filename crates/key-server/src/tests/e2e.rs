@@ -4,6 +4,8 @@
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
+use crate::MasterKeys;
+use crypto::ibe::public_key_from_master_key;
 use crypto::{seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use tracing_test::traced_test;
 
@@ -34,7 +36,7 @@ async fn test_e2e() {
 
     // Send requests to the key servers and decrypt the responses
     let usk0 = get_key(
-        &tc.servers[0].server,
+        &tc.servers[0],
         &examples_package_id,
         ptb.clone(),
         &tc.users[0].keypair,
@@ -42,7 +44,7 @@ async fn test_e2e() {
     .await
     .unwrap();
     let usk1 = get_key(
-        &tc.servers[1].server,
+        &tc.servers[1],
         &examples_package_id,
         ptb,
         &tc.users[0].keypair,
@@ -54,13 +56,20 @@ async fn test_e2e() {
     let (package_id, _) = tc.publish("seal").await;
 
     let mut services = vec![];
-    for i in 0..3 {
+    for i in 0..tc.servers.len() {
+        let master_key = match tc.servers[i].master_keys {
+            MasterKeys::Open { master_key } => master_key,
+            MasterKeys::Permissioned { .. } => {
+                panic!("All servers should be open for this test")
+            }
+        };
+        let pk = public_key_from_master_key(&master_key);
         services.push(
             tc.register_key_server(
                 package_id,
                 &format!("Test server {}", i),
-                &format!("https:://testserver{}.com", i),
-                tc.servers[i].public_key,
+                &format!("https://testserver{}.com", i),
+                pk,
             )
             .await,
         );
@@ -68,10 +77,6 @@ async fn test_e2e() {
 
     // Read the public keys from the service objects
     let pks = tc.get_public_keys(&services).await;
-    assert_eq!(
-        pks,
-        tc.servers.iter().map(|s| s.public_key).collect::<Vec<_>>()
-    );
     let pks = IBEPublicKeys::BonehFranklinBLS12381(pks);
 
     // Encrypt a message

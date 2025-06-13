@@ -35,13 +35,8 @@ mod server;
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
     cluster: TestCluster,
-    pub(crate) servers: Vec<SealKeyServer>,
+    pub(crate) servers: Vec<Server>,
     pub(crate) users: Vec<SealUser>,
-}
-
-pub(crate) struct SealKeyServer {
-    server: Server,
-    public_key: ibe::PublicKey,
 }
 
 pub(crate) struct SealUser {
@@ -77,17 +72,11 @@ impl SealTestCluster {
 
         let servers = (0..servers)
             .map(|_| ibe::generate_key_pair(&mut rng))
-            .map(|(master_key, public_key)| {
-                let master_keys = MasterKeys::Open { master_key };
-                SealKeyServer {
-                    server: Server {
-                        sui_client: cluster.sui_client().clone(),
-                        master_keys,
-                        key_server_oid_to_pop: HashMap::new(),
-                        options: options.clone(),
-                    },
-                    public_key,
-                }
+            .map(|(master_key, _)| Server {
+                sui_client: cluster.sui_client().clone(),
+                master_keys: MasterKeys::Open { master_key },
+                key_server_oid_to_pop: HashMap::new(),
+                options: options.clone(),
             })
             .collect();
 
@@ -110,7 +99,7 @@ impl SealTestCluster {
 
     /// Get a reference to the first server. Panics if there are no servers.
     pub fn server(&self) -> &Server {
-        &self.servers[0].server
+        &self.servers[0]
     }
 
     /// Publish the Move module in /move/<module> and return the package id and upgrade cap.
