@@ -1,0 +1,21 @@
+// Receives metrics over HTTP
+prometheus.receive_http "api" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port = 9000
+  }
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+
+// Send metrics to a locally running Mimir.
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+    remote_timeout = "30s"
+  }
+  queue_config {
+    max_samples_per_send = 1000
+    max_shards = 10
+    capacity = 2500
+  }
+}
