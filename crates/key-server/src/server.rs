@@ -22,10 +22,11 @@ use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
 use crypto::ibe::{create_proof_of_possession, MASTER_KEY_LENGTH, SEED_LENGTH};
+use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Base64, Encoding, Hex};
+use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
@@ -80,7 +81,7 @@ const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = utils::git_version!();
 
 /// Default encoding used for master and public keys for the key server.
-type DefaultEncoding = Hex;
+type DefaultEncoding = PrefixedHex;
 
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]

@@ -21,6 +21,7 @@ pub mod elgamal;
 pub mod gf256;
 pub mod ibe;
 mod polynomial;
+pub mod prefixed_hex;
 pub mod tss;
 mod utils;
 

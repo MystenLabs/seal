@@ -1,12 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-mod prefixed_hex;
-
-use crate::prefixed_hex::PrefixedHex;
 use clap::{Parser, Subcommand};
 use crypto::dem::{Aes256Gcm, Hmac256Ctr};
 use crypto::ibe::{generate_seed, SEED_LENGTH};
+use crypto::prefixed_hex::PrefixedHex;
 use crypto::EncryptionInput::Plain;
 use crypto::{
     create_full_id, ibe, seal_decrypt, seal_encrypt, Ciphertext, EncryptedObject, EncryptionInput,
