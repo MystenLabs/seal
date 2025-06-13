@@ -1,6 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+mod hex_prefix;
+
+use crate::hex_prefix::HexPrefix;
 use clap::{Parser, Subcommand};
 use crypto::dem::{Aes256Gcm, Hmac256Ctr};
 use crypto::ibe::{generate_seed, SEED_LENGTH};
@@ -10,7 +13,6 @@ use crypto::{
     IBEEncryptions, IBEPublicKeys, IBEUserSecretKeys, ObjectID,
 };
 use fastcrypto::encoding::Encoding;
-use fastcrypto::encoding::Hex;
 use fastcrypto::error::{FastCryptoError, FastCryptoResult};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar};
 use rand::thread_rng;
@@ -22,7 +24,7 @@ use std::str::FromStr;
 const KEY_LENGTH: usize = 32;
 
 /// Default encoding for serializing and deserializing values.
-type DefaultEncoding = Hex;
+type DefaultEncoding = HexPrefix;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
