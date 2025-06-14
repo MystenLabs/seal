@@ -1,9 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::errors::InternalError;
 use crate::from_mins;
 use crate::types::Network;
+use crate::{cache::CacheOptions, errors::InternalError};
 use anyhow::{anyhow, Result};
 use duration_str::deserialize_duration;
 use semver::VersionReq;
@@ -98,6 +98,10 @@ pub struct KeyServerOptions {
         deserialize_with = "deserialize_duration"
     )]
     pub session_key_ttl_max: Duration,
+
+    /// Configuration for the various caches used for optimization.
+    #[serde(default)]
+    pub cache: CacheOptions,
 }
 
 impl KeyServerOptions {
@@ -118,6 +122,7 @@ impl KeyServerOptions {
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
+            cache: Default::default(),
         }
     }
 
