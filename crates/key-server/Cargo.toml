@@ -24,22 +24,22 @@ shared_crypto.workspace = true
 move-core-types.workspace = true
 mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
 
-tokio = { version = "1.44.2", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
 reqwest = { version = "0.12.15", features = ["json"] }
-tower-http = { version = "0.6.0", features = ["cors"] }
+tower-http = { version = "0.6.6", features = ["cors"] }
 crypto = { path = "../crypto" }
 tap = "1.0.1"
 prometheus = "0.13.3"
 anyhow = "1.0.79"
-lru = "0.13.0"
-parking_lot = "0.12.3"
+lru = "0.14.0"
+parking_lot = "0.12.4"
 once_cell = "1.20.2"
 chrono = "0.4.39"
 semver = { version = "1.0.26", features = ["serde"] }
 jsonrpsee = "0.24.0"
 serde_yaml = "0.9"
-serde_with = { version = "3.12.0", features = ["macros"] }
+serde_with = { version = "3.13.0", features = ["macros"] }
 duration-str = "0.17.0"
 git-version = "0.3.9"
 
