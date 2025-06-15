@@ -1,10 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::{add_package, add_upgraded_package};
 use crate::key_server_options::{KeyServerOptions, ServerMode};
 use crate::types::Network;
-use crate::{from_mins, MasterKeys, Server};
+use crate::{from_mins, MasterKeys, PackageManager, Server};
 use crypto::ibe;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::serde_helpers::ToFromByteArray;
@@ -15,10 +14,12 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
+use sui_sdk::SuiClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::move_package::UpgradePolicy;
@@ -35,6 +36,8 @@ mod server;
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
     cluster: TestCluster,
+    sui_client: Arc<SuiClient>,
+    package_manager: PackageManager,
     pub(crate) servers: Vec<SealKeyServer>,
     pub(crate) users: Vec<SealUser>,
 }
@@ -73,19 +76,21 @@ impl SealTestCluster {
             sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
             allowed_staleness: Duration::from_secs(120),
             session_key_ttl_max: from_mins(30),
+            cache: Default::default(),
         };
+        let sui_client = Arc::new(cluster.sui_client().clone());
 
         let servers = (0..servers)
             .map(|_| ibe::generate_key_pair(&mut rng))
             .map(|(master_key, public_key)| {
                 let master_keys = MasterKeys::Open { master_key };
                 SealKeyServer {
-                    server: Server {
-                        sui_client: cluster.sui_client().clone(),
+                    server: Server::new_inner(
+                        sui_client.clone(),
                         master_keys,
-                        key_server_oid_to_pop: HashMap::new(),
-                        options: options.clone(),
-                    },
+                        HashMap::new(),
+                        options.clone(),
+                    ),
                     public_key,
                 }
             })
@@ -96,8 +101,13 @@ impl SealTestCluster {
             .map(|(address, keypair)| SealUser { address, keypair })
             .collect();
 
+        let package_manager =
+            PackageManager::new(sui_client.clone(), options.cache.max_entries_package);
+
         Self {
             cluster,
+            sui_client,
+            package_manager,
             servers,
             users,
         }
@@ -156,7 +166,8 @@ impl SealTestCluster {
             })
             .unwrap();
 
-        add_package(package_id);
+        // Add package id to internal registry
+        self.package_manager.add_package(package_id);
 
         (package_id, upgrade_cap)
     }
@@ -201,7 +212,8 @@ impl SealTestCluster {
             .unwrap();
 
         // Add new package id to internal registry
-        add_upgraded_package(package_id, new_package_id);
+        self.package_manager
+            .add_upgraded_package(package_id, new_package_id);
 
         new_package_id
     }

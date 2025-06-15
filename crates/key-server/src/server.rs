@@ -4,7 +4,8 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::{
-    current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since,
+    current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since, MvrManager,
+    PackageManager,
 };
 use crate::key_server_options::{ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
@@ -125,12 +126,24 @@ struct FetchKeyResponse {
     decryption_keys: Vec<DecryptionKey>,
 }
 
-#[derive(Clone)]
 struct Server {
-    sui_client: SuiClient,
+    sui_client: Arc<SuiClient>,
     master_keys: MasterKeys,
     key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
     options: KeyServerOptions,
+    package_manager: PackageManager,
+    mvr_manager: MvrManager,
+}
+
+impl Clone for Server {
+    fn clone(&self) -> Self {
+        Self::new_inner(
+            self.sui_client.clone(),
+            self.master_keys.clone(),
+            self.key_server_oid_to_pop.clone(),
+            self.options.clone(),
+        )
+    }
 }
 
 impl Server {
@@ -157,11 +170,31 @@ impl Server {
             })
             .collect();
 
-        Server {
+        let sui_client = Arc::new(sui_client);
+        Self::new_inner(sui_client, master_keys, key_server_oid_to_pop, options)
+    }
+
+    fn new_inner(
+        sui_client: Arc<SuiClient>,
+        master_keys: MasterKeys,
+        key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
+        options: KeyServerOptions,
+    ) -> Self {
+        let package_manager =
+            PackageManager::new(sui_client.clone(), options.cache.max_entries_package);
+        let mvr_manager = MvrManager::new(
+            sui_client.clone(),
+            options.network.clone(),
+            options.cache.max_entries_mvr,
+        );
+
+        Self {
             sui_client,
             master_keys,
             key_server_oid_to_pop,
             options,
+            package_manager,
+            mvr_manager,
         }
     }
 
@@ -199,11 +232,13 @@ impl Server {
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
         );
+        // TODO: Change the function signature in the Sui repo to accept an immutable reference for
+        // the client.
         verify_personal_message_signature(
             cert.signature.clone(),
             msg.as_bytes(),
             cert.user,
-            Some(self.sui_client.clone()),
+            Some(self.sui_client.as_ref().clone()),
         )
         .await
         .tap_err(|e| {
@@ -304,7 +339,9 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_client).await
+                self.package_manager
+                    .fetch_first_pkg_id(&valid_ptb.pkg_id())
+                    .await
             })
             .await?;
 
@@ -312,14 +349,9 @@ impl Server {
         self.master_keys.has_key_for_package(&first_pkg_id)?;
 
         // Check if the package id that MVR name points matches the first package ID, if provided.
-        externals::check_mvr_package_id(
-            &mvr_name,
-            &self.sui_client,
-            &self.options.network,
-            first_pkg_id,
-            req_id,
-        )
-        .await?;
+        self.mvr_manager
+            .check_mvr_package_id(&mvr_name, first_pkg_id, req_id)
+            .await?;
 
         // Check all conditions
         self.check_signature(
@@ -384,7 +416,7 @@ impl Server {
         success_callback: Option<I>,
     ) -> (Receiver<u64>, JoinHandle<()>)
     where
-        F: Fn(SuiClient) -> Fut + Send + 'static,
+        F: Fn(Arc<SuiClient>) -> Fut + Send + 'static,
         Fut: Future<Output = SuiRpcResult<u64>> + Send,
         G: Fn(u64) + Send + 'static,
         H: Fn(Duration) + Send + 'static,

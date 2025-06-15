@@ -1,89 +1,74 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::current_epoch_time;
 use lru::LruCache;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::num::NonZero;
 
-pub(crate) const CACHE_SIZE: usize = 1000;
-pub(crate) const CACHE_TTL: u64 = 60 * 60 * 1000; // 1 hour
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct CacheOptions {
+    /// The maximum number of entries in the MVR cache.
+    pub max_entries_mvr: usize,
+    /// The maximum number of entries in the package cache.
+    pub max_entries_package: usize,
+}
 
-// Generic LRU cache with TTL
-
-struct CacheEntry<V> {
-    pub value: V,
-    pub expiry: u64,
+impl Default for CacheOptions {
+    fn default() -> Self {
+        Self {
+            max_entries_mvr: 10_000,
+            max_entries_package: 10_000,
+        }
+    }
 }
 
 pub(crate) struct Cache<K, V> {
-    ttl: u64,
-    cache: Mutex<LruCache<K, CacheEntry<V>>>,
+    inner: Mutex<LruCache<K, V>>,
 }
 
 impl<K: Hash + Eq, V: Copy> Cache<K, V> {
-    /// Create a new cache with a given TTL and size.
-    /// Panics if ttl or size is 0.
-    pub fn new(ttl: u64, size: usize) -> Self {
-        assert!(size > 0 && ttl > 0, "TTL and size must be greater than 0");
+    /// Create a new cache with a given size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if size is 0.
+    pub fn new(size: usize) -> Self {
+        let Some(size) = NonZero::new(size) else {
+            panic!("size must be greater than 0");
+        };
         Self {
-            ttl,
-            cache: Mutex::new(LruCache::new(NonZero::new(size).expect("fixed value"))),
+            inner: Mutex::new(LruCache::new(size)),
         }
     }
 
     pub fn get(&self, key: &K) -> Option<V> {
-        let mut cache = self.cache.lock();
-        match cache.get(key) {
-            Some(entry) => {
-                if entry.expiry < current_epoch_time() {
-                    cache.pop(key);
-                    None
-                } else {
-                    Some(entry.value)
-                }
-            }
-            None => None,
-        }
+        let mut cache = self.inner.lock();
+        cache.get(key).copied()
     }
 
     pub fn insert(&self, key: K, value: V) {
-        let mut cache = self.cache.lock();
-        cache.put(
-            key,
-            CacheEntry {
-                value,
-                expiry: current_epoch_time() + self.ttl,
-            },
-        );
+        let mut cache = self.inner.lock();
+        cache.put(key, value);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread::sleep;
-    use std::time::Duration;
 
     #[test]
     fn test_cache_insert_and_get() {
-        let cache = Cache::new(1000, 10);
+        let cache = Cache::new(1000);
         cache.insert(1, "value1");
         assert_eq!(cache.get(&1), Some("value1"));
     }
 
     #[test]
-    fn test_cache_expiry() {
-        let cache = Cache::new(1000, 10);
-        cache.insert(1, "value1");
-        sleep(Duration::from_millis(1100));
-        assert_eq!(cache.get(&1), None);
-    }
-
-    #[test]
     fn test_cache_overwrite() {
-        let cache = Cache::new(1000, 10);
+        let cache = Cache::new(1000);
         cache.insert(1, "value1");
         cache.insert(1, "value2");
         assert_eq!(cache.get(&1), Some("value2"));
@@ -91,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_cache_lru_eviction() {
-        let cache = Cache::new(1000, 2);
+        let cache = Cache::new(2);
         cache.insert(1, "value1");
         cache.insert(2, "value2");
         cache.insert(3, "value3");
