@@ -13,5 +13,6 @@ hex.workspace = true
 bcs.workspace = true
 itertools.workspace = true
 serde_with.workspace = true
-typenum = "1.16.0"
 sui_types.workspace = true
+
+typenum = "1.18.0"
