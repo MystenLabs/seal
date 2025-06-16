@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{ClientConfig, KeyServerOptions, ServerMode};
-use crate::tests::KeyServerType::{Open, Permissioned};
+use crate::key_server_options::{KeyServerOptions, ServerMode};
+use crate::tests::KeyServerType::Open;
 use crate::types::Network;
 use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe;
