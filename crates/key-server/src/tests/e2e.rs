@@ -10,6 +10,7 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
+use futures::future::join_all;
 use rand::thread_rng;
 use semver::VersionReq;
 use std::collections::HashMap;
@@ -40,31 +41,9 @@ async fn test_e2e() {
     )
     .await;
 
-    // Get keys from two key servers
-    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
-
-    // Send requests to the key servers and decrypt the responses
-    let usk0 = get_key(
-        &tc.servers[0].1,
-        &examples_package_id,
-        ptb.clone(),
-        &tc.users[0].keypair,
-    )
-    .await
-    .unwrap();
-    let usk1 = get_key(
-        &tc.servers[1].1,
-        &examples_package_id,
-        ptb,
-        &tc.users[0].keypair,
-    )
-    .await
-    .unwrap();
-
     // Read the public keys from the service objects
     let services: Vec<ObjectID> = tc.servers.iter().map(|(id, _)| *id).collect();
-    let pks = tc.get_public_keys(&services).await;
-    let pks = IBEPublicKeys::BonehFranklinBLS12381(pks);
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
@@ -82,10 +61,24 @@ async fn test_e2e() {
     .unwrap()
     .0;
 
+    // Get keys from two key servers
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+    let usks = join_all(tc.servers[..2].iter().map(async |(_, server)| {
+        get_key(
+            server,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap()
+    }))
+    .await;
+
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk0, usk1]).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip(usks).collect()),
         Some(&pks),
     )
     .unwrap();
@@ -162,20 +155,6 @@ async fn test_e2e_permissioned() {
         create_whitelist(&mut cluster, package_ids[0]).await;
     add_user_to_whitelist(&mut cluster, package_ids[0], whitelist, cap, address).await;
 
-    let ptb = whitelist_create_ptb(package_ids[0], whitelist, initial_shared_version);
-
-    // Requesting a user secret key on the second client should fail
-    assert!(
-        get_key(&server, &package_ids[1], ptb.clone(), &user_keypair)
-            .await
-            .is_err()
-    );
-
-    // But from the first client it should succeed
-    let usk = get_key(&server, &package_ids[0], ptb.clone(), &user_keypair)
-        .await
-        .unwrap();
-
     // Since the key servers are not registered on-chain, we derive the master key from the key pair
     let derived_master_key = ibe::derive_master_key(&seed, 0);
     let pk = public_key_from_master_key(&derived_master_key);
@@ -199,6 +178,21 @@ async fn test_e2e_permissioned() {
     )
     .unwrap()
     .0;
+
+    // Construct PTB
+    let ptb = whitelist_create_ptb(package_ids[0], whitelist, initial_shared_version);
+
+    // Requesting a user secret key on the second client should fail
+    assert!(
+        get_key(&server, &package_ids[1], ptb.clone(), &user_keypair)
+            .await
+            .is_err()
+    );
+
+    // But from the first client it should succeed
+    let usk = get_key(&server, &package_ids[0], ptb.clone(), &user_keypair)
+        .await
+        .unwrap();
 
     // Decrypt the message
     let decryption = seal_decrypt(

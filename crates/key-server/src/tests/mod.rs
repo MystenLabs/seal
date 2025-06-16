@@ -37,6 +37,7 @@ pub(crate) struct SealTestCluster {
     cluster: TestCluster,
     pub(crate) servers: Vec<(ObjectID, Server)>,
     pub(crate) users: Vec<SealUser>,
+    #[allow(dead_code)]
     pub(crate) registry: (ObjectID, ObjectID),
 }
 
