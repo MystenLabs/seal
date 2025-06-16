@@ -210,15 +210,15 @@ Before starting the key server, you must generate a BLS master key pair. This co
 
 ```
 cargo run --bin seal-cli genkey
-Master key: $MASTER_KEY
-Public key: $MASTER_PUBKEY
+Master key: <MASTER_KEY>
+Public key: <MASTER_PUBKEY>
 ```
 
 To make the key server discoverable by Seal clients, register it on-chain.
 Call the `create_and_transfer_v1` function from the `seal::key_server` module like following:
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args $YOUR_SERVER_NAME_HERE https://YOUR_URL_HERE 0 $MASTER_PUBKEY --gas-budget 10000000
+sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args <YOUR_SERVER_NAME_HERE> https://YOUR_URL_HERE 0 <MASTER_PUBKEY> --gas-budget 10000000
 ```
 
 To start the key server in `Open` mode, run the command `cargo run --bin key-server`,
@@ -231,7 +231,7 @@ In the config file, make sure to:
 - Set the `key_server_object_id` field to the ID of the key server object you registered on-chain.
 
 ```
-CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=$MASTER_KEY cargo run --bin key-server
+CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 ```
 
 Alternatively, run with docker:
@@ -241,7 +241,7 @@ docker build -t seal-key-server . --build-arg GIT_REVISION="$(git describe --alw
 
 docker run -p 2024:2024 -v $(pwd)/crates/key-server/key-server-config.yaml:/config/key-server-config.yaml \
   -e CONFIG_PATH=/config/key-server-config.yaml \
-   -e MASTER_KEY=$MASTER_KEY \
+   -e MASTER_KEY=<MASTER_KEY> \
    seal-key-server
 ```
 <!-- 
@@ -264,7 +264,7 @@ This command outputs the secret master seed which should be stored securely.
 
 ```shell
 cargo run --bin seal-cli gen-seed
-Seed: $MASTER_SEED
+Seed: <MASTER_SEED>
 ```
 
 Next, create a configuration file in .yaml format following the instructions in the [example config](crates/key-server/key-server-config.yaml) 
@@ -283,30 +283,30 @@ Run the server using `cargo run --bin key-server`.
 It should abort after printing a list of unassigned derived public keys (search for logs with the text `Unassigned derived public key`).
 
 ```shell
-MASTER_SEED=$MASTER_SEED CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
+MASTER_SEED=<MASTER_SEED> CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
 ```
 
 Each supported client must have a registered on-chain key server object to enable discovery and policy validation.
 
 ```
-2025-06-15T02:02:56.303459Z  INFO key_server: Unassigned derived public key with index 0: "$PUBKEY_0"
-2025-06-15T02:02:56.303957Z  INFO key_server: Unassigned derived public key with index 1: "$PUBKEY_1"
-2025-06-15T02:02:56.304418Z  INFO key_server: Unassigned derived public key with index 2: "$PUBKEY_2"
+2025-06-15T02:02:56.303459Z  INFO key_server: Unassigned derived public key with index 0: "<PUBKEY_0>"
+2025-06-15T02:02:56.303957Z  INFO key_server: Unassigned derived public key with index 1: "<PUBKEY_1>"
+2025-06-15T02:02:56.304418Z  INFO key_server: Unassigned derived public key with index 2: "<PUBKEY_2>"
 ```
 
 Register the first client:
 
-- Register a new key server on-chain by calling the `create_and_transfer_v1` function from the `seal::key_server` module with the first unassigned derived public key (with derivation index 0) $PUBKEY_0.
+- Register a new key server on-chain by calling the `create_and_transfer_v1` function from the `seal::key_server` module with the first unassigned derived public key (with derivation index 0) <PUBKEY_0>.
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args $YOUR_SERVER_NAME https://your-url-here 0 $PUBKEY_0 --gas-budget 10000000
-# outputs $KEY_SERVER_OBJECT_ID_0
+sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args $YOUR_SERVER_NAME https://your-url-here 0 <PUBKEY_0> --gas-budget 10000000
+# outputs <KEY_SERVER_OBJECT_ID_0>
 ```
 
 
 - Add an entry in config file:
   - Set `client_master_key` to type `Derived` with `derivation_index` as 0. 
-  - Set `$KEY_SERVER_OBJECT_ID_0` from the output above. 
+  - Set <KEY_SERVER_OBJECT_ID_0> from the output above. 
   - Include the list of packages this client will use.
 
 For example: 
@@ -315,7 +315,7 @@ For example:
     - name: "alice"
       client_master_key: !Derived
         derivation_index: 0
-      key_server_object_id: "$KEY_SERVER_OBJECT_ID_0"
+      key_server_object_id: "<KEY_SERVER_OBJECT_ID_0>"
       package_ids:
         - "0x1111111111111111111111111111111111111111111111111111111111111111"
 ```
@@ -323,17 +323,17 @@ For example:
 - Restart the key server to apply the config changes.
 
 ```shell
-MASTER_SEED=$MASTER_SEED CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
+MASTER_SEED=<MASTER_SEED> CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
 ```
 Or with Docker: 
 ```
 docker run -p 2024:2024 \
   -v $(pwd)/crates/key-server/key-server-config.yaml:/config/key-server-config.yaml \
   -e CONFIG_PATH=/config/key-server-config.yaml \
-  -e MASTER_SEED=$MASTER_SEED \
+  -e MASTER_SEED=<MASTER_SEED> \
   seal-key-server
 ```
-To add more clients, repeat the above steps with unassigned public keys, e.g. e.g `$PUBKEY_1, $PUBKEY_2`.
+To add more clients, repeat the above steps with unassigned public keys, e.g. e.g `<PUBKEY_1>, <PUBKEY_2>`.
 
 #### Export / Import Keys
 
@@ -343,9 +343,9 @@ Replace `X` with the `derivation_index` of the key you want to export.
 The tool will output the corresponding master key, which can be imported by another key server if needed.
 
 ```shell
-cargo run --bin seal-cli derive-key --seed $MASTER_SEED --index 0
-Master key: $CLIENT_MASTER_KEY
-Public key: $CLIENT_MASTER_PUBKEY
+cargo run --bin seal-cli derive-key --seed <MASTER_SEED> --index 0
+Master key: <CLIENT_MASTER_KEY>
+Public key: <CLIENT_MASTER_PUBKEY>
 ```
 
 - Disable this key on the current server:
@@ -365,15 +365,15 @@ To import a client BLS master key into a new key server:
 - Register the client public key onchain
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args $SERVER_NAME https://your-url-here 0 $CLIENT_MASTER_PUBKEY --gas-budget 10000000
+sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args <SERVER_NAME> https://your-url-here 0 <CLIENT_MASTER_PUBKEY> --gas-budget 10000000
 
-# outputs $IMPORTED_KEY_SERVER_OBJECT_ID
+# outputs <IMPORTED_KEY_SERVER_OBJECT_ID>
 ```
 
 - In the config file, add a new client entry with:
   - `client_master_key` set to type `Imported`.
   - The name of the environment variable containing the key, this name will be used later. 
-  - The ID of the key server object registered on-chain for this client $IMPORTED_KEY_SERVER_OBJECT_ID
+  - The ID of the key server object registered on-chain for this client <IMPORTED_KEY_SERVER_OBJECT_ID>
   - The list of packages associated with the client.
 
 For example: 
@@ -382,7 +382,7 @@ For example:
      - name: "bob"
        client_master_key: !Imported
          env_var: "BOB_BLS_KEY"
-       key_server_object_id: "$IMPORTED_KEY_SERVER_OBJECT_ID"
+       key_server_object_id: "<IMPORTED_KEY_SERVER_OBJECT_ID>"
        package_ids:
          - "0x2222222222222222222222222222222222222222222222222222222222222222"
 ```
@@ -390,7 +390,7 @@ For example:
 - Run the server with the client master key with the configured name. 
 
 ```shell
-CONFIG_PATH=crates/key-server/key-server-config.yaml BOB_BLS_KEY=$CLIENT_MASTER_KEY MASTER_SEED=$MASTER_SEED cargo run --bin key-server
+CONFIG_PATH=crates/key-server/key-server-config.yaml BOB_BLS_KEY=<CLIENT_MASTER_KEY> MASTER_SEED=<MASTER_SEED> cargo run --bin key-server
 ```
 
 Or run with docker: 
@@ -399,8 +399,8 @@ Or run with docker:
 docker run -p 2024:2024 \
   -v $(pwd)/crates/key-server/key-server-config.yaml:/config/key-server-config.yaml \
   -e CONFIG_PATH=/config/key-server-config.yaml \
-  -e BOB_BLS_KEY=$CLIENT_MASTER_KEY \
-  -e MASTER_SEED=$MASTER_SEED \
+  -e BOB_BLS_KEY=<CLIENT_MASTER_KEY> \
+  -e MASTER_SEED=<MASTER_SEED> \
   seal-key-server
 ```
 
