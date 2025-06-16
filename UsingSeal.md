@@ -24,7 +24,7 @@ Building and publishing the code can be done using the [`Sui CLI`](https://docs.
 ```shell
 cd examples/move
 sui move build
-sui client publish --gas-budget 100000000
+sui client publish
 ```
 
 **Limitations**
@@ -218,7 +218,7 @@ To make the key server discoverable by Seal clients, register it on-chain.
 Call the `create_and_transfer_v1` function from the `seal::key_server` module like following:
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args <YOUR_SERVER_NAME_HERE> https://YOUR_URL_HERE 0 <MASTER_PUBKEY> --gas-budget 10000000
+sui client call --function create_and_transfer_v1 --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 ```
 
 To start the key server in `Open` mode, run the command `cargo run --bin key-server`,
@@ -284,9 +284,9 @@ It should abort after printing a list of unassigned derived public keys (search 
 
 ```shell
 MASTER_SEED=<MASTER_SEED> CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
-```
 
-Each supported client must have a registered on-chain key server object to enable discovery and policy validation.
+MASTER_SEED=0x680d7268095510940a3cce0d0cfdbd82b3422f776e6da46c90eb36f25ce2b30e CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
+```
 
 ```
 2025-06-15T02:02:56.303459Z  INFO key_server: Unassigned derived public key with index 0: "<PUBKEY_0>"
@@ -294,15 +294,17 @@ Each supported client must have a registered on-chain key server object to enabl
 2025-06-15T02:02:56.304418Z  INFO key_server: Unassigned derived public key with index 2: "<PUBKEY_2>"
 ```
 
+Each supported client must have a registered on-chain key server object to enable discovery and policy validation.
+
 Register the first client:
 
 - Register a new key server on-chain by calling the `create_and_transfer_v1` function from the `seal::key_server` module with the first unassigned derived public key (with derivation index 0) <PUBKEY_0>.
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args $YOUR_SERVER_NAME https://your-url-here 0 <PUBKEY_0> --gas-budget 10000000
-# outputs <KEY_SERVER_OBJECT_ID_0>
-```
+sui client call --function create_and_transfer_v1 --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_0>
 
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_0> and object of type key_server::Cap <KEY_SERVER_CAP_ID_0>
+```
 
 - Add an entry in config file:
   - Set `client_master_key` to type `Derived` with `derivation_index` as 0. 
@@ -342,6 +344,8 @@ In rare cases where you need to export a client key:
 Replace `X` with the `derivation_index` of the key you want to export.
 The tool will output the corresponding master key, which can be imported by another key server if needed.
 
+Example command assuming the key server owner is exporting the key at index 0:
+
 ```shell
 cargo run --bin seal-cli derive-key --seed <MASTER_SEED> --index 0
 Master key: <CLIENT_MASTER_KEY>
@@ -355,25 +359,31 @@ Public key: <CLIENT_MASTER_PUBKEY>
 For example: 
 
 ```yaml
-     - name: "carol"
+     - name: "bob"
        client_master_key: !Exported
-         deprecated_derivation_index: 3
+         deprecated_derivation_index: 0
 ```
 
 To import a client BLS master key into a new key server:
 
-- Register the client public key onchain
+- Transfer the previous key server cap object to the new key server owner. The new key server owner can now update to its own URL using the cap. 
+
+Example command assuming we are exporting <KEY_SERVER_OBJECT_ID_0>:
 
 ```shell
-sui client call --function create_and_transfer_v1 --module key_server --package 0x62c79dfeb0a2ca8c308a56bde530ccf3846535e1623949d45c90d23128afff52 --args <SERVER_NAME> https://your-url-here 0 <CLIENT_MASTER_PUBKEY> --gas-budget 10000000
-
-# outputs <IMPORTED_KEY_SERVER_OBJECT_ID>
+sui transfer --object-id <KEY_SERVER_CAP_ID_0> --to <NEW_OWNER_ADDRESS>
 ```
 
-- In the config file, add a new client entry with:
+The owner of <NEW_OWNER_ADDRESS> can now run:
+
+```shell
+sui client call --function update --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_CAP_ID_0> https://<NEW_URL>
+```
+
+- The new key server owner can now add it to the config file:
   - `client_master_key` set to type `Imported`.
-  - The name of the environment variable containing the key, this name will be used later. 
-  - The ID of the key server object registered on-chain for this client <IMPORTED_KEY_SERVER_OBJECT_ID>
+  - The name of the environment variable containing the key, this name will be used later, e.g. `BOB_BLS_KEY`.
+  - The same key server object registered on-chain for this client before, e.g. <KEY_SERVER_OBJECT_ID_0>.
   - The list of packages associated with the client.
 
 For example: 
@@ -382,7 +392,7 @@ For example:
      - name: "bob"
        client_master_key: !Imported
          env_var: "BOB_BLS_KEY"
-       key_server_object_id: "<IMPORTED_KEY_SERVER_OBJECT_ID>"
+       key_server_object_id: "<KEY_SERVER_OBJECT_ID_0>"
        package_ids:
          - "0x2222222222222222222222222222222222222222222222222222222222222222"
 ```
@@ -403,9 +413,6 @@ docker run -p 2024:2024 \
   -e MASTER_SEED=<MASTER_SEED> \
   seal-key-server
 ```
-
-**Note:** After importing, the registered key server object must be transferred onchain to the new key server’s owner.
-The new owner should also update the key server’s URL to reflect the new endpoint.
 
 ### Infrastructure requirements
 

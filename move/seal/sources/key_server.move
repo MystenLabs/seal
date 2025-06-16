@@ -29,7 +29,7 @@ public struct KeyServerV1 has store {
     pk: vector<u8>,
 }
 
-public struct Cap has key {
+public struct Cap has key, store {
     id: UID,
     key_server_id: ID,
 }
