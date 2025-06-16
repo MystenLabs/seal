@@ -143,7 +143,7 @@ async fn test_e2e_permissioned() {
 
     let server = Server {
         sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var("MASTER_KEY", Some(DefaultEncoding::encode(seed)), || {
+        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
             MasterKeys::load(&options)
         })
         .unwrap(),

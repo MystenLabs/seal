@@ -3,12 +3,13 @@
 
 use crate::externals::{add_package, add_upgraded_package};
 use crate::key_server_options::{ClientConfig, KeyServerOptions, ServerMode};
-use crate::tests::KeyServerType::Open;
+use crate::tests::KeyServerType::{Open, Permissioned};
 use crate::types::Network;
 use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe;
 use crypto::ibe::public_key_from_master_key;
 use fastcrypto::ed25519::Ed25519KeyPair;
+use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -51,7 +52,10 @@ pub(crate) struct SealUser {
 /// Key server types allowed in tests
 pub enum KeyServerType {
     Open(ibe::MasterKey),
-    Permissioned(Vec<ClientConfig>),
+    Permissioned {
+        seed: Vec<u8>,
+        package_ids: Vec<ObjectID>,
+    },
 }
 
 impl SealTestCluster {
@@ -86,9 +90,7 @@ impl SealTestCluster {
 
     pub async fn add_open_server(&mut self) {
         let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
-        let name = DefaultEncoding::encode_with_format(
-            public_key_from_master_key(&master_key).to_byte_array(),
-        );
+        let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
         self.add_server(Open(master_key), &name).await;
     }
 
