@@ -93,7 +93,7 @@ async fn test_e2e() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_permissioned() {
-    // e2e test with one key server with two clients
+    // e2e test with two key servers, each with two clients
 
     // TODO: Use test framework
 
@@ -108,14 +108,14 @@ async fn test_e2e_permissioned() {
         .await
         .0;
 
-    // Generate a key pair for the key server
+    // Generate a master seed for the first key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
 
-    // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
+    // Sample random key server object id.
     let key_server_object_id = ObjectID::random();
 
-    // Each client has a single package id (the ones published above)
+    // The client handles a single package id (the one published above)
     let client_config = ClientConfig {
         name: "Client on server 1".to_string(),
         client_master_key: ClientKeyType::Derived {
@@ -146,7 +146,7 @@ async fn test_e2e_permissioned() {
         options,
     };
 
-    // Each client has a single package id (the ones published above)
+    // The client on the second server has a single (random) package id
     let client_config = ClientConfig {
         name: "Client on server 2".to_string(),
         client_master_key: ClientKeyType::Derived {
@@ -186,12 +186,12 @@ async fn test_e2e_permissioned() {
     let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_id).await;
     add_user_to_whitelist(&cluster, package_id, whitelist, cap, address).await;
 
-    // Since the key servers are not registered on-chain, we derive the master key from the key pair
+    // Since the key server is not registered on-chain, we derive the master key from the key pair
     let derived_master_key = ibe::derive_master_key(&seed, 0);
     let pk = public_key_from_master_key(&derived_master_key);
     let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![pk]);
 
-    // This is encrypted using just the first client
+    // This is encrypted using just the client on the first server
     let services = vec![key_server_object_id];
 
     // Encrypt a message
