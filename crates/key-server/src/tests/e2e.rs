@@ -10,6 +10,7 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
+use fastcrypto::error::FastCryptoError::GeneralOpaqueError;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -190,7 +191,7 @@ async fn test_e2e_permissioned() {
     assert!(
         get_key(&server, &package_ids[1], ptb.clone(), &user_keypair)
             .await
-            .is_err()
+            .is_err_and(|e| e == GeneralOpaqueError)
     );
 
     // But from the first client it should succeed
@@ -212,7 +213,7 @@ async fn test_e2e_permissioned() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_imported_key() {
-    // Test import/export of a derived key
+    // Test import/export of a derived key:
     // 1. Encrypt using a derived key from Server 1. Check that decrypting using Server 1 works.
     // 2. Import the derived key into Server 2. Check that decrypting using Server 2 works.
     // 3. Create a Server 3 which is a copy of Server 1, but with the derived key marked as exported. Check that decrypting using Server 3 fails.
@@ -375,20 +376,20 @@ async fn test_e2e_imported_key() {
     // Create a new key server where the derived key is marked as exported
     let client_configs = vec![
         ClientConfig {
+            name: "Key server client 3.0".to_string(),
+            client_master_key: ClientKeyType::Exported {
+                deprecated_derivation_index: 0,
+            },
+            key_server_object_id,
+            package_ids: vec![package_id],
+        },
+        ClientConfig {
             name: "Key server client 3.1".to_string(),
             client_master_key: ClientKeyType::Derived {
                 derivation_index: 1,
             },
             key_server_object_id: ObjectID::random(),
             package_ids: vec![ObjectID::random()],
-        },
-        ClientConfig {
-            name: "Key server client 3.2".to_string(),
-            client_master_key: ClientKeyType::Exported {
-                deprecated_derivation_index: 0,
-            },
-            key_server_object_id,
-            package_ids: vec![package_id],
         },
     ];
 
@@ -415,5 +416,5 @@ async fn test_e2e_imported_key() {
 
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
-        .is_err());
+        .is_err_and(|e| e == GeneralOpaqueError));
 }
