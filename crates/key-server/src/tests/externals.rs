@@ -11,6 +11,7 @@ use crate::{
 };
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519Signature;
+use fastcrypto::error::FastCryptoError::GeneralError;
 use fastcrypto::traits::{KeyPair, Signer};
 use fastcrypto::{ed25519::Ed25519KeyPair, error::FastCryptoResult, groups::bls12381::G1Element};
 use rand::thread_rng;
@@ -84,5 +85,5 @@ pub(crate) async fn get_key(
                 &server.create_response(pkg_id, &ids, &pk).decryption_keys[0].encrypted_key,
             )
         })
-        .map_err(|_| fastcrypto::error::FastCryptoError::GeneralOpaqueError)
+        .map_err(|e| GeneralError(e.as_str().to_string()))
 }

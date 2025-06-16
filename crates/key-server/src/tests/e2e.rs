@@ -10,7 +10,7 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
-use fastcrypto::error::FastCryptoError::GeneralOpaqueError;
+use fastcrypto::error::FastCryptoError::{GeneralError, GeneralOpaqueError};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -104,37 +104,31 @@ async fn test_e2e_permissioned() {
         .await;
 
     // Publish the patterns two times.
-    let package_ids: Vec<ObjectID> = vec![
-        SealTestCluster::publish_internal(&cluster, "patterns")
-            .await
-            .0,
-        SealTestCluster::publish_internal(&cluster, "patterns")
-            .await
-            .0,
-    ];
+    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+        .await
+        .0;
 
     // Generate a key pair for the key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
 
     // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
-    let key_server_object_ids = [ObjectID::random(), ObjectID::random()];
+    let key_server_object_id = ObjectID::random();
 
     // Each client has a single package id (the ones published above)
-    let client_configs = (0..2)
-        .map(|j| ClientConfig {
-            name: format!("Client {j} on server"),
-            client_master_key: ClientKeyType::Derived {
-                derivation_index: j as u64,
-            },
-            key_server_object_id: key_server_object_ids[j],
-            package_ids: vec![(*package_ids[j]).into()],
-        })
-        .collect();
-
+    let client_config = ClientConfig {
+        name: "Client on server 1".to_string(),
+        client_master_key: ClientKeyType::Derived {
+            derivation_index: 0,
+        },
+        key_server_object_id,
+        package_ids: vec![(*package_id).into()],
+    };
     let options = KeyServerOptions {
         network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned { client_configs },
+        server_mode: ServerMode::Permissioned {
+            client_configs: vec![client_config],
+        },
         metrics_host_port: 0,
         checkpoint_update_interval: Duration::from_secs(10),
         rgp_update_interval: Duration::from_secs(60),
@@ -142,8 +136,7 @@ async fn test_e2e_permissioned() {
         allowed_staleness: Duration::from_secs(120),
         session_key_ttl_max: from_mins(30),
     };
-
-    let server = Server {
+    let server1 = Server {
         sui_client: cluster.sui_client().clone(),
         master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
             MasterKeys::load(&options)
@@ -153,12 +146,45 @@ async fn test_e2e_permissioned() {
         options,
     };
 
+    // Each client has a single package id (the ones published above)
+    let client_config = ClientConfig {
+        name: "Client on server 2".to_string(),
+        client_master_key: ClientKeyType::Derived {
+            derivation_index: 0,
+        },
+        key_server_object_id: ObjectID::random(),
+        package_ids: vec![ObjectID::random()],
+    };
+    let options = KeyServerOptions {
+        network: Network::TestCluster,
+        server_mode: ServerMode::Permissioned {
+            client_configs: vec![client_config],
+        },
+        metrics_host_port: 0,
+        checkpoint_update_interval: Duration::from_secs(10),
+        rgp_update_interval: Duration::from_secs(60),
+        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+        allowed_staleness: Duration::from_secs(120),
+        session_key_ttl_max: from_mins(30),
+    };
+    let server2 = Server {
+        sui_client: cluster.sui_client().clone(),
+        master_keys: temp_env::with_var(
+            "MASTER_SEED",
+            Some(DefaultEncoding::encode([0u8; 32])),
+            || MasterKeys::load(&options),
+        )
+        .unwrap(),
+        key_server_oid_to_pop: HashMap::new(),
+        options,
+    };
+
     // Create test user
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
 
     // Create a whitelist for the first package and add the user
-    let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_ids[0]).await;
-    add_user_to_whitelist(&cluster, package_ids[0], whitelist, cap, address).await;
+    let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_id).await;
+    add_user_to_whitelist(&cluster, package_id, whitelist, cap, address).await;
 
     // Since the key servers are not registered on-chain, we derive the master key from the key pair
     let derived_master_key = ibe::derive_master_key(&seed, 0);
@@ -166,12 +192,12 @@ async fn test_e2e_permissioned() {
     let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![pk]);
 
     // This is encrypted using just the first client
-    let services = vec![key_server_object_ids[0]];
+    let services = vec![key_server_object_id];
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        package_ids[0],
+        package_id,
         whitelist.to_vec(),
         services.to_vec(),
         &pks,
@@ -184,18 +210,14 @@ async fn test_e2e_permissioned() {
     .unwrap()
     .0;
 
-    // Construct PTB
-    let ptb = whitelist_create_ptb(package_ids[0], whitelist, initial_shared_version);
-
-    // Requesting a user secret key on the second client should fail
-    assert!(
-        get_key(&server, &package_ids[1], ptb.clone(), &user_keypair)
-            .await
-            .is_err_and(|e| e == GeneralOpaqueError)
-    );
+    // Requesting a user secret key on the second server should fail
+    let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
+    assert!(get_key(&server2, &package_id, ptb.clone(), &user_keypair)
+        .await
+        .is_err_and(|e| e == GeneralError("UnsupportedPackageId".to_string())));
 
     // But from the first client it should succeed
-    let usk = get_key(&server, &package_ids[0], ptb.clone(), &user_keypair)
+    let usk = get_key(&server1, &package_id, ptb.clone(), &user_keypair)
         .await
         .unwrap();
 
