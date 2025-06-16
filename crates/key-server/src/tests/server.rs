@@ -13,7 +13,7 @@ use crate::tests::SealTestCluster;
 
 #[tokio::test]
 async fn test_get_latest_checkpoint_timestamp() {
-    let tc = SealTestCluster::new(0, 0).await;
+    let tc = SealTestCluster::new(0).await;
 
     let tolerance = 20000;
     let timestamp = get_latest_checkpoint_timestamp(tc.cluster.sui_client().clone())
@@ -31,7 +31,8 @@ async fn test_get_latest_checkpoint_timestamp() {
 
 #[tokio::test]
 async fn test_timestamp_updater() {
-    let tc = SealTestCluster::new(1, 0).await;
+    let mut tc = SealTestCluster::new(0).await;
+    tc.add_open_server().await;
 
     let mut receiver = tc
         .server()
@@ -62,7 +63,8 @@ async fn test_timestamp_updater() {
 #[traced_test]
 #[tokio::test]
 async fn test_rgp_updater() {
-    let tc = SealTestCluster::new(1, 0).await;
+    let mut tc = SealTestCluster::new(0).await;
+    tc.add_open_server().await;
 
     let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await.0;
 
@@ -75,7 +77,8 @@ async fn test_rgp_updater() {
 // Tests that the server background task monitor can catch background task errors and panics.
 #[tokio::test]
 async fn test_server_background_task_monitor() {
-    let tc = SealTestCluster::new(1, 0).await;
+    let mut tc = SealTestCluster::new(0).await;
+    tc.add_open_server().await;
 
     let metrics_registry = Registry::default();
     let metrics = Arc::new(Metrics::new(&metrics_registry));

@@ -24,16 +24,18 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_e2e() {
-    let tc = SealTestCluster::new(3, 1).await;
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_open_servers(3).await;
+
     let (examples_package_id, _) = tc.publish("patterns").await;
 
     let (whitelist, cap, initial_shared_version) =
-        create_whitelist(tc.cluster(), examples_package_id).await;
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
 
     // Create test users
     let user_address = tc.users[0].address;
     add_user_to_whitelist(
-        tc.cluster(),
+        tc.test_cluster(),
         examples_package_id,
         whitelist,
         cap,
@@ -42,7 +44,7 @@ async fn test_e2e() {
     .await;
 
     // Read the public keys from the service objects
-    let services: Vec<ObjectID> = tc.servers.iter().map(|(id, _)| *id).collect();
+    let services = tc.get_services();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
@@ -90,6 +92,8 @@ async fn test_e2e() {
 #[tokio::test]
 async fn test_e2e_permissioned() {
     // e2e test with one key server with two clients
+
+    // TODO: Use test framework
 
     // Create a test cluster
     let cluster = TestClusterBuilder::new()

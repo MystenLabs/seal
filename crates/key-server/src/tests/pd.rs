@@ -17,16 +17,25 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_pd() {
-    let tc = SealTestCluster::new(1, 2).await;
+    let mut tc = SealTestCluster::new(2).await;
+    tc.add_open_server().await;
 
     let (package_id, _) = tc.publish("patterns").await;
 
     // create PrivateData with nonce=package_id, owned by addr1
     let (pd, version, digest) =
-        create_private_data(tc.users[0].address, tc.cluster(), package_id).await;
+        create_private_data(tc.users[0].address, tc.test_cluster(), package_id).await;
 
     // addr1 should have access
-    let ptb = pd_create_ptb(tc.cluster(), package_id, package_id, pd, version, digest).await;
+    let ptb = pd_create_ptb(
+        tc.test_cluster(),
+        package_id,
+        package_id,
+        pd,
+        version,
+        digest,
+    )
+    .await;
     assert!(
         get_key(tc.server(), &package_id, ptb.clone(), &tc.users[0].keypair)
             .await

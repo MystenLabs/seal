@@ -18,14 +18,17 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_whitelist() {
-    let tc = SealTestCluster::new(1, 2).await;
+    let mut tc = SealTestCluster::new(2).await;
+    tc.add_open_server().await;
+    tc.add_open_server().await;
 
     let (package_id, _) = tc.publish("patterns").await;
 
-    let (whitelist, cap, initial_shared_version) = create_whitelist(tc.cluster(), package_id).await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), package_id).await;
 
     let user_address = tc.users[0].address;
-    add_user_to_whitelist(tc.cluster(), package_id, whitelist, cap, user_address).await;
+    add_user_to_whitelist(tc.test_cluster(), package_id, whitelist, cap, user_address).await;
 
     let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
     assert!(
@@ -46,16 +49,24 @@ async fn test_whitelist() {
 #[traced_test]
 #[tokio::test]
 async fn test_whitelist_with_upgrade() {
-    let mut tc = SealTestCluster::new(1, 1).await;
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_open_server().await;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id_1, upgrade_cap) = tc.publish_path(path).await;
     println!("Old pkg: {}", package_id_1);
 
     let (whitelist, cap, initial_shared_version) =
-        create_whitelist(tc.cluster(), package_id_1).await;
+        create_whitelist(tc.test_cluster(), package_id_1).await;
     let user_address = tc.users[0].address;
-    add_user_to_whitelist(tc.cluster(), package_id_1, whitelist, cap, user_address).await;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        package_id_1,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
 
     // Succeeds with initial version
     let ptb = whitelist_create_ptb(package_id_1, whitelist, initial_shared_version);
@@ -94,7 +105,7 @@ async fn test_whitelist_with_upgrade() {
     .is_err());
 
     // upgrade version
-    upgrade_whitelist(tc.cluster(), package_id_2, whitelist, cap).await;
+    upgrade_whitelist(tc.test_cluster(), package_id_2, whitelist, cap).await;
 
     // Succeeds with new package
     let ptb = whitelist_create_ptb(package_id_2, whitelist, initial_shared_version);

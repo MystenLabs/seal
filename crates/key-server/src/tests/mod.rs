@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{KeyServerOptions, ServerMode};
+use crate::key_server_options::{ClientConfig, KeyServerOptions, ServerMode};
+use crate::tests::KeyServerType::Open;
 use crate::types::Network;
-use crate::{from_mins, MasterKeys, Server};
+use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe;
+use crypto::ibe::public_key_from_master_key;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
@@ -35,10 +37,10 @@ mod server;
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
     cluster: TestCluster,
-    pub(crate) servers: Vec<(ObjectID, Server)>,
-    pub(crate) users: Vec<SealUser>,
     #[allow(dead_code)]
     pub(crate) registry: (ObjectID, ObjectID),
+    pub(crate) servers: Vec<(ObjectID, Server)>,
+    pub(crate) users: Vec<SealUser>,
 }
 
 pub(crate) struct SealUser {
@@ -46,83 +48,90 @@ pub(crate) struct SealUser {
     keypair: Ed25519KeyPair,
 }
 
+/// Key server types allowed in tests
+pub enum KeyServerType {
+    Open(ibe::MasterKey),
+    Permissioned(Vec<ClientConfig>),
+}
+
 impl SealTestCluster {
-    /// Create a new SealTestCluster with the given number of servers and users.
-    /// A Seal key server registry is also deployed, and all key servers are registered there.
-    pub async fn new(servers: usize, users: usize) -> Self {
+    /// Create a new SealTestCluster with the given number users. To add servers, use the `add_server` method.
+    pub async fn new(users: usize) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
             .build()
             .await;
-
-        let mut rng = thread_rng();
         let registry = Self::publish_internal(&cluster, "seal").await;
-
-        let kps = (0..servers)
-            .map(|_| ibe::generate_key_pair(&mut rng))
-            .collect::<Vec<_>>();
-
-        let mut key_server_object_ids = Vec::with_capacity(servers);
-        for (j, (_, pk)) in kps.iter().enumerate() {
-            key_server_object_ids.push(
-                Self::register_key_server(
-                    &cluster,
-                    registry.0,
-                    &format!("Test Key Server {j}"),
-                    "http://localhost:8080", // Dummy URL, not used in this test
-                    *pk,
-                )
-                .await,
-            );
-        }
-
-        let servers = key_server_object_ids
-            .into_iter()
-            .zip(kps)
-            .map(|(key_server_object_id, (master_key, _))| {
-                (
-                    key_server_object_id,
-                    Server {
-                        sui_client: cluster.sui_client().clone(),
-                        master_keys: MasterKeys::Open { master_key },
-                        key_server_oid_to_pop: HashMap::new(),
-                        options: KeyServerOptions {
-                            network: Network::TestCluster,
-                            server_mode: ServerMode::Open {
-                                legacy_key_server_object_id: None,
-                                key_server_object_id,
-                            },
-                            metrics_host_port: 0,
-                            checkpoint_update_interval: Duration::from_secs(10),
-                            rgp_update_interval: Duration::from_secs(60),
-                            sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-                            allowed_staleness: Duration::from_secs(120),
-                            session_key_ttl_max: from_mins(30),
-                        },
-                    },
-                )
-            })
-            .collect();
-
-        let users = (0..users)
-            .map(|_| get_key_pair_from_rng(&mut rng))
-            .map(|(address, keypair)| SealUser { address, keypair })
-            .collect();
-
         Self {
             cluster,
-            servers,
-            users,
+            servers: vec![],
             registry,
+            users: (0..users)
+                .map(|_| {
+                    let (address, keypair) = get_key_pair_from_rng(&mut thread_rng());
+                    SealUser { address, keypair }
+                })
+                .collect(),
         }
+    }
+
+    pub fn get_services(&self) -> Vec<ObjectID> {
+        self.servers.iter().map(|(id, _)| *id).collect()
     }
 
     /// Get a mutable reference to the [TestCluster].
-    pub fn cluster(&self) -> &TestCluster {
+    pub fn test_cluster(&self) -> &TestCluster {
         &self.cluster
     }
 
-    /// Get a reference to the first server. Panics if there are no servers.
+    pub async fn add_open_server(&mut self) {
+        let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
+        let name = DefaultEncoding::encode_with_format(
+            public_key_from_master_key(&master_key).to_byte_array(),
+        );
+        self.add_server(Open(master_key), &name).await;
+    }
+
+    pub async fn add_open_servers(&mut self, num_servers: usize) {
+        for _ in 0..num_servers {
+            self.add_open_server().await;
+        }
+    }
+
+    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+        match server {
+            Open(master_key) => {
+                let key_server_object_id = self
+                    .register_key_server(
+                        name,
+                        "http://localhost:8080", // Dummy URL, not used in this test
+                        public_key_from_master_key(&master_key),
+                    )
+                    .await;
+                let server = Server {
+                    sui_client: self.cluster.sui_client().clone(),
+                    master_keys: MasterKeys::Open { master_key },
+                    key_server_oid_to_pop: HashMap::new(),
+                    options: KeyServerOptions {
+                        network: Network::TestCluster,
+                        server_mode: ServerMode::Open {
+                            legacy_key_server_object_id: None,
+                            key_server_object_id,
+                        },
+                        metrics_host_port: 0,
+                        checkpoint_update_interval: Duration::from_secs(10),
+                        rgp_update_interval: Duration::from_secs(60),
+                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                        allowed_staleness: Duration::from_secs(120),
+                        session_key_ttl_max: from_mins(30),
+                    },
+                };
+                self.servers.push((key_server_object_id, server));
+            }
+            _ => panic!(),
+        };
+    }
+
     pub fn server(&self) -> &Server {
         &self.servers[0].1
     }
@@ -230,19 +239,19 @@ impl SealTestCluster {
 
     /// Register a key server with the given package id, description, url, and public key.
     /// Return the Object ID of the registered key server.
-    pub async fn register_key_server(
-        cluster: &TestCluster,
-        package_id: ObjectID,
+    async fn register_key_server(
+        &self,
         description: &str,
         url: &str,
         pk: ibe::PublicKey,
     ) -> ObjectID {
-        let tx = cluster
+        let tx = self
+            .cluster
             .sui_client()
             .transaction_builder()
             .move_call(
-                cluster.get_address_0(),
-                package_id,
+                self.cluster.get_address_0(),
+                self.registry.0,
                 "key_server",
                 "create_and_transfer_v1",
                 vec![],
@@ -258,7 +267,7 @@ impl SealTestCluster {
             )
             .await
             .unwrap();
-        let response = cluster.sign_and_execute_transaction(&tx).await;
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
 
         let service_objects = response
             .object_changes
@@ -340,7 +349,7 @@ impl SealTestCluster {
 
 #[tokio::test]
 async fn test_pkg_upgrade() {
-    let mut setup = SealTestCluster::new(1, 1).await;
+    let mut setup = SealTestCluster::new(0).await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id, upgrade_cap) = setup.publish_path(path).await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");
