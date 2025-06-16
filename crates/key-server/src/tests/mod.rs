@@ -35,8 +35,9 @@ mod server;
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
     cluster: TestCluster,
-    pub(crate) servers: Vec<Server>,
+    pub(crate) servers: Vec<(ObjectID, Server)>,
     pub(crate) users: Vec<SealUser>,
+    pub(crate) registry: (ObjectID, ObjectID),
 }
 
 pub(crate) struct SealUser {
@@ -54,29 +55,51 @@ impl SealTestCluster {
             .await;
 
         let mut rng = thread_rng();
+        let registry = Self::publish_internal(&cluster, "seal").await;
 
-        // TODO: We could publish the seal module and register key servers on-chain, but no tests need this right now so to speed up tests we don't do it.
-        let options = KeyServerOptions {
-            network: Network::TestCluster,
-            server_mode: ServerMode::Open {
-                legacy_key_server_object_id: Some(ObjectID::random()),
-                key_server_object_id: ObjectID::random(),
-            },
-            metrics_host_port: 0,
-            checkpoint_update_interval: Duration::from_secs(10),
-            rgp_update_interval: Duration::from_secs(60),
-            sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-            allowed_staleness: Duration::from_secs(120),
-            session_key_ttl_max: from_mins(30),
-        };
-
-        let servers = (0..servers)
+        let kps = (0..servers)
             .map(|_| ibe::generate_key_pair(&mut rng))
-            .map(|(master_key, _)| Server {
-                sui_client: cluster.sui_client().clone(),
-                master_keys: MasterKeys::Open { master_key },
-                key_server_oid_to_pop: HashMap::new(),
-                options: options.clone(),
+            .collect::<Vec<_>>();
+
+        let mut key_server_object_ids = Vec::with_capacity(servers);
+        for (j, (_, pk)) in kps.iter().enumerate() {
+            key_server_object_ids.push(
+                Self::register_key_server(
+                    &cluster,
+                    registry.0,
+                    &format!("Test Key Server {j}"),
+                    "http://localhost:8080", // Dummy URL, not used in this test
+                    *pk,
+                )
+                .await,
+            );
+        }
+
+        let servers = key_server_object_ids
+            .into_iter()
+            .zip(kps)
+            .map(|(key_server_object_id, (master_key, _))| {
+                (
+                    key_server_object_id,
+                    Server {
+                        sui_client: cluster.sui_client().clone(),
+                        master_keys: MasterKeys::Open { master_key },
+                        key_server_oid_to_pop: HashMap::new(),
+                        options: KeyServerOptions {
+                            network: Network::TestCluster,
+                            server_mode: ServerMode::Open {
+                                legacy_key_server_object_id: None,
+                                key_server_object_id,
+                            },
+                            metrics_host_port: 0,
+                            checkpoint_update_interval: Duration::from_secs(10),
+                            rgp_update_interval: Duration::from_secs(60),
+                            sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                            allowed_staleness: Duration::from_secs(120),
+                            session_key_ttl_max: from_mins(30),
+                        },
+                    },
+                )
             })
             .collect();
 
@@ -89,6 +112,7 @@ impl SealTestCluster {
             cluster,
             servers,
             users,
+            registry,
         }
     }
 
@@ -99,7 +123,7 @@ impl SealTestCluster {
 
     /// Get a reference to the first server. Panics if there are no servers.
     pub fn server(&self) -> &Server {
-        &self.servers[0]
+        &self.servers[0].1
     }
 
     /// Publish the Move module in /move/<module> and return the package id and upgrade cap.
@@ -206,18 +230,17 @@ impl SealTestCluster {
     /// Register a key server with the given package id, description, url, and public key.
     /// Return the Object ID of the registered key server.
     pub async fn register_key_server(
-        &mut self,
+        cluster: &TestCluster,
         package_id: ObjectID,
         description: &str,
         url: &str,
         pk: ibe::PublicKey,
     ) -> ObjectID {
-        let tx = self
-            .cluster
+        let tx = cluster
             .sui_client()
             .transaction_builder()
             .move_call(
-                self.cluster.get_address_0(),
+                cluster.get_address_0(),
                 package_id,
                 "key_server",
                 "create_and_transfer_v1",
@@ -234,7 +257,7 @@ impl SealTestCluster {
             )
             .await
             .unwrap();
-        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+        let response = cluster.sign_and_execute_transaction(&tx).await;
 
         let service_objects = response
             .object_changes

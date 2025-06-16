@@ -7,10 +7,9 @@ use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist
 use crate::tests::SealTestCluster;
 use crate::types::Network;
 use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
-use crypto::ibe::{generate_key_pair, public_key_from_master_key};
+use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
-use fastcrypto::serde_helpers::ToFromByteArray;
 use rand::thread_rng;
 use semver::VersionReq;
 use std::collections::HashMap;
@@ -27,7 +26,8 @@ async fn test_e2e() {
     let mut tc = SealTestCluster::new(3, 1).await;
     let (examples_package_id, _) = tc.publish("patterns").await;
 
-    let (whitelist, cap) = create_whitelist(tc.get_mut(), examples_package_id).await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.get_mut(), examples_package_id).await;
 
     // Create test users
     let user_address = tc.users[0].address;
@@ -40,15 +40,12 @@ async fn test_e2e() {
     )
     .await;
 
-    // We know the version at this point
-    let initial_shared_version = 3;
-
     // Get keys from two key servers
     let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
 
     // Send requests to the key servers and decrypt the responses
     let usk0 = get_key(
-        &tc.servers[0],
+        &tc.servers[0].1,
         &examples_package_id,
         ptb.clone(),
         &tc.users[0].keypair,
@@ -56,7 +53,7 @@ async fn test_e2e() {
     .await
     .unwrap();
     let usk1 = get_key(
-        &tc.servers[1],
+        &tc.servers[1].1,
         &examples_package_id,
         ptb,
         &tc.users[0].keypair,
@@ -64,36 +61,13 @@ async fn test_e2e() {
     .await
     .unwrap();
 
-    // Register the three services on-chain
-    let (package_id, _) = tc.publish("seal").await;
-
-    let mut services = vec![];
-    for i in 0..tc.servers.len() {
-        let master_key = match tc.servers[i].master_keys {
-            MasterKeys::Open { master_key } => master_key,
-            MasterKeys::Permissioned { .. } => {
-                panic!("All servers should be open for this test")
-            }
-        };
-        let pk = public_key_from_master_key(&master_key);
-        services.push(
-            tc.register_key_server(
-                package_id,
-                &format!("Test server {}", i),
-                &format!("https://testserver{}.com", i),
-                pk,
-            )
-            .await,
-        );
-    }
-
     // Read the public keys from the service objects
+    let services: Vec<ObjectID> = tc.servers.iter().map(|(id, _)| *id).collect();
     let pks = tc.get_public_keys(&services).await;
     let pks = IBEPublicKeys::BonehFranklinBLS12381(pks);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
-    let services = services.to_vec();
     let encryption = seal_encrypt(
         examples_package_id,
         whitelist.to_vec(),
@@ -142,7 +116,7 @@ async fn test_e2e_permissioned() {
 
     // Generate a key pair for the key server
     let mut rng = thread_rng();
-    let key_pair = generate_key_pair(&mut rng);
+    let seed = generate_seed(&mut rng);
 
     // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
     let key_server_object_ids = [ObjectID::random(), ObjectID::random()];
@@ -172,11 +146,9 @@ async fn test_e2e_permissioned() {
 
     let server = Server {
         sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var(
-            "MASTER_KEY",
-            Some(DefaultEncoding::encode(key_pair.0.to_byte_array())),
-            || MasterKeys::load(&options),
-        )
+        master_keys: temp_env::with_var("MASTER_KEY", Some(DefaultEncoding::encode(seed)), || {
+            MasterKeys::load(&options)
+        })
         .unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,
@@ -186,11 +158,10 @@ async fn test_e2e_permissioned() {
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
 
     // Create a whitelist for the first package and add the user
-    let (whitelist, cap) = create_whitelist(&mut cluster, package_ids[0]).await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(&mut cluster, package_ids[0]).await;
     add_user_to_whitelist(&mut cluster, package_ids[0], whitelist, cap, address).await;
 
-    // We know the version at this point
-    let initial_shared_version = 4;
     let ptb = whitelist_create_ptb(package_ids[0], whitelist, initial_shared_version);
 
     // Requesting a user secret key on the second client should fail
@@ -206,7 +177,7 @@ async fn test_e2e_permissioned() {
         .unwrap();
 
     // Since the key servers are not registered on-chain, we derive the master key from the key pair
-    let derived_master_key = ibe::derive_master_key(&key_pair.0.to_byte_array(), 0);
+    let derived_master_key = ibe::derive_master_key(&seed, 0);
     let pk = public_key_from_master_key(&derived_master_key);
     let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![pk]);
 

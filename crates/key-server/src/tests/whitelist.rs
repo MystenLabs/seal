@@ -22,13 +22,10 @@ async fn test_whitelist() {
 
     let (package_id, _) = tc.publish("patterns").await;
 
-    let (whitelist, cap) = create_whitelist(tc.get_mut(), package_id).await;
+    let (whitelist, cap, initial_shared_version) = create_whitelist(tc.get_mut(), package_id).await;
 
     let user_address = tc.users[0].address;
     add_user_to_whitelist(tc.get_mut(), package_id, whitelist, cap, user_address).await;
-
-    // We know the version at this point
-    let initial_shared_version = 3;
 
     let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
     assert!(
@@ -55,12 +52,10 @@ async fn test_whitelist_with_upgrade() {
     let (package_id_1, upgrade_cap) = tc.publish_path(path).await;
     println!("Old pkg: {}", package_id_1);
 
-    let (whitelist, cap) = create_whitelist(tc.get_mut(), package_id_1).await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.get_mut(), package_id_1).await;
     let user_address = tc.users[0].address;
     add_user_to_whitelist(tc.get_mut(), package_id_1, whitelist, cap, user_address).await;
-
-    // We know the version at this point
-    let initial_shared_version = 3;
 
     // Succeeds with initial version
     let ptb = whitelist_create_ptb(package_id_1, whitelist, initial_shared_version);
@@ -189,9 +184,9 @@ pub fn whitelist_create_ptb(
 }
 
 pub(crate) async fn create_whitelist(
-    cluster: &mut TestCluster,
+    cluster: &TestCluster,
     package_id: ObjectID,
-) -> (ObjectID, ObjectID) {
+) -> (ObjectID, ObjectID, u64) {
     // Create new whitelist
     let tx = cluster
         .sui_client()
@@ -214,13 +209,16 @@ pub(crate) async fn create_whitelist(
     // Read the id of the Whitelist and Cap objects
     let mut whitelist: Option<ObjectID> = None;
     let mut cap: Option<ObjectID> = None;
+    let mut initial_version: Option<u64> = None;
     for created in response.object_changes.unwrap() {
         if let ObjectChange::Created {
             object_type,
             object_id,
+            version,
             ..
         } = created
         {
+            initial_version.replace(version.value());
             match object_type.name.as_str() {
                 "Whitelist" => whitelist.replace(object_id),
                 "Cap" => cap.replace(object_id),
@@ -228,15 +226,11 @@ pub(crate) async fn create_whitelist(
             };
         }
     }
-    assert!(whitelist.is_some() && cap.is_some());
-    let whitelist = whitelist.unwrap();
-    let cap = cap.unwrap();
-
-    (whitelist, cap)
+    (whitelist.unwrap(), cap.unwrap(), initial_version.unwrap())
 }
 
 pub(crate) async fn add_user_to_whitelist(
-    cluster: &mut TestCluster,
+    cluster: &TestCluster,
     package_id: ObjectID,
     whitelist: ObjectID,
     cap: ObjectID,
