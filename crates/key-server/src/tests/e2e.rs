@@ -10,6 +10,7 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
+use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
 use semver::VersionReq;
@@ -206,4 +207,213 @@ async fn test_e2e_permissioned() {
     .unwrap();
 
     assert_eq!(decryption, message);
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_imported_key() {
+    // Test import/export of a derived key
+    // 1. Encrypt using a derived key from Server 1. Check that decrypting using Server 1 works.
+    // 2. Import the derived key into Server 2. Check that decrypting using Server 2 works.
+    // 3. Create a Server 3 which is a copy of Server 1, but with the derived key marked as exported. Check that decrypting using Server 3 fails.
+
+    // TODO: Use test framework
+
+    // Create a test cluster
+    let cluster = TestClusterBuilder::new()
+        .with_num_validators(1)
+        .build()
+        .await;
+
+    // Publish the patterns two times.
+    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+        .await
+        .0;
+
+    // Generate a key pair for the key server
+    let mut rng = thread_rng();
+    let seed = generate_seed(&mut rng);
+
+    // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
+    let key_server_object_id = ObjectID::random();
+
+    // Server has a single client with a single package id (the one published above)
+    let client_configs = vec![ClientConfig {
+        name: "Key server client 1".to_string(),
+        client_master_key: ClientKeyType::Derived {
+            derivation_index: 0u64,
+        },
+        key_server_object_id,
+        package_ids: vec![package_id],
+    }];
+
+    let options = KeyServerOptions {
+        network: Network::TestCluster,
+        server_mode: ServerMode::Permissioned { client_configs },
+        metrics_host_port: 0,
+        checkpoint_update_interval: Duration::from_secs(10),
+        rgp_update_interval: Duration::from_secs(60),
+        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+        allowed_staleness: Duration::from_secs(120),
+        session_key_ttl_max: from_mins(30),
+    };
+
+    let server1 = Server {
+        sui_client: cluster.sui_client().clone(),
+        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
+            MasterKeys::load(&options)
+        })
+        .unwrap(),
+        key_server_oid_to_pop: HashMap::new(),
+        options,
+    };
+
+    // Create test user
+    let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
+
+    // Create a whitelist for the first package and add the user
+    let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_id).await;
+    add_user_to_whitelist(&cluster, package_id, whitelist, cap, address).await;
+
+    // Since the key servers are not registered on-chain, we derive the master key from the key pair
+    let derived_master_key = ibe::derive_master_key(&seed, 0);
+    let pk = public_key_from_master_key(&derived_master_key);
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![pk]);
+
+    // This is encrypted using just the first client
+    let services = vec![key_server_object_id];
+
+    // Encrypt a message
+    let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    let encryption = seal_encrypt(
+        package_id,
+        whitelist.to_vec(),
+        services.to_vec(),
+        &pks,
+        1,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Construct PTB
+    let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
+
+    // Decrypting should succeed
+    let usk = get_key(&server1, &package_id, ptb.clone(), &user_keypair)
+        .await
+        .unwrap();
+
+    // Decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(
+            services.clone().into_iter().zip([usk]).collect(),
+        ),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
+
+    // Import the master key for a client into a second server
+    let client_configs = vec![ClientConfig {
+        name: "Key server client 2".to_string(),
+        client_master_key: ClientKeyType::Imported {
+            env_var: "IMPORTED_MASTER_KEY".to_string(),
+        },
+        key_server_object_id: ObjectID::random(),
+        package_ids: vec![package_id],
+    }];
+
+    let options = KeyServerOptions {
+        network: Network::TestCluster,
+        server_mode: ServerMode::Permissioned { client_configs },
+        metrics_host_port: 0,
+        checkpoint_update_interval: Duration::from_secs(10),
+        rgp_update_interval: Duration::from_secs(60),
+        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+        allowed_staleness: Duration::from_secs(120),
+        session_key_ttl_max: from_mins(30),
+    };
+
+    let server2 = Server {
+        sui_client: cluster.sui_client().clone(),
+        master_keys: temp_env::with_vars(
+            [
+                (
+                    "IMPORTED_MASTER_KEY",
+                    Some(DefaultEncoding::encode(derived_master_key.to_byte_array())),
+                ),
+                ("MASTER_SEED", Some(DefaultEncoding::encode([0u8; 32]))),
+            ],
+            || MasterKeys::load(&options),
+        )
+        .unwrap(),
+        key_server_oid_to_pop: HashMap::new(),
+        options,
+    };
+
+    // Getting a key from server 2 should now succeed
+    let usk = get_key(&server2, &package_id, ptb.clone(), &user_keypair)
+        .await
+        .unwrap();
+
+    // Decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
+
+    // Create a new key server where the derived key is marked as exported
+    let client_configs = vec![
+        ClientConfig {
+            name: "Key server client 3.1".to_string(),
+            client_master_key: ClientKeyType::Derived {
+                derivation_index: 1,
+            },
+            key_server_object_id: ObjectID::random(),
+            package_ids: vec![ObjectID::random()],
+        },
+        ClientConfig {
+            name: "Key server client 3.2".to_string(),
+            client_master_key: ClientKeyType::Exported {
+                deprecated_derivation_index: 0,
+            },
+            key_server_object_id,
+            package_ids: vec![package_id],
+        },
+    ];
+
+    let options = KeyServerOptions {
+        network: Network::TestCluster,
+        server_mode: ServerMode::Permissioned { client_configs },
+        metrics_host_port: 0,
+        checkpoint_update_interval: Duration::from_secs(10),
+        rgp_update_interval: Duration::from_secs(60),
+        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+        allowed_staleness: Duration::from_secs(120),
+        session_key_ttl_max: from_mins(30),
+    };
+
+    let server3 = Server {
+        sui_client: cluster.sui_client().clone(),
+        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
+            MasterKeys::load(&options)
+        })
+        .unwrap(),
+        key_server_oid_to_pop: HashMap::new(),
+        options,
+    };
+
+    assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
+        .await
+        .is_err());
 }
