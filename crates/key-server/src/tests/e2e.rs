@@ -1,12 +1,24 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
-use crate::MasterKeys;
-use crypto::ibe::public_key_from_master_key;
-use crypto::{seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
+use crate::types::Network;
+use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
+use crypto::ibe::{generate_key_pair, public_key_from_master_key};
+use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
+use fastcrypto::encoding::Encoding;
+use fastcrypto::serde_helpers::ToFromByteArray;
+use rand::thread_rng;
+use semver::VersionReq;
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::time::Duration;
+use sui_types::base_types::ObjectID;
+use sui_types::crypto::get_key_pair_from_rng;
+use test_cluster::TestClusterBuilder;
 use tracing_test::traced_test;
 
 #[traced_test]
@@ -100,6 +112,127 @@ async fn test_e2e() {
     let decryption = seal_decrypt(
         &encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk0, usk1]).collect()),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_permissioned() {
+    // e2e test with one key server with two clients
+
+    // Create a test cluster
+    let mut cluster = TestClusterBuilder::new()
+        .with_num_validators(1)
+        .build()
+        .await;
+
+    // Publish the patterns two times.
+    let package_ids: Vec<ObjectID> = vec![
+        SealTestCluster::publish_internal(&cluster, "patterns")
+            .await
+            .0,
+        SealTestCluster::publish_internal(&cluster, "patterns")
+            .await
+            .0,
+    ];
+
+    // Generate a key pair for the key server
+    let mut rng = thread_rng();
+    let key_pair = generate_key_pair(&mut rng);
+
+    // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
+    let key_server_object_ids = [ObjectID::random(), ObjectID::random()];
+
+    // Each client has a single package id (the ones published above)
+    let client_configs = (0..2)
+        .map(|j| ClientConfig {
+            name: format!("Client {j} on server"),
+            client_master_key: ClientKeyType::Derived {
+                derivation_index: j as u64,
+            },
+            key_server_object_id: key_server_object_ids[j],
+            package_ids: vec![(*package_ids[j]).into()],
+        })
+        .collect();
+
+    let options = KeyServerOptions {
+        network: Network::TestCluster,
+        server_mode: ServerMode::Permissioned { client_configs },
+        metrics_host_port: 0,
+        checkpoint_update_interval: Duration::from_secs(10),
+        rgp_update_interval: Duration::from_secs(60),
+        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+        allowed_staleness: Duration::from_secs(120),
+        session_key_ttl_max: from_mins(30),
+    };
+
+    let server = Server {
+        sui_client: cluster.sui_client().clone(),
+        master_keys: temp_env::with_var(
+            "MASTER_KEY",
+            Some(DefaultEncoding::encode(key_pair.0.to_byte_array())),
+            || MasterKeys::load(&options),
+        )
+        .unwrap(),
+        key_server_oid_to_pop: HashMap::new(),
+        options,
+    };
+
+    // Create test user
+    let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
+
+    // Create a whitelist for the first package and add the user
+    let (whitelist, cap) = create_whitelist(&mut cluster, package_ids[0]).await;
+    add_user_to_whitelist(&mut cluster, package_ids[0], whitelist, cap, address).await;
+
+    // We know the version at this point
+    let initial_shared_version = 4;
+    let ptb = whitelist_create_ptb(package_ids[0], whitelist, initial_shared_version);
+
+    // Requesting a user secret key on the second client should fail
+    assert!(
+        get_key(&server, &package_ids[1], ptb.clone(), &user_keypair)
+            .await
+            .is_err()
+    );
+
+    // But from the first client it should succeed
+    let usk = get_key(&server, &package_ids[0], ptb.clone(), &user_keypair)
+        .await
+        .unwrap();
+
+    // Since the key servers are not registered on-chain, we derive the master key from the key pair
+    let derived_master_key = ibe::derive_master_key(&key_pair.0.to_byte_array(), 0);
+    let pk = public_key_from_master_key(&derived_master_key);
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![pk]);
+
+    // This is encrypted using just the first client
+    let services = vec![key_server_object_ids[0]];
+
+    // Encrypt a message
+    let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    let encryption = seal_encrypt(
+        package_ids[0],
+        whitelist.to_vec(),
+        services.to_vec(),
+        &pks,
+        1,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
         Some(&pks),
     )
     .unwrap();

@@ -2,13 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
+use crate::key_server_options::{KeyServerOptions, ServerMode};
 use crate::types::Network;
-use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
+use crate::{from_mins, MasterKeys, Server};
 use crypto::ibe;
-use crypto::ibe::generate_key_pair;
 use fastcrypto::ed25519::Ed25519KeyPair;
-use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -94,78 +92,6 @@ impl SealTestCluster {
         }
     }
 
-    pub async fn new_permissioned(packages_per_server: &[Vec<String>], users: usize) -> Self {
-        let cluster = TestClusterBuilder::new()
-            .with_num_validators(1)
-            .build()
-            .await;
-
-        let mut rng = thread_rng();
-
-        let servers = join_all(packages_per_server.iter().enumerate().map(
-            async |(i, packages)| {
-                let package_ids = join_all(
-                    packages
-                        .iter()
-                        .map(async |p| Self::publish_internal(&cluster, p).await.0),
-                )
-                .await;
-
-                // Each client has a single package id for simplicity
-                let client_configs = package_ids
-                    .into_iter()
-                    .enumerate()
-                    .map(|(j, p)| ClientConfig {
-                        name: "Client {j} on server {i}".to_string(),
-                        client_master_key: ClientKeyType::Derived {
-                            derivation_index: j as u64,
-                        },
-                        key_server_object_id: ObjectID::random(),
-                        package_ids: vec![p],
-                    })
-                    .collect();
-
-                let options = KeyServerOptions {
-                    network: Network::TestCluster,
-                    server_mode: ServerMode::Permissioned { client_configs },
-                    metrics_host_port: 0,
-                    checkpoint_update_interval: Duration::from_secs(10),
-                    rgp_update_interval: Duration::from_secs(60),
-                    sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-                    allowed_staleness: Duration::from_secs(120),
-                    session_key_ttl_max: from_mins(30),
-                };
-
-                let master_key = generate_key_pair(&mut rng).0;
-                let master_keys = temp_env::with_var(
-                    "MASTER_KEY",
-                    Some(DefaultEncoding::encode(&master_key.to_byte_array())),
-                    || MasterKeys::load(&options),
-                )
-                .unwrap();
-
-                Server {
-                    sui_client: cluster.sui_client().clone(),
-                    master_keys,
-                    key_server_oid_to_pop: HashMap::new(),
-                    options: options.clone(),
-                }
-            },
-        ))
-        .await;
-
-        let users = (0..users)
-            .map(|_| get_key_pair_from_rng(&mut rng))
-            .map(|(address, keypair)| SealUser { address, keypair })
-            .collect();
-
-        Self {
-            cluster,
-            servers,
-            users,
-        }
-    }
-
     /// Get a mutable reference to the [TestCluster].
     pub fn get_mut(&mut self) -> &mut TestCluster {
         &mut self.cluster
@@ -181,10 +107,10 @@ impl SealTestCluster {
         Self::publish_internal(&self.cluster, module).await
     }
 
-    async fn publish_internal(cluster: &TestCluster, module: &str) -> (ObjectID, ObjectID) {
+    pub async fn publish_internal(cluster: &TestCluster, module: &str) -> (ObjectID, ObjectID) {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.extend(["..", "..", "move", module]);
-        Self::publish_path_internal(&cluster, path).await
+        Self::publish_path_internal(cluster, path).await
     }
 
     pub async fn publish_path(&mut self, path: PathBuf) -> (ObjectID, ObjectID) {
