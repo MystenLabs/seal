@@ -20,7 +20,7 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_tle_policy() {
-    let mut tc = SealTestCluster::new(1, 1).await;
+    let tc = SealTestCluster::new(1, 1).await;
     let (package_id, _) = tc.publish("patterns").await;
 
     {
@@ -91,7 +91,7 @@ async fn test_tle_policy() {
 #[traced_test]
 #[tokio::test]
 async fn test_tle_certificate() {
-    let mut tc = SealTestCluster::new(1, 1).await;
+    let tc = SealTestCluster::new(1, 1).await;
     let (package_id, _) = tc.publish("patterns").await;
 
     let ptb = tle_create_ptb(package_id, 1);
@@ -206,7 +206,7 @@ async fn test_tle_certificate() {
 #[traced_test]
 #[tokio::test]
 async fn test_tle_signed_request() {
-    let mut tc = SealTestCluster::new(1, 1).await;
+    let tc = SealTestCluster::new(1, 1).await;
     let (package_id, _) = tc.publish("patterns").await;
 
     let ptb = tle_create_ptb(package_id, 1);

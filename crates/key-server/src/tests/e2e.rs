@@ -24,16 +24,16 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_e2e() {
-    let mut tc = SealTestCluster::new(3, 1).await;
+    let tc = SealTestCluster::new(3, 1).await;
     let (examples_package_id, _) = tc.publish("patterns").await;
 
     let (whitelist, cap, initial_shared_version) =
-        create_whitelist(tc.get_mut(), examples_package_id).await;
+        create_whitelist(tc.cluster(), examples_package_id).await;
 
     // Create test users
     let user_address = tc.users[0].address;
     add_user_to_whitelist(
-        tc.get_mut(),
+        tc.cluster(),
         examples_package_id,
         whitelist,
         cap,
@@ -92,7 +92,7 @@ async fn test_e2e_permissioned() {
     // e2e test with one key server with two clients
 
     // Create a test cluster
-    let mut cluster = TestClusterBuilder::new()
+    let cluster = TestClusterBuilder::new()
         .with_num_validators(1)
         .build()
         .await;
@@ -151,9 +151,8 @@ async fn test_e2e_permissioned() {
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
 
     // Create a whitelist for the first package and add the user
-    let (whitelist, cap, initial_shared_version) =
-        create_whitelist(&mut cluster, package_ids[0]).await;
-    add_user_to_whitelist(&mut cluster, package_ids[0], whitelist, cap, address).await;
+    let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_ids[0]).await;
+    add_user_to_whitelist(&cluster, package_ids[0], whitelist, cap, address).await;
 
     // Since the key servers are not registered on-chain, we derive the master key from the key pair
     let derived_master_key = ibe::derive_master_key(&seed, 0);

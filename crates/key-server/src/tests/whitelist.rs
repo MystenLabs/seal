@@ -18,14 +18,14 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_whitelist() {
-    let mut tc = SealTestCluster::new(1, 2).await;
+    let tc = SealTestCluster::new(1, 2).await;
 
     let (package_id, _) = tc.publish("patterns").await;
 
-    let (whitelist, cap, initial_shared_version) = create_whitelist(tc.get_mut(), package_id).await;
+    let (whitelist, cap, initial_shared_version) = create_whitelist(tc.cluster(), package_id).await;
 
     let user_address = tc.users[0].address;
-    add_user_to_whitelist(tc.get_mut(), package_id, whitelist, cap, user_address).await;
+    add_user_to_whitelist(tc.cluster(), package_id, whitelist, cap, user_address).await;
 
     let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
     assert!(
@@ -53,9 +53,9 @@ async fn test_whitelist_with_upgrade() {
     println!("Old pkg: {}", package_id_1);
 
     let (whitelist, cap, initial_shared_version) =
-        create_whitelist(tc.get_mut(), package_id_1).await;
+        create_whitelist(tc.cluster(), package_id_1).await;
     let user_address = tc.users[0].address;
-    add_user_to_whitelist(tc.get_mut(), package_id_1, whitelist, cap, user_address).await;
+    add_user_to_whitelist(tc.cluster(), package_id_1, whitelist, cap, user_address).await;
 
     // Succeeds with initial version
     let ptb = whitelist_create_ptb(package_id_1, whitelist, initial_shared_version);
@@ -94,7 +94,7 @@ async fn test_whitelist_with_upgrade() {
     .is_err());
 
     // upgrade version
-    upgrade_whitelist(tc.get_mut(), package_id_2, whitelist, cap).await;
+    upgrade_whitelist(tc.cluster(), package_id_2, whitelist, cap).await;
 
     // Succeeds with new package
     let ptb = whitelist_create_ptb(package_id_2, whitelist, initial_shared_version);
@@ -262,7 +262,7 @@ pub(crate) async fn add_user_to_whitelist(
 }
 
 pub(crate) async fn upgrade_whitelist(
-    cluster: &mut TestCluster,
+    cluster: &TestCluster,
     package_id: ObjectID,
     whitelist: ObjectID,
     cap: ObjectID,

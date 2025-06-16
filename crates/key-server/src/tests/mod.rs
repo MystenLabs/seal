@@ -48,7 +48,7 @@ pub(crate) struct SealUser {
 
 impl SealTestCluster {
     /// Create a new SealTestCluster with the given number of servers and users.
-    /// Key servers are not registered by default. Use `register_key_server` to register them.
+    /// A Seal key server registry is also deployed, and all key servers are registered there.
     pub async fn new(servers: usize, users: usize) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
@@ -118,8 +118,8 @@ impl SealTestCluster {
     }
 
     /// Get a mutable reference to the [TestCluster].
-    pub fn get_mut(&mut self) -> &mut TestCluster {
-        &mut self.cluster
+    pub fn cluster(&self) -> &TestCluster {
+        &self.cluster
     }
 
     /// Get a reference to the first server. Panics if there are no servers.
@@ -128,7 +128,7 @@ impl SealTestCluster {
     }
 
     /// Publish the Move module in /move/<module> and return the package id and upgrade cap.
-    pub async fn publish(&mut self, module: &str) -> (ObjectID, ObjectID) {
+    pub async fn publish(&self, module: &str) -> (ObjectID, ObjectID) {
         Self::publish_internal(&self.cluster, module).await
     }
 
@@ -138,7 +138,7 @@ impl SealTestCluster {
         Self::publish_path_internal(cluster, path).await
     }
 
-    pub async fn publish_path(&mut self, path: PathBuf) -> (ObjectID, ObjectID) {
+    pub async fn publish_path(&self, path: PathBuf) -> (ObjectID, ObjectID) {
         Self::publish_path_internal(&self.cluster, path).await
     }
 
