@@ -16,7 +16,7 @@ async fn test_get_latest_checkpoint_timestamp() {
     let tc = SealTestCluster::new(0, 0).await;
 
     let tolerance = 20000;
-    let timestamp = get_latest_checkpoint_timestamp(tc.cluster.sui_client().clone())
+    let timestamp = get_latest_checkpoint_timestamp(tc.sui_client.clone())
         .await
         .unwrap();
 
