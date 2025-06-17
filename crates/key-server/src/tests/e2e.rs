@@ -20,7 +20,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
-use test_cluster::TestClusterBuilder;
+use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing_test::traced_test;
 
 #[traced_test]
@@ -103,7 +103,7 @@ async fn test_e2e_permissioned() {
         .build()
         .await;
 
-    // Publish the patterns two times.
+    // Publish the patterns package
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
@@ -135,25 +135,7 @@ async fn test_e2e_permissioned() {
         },
     ];
 
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned { client_configs },
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-    };
-    let server1 = Server {
-        sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
-            MasterKeys::load(&options)
-        })
-        .unwrap(),
-        key_server_oid_to_pop: HashMap::new(),
-        options,
-    };
+    let server1 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
 
     // The client on the second server has a single (random) package id
     let client_config = ClientConfig {
@@ -164,29 +146,13 @@ async fn test_e2e_permissioned() {
         key_server_object_id: ObjectID::random(),
         package_ids: vec![ObjectID::random()],
     };
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned {
-            client_configs: vec![client_config],
-        },
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-    };
-    let server2 = Server {
-        sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var(
-            "MASTER_SEED",
-            Some(DefaultEncoding::encode([0u8; 32])),
-            || MasterKeys::load(&options),
-        )
-        .unwrap(),
-        key_server_oid_to_pop: HashMap::new(),
-        options,
-    };
+
+    let server2 = create_server(
+        &cluster,
+        vec![client_config],
+        [("MASTER_SEED", [0u8; 32].as_slice())],
+    )
+    .await;
 
     // Create test user
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
@@ -225,7 +191,7 @@ async fn test_e2e_permissioned() {
         .await
         .is_err_and(|e| e == UnsupportedPackageId));
 
-    // But from the first client it should succeed
+    // But from the first server it should succeed
     let usk = get_key(&server1, &package_id, ptb.clone(), &user_keypair)
         .await
         .unwrap();
@@ -279,26 +245,7 @@ async fn test_e2e_imported_key() {
         package_ids: vec![package_id],
     }];
 
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned { client_configs },
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-    };
-
-    let server1 = Server {
-        sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
-            MasterKeys::load(&options)
-        })
-        .unwrap(),
-        key_server_oid_to_pop: HashMap::new(),
-        options,
-    };
+    let server1 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
 
     // Create test user
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
@@ -361,33 +308,18 @@ async fn test_e2e_imported_key() {
         package_ids: vec![package_id],
     }];
 
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned { client_configs },
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-    };
-
-    let server2 = Server {
-        sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_vars(
-            [
-                (
-                    "IMPORTED_MASTER_KEY",
-                    Some(DefaultEncoding::encode(derived_master_key.to_byte_array())),
-                ),
-                ("MASTER_SEED", Some(DefaultEncoding::encode([0u8; 32]))),
-            ],
-            || MasterKeys::load(&options),
-        )
-        .unwrap(),
-        key_server_oid_to_pop: HashMap::new(),
-        options,
-    };
+    let server2 = create_server(
+        &cluster,
+        client_configs,
+        [
+            (
+                "IMPORTED_MASTER_KEY",
+                derived_master_key.to_byte_array().as_slice(),
+            ),
+            ("MASTER_SEED", [0u8; 32].as_slice()),
+        ],
+    )
+    .await;
 
     // Getting a key from server 2 should now succeed
     let usk = get_key(&server2, &package_id, ptb.clone(), &user_keypair)
@@ -424,6 +356,18 @@ async fn test_e2e_imported_key() {
         },
     ];
 
+    let server3 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
+
+    assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
+        .await
+        .is_err_and(|e| e == UnsupportedPackageId));
+}
+
+async fn create_server(
+    cluster: &TestCluster,
+    client_configs: Vec<ClientConfig>,
+    vars: impl AsRef<[(&str, &[u8])]>,
+) -> Server {
     let options = KeyServerOptions {
         network: Network::TestCluster,
         server_mode: ServerMode::Permissioned { client_configs },
@@ -435,17 +379,16 @@ async fn test_e2e_imported_key() {
         session_key_ttl_max: from_mins(30),
     };
 
-    let server3 = Server {
+    let vars = vars
+        .as_ref()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Some(DefaultEncoding::encode(v))))
+        .collect::<Vec<_>>();
+
+    Server {
         sui_client: cluster.sui_client().clone(),
-        master_keys: temp_env::with_var("MASTER_SEED", Some(DefaultEncoding::encode(seed)), || {
-            MasterKeys::load(&options)
-        })
-        .unwrap(),
+        master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,
-    };
-
-    assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
-        .await
-        .is_err_and(|e| e == UnsupportedPackageId));
+    }
 }
