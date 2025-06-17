@@ -10,7 +10,7 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
-use fastcrypto::error::FastCryptoError::{GeneralError, GeneralOpaqueError};
+use fastcrypto::error::FastCryptoError::GeneralError;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -438,5 +438,5 @@ async fn test_e2e_imported_key() {
 
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
-        .is_err_and(|e| e == GeneralOpaqueError));
+        .is_err_and(|e| e == GeneralError("UnsupportedPackageId".to_string())));
 }
