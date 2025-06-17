@@ -18,9 +18,10 @@ use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
+use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
-use test_cluster::{TestCluster, TestClusterBuilder};
+use test_cluster::TestClusterBuilder;
 use tracing_test::traced_test;
 
 #[traced_test]
@@ -116,40 +117,41 @@ async fn test_e2e_permissioned() {
     let key_server_object_id = ObjectID::random();
 
     // The client handles two package ids, one per client
-    let client_configs = vec![
-        ClientConfig {
-            name: "Client 1 on server 1".to_string(),
+    let server1 = create_server(
+        cluster.sui_client().clone(),
+        vec![
+            ClientConfig {
+                name: "Client 1 on server 1".to_string(),
+                client_master_key: ClientKeyType::Derived {
+                    derivation_index: 0,
+                },
+                key_server_object_id,
+                package_ids: vec![ObjectID::random(), (*package_id).into()],
+            },
+            ClientConfig {
+                name: "Client 2 on server 1".to_string(),
+                client_master_key: ClientKeyType::Derived {
+                    derivation_index: 1,
+                },
+                key_server_object_id: ObjectID::random(),
+                package_ids: vec![ObjectID::random()],
+            },
+        ],
+        [("MASTER_SEED", seed.as_slice())],
+    )
+    .await;
+
+    // The client on the second server has a single (random) package id
+    let server2 = create_server(
+        cluster.sui_client().clone(),
+        vec![ClientConfig {
+            name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
                 derivation_index: 0,
             },
-            key_server_object_id,
-            package_ids: vec![ObjectID::random(), (*package_id).into()],
-        },
-        ClientConfig {
-            name: "Client 2 on server 1".to_string(),
-            client_master_key: ClientKeyType::Derived {
-                derivation_index: 1,
-            },
             key_server_object_id: ObjectID::random(),
             package_ids: vec![ObjectID::random()],
-        },
-    ];
-
-    let server1 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
-
-    // The client on the second server has a single (random) package id
-    let client_config = ClientConfig {
-        name: "Client on server 2".to_string(),
-        client_master_key: ClientKeyType::Derived {
-            derivation_index: 0,
-        },
-        key_server_object_id: ObjectID::random(),
-        package_ids: vec![ObjectID::random()],
-    };
-
-    let server2 = create_server(
-        &cluster,
-        vec![client_config],
+        }],
         [("MASTER_SEED", [0u8; 32].as_slice())],
     )
     .await;
@@ -227,7 +229,6 @@ async fn test_e2e_imported_key() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
-
     // Generate a key pair for the key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
@@ -236,16 +237,19 @@ async fn test_e2e_imported_key() {
     let key_server_object_id = ObjectID::random();
 
     // Server has a single client with a single package id (the one published above)
-    let client_configs = vec![ClientConfig {
-        name: "Key server client 1".to_string(),
-        client_master_key: ClientKeyType::Derived {
-            derivation_index: 0u64,
-        },
-        key_server_object_id,
-        package_ids: vec![package_id],
-    }];
-
-    let server1 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
+    let server1 = create_server(
+        cluster.sui_client().clone(),
+        vec![ClientConfig {
+            name: "Key server client 1".to_string(),
+            client_master_key: ClientKeyType::Derived {
+                derivation_index: 0u64,
+            },
+            key_server_object_id,
+            package_ids: vec![package_id],
+        }],
+        [("MASTER_SEED", seed.as_slice())],
+    )
+    .await;
 
     // Create test user
     let (address, user_keypair) = get_key_pair_from_rng(&mut rng);
@@ -299,18 +303,16 @@ async fn test_e2e_imported_key() {
     assert_eq!(decryption, message);
 
     // Import the master key for a client into a second server
-    let client_configs = vec![ClientConfig {
-        name: "Key server client 2".to_string(),
-        client_master_key: ClientKeyType::Imported {
-            env_var: "IMPORTED_MASTER_KEY".to_string(),
-        },
-        key_server_object_id: ObjectID::random(),
-        package_ids: vec![package_id],
-    }];
-
     let server2 = create_server(
-        &cluster,
-        client_configs,
+        cluster.sui_client().clone(),
+        vec![ClientConfig {
+            name: "Key server client 2".to_string(),
+            client_master_key: ClientKeyType::Imported {
+                env_var: "IMPORTED_MASTER_KEY".to_string(),
+            },
+            key_server_object_id: ObjectID::random(),
+            package_ids: vec![package_id],
+        }],
         [
             (
                 "IMPORTED_MASTER_KEY",
@@ -337,26 +339,29 @@ async fn test_e2e_imported_key() {
     assert_eq!(decryption, message);
 
     // Create a new key server where the derived key is marked as exported
-    let client_configs = vec![
-        ClientConfig {
-            name: "Key server client 3.0".to_string(),
-            client_master_key: ClientKeyType::Exported {
-                deprecated_derivation_index: 0,
+    let server3 = create_server(
+        cluster.sui_client().clone(),
+        vec![
+            ClientConfig {
+                name: "Key server client 3.0".to_string(),
+                client_master_key: ClientKeyType::Exported {
+                    deprecated_derivation_index: 0,
+                },
+                key_server_object_id,
+                package_ids: vec![package_id],
             },
-            key_server_object_id,
-            package_ids: vec![package_id],
-        },
-        ClientConfig {
-            name: "Key server client 3.1".to_string(),
-            client_master_key: ClientKeyType::Derived {
-                derivation_index: 1,
+            ClientConfig {
+                name: "Key server client 3.1".to_string(),
+                client_master_key: ClientKeyType::Derived {
+                    derivation_index: 1,
+                },
+                key_server_object_id: ObjectID::random(),
+                package_ids: vec![ObjectID::random()],
             },
-            key_server_object_id: ObjectID::random(),
-            package_ids: vec![ObjectID::random()],
-        },
-    ];
-
-    let server3 = create_server(&cluster, client_configs, [("MASTER_SEED", seed.as_slice())]).await;
+        ],
+        [("MASTER_SEED", seed.as_slice())],
+    )
+    .await;
 
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
@@ -364,7 +369,7 @@ async fn test_e2e_imported_key() {
 }
 
 async fn create_server(
-    cluster: &TestCluster,
+    sui_client: SuiClient,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
@@ -381,12 +386,12 @@ async fn create_server(
 
     let vars = vars
         .as_ref()
-        .into_iter()
+        .iter()
         .map(|(k, v)| (k.to_string(), Some(DefaultEncoding::encode(v))))
         .collect::<Vec<_>>();
 
     Server {
-        sui_client: cluster.sui_client().clone(),
+        sui_client,
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,
