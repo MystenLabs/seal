@@ -48,13 +48,14 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
+use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::{Error, SuiRpcResult};
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-use sui_sdk::{SuiClient, SuiClientBuilder};
+use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
 use tokio::sync::watch::{channel, Receiver};
 use tokio::task::JoinHandle;
@@ -67,6 +68,7 @@ mod cache;
 mod errors;
 mod externals;
 mod signed_message;
+mod sui_rpc_client;
 mod types;
 mod utils;
 mod valid_ptb;
@@ -127,7 +129,7 @@ struct FetchKeyResponse {
 
 #[derive(Clone)]
 struct Server {
-    sui_client: SuiClient,
+    sui_rpc_client: SuiRpcClient,
     master_keys: MasterKeys,
     key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
     options: KeyServerOptions,
@@ -135,10 +137,16 @@ struct Server {
 
 impl Server {
     async fn new(options: KeyServerOptions) -> Self {
-        let sui_client = SuiClientBuilder::default()
-            .build(&options.network.node_url())
-            .await
-            .expect("SuiClientBuilder should not failed unless provided with invalid network url");
+        let sui_rpc_client = SuiRpcClient::new(
+            SuiClientBuilder::default()
+                .request_timeout(options.rpc_config.timeout)
+                .build(&options.network.node_url())
+                .await
+                .expect(
+                    "SuiClientBuilder should not failed unless provided with invalid network url",
+                ),
+            options.rpc_config.retry_config.clone(),
+        );
         info!("Server started with network: {:?}", options.network);
 
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
@@ -158,7 +166,7 @@ impl Server {
             .collect();
 
         Server {
-            sui_client,
+            sui_rpc_client,
             master_keys,
             key_server_oid_to_pop,
             options,
@@ -203,7 +211,7 @@ impl Server {
             cert.signature.clone(),
             msg.as_bytes(),
             cert.user,
-            Some(self.sui_client.clone()),
+            Some(self.sui_rpc_client.sui_client().clone()),
         )
         .await
         .tap_err(|e| {
@@ -241,7 +249,8 @@ impl Server {
         );
         // Evaluate the `seal_approve*` function
         let tx_data = self
-            .sui_client
+            .sui_rpc_client
+            .sui_client()
             .transaction_builder()
             .tx_data_for_dry_run(
                 sender,
@@ -252,11 +261,9 @@ impl Server {
                 None,
             )
             .await;
-        let dry_run_res = self
-            .sui_client
-            .read_api()
-            .dry_run_transaction_block(tx_data)
-            .await
+        let dry_run_res = self.sui_rpc_client
+                .dry_run_transaction_block(tx_data.clone())
+                .await
             .map_err(|e| {
                 if let Error::RpcError(ClientError::Call(ref e)) = e {
                     match e.code() {
@@ -304,7 +311,7 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_client).await
+                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_rpc_client).await
             })
             .await?;
 
@@ -314,8 +321,8 @@ impl Server {
         // Check if the package id that MVR name points matches the first package ID, if provided.
         externals::check_mvr_package_id(
             &mvr_name,
-            &self.sui_client,
-            &self.options.network,
+            &self.sui_rpc_client,
+            &self.options,
             first_pkg_id,
             req_id,
         )
@@ -384,14 +391,14 @@ impl Server {
         success_callback: Option<I>,
     ) -> (Receiver<u64>, JoinHandle<()>)
     where
-        F: Fn(SuiClient) -> Fut + Send + 'static,
+        F: Fn(SuiRpcClient) -> Fut + Send + 'static,
         Fut: Future<Output = SuiRpcResult<u64>> + Send,
         G: Fn(u64) + Send + 'static,
         H: Fn(Duration) + Send + 'static,
         I: Fn(bool) + Send + 'static,
     {
         let (sender, mut receiver) = channel(0);
-        let local_client = self.sui_client.clone();
+        let local_client = self.sui_rpc_client.clone();
         let mut interval = tokio::time::interval(update_interval);
 
         // In case of a missed tick due to a slow-responding full node, we don't need to

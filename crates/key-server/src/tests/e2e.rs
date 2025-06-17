@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError::UnsupportedPackageId;
-use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
+use crate::key_server_options::{
+    ClientConfig, ClientKeyType, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
+};
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
@@ -382,6 +385,7 @@ async fn create_server(
         sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
         allowed_staleness: Duration::from_secs(120),
         session_key_ttl_max: from_mins(30),
+        rpc_config: RpcConfig::default(),
     };
 
     let vars = vars
@@ -391,7 +395,7 @@ async fn create_server(
         .collect::<Vec<_>>();
 
     Server {
-        sui_client,
+        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default()),
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,

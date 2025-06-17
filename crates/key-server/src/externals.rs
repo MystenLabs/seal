@@ -3,13 +3,13 @@
 
 use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
 use crate::errors::InternalError;
-use crate::types::Network;
+use crate::key_server_options::KeyServerOptions;
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::{mvr_forward_resolution, Timestamp};
 use once_cell::sync::Lazy;
 use std::time::Duration;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
-use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
 use tracing::{debug, warn};
@@ -29,8 +29,8 @@ pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
 
 pub(crate) async fn check_mvr_package_id(
     mvr_name: &Option<String>,
-    sui_client: &SuiClient,
-    network: &Network,
+    sui_rpc_client: &SuiRpcClient,
+    key_server_options: &KeyServerOptions,
     first_pkg_id: ObjectID,
     req_id: Option<&str>,
 ) -> Result<(), InternalError> {
@@ -39,7 +39,8 @@ pub(crate) async fn check_mvr_package_id(
     if let Some(mvr_name) = &mvr_name {
         let mvr_package_id = match get_mvr_cache(mvr_name) {
             None => {
-                let mvr_package_id = mvr_forward_resolution(sui_client, mvr_name, network).await?;
+                let mvr_package_id =
+                    mvr_forward_resolution(sui_rpc_client, mvr_name, key_server_options).await?;
                 insert_mvr_cache(mvr_name, mvr_package_id);
                 mvr_package_id
             }
@@ -64,13 +65,12 @@ pub(crate) async fn check_mvr_package_id(
 
 pub(crate) async fn fetch_first_pkg_id(
     pkg_id: &ObjectID,
-    sui_client: &SuiClient,
+    sui_rpc_client: &SuiRpcClient,
 ) -> Result<ObjectID, InternalError> {
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let object = sui_client
-                .read_api()
+            let object = sui_rpc_client
                 .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
                 .await
                 .map_err(|_| InternalError::Failure)? // internal error that fullnode fails to respond, check fullnode.
@@ -101,13 +101,13 @@ pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
 }
 
 /// Returns the timestamp for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpcResult<Timestamp> {
-    let latest_checkpoint_sequence_number = client
-        .read_api()
+pub(crate) async fn get_latest_checkpoint_timestamp(
+    sui_rpc_client: SuiRpcClient,
+) -> SuiRpcResult<Timestamp> {
+    let latest_checkpoint_sequence_number = sui_rpc_client
         .get_latest_checkpoint_sequence_number()
         .await?;
-    let checkpoint = client
-        .read_api()
+    let checkpoint = sui_rpc_client
         .get_checkpoint(CheckpointId::SequenceNumber(
             latest_checkpoint_sequence_number,
         ))
@@ -115,9 +115,8 @@ pub(crate) async fn get_latest_checkpoint_timestamp(client: SuiClient) -> SuiRpc
     Ok(checkpoint.timestamp_ms)
 }
 
-pub(crate) async fn get_reference_gas_price(client: SuiClient) -> SuiRpcResult<u64> {
-    let rgp = client
-        .read_api()
+pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> SuiRpcResult<u64> {
+    let rgp = sui_rpc_client
         .get_reference_gas_price()
         .await
         .tap_err(|e| {
@@ -155,6 +154,8 @@ pub(crate) fn current_epoch_time() -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::externals::fetch_first_pkg_id;
+    use crate::key_server_options::RetryConfig;
+    use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
@@ -174,11 +175,16 @@ mod tests {
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
         .unwrap();
-        let sui_client = SuiClientBuilder::default()
-            .build(&Network::Testnet.node_url())
-            .await
-            .expect("SuiClientBuilder should not failed unless provided with invalid network url");
-        match fetch_first_pkg_id(&address, &sui_client).await {
+        let sui_rpc_client = SuiRpcClient::new(
+            SuiClientBuilder::default()
+                .build(&Network::Testnet.node_url())
+                .await
+                .expect(
+                    "SuiClientBuilder should not failed unless provided with invalid network url",
+                ),
+            RetryConfig::default(),
+        );
+        match fetch_first_pkg_id(&address, &sui_rpc_client).await {
             Ok(first) => {
                 assert_eq!(
                     first.to_hex_literal(),
@@ -194,11 +200,16 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
-        let sui_client = SuiClientBuilder::default()
-            .build(&Network::Mainnet.node_url())
-            .await
-            .expect("SuiClientBuilder should not failed unless provided with invalid network url");
-        let result = fetch_first_pkg_id(&invalid_address, &sui_client).await;
+        let sui_rpc_client = SuiRpcClient::new(
+            SuiClientBuilder::default()
+                .build(&Network::Mainnet.node_url())
+                .await
+                .expect(
+                    "SuiClientBuilder should not failed unless provided with invalid network url",
+                ),
+            RetryConfig::default(),
+        );
+        let result = fetch_first_pkg_id(&invalid_address, &sui_rpc_client).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
     }
 

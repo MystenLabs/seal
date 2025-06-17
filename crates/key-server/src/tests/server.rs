@@ -7,8 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_test::traced_test;
 
 use crate::externals::get_latest_checkpoint_timestamp;
+use crate::key_server_options::RetryConfig;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
 
 #[tokio::test]
@@ -16,9 +18,12 @@ async fn test_get_latest_checkpoint_timestamp() {
     let tc = SealTestCluster::new(0).await;
 
     let tolerance = 20000;
-    let timestamp = get_latest_checkpoint_timestamp(tc.cluster.sui_client().clone())
-        .await
-        .unwrap();
+    let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
+        tc.cluster.sui_client().clone(),
+        RetryConfig::default(),
+    ))
+    .await
+    .unwrap();
 
     let actual_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

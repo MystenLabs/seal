@@ -15,11 +15,13 @@
 
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
+use crate::key_server_options::KeyServerOptions;
 use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
 use crate::mvr::mainnet::mvr_core::name::Name;
 use crate::mvr::mainnet::sui::dynamic_field::Field;
 use crate::mvr::mainnet::sui::vec_map::VecMap;
 use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -30,7 +32,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
-use sui_sdk::{SuiClient, SuiClientBuilder};
+use sui_sdk::SuiClientBuilder;
 use sui_types::base_types::ObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
@@ -67,12 +69,12 @@ impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
 
 /// Given an MVR name, look up the package it points to.
 pub(crate) async fn mvr_forward_resolution(
-    client: &SuiClient,
+    sui_rpc_client: &SuiRpcClient,
     mvr_name: &str,
-    network: &Network,
+    key_server_options: &KeyServerOptions,
 ) -> Result<ObjectID, InternalError> {
-    let package_address = match network {
-        Network::Mainnet => get_from_mvr_registry(mvr_name, client)
+    let package_address = match key_server_options.network {
+        Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
             .await?
             .value
             .app_info
@@ -82,10 +84,14 @@ pub(crate) async fn mvr_forward_resolution(
         Network::Testnet => {
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
-                &SuiClientBuilder::default()
-                    .build_mainnet()
-                    .await
-                    .map_err(|_| Failure)?,
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default()
+                        .request_timeout(key_server_options.rpc_config.timeout)
+                        .build_mainnet()
+                        .await
+                        .map_err(|_| Failure)?,
+                    key_server_options.rpc_config.retry_config.clone(),
+                ),
             )
             .await?
             .value
@@ -99,7 +105,7 @@ pub(crate) async fn mvr_forward_resolution(
                 .package_info_id
                 .ok_or(Failure)
                 .map(|id| ObjectID::new(id.into_inner()))?;
-            let package_info: PackageInfo = get_object(package_info_id, client).await?;
+            let package_info: PackageInfo = get_object(package_info_id, sui_rpc_client).await?;
 
             // Check that the name in the package info matches the MVR name.
             let metadata: HashMap<_, _> = package_info.metadata.into();
@@ -118,14 +124,13 @@ pub(crate) async fn mvr_forward_resolution(
 /// Given an MVR name, look up the record in the MVR registry on mainnet.
 async fn get_from_mvr_registry(
     mvr_name: &str,
-    mainnet_client: &SuiClient,
+    sui_rpc_client: &SuiRpcClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
-    let record_id = mainnet_client
-        .read_api()
+    let record_id = sui_rpc_client
         .get_dynamic_field_object(
             ObjectID::from_str(MVR_REGISTRY).unwrap(),
-            dynamic_field_name,
+            dynamic_field_name.clone(),
         )
         .await
         .map_err(|_| Failure)?
@@ -133,7 +138,7 @@ async fn get_from_mvr_registry(
         .map_err(|_| InvalidMVRName)?;
 
     // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
-    get_object(record_id, mainnet_client).await
+    get_object(record_id, sui_rpc_client).await
 }
 
 /// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
@@ -157,11 +162,10 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
 
 async fn get_object<T: for<'a> Deserialize<'a>>(
     object_id: ObjectID,
-    client: &SuiClient,
+    sui_rpc_client: &SuiRpcClient,
 ) -> Result<T, InternalError> {
     bcs::from_bytes(
-        client
-            .read_api()
+        sui_rpc_client
             .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())
             .await
             .map_err(|_| Failure)?
@@ -174,7 +178,9 @@ async fn get_object<T: for<'a> Deserialize<'a>>(
 #[cfg(test)]
 mod tests {
     use crate::errors::InternalError::InvalidMVRName;
+    use crate::key_server_options::{KeyServerOptions, RetryConfig};
     use crate::mvr::mvr_forward_resolution;
+    use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
@@ -185,8 +191,11 @@ mod tests {
     async fn test_forward_resolution() {
         assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
-            &SuiClientBuilder::default().build_mainnet().await.unwrap(),
-            &Network::Mainnet,
+            &SuiRpcClient::new(
+                SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                RetryConfig::default(),
+            ),
+            &KeyServerOptions::new_for_testing(Network::Mainnet),
             ObjectID::from_str(
                 "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
             )
@@ -208,9 +217,12 @@ mod tests {
         );
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_testnet().await.unwrap(),
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    RetryConfig::default()
+                ),
                 "@mysten/kiosk",
-                &Network::Testnet
+                &KeyServerOptions::new_for_testing(Network::Testnet),
             )
             .await
             .unwrap(),
@@ -223,9 +235,12 @@ mod tests {
         // This MVR name is not registered on mainnet.
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    RetryConfig::default(),
+                ),
                 "@pkg/seal-demo-1234",
-                &Network::Mainnet
+                &KeyServerOptions::new_for_testing(Network::Mainnet),
             )
             .await
             .err()
@@ -236,9 +251,12 @@ mod tests {
         // ..but it is on testnet.
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_testnet().await.unwrap(),
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    RetryConfig::default(),
+                ),
                 "@pkg/seal-demo-1234",
-                &Network::Testnet
+                &KeyServerOptions::new_for_testing(Network::Testnet),
             )
             .await
             .unwrap(),
@@ -253,9 +271,12 @@ mod tests {
     async fn test_invalid_name() {
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    RetryConfig::default(),
+                ),
                 "@saemundur/seal",
-                &Network::Mainnet
+                &KeyServerOptions::new_for_testing(Network::Mainnet),
             )
             .await
             .err()
@@ -265,9 +286,12 @@ mod tests {
 
         assert_eq!(
             mvr_forward_resolution(
-                &SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                &SuiRpcClient::new(
+                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    RetryConfig::default(),
+                ),
                 "invalid_name",
-                &Network::Mainnet
+                &KeyServerOptions::new_for_testing(Network::Mainnet),
             )
             .await
             .err()

@@ -54,6 +54,48 @@ pub enum ServerMode {
     },
 }
 
+/// Configuration for the RPC client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcConfig {
+    /// The timeout for RPC requests.
+    pub timeout: Duration,
+
+    /// The retry configuration for RPC requests.
+    pub retry_config: RetryConfig,
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(60),
+            retry_config: RetryConfig::default(),
+        }
+    }
+}
+
+/// Configuration for the retry logic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryConfig {
+    /// The maximum number of retries.
+    pub max_retries: u32,
+
+    /// The minimum delay between retries.
+    pub min_delay: Duration,
+
+    /// The maximum delay between retries.
+    pub max_delay: Duration,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            min_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(10),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyServerOptions {
     /// The network this key server is running on.
@@ -98,6 +140,10 @@ pub struct KeyServerOptions {
         deserialize_with = "deserialize_duration"
     )]
     pub session_key_ttl_max: Duration,
+
+    /// The configuration for the Sui RPC client.
+    #[serde(default)]
+    pub rpc_config: RpcConfig,
 }
 
 impl KeyServerOptions {
@@ -118,6 +164,25 @@ impl KeyServerOptions {
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
+            rpc_config: RpcConfig::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_for_testing(network: Network) -> Self {
+        Self {
+            network,
+            sdk_version_requirement: default_sdk_version_requirement(),
+            server_mode: ServerMode::Open {
+                legacy_key_server_object_id: None,
+                key_server_object_id: ObjectID::random(),
+            },
+            metrics_host_port: default_metrics_host_port(),
+            checkpoint_update_interval: default_checkpoint_update_interval(),
+            rgp_update_interval: default_rgp_update_interval(),
+            allowed_staleness: default_allowed_staleness(),
+            session_key_ttl_max: default_session_key_ttl_max(),
+            rpc_config: RpcConfig::default(),
         }
     }
 
