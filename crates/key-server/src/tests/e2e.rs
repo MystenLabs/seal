@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::errors::InternalError::UnsupportedPackageId;
 use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
@@ -10,7 +11,6 @@ use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
-use fastcrypto::error::FastCryptoError::GeneralError;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -123,7 +123,7 @@ async fn test_e2e_permissioned() {
                 derivation_index: 0,
             },
             key_server_object_id,
-            package_ids: vec![(*package_id).into()],
+            package_ids: vec![ObjectID::random(), (*package_id).into()],
         },
         ClientConfig {
             name: "Client 2 on server 1".to_string(),
@@ -223,7 +223,7 @@ async fn test_e2e_permissioned() {
     let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
     assert!(get_key(&server2, &package_id, ptb.clone(), &user_keypair)
         .await
-        .is_err_and(|e| e == GeneralError("UnsupportedPackageId".to_string())));
+        .is_err_and(|e| e == UnsupportedPackageId));
 
     // But from the first client it should succeed
     let usk = get_key(&server1, &package_id, ptb.clone(), &user_keypair)
@@ -447,5 +447,5 @@ async fn test_e2e_imported_key() {
 
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
-        .is_err_and(|e| e == GeneralError("UnsupportedPackageId".to_string())));
+        .is_err_and(|e| e == UnsupportedPackageId));
 }
