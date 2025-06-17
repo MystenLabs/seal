@@ -115,20 +115,29 @@ async fn test_e2e_permissioned() {
     // Sample random key server object id.
     let key_server_object_id = ObjectID::random();
 
-    // The client handles a single package id (the one published above)
-    let client_config = ClientConfig {
-        name: "Client on server 1".to_string(),
-        client_master_key: ClientKeyType::Derived {
-            derivation_index: 0,
+    // The client handles two package ids, one per client
+    let client_configs = vec![
+        ClientConfig {
+            name: "Client 1 on server 1".to_string(),
+            client_master_key: ClientKeyType::Derived {
+                derivation_index: 0,
+            },
+            key_server_object_id,
+            package_ids: vec![(*package_id).into()],
         },
-        key_server_object_id,
-        package_ids: vec![(*package_id).into()],
-    };
+        ClientConfig {
+            name: "Client 2 on server 1".to_string(),
+            client_master_key: ClientKeyType::Derived {
+                derivation_index: 1,
+            },
+            key_server_object_id: ObjectID::random(),
+            package_ids: vec![ObjectID::random()],
+        },
+    ];
+
     let options = KeyServerOptions {
         network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned {
-            client_configs: vec![client_config],
-        },
+        server_mode: ServerMode::Permissioned { client_configs },
         metrics_host_port: 0,
         checkpoint_update_interval: Duration::from_secs(10),
         rgp_update_interval: Duration::from_secs(60),
