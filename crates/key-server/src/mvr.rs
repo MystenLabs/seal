@@ -124,10 +124,10 @@ pub(crate) async fn mvr_forward_resolution(
 /// Given an MVR name, look up the record in the MVR registry on mainnet.
 async fn get_from_mvr_registry(
     mvr_name: &str,
-    sui_rpc_client: &SuiRpcClient,
+    mainnet_sui_rpc_client: &SuiRpcClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
-    let record_id = sui_rpc_client
+    let record_id = mainnet_sui_rpc_client
         .get_dynamic_field_object(
             ObjectID::from_str(MVR_REGISTRY).unwrap(),
             dynamic_field_name.clone(),
@@ -138,7 +138,7 @@ async fn get_from_mvr_registry(
         .map_err(|_| InvalidMVRName)?;
 
     // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
-    get_object(record_id, sui_rpc_client).await
+    get_object(record_id, mainnet_sui_rpc_client).await
 }
 
 /// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
