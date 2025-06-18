@@ -121,6 +121,13 @@ impl KeyServerOptions {
         }
     }
 
+    /// Validate a set of client configurations for a permissioned server:
+    /// 1. Each client must have at least one package ID.
+    /// 2. A package ID can only be used by one client.
+    /// 3. Each client name must be unique.
+    /// 4. Each derived key or deprecated key (in case of export) must have a unique derivation index.
+    /// 5. The set of derivation indices must be incremental starting from 0.
+    /// 6. The environment variable names for clients with imported keys must be unique.
     pub fn validate(&self) -> Result<()> {
         info!(
             "Validating KeyServerOptions:\n{}",
@@ -144,7 +151,10 @@ impl KeyServerOptions {
                     return Err(anyhow!("Duplicate client name: {}", config.name));
                 }
                 match &config.client_master_key {
-                    ClientKeyType::Derived { derivation_index } => {
+                    ClientKeyType::Derived { derivation_index }
+                    | ClientKeyType::Exported {
+                        deprecated_derivation_index: derivation_index,
+                    } => {
                         if !derivation_indices.insert(*derivation_index) {
                             return Err(anyhow!(
                                 "Duplicate derivation index: {}",
@@ -157,26 +167,16 @@ impl KeyServerOptions {
                             return Err(anyhow!("Duplicate environment variable: {}", env_var));
                         }
                     }
-                    ClientKeyType::Exported {
-                        deprecated_derivation_index: derivation_index,
-                    } => {
-                        if !derivation_indices.insert(*derivation_index) {
-                            return Err(anyhow!(
-                                "Duplicate derivation index: {}",
-                                derivation_index
-                            ));
-                        }
-                    }
                 }
                 if !obj_ids.insert(config.key_server_object_id) {
                     return Err(anyhow!(
-                        "Duplicate object ID: {}",
+                        "Duplicate key server object ID: {}",
                         config.key_server_object_id
                     ));
                 }
                 for pkg_id in &config.package_ids {
                     if !obj_ids.insert(*pkg_id) {
-                        return Err(anyhow!("Duplicate object ID: {}", pkg_id));
+                        return Err(anyhow!("Duplicate package ID: {}", pkg_id));
                     }
                 }
             }
@@ -404,7 +404,7 @@ server_mode: !Permissioned
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
 "#;
     let dup_ks_oid_expected_error =
-        "Duplicate object ID: 0xaaaa000000000000000000000000000000000000000000000000000000000001";
+        "Duplicate key server object ID: 0xaaaa000000000000000000000000000000000000000000000000000000000001";
 
     let dup_pkg_id = r#"
 network: Mainnet
@@ -425,7 +425,7 @@ server_mode: !Permissioned
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
 "#;
     let dup_pkg_id_expected_error =
-        "Duplicate object ID: 0x1111111111111111111111111111111111111111111111111111111111111111";
+        "Duplicate package ID: 0x1111111111111111111111111111111111111111111111111111111111111111";
 
     let dup_env_var = r#"
 network: Mainnet

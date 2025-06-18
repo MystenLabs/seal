@@ -6,7 +6,7 @@ use crate::errors::InternalError::{
 use crate::externals::{
     current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since,
 };
-use crate::key_server_options::{ClientKeyType, ServerMode};
+use crate::key_server_options::{ClientConfig, ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
@@ -861,67 +861,36 @@ impl MasterKeys {
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
-                let mut next_free_derivation_index: u64 = 0;
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
+                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?;
                 for config in client_configs {
-                    let key = match &config.client_master_key {
+                    let master_key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
-                            next_free_derivation_index = next_free_derivation_index.max(
-                                derivation_index
-                                    .checked_add(1)
-                                    .expect("too many derivation indexes"),
-                            );
-                            ibe::derive_master_key(
-                                &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?,
-                                *derivation_index,
-                            )
+                            ibe::derive_master_key(&seed, *derivation_index)
                         }
                         ClientKeyType::Imported { env_var } => {
                             decode_master_key::<DefaultEncoding>(env_var)?
                         }
-                        ClientKeyType::Exported {
-                            deprecated_derivation_index,
-                        } => {
-                            next_free_derivation_index = next_free_derivation_index.max(
-                                deprecated_derivation_index
-                                    .checked_add(1)
-                                    .expect("too many derivation indexes"),
-                            );
-                            continue;
-                        }
+                        ClientKeyType::Exported { .. } => continue,
                     };
 
                     info!(
                         "Client {:?} uses public key: {:?}",
                         config.name,
                         DefaultEncoding::encode(
-                            bcs::to_bytes(&ibe::public_key_from_master_key(&key))
-                                .expect("valid pk")
+                            ibe::public_key_from_master_key(&master_key).to_byte_array()
                         )
                     );
 
                     for pkg_id in &config.package_ids {
-                        pkg_id_to_key.insert(*pkg_id, key);
+                        pkg_id_to_key.insert(*pkg_id, master_key);
                     }
-                    key_server_oid_to_key.insert(config.key_server_object_id, key);
+                    key_server_oid_to_key.insert(config.key_server_object_id, master_key);
                 }
 
-                // Log the next 10 unassigned public keys
-                for i in 0..10 {
-                    let key = ibe::derive_master_key(
-                        &decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?,
-                        next_free_derivation_index + i,
-                    );
-                    info!(
-                        "Unassigned derived public key with index {}: {:?}",
-                        next_free_derivation_index + i,
-                        DefaultEncoding::encode(
-                            bcs::to_bytes(&ibe::public_key_from_master_key(&key))
-                                .expect("valid pk")
-                        )
-                    );
-                }
+                Self::log_unassigned_public_keys(client_configs, &seed);
+
                 // No clients, can abort.
                 if pkg_id_to_key.is_empty() {
                     return Err(anyhow!("No clients found in the configuration"));
@@ -932,6 +901,33 @@ impl MasterKeys {
                     key_server_oid_to_key,
                 })
             }
+        }
+    }
+
+    /// Log the next 10 unassigned public keys.
+    /// This is done to make it easier to find a public key of a derived key that's not yet assigned to a client.
+    /// Can be removed once an endpoint to get public keys from derivation indices is implemented.
+    fn log_unassigned_public_keys(client_configs: &[ClientConfig], seed: &[u8; SEED_LENGTH]) {
+        // The derivation indices are in incremental order, so the next free index is the max + 1 or 0 if no derivation indices are used.
+        let next_free_derivation_index = client_configs
+            .iter()
+            .filter_map(|c| match &c.client_master_key {
+                ClientKeyType::Derived { derivation_index } => Some(*derivation_index),
+                ClientKeyType::Exported {
+                    deprecated_derivation_index,
+                } => Some(*deprecated_derivation_index),
+                _ => None,
+            })
+            .max()
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        for i in 0..10 {
+            let key = ibe::derive_master_key(seed, next_free_derivation_index + i);
+            info!(
+                "Unassigned derived public key with index {}: {:?}",
+                next_free_derivation_index + i,
+                DefaultEncoding::encode(ibe::public_key_from_master_key(&key).to_byte_array())
+            );
         }
     }
 
