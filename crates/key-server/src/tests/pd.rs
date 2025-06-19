@@ -1,8 +1,12 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
+use crate::metrics::Metrics;
 use crate::tests::externals::get_key;
 use crate::tests::SealTestCluster;
+use prometheus::default_registry;
 use sui_sdk::{json::SuiJsonValue, rpc_types::ObjectChange};
 use sui_types::base_types::{ObjectDigest, SequenceNumber};
 use sui_types::{
@@ -18,7 +22,8 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_pd() {
     let mut tc = SealTestCluster::new(2).await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics).await;
 
     let (package_id, _) = tc.publish("patterns").await;
 

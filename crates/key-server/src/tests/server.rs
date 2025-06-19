@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::Registry;
+use prometheus::{default_registry, Registry};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_test::traced_test;
@@ -21,6 +21,7 @@ async fn test_get_latest_checkpoint_timestamp() {
     let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
         tc.cluster.sui_client().clone(),
         RetryConfig::default(),
+        Arc::new(Metrics::new(default_registry())),
     ))
     .await
     .unwrap();
@@ -37,7 +38,8 @@ async fn test_get_latest_checkpoint_timestamp() {
 #[tokio::test]
 async fn test_timestamp_updater() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics).await;
 
     let mut receiver = tc
         .server()
@@ -69,7 +71,8 @@ async fn test_timestamp_updater() {
 #[tokio::test]
 async fn test_rgp_updater() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics).await;
 
     let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await.0;
 
@@ -83,7 +86,8 @@ async fn test_rgp_updater() {
 #[tokio::test]
 async fn test_server_background_task_monitor() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics).await;
 
     let metrics_registry = Registry::default();
     let metrics = Arc::new(Metrics::new(&metrics_registry));

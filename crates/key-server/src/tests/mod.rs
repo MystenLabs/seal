@@ -3,6 +3,7 @@
 
 use crate::externals::{add_package, add_upgraded_package};
 use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
+use crate::metrics::Metrics;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
 use crate::types::Network;
@@ -19,6 +20,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_sdk::json::SuiJsonValue;
@@ -89,19 +91,19 @@ impl SealTestCluster {
         &self.cluster
     }
 
-    pub async fn add_open_server(&mut self) {
+    pub async fn add_open_server(&mut self, metrics: Arc<Metrics>) {
         let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
         let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name).await;
+        self.add_server(Open(master_key), &name, metrics).await;
     }
 
-    pub async fn add_open_servers(&mut self, num_servers: usize) {
+    pub async fn add_open_servers(&mut self, num_servers: usize, metrics: Arc<Metrics>) {
         for _ in 0..num_servers {
-            self.add_open_server().await;
+            self.add_open_server(metrics.clone()).await;
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+    pub async fn add_server(&mut self, server: KeyServerType, name: &str, metrics: Arc<Metrics>) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -115,6 +117,7 @@ impl SealTestCluster {
                     sui_rpc_client: SuiRpcClient::new(
                         self.cluster.sui_client().clone(),
                         RetryConfig::default(),
+                        metrics,
                     ),
                     master_keys: MasterKeys::Open { master_key },
                     key_server_oid_to_pop: HashMap::new(),

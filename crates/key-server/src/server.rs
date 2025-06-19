@@ -136,7 +136,7 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions) -> Self {
+    async fn new(options: KeyServerOptions, metrics: Arc<Metrics>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -146,6 +146,7 @@ impl Server {
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
             options.rpc_config.retry_config.clone(),
+            metrics,
         );
         info!("Server started with network: {:?}", options.network);
 
@@ -789,7 +790,7 @@ async fn main() -> Result<()> {
         format!("{}-{}", package_version!(), GIT_VERSION).as_str()
     );
     options.validate()?;
-    let server = Arc::new(Server::new(options).await);
+    let server = Arc::new(Server::new(options, metrics.clone()).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone()).await;

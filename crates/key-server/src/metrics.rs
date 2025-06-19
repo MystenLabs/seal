@@ -51,6 +51,9 @@ pub(crate) struct Metrics {
 
     /// HTTP request in flight by route
     pub http_request_in_flight: IntGaugeVec,
+
+    /// Sui RPC request duration by label
+    pub sui_rpc_request_duration_millis: HistogramVec,
 }
 
 impl Metrics {
@@ -143,6 +146,14 @@ impl Metrics {
                 "http_request_in_flight",
                 "Number of HTTP requests in flight",
                 &["route"],
+                registry
+            )
+            .unwrap(),
+            sui_rpc_request_duration_millis: register_histogram_vec_with_registry!(
+                "sui_rpc_request_duration_millis",
+                "Sui RPC request duration and status in milliseconds",
+                &["method", "status"],
+                default_fast_call_duration_buckets(),
                 registry
             )
             .unwrap(),

@@ -1,6 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use crypto::ObjectID;
 use sui_sdk::{
     error::SuiRpcResult,
@@ -12,7 +14,7 @@ use sui_sdk::{
 };
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
 
-use crate::key_server_options::RetryConfig;
+use crate::{key_server_options::RetryConfig, metrics::Metrics};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -38,9 +40,14 @@ impl RetriableError for sui_sdk::error::Error {
 }
 
 /// Executes an async function with automatic retries for retriable errors
-async fn sui_rpc_with_retries<T, E, F, Fut>(rpc_config: &RetryConfig, mut func: F) -> Result<T, E>
+async fn sui_rpc_with_retries<T, E, F, Fut>(
+    rpc_config: &RetryConfig,
+    label: &str,
+    metrics: &Metrics,
+    mut func: F,
+) -> Result<T, E>
 where
-    E: RetriableError,
+    E: RetriableError + std::fmt::Debug,
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
 {
@@ -48,16 +55,33 @@ where
     let mut current_delay = rpc_config.min_delay;
 
     loop {
+        let start_time = std::time::Instant::now();
         let result = func().await;
 
         // Return immediately on success
         if result.is_ok() {
+            metrics
+                .sui_rpc_request_duration_millis
+                .with_label_values(&[label, "success"])
+                .observe(start_time.elapsed().as_millis() as f64);
             return result;
         }
 
         // Check if error is retriable and we have attempts left
         if let Err(ref error) = result {
             if error.is_retriable_error() && attempts_remaining > 1 {
+                tracing::debug!(
+                    "Retrying RPC call to {} due to retriable error: {:?}. Remaining attempts: {}",
+                    label,
+                    error,
+                    attempts_remaining
+                );
+
+                metrics
+                    .sui_rpc_request_duration_millis
+                    .with_label_values(&[label, "retriable_error"])
+                    .observe(start_time.elapsed().as_millis() as f64);
+
                 // Wait before retrying with exponential backoff
                 tokio::time::sleep(current_delay).await;
 
@@ -69,6 +93,17 @@ where
             }
         }
 
+        tracing::debug!(
+            "RPC call to {} failed with error: {:?}. No more attempts remaining.",
+            label,
+            result.as_ref().err().expect("should be error")
+        );
+
+        metrics
+            .sui_rpc_request_duration_millis
+            .with_label_values(&[label, "error"])
+            .observe(start_time.elapsed().as_millis() as f64);
+
         // Either non-retriable error or no attempts remaining
         return result;
     }
@@ -79,13 +114,19 @@ where
 pub struct SuiRpcClient {
     sui_client: SuiClient,
     rpc_retry_config: RetryConfig,
+    metrics: Arc<Metrics>,
 }
 
 impl SuiRpcClient {
-    pub fn new(sui_client: SuiClient, rpc_retry_config: RetryConfig) -> Self {
+    pub fn new(
+        sui_client: SuiClient,
+        rpc_retry_config: RetryConfig,
+        metrics: Arc<Metrics>,
+    ) -> Self {
         Self {
             sui_client,
             rpc_retry_config,
+            metrics,
         }
     }
 
@@ -94,17 +135,27 @@ impl SuiRpcClient {
         &self.sui_client
     }
 
+    /// Returns a clone of the metrics object.
+    pub fn get_metrics(&self) -> Arc<Metrics> {
+        self.metrics.clone()
+    }
+
     /// Dry runs a transaction block.
     pub async fn dry_run_transaction_block(
         &self,
         tx_data: TransactionData,
     ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client
-                .read_api()
-                .dry_run_transaction_block(tx_data.clone())
-                .await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "dry_run_transaction_block",
+            &self.metrics,
+            || async {
+                self.sui_client
+                    .read_api()
+                    .dry_run_transaction_block(tx_data.clone())
+                    .await
+            },
+        )
         .await
     }
 
@@ -114,42 +165,60 @@ impl SuiRpcClient {
         object_id: ObjectID,
         options: SuiObjectDataOptions,
     ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client
-                .read_api()
-                .get_object_with_options(object_id, options.clone())
-                .await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_object_with_options",
+            &self.metrics,
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_object_with_options(object_id, options.clone())
+                    .await
+            },
+        )
         .await
     }
 
     /// Returns the latest checkpoint sequence number.
     pub async fn get_latest_checkpoint_sequence_number(&self) -> SuiRpcResult<u64> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client
-                .read_api()
-                .get_latest_checkpoint_sequence_number()
-                .await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_latest_checkpoint_sequence_number",
+            &self.metrics,
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_latest_checkpoint_sequence_number()
+                    .await
+            },
+        )
         .await
     }
 
     /// Returns a checkpoint by its sequence number.
     pub async fn get_checkpoint(&self, checkpoint_id: CheckpointId) -> SuiRpcResult<Checkpoint> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client
-                .read_api()
-                .get_checkpoint(checkpoint_id)
-                .await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_checkpoint",
+            &self.metrics,
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_checkpoint(checkpoint_id)
+                    .await
+            },
+        )
         .await
     }
 
     /// Returns the current reference gas price.
     pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client.read_api().get_reference_gas_price().await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_reference_gas_price",
+            &self.metrics,
+            || async { self.sui_client.read_api().get_reference_gas_price().await },
+        )
         .await
     }
 
@@ -159,19 +228,27 @@ impl SuiRpcClient {
         object_id: ObjectID,
         dynamic_field_name: DynamicFieldName,
     ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(&self.rpc_retry_config, || async {
-            self.sui_client
-                .read_api()
-                .get_dynamic_field_object(object_id, dynamic_field_name.clone())
-                .await
-        })
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_dynamic_field_object",
+            &self.metrics,
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_dynamic_field_object(object_id, dynamic_field_name.clone())
+                    .await
+            },
+        )
         .await
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use prometheus::default_registry;
+
     use crate::key_server_options::RetryConfig;
+    use crate::metrics::Metrics;
     use crate::sui_rpc_client::sui_rpc_with_retries;
     use crate::sui_rpc_client::RetriableError;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -224,14 +301,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                0, // Don't fail any attempts
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    0, // Don't fail any attempts
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+        )
         .await;
 
         assert!(result.is_ok());
@@ -250,14 +332,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                2, // Fail first 2 attempts, succeed on 3rd
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    2, // Fail first 2 attempts, succeed on 3rd
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+        )
         .await;
 
         assert!(result.is_ok());
@@ -276,14 +363,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Fail more attempts than max_retries
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Fail more attempts than max_retries
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+        )
         .await;
 
         assert!(result.is_err());
@@ -302,16 +394,21 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Fail more attempts than max_retries
-                MockError {
-                    is_retriable: false,
-                }, // Non-retriable error
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Fail more attempts than max_retries
+                    MockError {
+                        is_retriable: false,
+                    }, // Non-retriable error
+                )
+                .await
+            },
+        )
         .await;
 
         assert!(result.is_err());
@@ -330,14 +427,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Always fail
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Always fail
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+        )
         .await;
 
         assert!(result.is_err());
@@ -357,14 +459,19 @@ mod tests {
 
         let start_time = std::time::Instant::now();
 
-        let result = sui_rpc_with_retries(&retry_config, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                5, // Fail first 5 attempts, succeed on 6th
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            &Metrics::new(default_registry()),
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    5, // Fail first 5 attempts, succeed on 6th
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+        )
         .await;
 
         let elapsed = start_time.elapsed();

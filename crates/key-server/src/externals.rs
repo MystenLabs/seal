@@ -155,14 +155,17 @@ pub(crate) fn current_epoch_time() -> u64 {
 mod tests {
     use crate::externals::fetch_first_pkg_id;
     use crate::key_server_options::RetryConfig;
+    use crate::metrics::Metrics;
     use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
     use fastcrypto::secp256k1::Secp256k1KeyPair;
     use fastcrypto::secp256r1::Secp256r1KeyPair;
+    use prometheus::default_registry;
     use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
+    use std::sync::Arc;
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
@@ -183,6 +186,7 @@ mod tests {
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
             RetryConfig::default(),
+            Arc::new(Metrics::new(default_registry())),
         );
         match fetch_first_pkg_id(&address, &sui_rpc_client).await {
             Ok(first) => {
@@ -208,6 +212,7 @@ mod tests {
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
             RetryConfig::default(),
+            Arc::new(Metrics::new(default_registry())),
         );
         let result = fetch_first_pkg_id(&invalid_address, &sui_rpc_client).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));

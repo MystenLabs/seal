@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::externals::get_key;
-use crate::tests::SealTestCluster;
+use crate::{metrics::Metrics, tests::SealTestCluster};
+use prometheus::default_registry;
 use serde_json::json;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use sui_sdk::{json::SuiJsonValue, rpc_types::ObjectChange};
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
@@ -19,8 +20,9 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_whitelist() {
     let mut tc = SealTestCluster::new(2).await;
-    tc.add_open_server().await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics.clone()).await;
+    tc.add_open_server(metrics.clone()).await;
 
     let (package_id, _) = tc.publish("patterns").await;
 
@@ -50,7 +52,8 @@ async fn test_whitelist() {
 #[tokio::test]
 async fn test_whitelist_with_upgrade() {
     let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_server().await;
+    let metrics = Arc::new(Metrics::new(default_registry()));
+    tc.add_open_server(metrics).await;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id_1, upgrade_cap) = tc.publish_path(path).await;
