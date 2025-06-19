@@ -1,9 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
-use crate::metrics::Metrics;
 use crate::tests::externals::sign;
 use crate::tests::SealTestCluster;
 use crate::valid_ptb::ValidPtb;
@@ -11,7 +8,6 @@ use crate::{current_epoch_time, InternalError};
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::traits::KeyPair;
-use prometheus::default_registry;
 use rand::thread_rng;
 use sui_types::{
     base_types::ObjectID,
@@ -25,8 +21,7 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_tle_policy() {
     let mut tc = SealTestCluster::new(1).await;
-    let metrics = Arc::new(Metrics::new(default_registry()));
-    tc.add_open_server(metrics).await;
+    tc.add_open_server().await;
 
     let (package_id, _) = tc.publish("patterns").await;
 
@@ -99,8 +94,7 @@ async fn test_tle_policy() {
 #[tokio::test]
 async fn test_tle_certificate() {
     let mut tc = SealTestCluster::new(1).await;
-    let metrics = Arc::new(Metrics::new(default_registry()));
-    tc.add_open_server(metrics).await;
+    tc.add_open_server().await;
     let (package_id, _) = tc.publish("patterns").await;
 
     let ptb = tle_create_ptb(package_id, 1);
@@ -216,8 +210,7 @@ async fn test_tle_certificate() {
 #[tokio::test]
 async fn test_tle_signed_request() {
     let mut tc = SealTestCluster::new(1).await;
-    let metrics = Arc::new(Metrics::new(default_registry()));
-    tc.add_open_server(metrics).await;
+    tc.add_open_server().await;
 
     let (package_id, _) = tc.publish("patterns").await;
 

@@ -180,26 +180,22 @@ async fn get_object<T: for<'a> Deserialize<'a>>(
 mod tests {
     use crate::errors::InternalError::InvalidMVRName;
     use crate::key_server_options::{KeyServerOptions, RetryConfig};
-    use crate::metrics::Metrics;
     use crate::mvr::mvr_forward_resolution;
     use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use mvr_types::name::VersionedName;
-    use prometheus::default_registry;
     use std::str::FromStr;
-    use std::sync::Arc;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
     async fn test_forward_resolution() {
-        let metrics = Arc::new(Metrics::new(default_registry()));
         assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
             &SuiRpcClient::new(
                 SuiClientBuilder::default().build_mainnet().await.unwrap(),
                 RetryConfig::default(),
-                metrics.clone(),
+                None,
             ),
             &KeyServerOptions::new_for_testing(Network::Mainnet),
             ObjectID::from_str(
@@ -226,7 +222,7 @@ mod tests {
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
                     RetryConfig::default(),
-                    metrics.clone(),
+                    None,
                 ),
                 "@mysten/kiosk",
                 &KeyServerOptions::new_for_testing(Network::Testnet),
@@ -245,7 +241,7 @@ mod tests {
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     RetryConfig::default(),
-                    metrics.clone(),
+                    None,
                 ),
                 "@pkg/seal-demo-1234",
                 &KeyServerOptions::new_for_testing(Network::Mainnet),
@@ -262,7 +258,7 @@ mod tests {
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
                     RetryConfig::default(),
-                    metrics.clone(),
+                    None,
                 ),
                 "@pkg/seal-demo-1234",
                 &KeyServerOptions::new_for_testing(Network::Testnet),
@@ -278,13 +274,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_name() {
-        let metrics = Arc::new(Metrics::new(default_registry()));
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     RetryConfig::default(),
-                    metrics.clone(),
+                    None,
                 ),
                 "@saemundur/seal",
                 &KeyServerOptions::new_for_testing(Network::Mainnet),
@@ -300,7 +295,7 @@ mod tests {
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     RetryConfig::default(),
-                    metrics.clone(),
+                    None,
                 ),
                 "invalid_name",
                 &KeyServerOptions::new_for_testing(Network::Mainnet),

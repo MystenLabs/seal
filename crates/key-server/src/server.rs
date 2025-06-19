@@ -136,7 +136,7 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions, metrics: Arc<Metrics>) -> Self {
+    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -790,7 +790,7 @@ async fn main() -> Result<()> {
         format!("{}-{}", package_version!(), GIT_VERSION).as_str()
     );
     options.validate()?;
-    let server = Arc::new(Server::new(options, metrics.clone()).await);
+    let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone()).await;

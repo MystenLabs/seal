@@ -5,7 +5,6 @@ use crate::errors::InternalError::UnsupportedPackageId;
 use crate::key_server_options::{
     ClientConfig, ClientKeyType, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
 };
-use crate::metrics::Metrics;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
@@ -17,12 +16,10 @@ use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IB
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
-use prometheus::default_registry;
 use rand::thread_rng;
 use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 use sui_sdk::SuiClient;
 use sui_types::base_types::ObjectID;
@@ -34,8 +31,7 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_e2e() {
     let mut tc = SealTestCluster::new(1).await;
-    let metrics = Arc::new(Metrics::new(default_registry()));
-    tc.add_open_servers(3, metrics).await;
+    tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -123,8 +119,6 @@ async fn test_e2e_permissioned() {
     // Sample random key server object id.
     let key_server_object_id = ObjectID::random();
 
-    let metrics = Arc::new(Metrics::new(default_registry()));
-
     // The client handles two package ids, one per client
     let server1 = create_server(
         cluster.sui_client().clone(),
@@ -147,7 +141,6 @@ async fn test_e2e_permissioned() {
             },
         ],
         [("MASTER_SEED", seed.as_slice())],
-        metrics.clone(),
     )
     .await;
 
@@ -163,7 +156,6 @@ async fn test_e2e_permissioned() {
             package_ids: vec![ObjectID::random()],
         }],
         [("MASTER_SEED", [0u8; 32].as_slice())],
-        metrics.clone(),
     )
     .await;
 
@@ -247,8 +239,6 @@ async fn test_e2e_imported_key() {
     // Sample random key server object ids. Note that the key servers are not registered on-chain in this test.
     let key_server_object_id = ObjectID::random();
 
-    let metrics = Arc::new(Metrics::new(default_registry()));
-
     // Server has a single client with a single package id (the one published above)
     let server1 = create_server(
         cluster.sui_client().clone(),
@@ -261,7 +251,6 @@ async fn test_e2e_imported_key() {
             package_ids: vec![package_id],
         }],
         [("MASTER_SEED", seed.as_slice())],
-        metrics.clone(),
     )
     .await;
 
@@ -334,7 +323,6 @@ async fn test_e2e_imported_key() {
             ),
             ("MASTER_SEED", [0u8; 32].as_slice()),
         ],
-        metrics.clone(),
     )
     .await;
 
@@ -375,7 +363,6 @@ async fn test_e2e_imported_key() {
             },
         ],
         [("MASTER_SEED", seed.as_slice())],
-        metrics.clone(),
     )
     .await;
 
@@ -388,7 +375,6 @@ async fn create_server(
     sui_client: SuiClient,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
-    metrics: Arc<Metrics>,
 ) -> Server {
     let options = KeyServerOptions {
         network: Network::TestCluster,
@@ -409,7 +395,7 @@ async fn create_server(
         .collect::<Vec<_>>();
 
     Server {
-        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), metrics),
+        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,
