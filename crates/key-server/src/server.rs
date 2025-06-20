@@ -6,12 +6,11 @@ use crate::errors::InternalError::{
 use crate::externals::{
     current_epoch_time, duration_since, get_reference_gas_price, safe_duration_since,
 };
-use crate::key_server_options::{ClientConfig, ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::{MasterKeyPOP, Network};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
@@ -21,17 +20,16 @@ use axum::{extract::State, Json};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
-use crypto::ibe::{create_proof_of_possession, MASTER_KEY_LENGTH, SEED_LENGTH};
+use crypto::ibe::create_proof_of_possession;
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Base64, Encoding};
-use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
+use master_keys::MasterKeys;
 use metrics::metrics_middleware;
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
@@ -61,7 +59,7 @@ use tokio::sync::watch::{channel, Receiver};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
-use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey, IbeMasterKey};
+use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
 use valid_ptb::ValidPtb;
 
 mod cache;
@@ -74,6 +72,7 @@ mod utils;
 mod valid_ptb;
 
 mod key_server_options;
+mod master_keys;
 mod metrics;
 mod mvr;
 #[cfg(test)]
@@ -186,7 +185,7 @@ impl Server {
         req_id: Option<&str>,
     ) -> Result<(), InternalError> {
         // Check certificate.
-        if from_mins(cert.ttl_min) > self.options.session_key_ttl_max
+        if utils::from_mins(cert.ttl_min) > self.options.session_key_ttl_max
             || cert.creation_time > current_epoch_time()
             || current_epoch_time() < 60_000 * (cert.ttl_min as u64) // checks for overflow
             || current_epoch_time() - 60_000 * (cert.ttl_min as u64) > cert.creation_time
@@ -759,8 +758,8 @@ async fn main() -> Result<()> {
                 .unwrap_or(Network::Testnet);
             KeyServerOptions::new_open_server_with_default_values(
                 network,
-                decode_object_id("LEGACY_KEY_SERVER_OBJECT_ID")?,
-                decode_object_id("KEY_SERVER_OBJECT_ID")?,
+                utils::decode_object_id("LEGACY_KEY_SERVER_OBJECT_ID")?,
+                utils::decode_object_id("KEY_SERVER_OBJECT_ID")?,
             )
         }
     };
@@ -835,265 +834,4 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     }
-}
-
-/// Creates a [Duration] from a given number of minutes.
-/// Can be removed once the `Duration::from_mins` method is stabilized.
-pub const fn from_mins(mins: u16) -> Duration {
-    // safe cast since 64 bits is more than enough to hold 2^16 * 60 seconds
-    Duration::from_secs((mins * 60) as u64)
-}
-
-#[derive(Clone)]
-enum MasterKeys {
-    Open {
-        master_key: IbeMasterKey,
-    },
-    Permissioned {
-        pkg_id_to_key: HashMap<ObjectID, IbeMasterKey>,
-        key_server_oid_to_key: HashMap<ObjectID, IbeMasterKey>,
-    },
-}
-
-impl MasterKeys {
-    fn load(options: &KeyServerOptions) -> Result<Self> {
-        info!("Loading keys from env variables");
-        match &options.server_mode {
-            ServerMode::Open { .. } => {
-                let master_key = match decode_master_key::<DefaultEncoding>("MASTER_KEY") {
-                    Ok(master_key) => master_key,
-
-                    // TODO: Fallback to Base64 encoding for backward compatibility.
-                    Err(_) => decode_master_key::<Base64>("MASTER_KEY")?,
-                };
-                Ok(MasterKeys::Open { master_key })
-            }
-            ServerMode::Permissioned { client_configs } => {
-                let mut pkg_id_to_key = HashMap::new();
-                let mut key_server_oid_to_key = HashMap::new();
-                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?;
-                for config in client_configs {
-                    let master_key = match &config.client_master_key {
-                        ClientKeyType::Derived { derivation_index } => {
-                            ibe::derive_master_key(&seed, *derivation_index)
-                        }
-                        ClientKeyType::Imported { env_var } => {
-                            decode_master_key::<DefaultEncoding>(env_var)?
-                        }
-                        ClientKeyType::Exported { .. } => continue,
-                    };
-
-                    info!(
-                        "Client {:?} uses public key: {:?}",
-                        config.name,
-                        DefaultEncoding::encode(
-                            ibe::public_key_from_master_key(&master_key).to_byte_array()
-                        )
-                    );
-
-                    for pkg_id in &config.package_ids {
-                        pkg_id_to_key.insert(*pkg_id, master_key);
-                    }
-                    key_server_oid_to_key.insert(config.key_server_object_id, master_key);
-                }
-
-                Self::log_unassigned_public_keys(client_configs, &seed);
-
-                // No clients, can abort.
-                if pkg_id_to_key.is_empty() {
-                    return Err(anyhow!("No clients found in the configuration"));
-                }
-
-                Ok(MasterKeys::Permissioned {
-                    pkg_id_to_key,
-                    key_server_oid_to_key,
-                })
-            }
-        }
-    }
-
-    /// Log the next 10 unassigned public keys.
-    /// This is done to make it easier to find a public key of a derived key that's not yet assigned to a client.
-    /// Can be removed once an endpoint to get public keys from derivation indices is implemented.
-    fn log_unassigned_public_keys(client_configs: &[ClientConfig], seed: &[u8; SEED_LENGTH]) {
-        // The derivation indices are in incremental order, so the next free index is the max + 1 or 0 if no derivation indices are used.
-        let next_free_derivation_index = client_configs
-            .iter()
-            .filter_map(|c| match &c.client_master_key {
-                ClientKeyType::Derived { derivation_index } => Some(*derivation_index),
-                ClientKeyType::Exported {
-                    deprecated_derivation_index,
-                } => Some(*deprecated_derivation_index),
-                _ => None,
-            })
-            .max()
-            .map(|i| i + 1)
-            .unwrap_or(0);
-        for i in 0..10 {
-            let key = ibe::derive_master_key(seed, next_free_derivation_index + i);
-            info!(
-                "Unassigned derived public key with index {}: {:?}",
-                next_free_derivation_index + i,
-                DefaultEncoding::encode(ibe::public_key_from_master_key(&key).to_byte_array())
-            );
-        }
-    }
-
-    fn has_key_for_package(&self, id: &ObjectID) -> Result<(), InternalError> {
-        self.get_key_for_package(id).map(|_| ())
-    }
-
-    fn get_key_for_package(&self, id: &ObjectID) -> Result<&IbeMasterKey, InternalError> {
-        match self {
-            MasterKeys::Open { master_key } => Ok(master_key),
-            MasterKeys::Permissioned { pkg_id_to_key, .. } => pkg_id_to_key
-                .get(id)
-                .ok_or(InternalError::UnsupportedPackageId),
-        }
-    }
-
-    fn get_key_for_key_server(&self, id: &ObjectID) -> Result<&IbeMasterKey, InternalError> {
-        match self {
-            MasterKeys::Open { master_key } => Ok(master_key),
-            MasterKeys::Permissioned {
-                key_server_oid_to_key,
-                ..
-            } => key_server_oid_to_key
-                .get(id)
-                .ok_or(InternalError::InvalidServiceId),
-        }
-    }
-}
-
-// test master keys
-
-/// Read a byte array from an environment variable and decode it using the specified encoding.
-fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> Result<[u8; N]> {
-    let hex_string =
-        env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    let bytes = E::decode(&hex_string)
-        .map_err(|_| anyhow!("Environment variable {} should be hex encoded", env_name))?;
-    bytes.try_into().map_err(|_| {
-        anyhow!(
-            "Invalid byte array length for environment variable {env_name}. Must be {N} bytes long"
-        )
-    })
-}
-
-/// Read a master key from an environment variable.
-fn decode_master_key<E: Encoding>(env_name: &str) -> Result<IbeMasterKey> {
-    let bytes = decode_byte_array::<E, MASTER_KEY_LENGTH>(env_name)?;
-    IbeMasterKey::from_byte_array(&bytes)
-        .map_err(|_| anyhow!("Invalid master key for environment variable {env_name}"))
-}
-
-/// Read an ObjectID from an environment variable.
-fn decode_object_id(env_name: &str) -> Result<ObjectID> {
-    let hex_string =
-        env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    ObjectID::from_hex_literal(&hex_string)
-        .map_err(|_| anyhow!("Invalid ObjectID for environment variable {env_name}"))
-}
-
-#[test]
-fn test_master_keys_open_mode() {
-    use fastcrypto::groups::GroupElement;
-    use temp_env::with_vars;
-
-    let options = KeyServerOptions::new_open_server_with_default_values(
-        Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
-        ObjectID::from_hex_literal("0x2").unwrap(),
-    );
-
-    with_vars([("MASTER_KEY", None::<&str>)], || {
-        assert!(MasterKeys::load(&options).is_err());
-    });
-
-    let sk = IbeMasterKey::generator();
-    let sk_as_bytes = DefaultEncoding::encode(bcs::to_bytes(&sk).unwrap());
-    with_vars([("MASTER_KEY", Some(sk_as_bytes))], || {
-        let mk = MasterKeys::load(&options);
-        assert_eq!(
-            mk.unwrap()
-                .get_key_for_package(&ObjectID::from_hex_literal("0x1").unwrap())
-                .unwrap(),
-            &sk
-        );
-    });
-}
-
-#[test]
-fn test_master_keys_permissioned_mode() {
-    use crate::key_server_options::ClientConfig;
-    use fastcrypto::groups::GroupElement;
-    use temp_env::with_vars;
-
-    let mut options = KeyServerOptions::new_open_server_with_default_values(
-        Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
-        ObjectID::from_hex_literal("0x2").unwrap(),
-    );
-    options.server_mode = ServerMode::Permissioned {
-        client_configs: vec![
-            ClientConfig {
-                name: "alice".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x1").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x2").unwrap(),
-                client_master_key: ClientKeyType::Imported {
-                    env_var: "ALICE_KEY".to_string(),
-                },
-            },
-            ClientConfig {
-                name: "bob".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x3").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x4").unwrap(),
-                client_master_key: ClientKeyType::Derived {
-                    derivation_index: 100,
-                },
-            },
-            ClientConfig {
-                name: "dan".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x5").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x6").unwrap(),
-                client_master_key: ClientKeyType::Derived {
-                    derivation_index: 200,
-                },
-            },
-        ],
-    };
-    let sk = IbeMasterKey::generator();
-    let sk_as_bytes = DefaultEncoding::encode(bcs::to_bytes(&sk).unwrap());
-    let seed = [1u8; 32];
-    with_vars(
-        [
-            ("MASTER_SEED", Some(sk_as_bytes.clone())),
-            ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
-        ],
-        || {
-            let mk = MasterKeys::load(&options).unwrap();
-            let k1 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x4").unwrap());
-            let k2 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x6").unwrap());
-            assert!(k1.is_ok());
-            assert_ne!(k1, k2);
-        },
-    );
-    with_vars(
-        [
-            ("MASTER_SEED", None::<&str>),
-            ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
-        ],
-        || {
-            assert!(MasterKeys::load(&options).is_err());
-        },
-    );
-    with_vars(
-        [
-            ("MASTER_SEED", Some(&sk_as_bytes)),
-            ("ALICE_KEY", None::<&String>),
-        ],
-        || {
-            assert!(MasterKeys::load(&options).is_err());
-        },
-    );
 }
