@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::from_mins;
 use crate::types::Network;
+use crate::utils::from_mins;
 use anyhow::{anyhow, Result};
 use duration_str::deserialize_duration;
 use semver::VersionReq;

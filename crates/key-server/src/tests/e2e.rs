@@ -5,12 +5,14 @@ use crate::errors::InternalError::UnsupportedPackageId;
 use crate::key_server_options::{
     ClientConfig, ClientKeyType, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
 };
+use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
 use crate::types::Network;
-use crate::{from_mins, DefaultEncoding, MasterKeys, Server};
+use crate::utils::from_mins;
+use crate::{DefaultEncoding, Server};
 use crypto::ibe::{generate_seed, public_key_from_master_key};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;

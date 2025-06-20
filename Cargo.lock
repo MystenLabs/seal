@@ -4013,7 +4013,6 @@ dependencies = [
  "prometheus",
  "prometheus-closure-metric",
  "rand 0.8.5",
- "reqwest",
  "semver",
  "serde",
  "serde_json",
