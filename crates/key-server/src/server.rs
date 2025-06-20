@@ -8,6 +8,7 @@ use crate::externals::{
 };
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
+use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::{signed_message, signed_request};
 use crate::types::{MasterKeyPOP, Network};
 use anyhow::{Context, Result};
@@ -42,12 +43,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
-use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::time::Instant;
 use sui_rpc_client::SuiRpcClient;
-use sui_sdk::error::{Error, SuiRpcResult};
+use sui_sdk::error::Error;
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
@@ -55,7 +54,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
-use tokio::sync::watch::{channel, Receiver};
+use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
@@ -75,6 +74,7 @@ mod key_server_options;
 mod master_keys;
 mod metrics;
 mod mvr;
+mod periodic_updater;
 #[cfg(test)]
 pub mod tests;
 
@@ -377,77 +377,14 @@ impl Server {
         FetchKeyResponse { decryption_keys }
     }
 
-    /// Helper function to spawn a thread that periodically fetches a value and sends it to a [Receiver].
-    /// If a subscriber is provided, it will be called when the value is updated.
-    /// If a duration_callback is provided, it will be called with the duration of each fetch operation.
-    /// Returns the [Receiver].
-    async fn spawn_periodic_updater<F, Fut, G, H, I>(
-        &self,
-        update_interval: Duration,
-        fetch_fn: F,
-        value_name: &'static str,
-        subscriber: Option<G>,
-        duration_callback: Option<H>,
-        success_callback: Option<I>,
-    ) -> (Receiver<u64>, JoinHandle<()>)
-    where
-        F: Fn(SuiRpcClient) -> Fut + Send + 'static,
-        Fut: Future<Output = SuiRpcResult<u64>> + Send,
-        G: Fn(u64) + Send + 'static,
-        H: Fn(Duration) + Send + 'static,
-        I: Fn(bool) + Send + 'static,
-    {
-        let (sender, mut receiver) = channel(0);
-        let local_client = self.sui_rpc_client.clone();
-        let mut interval = tokio::time::interval(update_interval);
-
-        // In case of a missed tick due to a slow-responding full node, we don't need to
-        // catch up but rather just delay the next tick.
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        let handle = tokio::task::spawn(async move {
-            loop {
-                let now = Instant::now();
-                let result = fetch_fn(local_client.clone()).await;
-                if let Some(dcb) = &duration_callback {
-                    dcb(now.elapsed());
-                }
-                if let Some(scb) = &success_callback {
-                    scb(result.is_ok());
-                }
-                match result {
-                    Ok(new_value) => {
-                        sender
-                            .send(new_value)
-                            .expect("Channel closed, this should never happen");
-                        debug!("{} updated to: {:?}", value_name, new_value);
-                        if let Some(subscriber) = &subscriber {
-                            subscriber(new_value);
-                        }
-                    }
-                    Err(e) => debug!("Failed to get {}: {:?}", value_name, e),
-                }
-                interval.tick().await;
-            }
-        });
-
-        // This blocks until a value is fetched.
-        // This is done to ensure that the server will be ready to serve requests immediately after starting.
-        // If this is not possible, we cannot update the value and the server should not start.
-        receiver
-            .changed()
-            .await
-            .unwrap_or_else(|_| panic!("Failed to get {}", value_name));
-        (receiver, handle)
-    }
-
     /// Spawns a thread that fetches the latest checkpoint timestamp and sends it to a [Receiver] once per `update_interval`.
     /// Returns the [Receiver].
     async fn spawn_latest_checkpoint_timestamp_updater(
         &self,
         metrics: Option<&Metrics>,
     ) -> (Receiver<Timestamp>, JoinHandle<()>) {
-        self.spawn_periodic_updater(
+        spawn_periodic_updater(
+            &self.sui_rpc_client,
             self.options.checkpoint_update_interval,
             get_latest_checkpoint_timestamp,
             "latest checkpoint timestamp",
@@ -472,7 +409,8 @@ impl Server {
         &self,
         metrics: Option<&Metrics>,
     ) -> (Receiver<u64>, JoinHandle<()>) {
-        self.spawn_periodic_updater(
+        spawn_periodic_updater(
+            &self.sui_rpc_client,
             self.options.rgp_update_interval,
             get_reference_gas_price,
             "RGP",
