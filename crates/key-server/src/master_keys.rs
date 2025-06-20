@@ -4,6 +4,7 @@
 use crate::errors::InternalError;
 use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
 use crate::types::IbeMasterKey;
+use crate::utils::{decode_byte_array, decode_master_key};
 use crate::DefaultEncoding;
 use anyhow::anyhow;
 use crypto::ibe;
@@ -13,6 +14,12 @@ use fastcrypto::serde_helpers::ToFromByteArray;
 use std::collections::HashMap;
 use sui_types::base_types::ObjectID;
 use tracing::info;
+
+/// In Open mode, the key server has a single master key which should be set in the environment variable `MASTER_KEY`.
+const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
+
+/// In Permissioned mode, the key server has a seed used to derive master keys for clients, which should be set in the environment variable `MASTER_SEED`.
+const MASTER_SEED_ENV_VAR: &str = "MASTER_SEED";
 
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
@@ -31,27 +38,25 @@ impl MasterKeys {
         info!("Loading keys from env variables");
         match &options.server_mode {
             ServerMode::Open { .. } => {
-                let master_key =
-                    match crate::utils::decode_master_key::<DefaultEncoding>("MASTER_KEY") {
-                        Ok(master_key) => master_key,
+                let master_key = match decode_master_key::<DefaultEncoding>(MASTER_KEY_ENV_VAR) {
+                    Ok(master_key) => master_key,
 
-                        // TODO: Fallback to Base64 encoding for backward compatibility.
-                        Err(_) => crate::utils::decode_master_key::<Base64>("MASTER_KEY")?,
-                    };
+                    // TODO: Fallback to Base64 encoding for backward compatibility.
+                    Err(_) => crate::utils::decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
+                };
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
-                let seed =
-                    crate::utils::decode_byte_array::<DefaultEncoding, SEED_LENGTH>("MASTER_SEED")?;
+                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_SEED_ENV_VAR)?;
                 for config in client_configs {
                     let master_key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
                             ibe::derive_master_key(&seed, *derivation_index)
                         }
                         ClientKeyType::Imported { env_var } => {
-                            crate::utils::decode_master_key::<DefaultEncoding>(env_var)?
+                            decode_master_key::<DefaultEncoding>(env_var)?
                         }
                         ClientKeyType::Exported { .. } => continue,
                     };
@@ -118,19 +123,19 @@ impl MasterKeys {
 
     pub(crate) fn get_key_for_package(
         &self,
-        id: &ObjectID,
+        package_id: &ObjectID,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
             MasterKeys::Open { master_key } => Ok(master_key),
             MasterKeys::Permissioned { pkg_id_to_key, .. } => pkg_id_to_key
-                .get(id)
+                .get(package_id)
                 .ok_or(InternalError::UnsupportedPackageId),
         }
     }
 
     pub(crate) fn get_key_for_key_server(
         &self,
-        id: &ObjectID,
+        key_server_object_id: &ObjectID,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
             MasterKeys::Open { master_key } => Ok(master_key),
@@ -138,7 +143,7 @@ impl MasterKeys {
                 key_server_oid_to_key,
                 ..
             } => key_server_oid_to_key
-                .get(id)
+                .get(key_server_object_id)
                 .ok_or(InternalError::InvalidServiceId),
         }
     }
