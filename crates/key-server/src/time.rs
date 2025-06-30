@@ -54,3 +54,59 @@ pub(crate) fn from_mins(mins: u16) -> Duration {
     // safe cast since 64 bits is more than enough to hold 2^16 * 60 seconds
     Duration::from_secs((mins * 60) as u64)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::time::{
+        checked_duration_since, current_epoch_time, duration_since, from_mins,
+        saturating_duration_since,
+    };
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn test_from_mins() {
+        assert_eq!(from_mins(17), Duration::from_secs(17 * 60));
+    }
+
+    #[test]
+    fn test_current_epoch_time_sanity() {
+        let now = current_epoch_time();
+        // 30th of June 2025 10:19:00
+        assert!(now > 1751271540000);
+        thread::sleep(Duration::from_secs(2));
+        assert!(current_epoch_time() >= now + 2000);
+    }
+
+    #[test]
+    fn test_duration_since_past() {
+        let now = current_epoch_time();
+        let offset_in_past = now - 1000;
+        let (duration, is_past) = duration_since(offset_in_past);
+        assert!(duration >= 1000 && duration < 1100);
+        assert!(is_past);
+        let checked_duration = checked_duration_since(offset_in_past);
+        assert!(
+            checked_duration.unwrap() >= Duration::from_millis(1000)
+                && checked_duration.unwrap() < Duration::from_millis(1100)
+        );
+        let saturated_duration = saturating_duration_since(offset_in_past);
+        assert!(
+            saturated_duration >= Duration::from_millis(1000)
+                && saturated_duration < Duration::from_millis(1100)
+        );
+    }
+
+    #[test]
+    fn test_duration_since_future() {
+        let now = current_epoch_time();
+        let offset_in_future = now + 1000;
+        let (duration, is_past) = duration_since(offset_in_future);
+        assert!(duration > 900 && duration <= 1000);
+        assert!(!is_past);
+        let checked_duration = checked_duration_since(offset_in_future);
+        assert!(checked_duration.is_none());
+        let saturated_duration = saturating_duration_since(offset_in_future);
+        assert_eq!(saturated_duration, Duration::ZERO);
+    }
+}
