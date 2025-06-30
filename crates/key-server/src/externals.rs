@@ -133,15 +133,23 @@ pub(crate) fn duration_since(offset: u64) -> i64 {
     now - offset as i64
 }
 
-/// Returns the duration since the offset in milliseconds.
+/// Returns the duration since the offset.
 /// Returns `Duration::ZERO` if the offset is greater than the current time.
-pub(crate) fn safe_duration_since(offset: u64) -> Duration {
+pub(crate) fn saturating_duration_since(offset: u64) -> Duration {
+    match checked_duration_since(offset) {
+        Some(duration) => duration,
+        None => Duration::ZERO,
+    }
+}
+
+/// Returns the duration since the offset.
+/// Returns `None` if the offset is greater than the current time.
+pub(crate) fn checked_duration_since(offset: u64) -> Option<Duration> {
     let duration = duration_since(offset);
     if duration < 0 {
-        warn!("Offset is greater than current time, returning 0");
-        return Duration::ZERO;
+        return None;
     }
-    Duration::from_millis(duration as u64)
+    Some(Duration::from_millis(duration as u64))
 }
 
 pub(crate) fn current_epoch_time() -> u64 {
