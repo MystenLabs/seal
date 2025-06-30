@@ -49,7 +49,7 @@ pub(crate) fn current_epoch_time() -> u64 {
 
 /// Creates a [Duration] from a given number of minutes.
 /// Can be removed once the `Duration::from_mins` method is stabilized.
-pub const fn from_mins(mins: u16) -> Duration {
+pub(crate) fn from_mins(mins: u16) -> Duration {
     // safe cast since 64 bits is more than enough to hold 2^16 * 60 seconds
     Duration::from_secs((mins * 60) as u64)
 }
