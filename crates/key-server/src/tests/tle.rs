@@ -1,9 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::current_epoch_time;
 use crate::tests::externals::sign;
 use crate::tests::SealTestCluster;
+use crate::time::current_epoch_time;
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
 use crate::InternalError;
