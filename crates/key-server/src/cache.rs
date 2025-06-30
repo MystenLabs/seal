@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::current_epoch_time;
+use crate::time::current_epoch_time;
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::hash::Hash;

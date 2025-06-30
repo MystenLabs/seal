@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::externals::current_epoch_time;
 use crate::signed_message::signed_request;
+use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
 use crate::{
     signed_message,

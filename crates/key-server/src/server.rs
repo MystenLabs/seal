@@ -3,13 +3,14 @@
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
-use crate::externals::{
-    checked_duration_since, duration_since, get_reference_gas_price, saturating_duration_since,
-};
+use crate::externals::get_reference_gas_price;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::{signed_message, signed_request};
+use crate::time::checked_duration_since;
+use crate::time::from_mins;
+use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -59,7 +60,6 @@ use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
-use utils::from_mins;
 use valid_ptb::ValidPtb;
 
 mod cache;
@@ -78,6 +78,7 @@ mod mvr;
 mod periodic_updater;
 #[cfg(test)]
 pub mod tests;
+mod time;
 
 const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = utils::git_version!();
@@ -407,7 +408,7 @@ impl Server {
             "latest checkpoint timestamp",
             metrics.map(|m| {
                 observation_callback(&m.checkpoint_timestamp_delay, |ts| {
-                    duration_since(ts) as f64
+                    duration_since_as_f64(ts)
                 })
             }),
             metrics.map(|m| {

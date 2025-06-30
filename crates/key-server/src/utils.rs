@@ -33,15 +33,7 @@ use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 pub use git_version;
 use std::env;
-use std::time::Duration;
 use sui_types::base_types::ObjectID;
-
-/// Creates a [Duration] from a given number of minutes.
-/// Can be removed once the `Duration::from_mins` method is stabilized.
-pub const fn from_mins(mins: u16) -> Duration {
-    // safe cast since 64 bits is more than enough to hold 2^16 * 60 seconds
-    Duration::from_secs((mins * 60) as u64)
-}
 
 /// Read a byte array from an environment variable and decode it using the specified encoding.
 pub fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> anyhow::Result<[u8; N]> {

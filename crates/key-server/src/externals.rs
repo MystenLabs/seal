@@ -7,7 +7,6 @@ use crate::key_server_options::KeyServerOptions;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::{mvr_forward_resolution, Timestamp};
 use once_cell::sync::Lazy;
-use std::time::Duration;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
 use sui_types::base_types::ObjectID;
@@ -123,40 +122,6 @@ pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> Sui
             warn!("Failed retrieving RGP ({:?})", e);
         })?;
     Ok(rgp)
-}
-
-/// Compute the difference between the current time and the offset in milliseconds.
-/// The offset and the difference between the current time and the offset are cast to i64,
-/// so the caller should be aware of the potential overflow.
-pub(crate) fn duration_since(offset: u64) -> i64 {
-    let now = current_epoch_time() as i64;
-    now - offset as i64
-}
-
-/// Returns the duration since the offset.
-/// Returns `Duration::ZERO` if the offset is greater than the current time.
-pub(crate) fn saturating_duration_since(offset: u64) -> Duration {
-    match checked_duration_since(offset) {
-        Some(duration) => duration,
-        None => Duration::ZERO,
-    }
-}
-
-/// Returns the duration since the offset.
-/// Returns `None` if the offset is greater than the current time.
-pub(crate) fn checked_duration_since(offset: u64) -> Option<Duration> {
-    let duration = duration_since(offset);
-    if duration < 0 {
-        return None;
-    }
-    Some(Duration::from_millis(duration as u64))
-}
-
-pub(crate) fn current_epoch_time() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("fixed start time")
-        .as_millis() as u64
 }
 
 #[cfg(test)]
