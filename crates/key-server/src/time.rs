@@ -6,10 +6,11 @@ use std::time::Duration;
 /// Compute the difference between the current time and the offset in milliseconds.
 /// Returns a tuple containing the absolute value of the duration in milliseconds and a boolean indicating if the offset is in the past.
 fn duration_since(offset: u64) -> (u64, bool) {
-    if offset <= current_epoch_time() {
-        (current_epoch_time() - offset, true)
+    let now = current_epoch_time();
+    if offset <= now {
+        (now - offset, true)
     } else {
-        (offset - current_epoch_time(), false)
+        (offset - now, false)
     }
 }
 
