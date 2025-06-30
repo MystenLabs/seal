@@ -45,6 +45,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     verifyKeyServers: false,
   });
   const packageId = useNetworkVariable('packageId');
+  const mvrName = useNetworkVariable('mvrName');
 
   const [feed, setFeed] = useState<FeedData>();
   const [decryptedFileUrls, setDecryptedFileUrls] = useState<string[]>([]);
@@ -128,6 +129,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       packageId,
       ttlMin: TTL_MIN,
       suiClient,
+      mvrName,
     });
 
     try {
