@@ -1,11 +1,12 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::cache::{Cache, CACHE_SIZE, CACHE_TTL};
+use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::{mvr_forward_resolution, Timestamp};
+use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use sui_sdk::error::SuiRpcResult;
 use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
@@ -13,8 +14,8 @@ use sui_types::base_types::ObjectID;
 use tap::TapFallible;
 use tracing::{debug, warn};
 
-static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
-static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(|| Cache::new(CACHE_TTL, CACHE_SIZE));
+static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
+static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(default_lru_cache);
 
 #[cfg(test)]
 pub(crate) fn add_package(pkg_id: ObjectID) {
