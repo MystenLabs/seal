@@ -12,7 +12,7 @@ services:
     environment:
       - RUST_LOG=info
     networks:
-      - metrics-network
+      metrics-network:
 
   mimir:
     container_name: mimir
@@ -25,7 +25,7 @@ services:
     environment:
       - MIMIR_METRICS_PORT=9009
     networks:
-      - metrics-network
+      metrics-network:
 
   alloy-agent:
     container_name: alloy-agent
@@ -36,7 +36,7 @@ services:
       - ./config.alloy:/etc/alloy/config.alloy
     command: run /etc/alloy/config.alloy
     networks:
-      - metrics-network
+      metrics-network:
 
   grafana:
     container_name: grafana
@@ -53,7 +53,6 @@ services:
       - grafana-storage:/var/lib/grafana
     networks:
       metrics-network:
-        ipv4_address: 172.20.0.5
 
   metrics-generator:
     container_name: metrics-generator
@@ -64,7 +63,7 @@ services:
       seal-proxy:
         condition: service_started
     networks:
-      - metrics-network
+      metrics-network:
 
 networks:
   metrics-network:
