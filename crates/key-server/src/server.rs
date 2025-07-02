@@ -18,7 +18,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::{extract::State, Json};
+use axum::{extract::State, Json, Router};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
@@ -55,7 +55,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
-use tokio::sync::watch::Receiver;
+    use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
@@ -694,6 +694,21 @@ async fn start_server_background_tasks(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let (monitor_handle, app) = app().await?;
+
+    tokio::select! {
+        server_result = serve(app) => {
+            error!("Server stopped with status {:?}", server_result);
+            std::process::exit(1);
+        }
+        monitor_result = monitor_handle => {
+            error!("Background tasks stopped with error: {:?}", monitor_result);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     let _guard = mysten_service::logging::init();
 
     // If CONFIG_PATH is set, read the configuration from the file.
@@ -780,15 +795,60 @@ async fn main() -> Result<()> {
                 .with_state(state),
         )
         .layer(cors);
+    Ok((monitor_handle, app))
+}
 
-    tokio::select! {
-        server_result = serve(app) => {
-            error!("Server stopped with status {:?}", server_result);
-            std::process::exit(1);
-        }
-        monitor_result = monitor_handle => {
-            error!("Background tasks stopped with error: {:?}", monitor_result);
-            std::process::exit(1);
-        }
-    }
+#[tokio::test]
+async fn test_service_legacy() {
+    use http_body_util::BodyExt;
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let service_id = ObjectID::random().to_hex_uncompressed();
+    let vars = vec![
+        ("LEGACY_KEY_SERVER_OBJECT_ID", Some(service_id.as_str())),
+        ("KEY_SERVER_OBJECT_ID", Some("0x01")),
+        (
+            "MASTER_KEY",
+            Some("0x0000000000000000000000000000000000000000000000000000000000000000"),
+        ),
+    ];
+    temp_env::async_with_vars(vars, async {
+        let (_, app) = app().await.unwrap();
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client =
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build_http();
+
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!("http://{addr}/v1/service"))
+                    .header("Client-Sdk-Version", "0.4.11")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
+        let response_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec();
+        let response_json: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
+        assert_eq!(
+            response_json.get("service_id").unwrap().as_str().unwrap(),
+            &service_id
+        );
+    })
+    .await;
 }
