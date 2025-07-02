@@ -55,7 +55,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
-    use tokio::sync::watch::Receiver;
+use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
@@ -830,7 +830,7 @@ async fn test_service_legacy() {
                 Request::builder()
                     .uri(format!("http://{addr}/v1/service"))
                     .header("Client-Sdk-Version", "0.4.11")
-                    .body(Body::empty())
+                    .body(axum::body::Body::empty())
                     .unwrap(),
             )
             .await
