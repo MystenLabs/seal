@@ -12,10 +12,10 @@ prometheus.remote_write "local" {
   endpoint {
     url = "http://mimir:9009/api/v1/push"
     remote_timeout = "30s"
-  }
-  queue_config {
-    max_samples_per_send = 1000
-    max_shards = 10
-    capacity = 2500
+    queue_config {
+      max_samples_per_send = 1000
+      max_shards = 10
+      capacity = 2500
+    }
   }
 }
