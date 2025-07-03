@@ -69,14 +69,18 @@ A key server may be used multiple times to enable weighting, which allows the ap
 > [!IMPORTANT]
 > Anyone can create an onchain `KeyServer` object that references a known URL (such as `seal.mystenlabs.com`) but uses a different public key. To prevent impersonation, the SDK performs a verification step: it fetches the object ID from the server’s `/v1/service` endpoint and compares it with the object ID registered onchain.
 
-Apps can retrieve a list of trusted (allowlisted) Seal key servers using the `getAllowlistedKeyServers()` function, or use a custom app-defined or user-defined list.
+Apps can retrieve a list of trusted (allowlisted) Seal key servers using the `getAllowlistedKeyServers()` function, or use a custom app-defined or user-defined list. See list of object IDs of available key servers in [this section](Pricing.md#testnet).
 
 Next, the app should create a `SealClient` object for the selected key servers.
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+// Replace this with a list of custom key server object IDs.
+const serverObjectIds = getAllowlistedKeyServers('testnet');
+
 const client = new SealClient({
   suiClient,
-  serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+  serverConfigs: serverObjectIds.map((id) => ({
     objectId: id,
     weight: 1,
   })),
