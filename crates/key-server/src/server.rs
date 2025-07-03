@@ -798,57 +798,114 @@ async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     Ok((monitor_handle, app))
 }
 
-#[tokio::test]
-async fn test_service_legacy() {
+#[cfg(test)]
+mod service_tests {
+    use crate::app;
+    use axum::body::Body;
+    use axum::extract::Request;
     use http_body_util::BodyExt;
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+    use serde_json::from_slice;
+    use serde_json::Value;
+    use sui_types::base_types::ObjectID;
+    use tokio::net::TcpListener;
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    #[tokio::test]
+    async fn test_service() {
+        let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
 
-    let service_id = ObjectID::random().to_hex_uncompressed();
-    let vars = vec![
-        ("LEGACY_KEY_SERVER_OBJECT_ID", Some(service_id.as_str())),
-        ("KEY_SERVER_OBJECT_ID", Some("0x01")),
-        (
-            "MASTER_KEY",
-            Some("0x0000000000000000000000000000000000000000000000000000000000000000"),
-        ),
-    ];
-    temp_env::async_with_vars(vars, async {
-        let (_, app) = app().await.unwrap();
+        let legacy_key_server_object_id = ObjectID::random().to_hex_uncompressed();
+        let key_server_object_id = ObjectID::random().to_hex_uncompressed();
+        let vars = vec![
+            (
+                "LEGACY_KEY_SERVER_OBJECT_ID",
+                Some(legacy_key_server_object_id.as_str()),
+            ),
+            ("KEY_SERVER_OBJECT_ID", Some(key_server_object_id.as_str())),
+            (
+                "MASTER_KEY",
+                Some("0x0000000000000000000000000000000000000000000000000000000000000000"),
+            ),
+        ];
+        temp_env::async_with_vars(vars, async {
+            let (_, app) = app().await.unwrap();
 
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
+            tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
 
-        let client =
-            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-                .build_http();
+            let client = Client::builder(TokioExecutor::new()).build_http();
 
-        let response = client
-            .request(
-                Request::builder()
-                    .uri(format!("http://{addr}/v1/service"))
-                    .header("Client-Sdk-Version", "0.4.11")
-                    .body(axum::body::Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
+            // Missing Client-Sdk-Version header. Should fail
+            let response = client
+                .request(
+                    Request::builder()
+                        .uri(format!(
+                            "http://{addr}/v1/service",
+                            key_server_object_id.as_str()
+                        ))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 400);
 
-        let response_bytes = response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec();
-        let response_json: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
-        assert_eq!(
-            response_json.get("service_id").unwrap().as_str().unwrap(),
-            &service_id
-        );
-    })
-    .await;
+            // Valid request
+            let response = client
+                .request(
+                    Request::builder()
+                        .uri(format!(
+                            "http://{addr}/v1/service?service_id={}",
+                            key_server_object_id.as_str()
+                        ))
+                        .header("Client-Sdk-Version", "0.4.11")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            let response_bytes = response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec();
+            let response_json: Value = from_slice(&response_bytes).unwrap();
+            assert_eq!(
+                response_json.get("service_id").unwrap().as_str().unwrap(),
+                &key_server_object_id
+            );
+
+            // If the service_id query param is NOT set, the legacy object id is returned
+            let response = client
+                .request(
+                    Request::builder()
+                        .uri(format!("http://{addr}/v1/service"))
+                        .header("Client-Sdk-Version", "0.4.11")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            let response_bytes = response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec();
+            let response_json: Value = from_slice(&response_bytes).unwrap();
+            assert_eq!(
+                response_json.get("service_id").unwrap().as_str().unwrap(),
+                &legacy_key_server_object_id
+            );
+        })
+        .await;
+    }
 }
