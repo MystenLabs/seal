@@ -34,7 +34,7 @@ mod e2e;
 mod externals;
 mod pd;
 mod tle;
-mod whitelist;
+pub(crate) mod whitelist;
 
 mod server;
 

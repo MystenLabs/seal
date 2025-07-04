@@ -194,7 +194,7 @@ pub fn whitelist_create_ptb(
     builder.finish()
 }
 
-pub(crate) async fn create_whitelist(
+pub async fn create_whitelist(
     cluster: &TestCluster,
     package_id: ObjectID,
 ) -> (ObjectID, ObjectID, u64) {
@@ -240,7 +240,7 @@ pub(crate) async fn create_whitelist(
     (whitelist.unwrap(), cap.unwrap(), initial_version.unwrap())
 }
 
-pub(crate) async fn add_user_to_whitelist(
+pub async fn add_user_to_whitelist(
     cluster: &TestCluster,
     package_id: ObjectID,
     whitelist: ObjectID,
