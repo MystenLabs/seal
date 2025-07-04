@@ -167,7 +167,7 @@ async fn test_whitelist_with_upgrade() {
 //     assert_eq!(res.status(), 200);
 // }
 
-pub(crate) fn whitelist_create_ptb(
+pub fn whitelist_create_ptb(
     package_id: ObjectID,
     whitelist_id: ObjectID,
     initial_shared_version: u64,
@@ -194,7 +194,7 @@ pub(crate) fn whitelist_create_ptb(
     builder.finish()
 }
 
-pub async fn create_whitelist(
+pub(crate) async fn create_whitelist(
     cluster: &TestCluster,
     package_id: ObjectID,
 ) -> (ObjectID, ObjectID, u64) {
