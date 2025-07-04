@@ -167,7 +167,7 @@ async fn test_whitelist_with_upgrade() {
 //     assert_eq!(res.status(), 200);
 // }
 
-pub fn whitelist_create_ptb(
+pub(crate) fn whitelist_create_ptb(
     package_id: ObjectID,
     whitelist_id: ObjectID,
     initial_shared_version: u64,
@@ -240,7 +240,7 @@ pub async fn create_whitelist(
     (whitelist.unwrap(), cap.unwrap(), initial_version.unwrap())
 }
 
-pub async fn add_user_to_whitelist(
+pub(crate) async fn add_user_to_whitelist(
     cluster: &TestCluster,
     package_id: ObjectID,
     whitelist: ObjectID,
