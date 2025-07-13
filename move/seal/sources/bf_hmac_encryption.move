@@ -5,7 +5,7 @@
 module seal::bf_hmac_encryption;
 
 use seal::{hmac256ctr, kdf::{hash_to_g1_with_dst, kdf}, key_server::KeyServer, polynomial};
-use std::hash::sha3_256;
+use std::{hash::sha3_256, option::none};
 use sui::{
     bls12381::{
         G1,
@@ -114,7 +114,9 @@ public fun decrypt(
         32,
         |i| polynomial::interpolate(&share_indices, &decrypted_shares.map_ref!(|share| share[i])),
     );
-    assert!(polynomials.all!(|p| p.degree() + 1 == *threshold as u64));
+    if (polynomials.any!(|p| p.degree() + 1 != *threshold as u64)) {
+        return none()
+    };
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
 
     // The encryption randomness can now be decrypted and used to decrypt the rest of the shares.
@@ -130,7 +132,9 @@ public fun decrypt(
             ),
         ),
     );
-    assert!(nonce == g2_mul(&randomness, &g2_generator()));
+    if (nonce != g2_mul(&randomness, &g2_generator())) {
+        return none()
+    };
     let (remaining_shares, remaining_indices) = decrypt_shares_with_randomness(
         &randomness,
         encrypted_shares,
@@ -142,9 +146,13 @@ public fun decrypt(
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
-    remaining_shares.zip_do!(remaining_indices, |share, index| {
-        verify_share(&polynomials, &share, index);
-    });
+    let mut i = 0;
+    while (i < remaining_shares.length()) {
+        if (!verify_share(&polynomials, &remaining_shares[i], remaining_indices[i])) {
+            return none()
+        };
+        i = i + 1;
+    };
 
     // Decrypt the blob.
     hmac256ctr::decrypt(
@@ -155,10 +163,15 @@ public fun decrypt(
     )
 }
 
-fun verify_share(polynomials: &vector<polynomial::Polynomial>, share: &vector<u8>, index: u8) {
-    polynomials.zip_do_ref!(share, |p, s| {
-        assert!(p.evaluate(index) == s);
-    });
+fun verify_share(polynomials: &vector<polynomial::Polynomial>, share: &vector<u8>, index: u8): bool {
+    let mut i = 0;
+    while (i < polynomials.length()) {
+        if (polynomials[i].evaluate(index) != share[i]) {
+            return false
+        };
+        i = i + 1;
+    };
+    true
 }
 
 fun create_full_id(package_id: address, id: vector<u8>): vector<u8> {
