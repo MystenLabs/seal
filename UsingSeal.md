@@ -215,6 +215,8 @@ Call the `create_and_transfer_v1` function from the `seal::key_server` module li
 
 ```shell
 sui client call --function create_and_transfer_v1 --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
+
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID> and object of type key_server::Cap <KEY_SERVER_CAP_ID>
 ```
 
 To start the key server in `Open` mode, run the command `cargo run --bin key-server`,
@@ -223,8 +225,8 @@ but before running the server, set the following environment variables:
 - `CONFIG_PATH`: The path to a .yaml configuration file that specifies key server settings. For the configuration file format, see the [example config](crates/key-server/key-server-config.yaml).
 
 In the config file, make sure to:
-- Set the mode to `Open`.
-- Set the `key_server_object_id` field to the ID of the key server object you registered on-chain.
+- Set the mode to `!Open`.
+- Set the `key_server_object_id` field to <KEY_SERVER_OBJECT_ID>, the ID of the key server object you registered on-chain. 
 
 ```
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
@@ -261,7 +263,7 @@ Seed: <MASTER_SEED>
 
 Next, create a configuration file in .yaml format following the instructions in the [example config](crates/key-server/key-server-config.yaml) and with the following properties:
 
-- Set the mode to `Permissioned`.
+- Set the mode to `!Permissioned`.
 - Initialize with an empty client configs (clients can be added later).
 
 ```yaml
