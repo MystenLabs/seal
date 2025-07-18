@@ -12,7 +12,7 @@ clap.workspace = true
 tokio = { version = "1.44", features = ["full"] }
 tokio-util = "0.7.13"
 tower = "0.4"
-tower-http = { version = "0.6", features = ["trace", "timeout"] }
+tower-http = { version = "0.6.6", features = ["trace", "timeout"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { workspace = true, features = ["derive"] }
@@ -20,7 +20,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 axum-extra = { version = "0.9", features = ["typed-header"] }
 headers = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 prometheus = "0.13.4"
 once_cell = "1.21.3"
 serde_with = { workspace = true, features = ["base64"] }
