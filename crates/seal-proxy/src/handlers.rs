@@ -88,7 +88,6 @@ fn convert_headers(axum_headers: &HeaderMap) -> ReqwestHeaderMap {
     let mut reqwest_headers = ReqwestHeaderMap::new();
 
     for (key, value) in axum_headers.iter() {
-        tracing::info!("header: {} = {}", key, value.to_str().unwrap_or(""));
         if let Ok(header_name) = HeaderName::from_bytes(key.as_str().as_bytes()) {
             if let Ok(header_value) = HeaderValue::from_bytes(value.as_bytes()) {
                 reqwest_headers.insert(header_name, header_value);

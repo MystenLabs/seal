@@ -1,0 +1,4 @@
+- name: sample-token
+  token: abcdefghijklmnopqrstuvwxyz
+- name: sample-token-2
+  token: random-string-for-testing
