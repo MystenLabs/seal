@@ -4,6 +4,6 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://172.20.0.3:9009
+    url: http://mimir:9009/prometheus
     isDefault: true
     editable: false 

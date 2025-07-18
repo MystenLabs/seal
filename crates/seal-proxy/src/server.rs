@@ -17,7 +17,7 @@ use crate::handlers::ReqwestClient;
 use crate::middleware::expect_valid_bearer_token;
 use crate::var;
 use crate::allowers::BearerTokenProvider;
-
+use std::sync::Arc;
 
 /// build our axum app
 pub fn app(
@@ -35,8 +35,11 @@ pub fn app(
     
     // if we have an allower, add the middleware and extension
     if let Some(allower) = allower {
+        tracing::info!("adding bearer token middleware");
         router = router.route_layer(middleware::from_fn(expect_valid_bearer_token))
-            .layer(Extension(allower));
+            .layer(Extension(Arc::new(allower)));
+    } else {
+        tracing::info!("no bearer token middleware");
     }
         
     router

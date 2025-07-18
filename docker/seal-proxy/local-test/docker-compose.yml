@@ -1,7 +1,7 @@
 services:
   seal-proxy:
     container_name: seal-proxy
-    command: /opt/seal-proxy/bin/seal-proxy --config=/app/config/seal-proxy.yaml
+    command: /opt/seal-proxy/bin/seal-proxy --config=/app/config/seal-proxy.yaml --bearer-tokens-path=/app/config/bearer-tokens.yaml
     build:
       context: ../../..
       dockerfile: docker/seal-proxy/Dockerfile
@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     volumes:
       - ./seal-proxy.yaml:/app/config/seal-proxy.yaml
+      - ./bearer-tokens.yaml:/app/config/bearer-tokens.yaml
     environment:
       - RUST_LOG=info
     networks:

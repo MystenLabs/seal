@@ -7,7 +7,7 @@ pub mod handlers;
 pub mod server;
 pub mod allowers;
 pub mod middleware;
-pub mod runtime;
+pub mod metrics_push;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {

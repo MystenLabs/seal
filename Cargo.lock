@@ -7481,6 +7481,8 @@ dependencies = [
  "headers",
  "once_cell",
  "prometheus",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
  "reqwest 0.11.27",
  "serde",
  "serde_json",

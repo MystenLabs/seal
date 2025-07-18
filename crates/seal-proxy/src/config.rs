@@ -5,10 +5,11 @@ use std::collections::HashMap;
 use anyhow::{Result, Context};
 use serde_with::{serde_as};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tracing::debug;
+use tracing::{info};
 use crate::BearerToken;
 use serde_with::DurationSeconds;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -45,28 +46,25 @@ fn metrics_address_default() -> String {
     "0.0.0.0:9185".to_string()
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct BearerTokenConfigItem {
-    pub bearer_token: BearerToken,
+    pub token: BearerToken,
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub struct BearerTokenConfig {
-    pub items: Vec<BearerTokenConfigItem>,
-}
+pub type BearerTokenConfig = Vec<BearerTokenConfigItem>;
 
 /// load our config file from a path
-pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize>(path: P) -> Result<T> {
+pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize + std::fmt::Debug>(path: P) -> Result<T> {
     let path = path.as_ref();
-    debug!("Reading config from {:?}", path);
-    Ok(serde_yaml::from_reader(
-        std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
-    )?)
+    info!("Reading config from {:?}", path);
+    // deserialize the config file and put it into a BearerTokenConfig
+    let config: T =  serde_yaml::from_reader(
+        std::fs::File::open(path).context(format!("cannot open {:?}", path))?
+    )?;
+    Ok(config)
 }
-
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -84,6 +82,13 @@ pub struct MetricsPushConfig {
     /// Static labels to provide to the push process.
     #[serde(default, skip_serializing_if = "is_none")]
     pub labels: Option<HashMap<String, String>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnableMetricsPush {
+    pub config: MetricsPushConfig,
+    pub cancel: CancellationToken,
+    pub bearer_token: String,
 }
 
 /// Configure the default push interval for metrics.
