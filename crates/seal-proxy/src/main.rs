@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let config: Arc<ProxyConfig> = Arc::new(load(&args.config)?);
-    let reqwest_client = make_reqwest_client(config.clone(), &APP_USER_AGENT);
+    let reqwest_client = make_reqwest_client(config.clone(), APP_USER_AGENT);
 
     // if bearer tokens path is not provided, don't create a bearer token provider
     // if the bearer tokens path is provided but the file is not found or is invalid, return an error
