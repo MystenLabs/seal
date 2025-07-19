@@ -1,0 +1,75 @@
+services:
+  seal-proxy:
+    container_name: seal-proxy
+    command: /opt/seal-proxy/bin/seal-proxy --config=/app/config/seal-proxy.yaml --bearer-tokens-path=/app/config/bearer-tokens.yaml
+    build:
+      context: ../../..
+      dockerfile: docker/seal-proxy/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./seal-proxy.yaml:/app/config/seal-proxy.yaml
+      - ./bearer-tokens.yaml:/app/config/bearer-tokens.yaml
+    environment:
+      - RUST_LOG=info
+    networks:
+      metrics-network:
+
+  mimir:
+    container_name: mimir
+    image: grafana/mimir:latest
+    command: -config.file=/etc/mimir/config.yaml
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir.yaml:/etc/mimir/config.yaml
+    environment:
+      - MIMIR_METRICS_PORT=9009
+    networks:
+      metrics-network:
+
+  alloy-agent:
+    container_name: alloy-agent
+    image: grafana/alloy:latest
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy
+    command: run /etc/alloy/config.alloy
+    networks:
+      metrics-network:
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./dashboard/dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
+      - ./dashboard/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - grafana-storage:/var/lib/grafana
+    networks:
+      metrics-network:
+
+  metrics-generator:
+    container_name: metrics-generator
+    build:
+      context: ../../..
+      dockerfile: docker/seal-proxy/local-test/metrics-generator/Dockerfile
+    depends_on:
+      seal-proxy:
+        condition: service_started
+    networks:
+      metrics-network:
+
+networks:
+  metrics-network:
+    name: metrics-network
+    driver: bridge
+
+volumes:
+  grafana-storage: 
