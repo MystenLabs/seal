@@ -1,3 +1,6 @@
+// Copyright (c), Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::config::EnableMetricsPush;
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use prometheus::{Registry, TextEncoder};
