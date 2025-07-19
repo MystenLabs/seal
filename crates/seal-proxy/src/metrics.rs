@@ -6,13 +6,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use axum::{Router, extract::Extension, http::StatusCode, routing::get};
+use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
 use prometheus::{IntCounter, Opts, Registry, TextEncoder};
 use tower::ServiceBuilder;
 use tower_http::{
-    LatencyUnit,
     trace::{DefaultOnResponse, TraceLayer},
+    LatencyUnit,
 };
 use tracing::Level;
 

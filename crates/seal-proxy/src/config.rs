@@ -1,15 +1,15 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-use anyhow::{Result, Context};
-use serde_with::{serde_as};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tracing::{info};
 use crate::BearerToken;
+use anyhow::{Context, Result};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_with::serde_as;
 use serde_with::DurationSeconds;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -56,12 +56,14 @@ pub struct BearerTokenConfigItem {
 pub type BearerTokenConfig = Vec<BearerTokenConfigItem>;
 
 /// load our config file from a path
-pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize + std::fmt::Debug>(path: P) -> Result<T> {
+pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize + std::fmt::Debug>(
+    path: P,
+) -> Result<T> {
     let path = path.as_ref();
     info!("Reading config from {:?}", path);
     // deserialize the config file and put it into a BearerTokenConfig
-    let config: T =  serde_yaml::from_reader(
-        std::fs::File::open(path).context(format!("cannot open {:?}", path))?
+    let config: T = serde_yaml::from_reader(
+        std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
     )?;
     Ok(config)
 }

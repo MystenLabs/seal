@@ -1,15 +1,10 @@
-use axum::{
-    extract::Request,
-    http::{header},
-    Extension,
-    body::Body,
-    response::Response,
-    http::StatusCode,
-    middleware::Next,
-};
-use std::sync::Arc;
 use crate::allowers::BearerTokenProvider;
 use crate::Allower;
+use axum::{
+    body::Body, extract::Request, http::header, http::StatusCode, middleware::Next,
+    response::Response, Extension,
+};
+use std::sync::Arc;
 
 /// we expect that calling seal nodes have known bearer tokens
 pub async fn expect_valid_bearer_token(

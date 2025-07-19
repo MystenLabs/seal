@@ -1,11 +1,15 @@
-use std::{collections::HashMap, net::SocketAddr, time::{Duration, SystemTime, UNIX_EPOCH}};
-use tokio::task::JoinHandle;
-use prometheus::{Registry, TextEncoder};
-use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use crate::config::EnableMetricsPush;
+use axum::{extract::Extension, http::StatusCode, routing::get, Router};
+use prometheus::{Registry, TextEncoder};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 pub const METRICS_ROUTE: &str = "/metrics";
-use anyhow::{Error, Result, anyhow};
+use anyhow::{anyhow, Error, Result};
 use prost::Message;
 
 // Prometheus Remote Write Protocol Buffers
@@ -71,9 +75,7 @@ pub enum MetricType {
     Stateset = 7,
 }
 
-pub async fn metrics(
-    Extension(registry): Extension<Registry>,
-) -> (StatusCode, String) {
+pub async fn metrics(Extension(registry): Extension<Registry>) -> (StatusCode, String) {
     let metrics_families = registry.gather();
     match TextEncoder.encode_to_string(&metrics_families) {
         Ok(metrics) => (StatusCode::OK, metrics),
@@ -141,7 +143,7 @@ pub async fn push_metrics_to_prometheus(
         let help = metric_family.get_help();
         // Note: Prometheus MetricFamily doesn't include unit information
         let unit = "";
-        
+
         // Add metadata for this metric family
         metadata_vec.push(MetricMetadata {
             r#type: match metric_type {
@@ -155,16 +157,16 @@ pub async fn push_metrics_to_prometheus(
             help: help.to_string(),
             unit: unit.to_string(),
         });
-        
+
         for metric in metric_family.get_metric() {
             let mut labels = Vec::new();
-            
+
             // Add metric name as __name__ label
             labels.push(Label {
                 name: "__name__".to_string(),
                 value: metric_name.to_string(),
             });
-            
+
             // Add metric labels
             for label_pair in metric.get_label() {
                 labels.push(Label {
@@ -172,7 +174,7 @@ pub async fn push_metrics_to_prometheus(
                     value: label_pair.get_value().to_string(),
                 });
             }
-            
+
             // Add external labels if provided
             if let Some(ref ext_labels) = external_labels {
                 for (name, value) in ext_labels {
@@ -182,10 +184,10 @@ pub async fn push_metrics_to_prometheus(
                     });
                 }
             }
-            
+
             // Sort labels by name (required by Prometheus)
             labels.sort_by(|a, b| a.name.cmp(&b.name));
-            
+
             // Extract value based on metric type
             let value = match metric_type {
                 prometheus::proto::MetricType::COUNTER => {
@@ -194,18 +196,18 @@ pub async fn push_metrics_to_prometheus(
                     } else {
                         continue;
                     }
-                },
+                }
                 prometheus::proto::MetricType::GAUGE => {
                     if metric.has_gauge() {
                         metric.get_gauge().get_value()
                     } else {
                         continue;
                     }
-                },
+                }
                 prometheus::proto::MetricType::HISTOGRAM => {
                     if metric.has_histogram() {
                         let histogram = metric.get_histogram();
-                        
+
                         // Add histogram buckets
                         for bucket in histogram.get_bucket() {
                             let mut bucket_labels = labels.clone();
@@ -214,11 +216,11 @@ pub async fn push_metrics_to_prometheus(
                                 value: format!("{}", bucket.get_upper_bound()),
                             });
                             bucket_labels.sort_by(|a, b| a.name.cmp(&b.name));
-                            
+
                             let mut bucket_name = metric_name.to_string();
                             bucket_name.push_str("_bucket");
                             bucket_labels[0].value = bucket_name;
-                            
+
                             timeseries_vec.push(TimeSeries {
                                 labels: bucket_labels,
                                 samples: vec![Sample {
@@ -227,7 +229,7 @@ pub async fn push_metrics_to_prometheus(
                                 }],
                             });
                         }
-                        
+
                         // Add histogram count
                         let mut count_labels = labels.clone();
                         count_labels[0].value = format!("{}_count", metric_name);
@@ -238,7 +240,7 @@ pub async fn push_metrics_to_prometheus(
                                 timestamp: now,
                             }],
                         });
-                        
+
                         // Add histogram sum
                         let mut sum_labels = labels.clone();
                         sum_labels[0].value = format!("{}_sum", metric_name);
@@ -249,15 +251,15 @@ pub async fn push_metrics_to_prometheus(
                                 timestamp: now,
                             }],
                         });
-                        
+
                         continue;
                     } else {
                         continue;
                     }
-                },
+                }
                 _ => continue, // Skip unsupported metric types
             };
-            
+
             // Create TimeSeries with single sample
             timeseries_vec.push(TimeSeries {
                 labels,
@@ -277,15 +279,19 @@ pub async fn push_metrics_to_prometheus(
 
     // Serialize to protobuf
     let mut buf = Vec::new();
-    write_request.encode(&mut buf).map_err(|e| anyhow!("Failed to encode protobuf: {}", e))?;
+    write_request
+        .encode(&mut buf)
+        .map_err(|e| anyhow!("Failed to encode protobuf: {}", e))?;
 
     // Compress with snappy
     let mut encoder = snap::raw::Encoder::new();
-    let compressed = encoder.compress_vec(&buf).map_err(|e| anyhow!("Failed to compress: {}", e))?;
+    let compressed = encoder
+        .compress_vec(&buf)
+        .map_err(|e| anyhow!("Failed to compress: {}", e))?;
 
     // Send HTTP request
     let bearer_token_formatted = format!("Bearer {}", mp_config.bearer_token);
-    
+
     let response = client
         .post(&push_url)
         .header(reqwest::header::AUTHORIZATION, bearer_token_formatted)
@@ -309,7 +315,10 @@ pub async fn push_metrics_to_prometheus(
         ));
     }
 
-    tracing::debug!("successfully pushed {} timeseries to prometheus remote write", write_request.timeseries.len());
+    tracing::debug!(
+        "successfully pushed {} timeseries to prometheus remote write",
+        write_request.timeseries.len()
+    );
     Ok(())
 }
 
@@ -323,9 +332,12 @@ pub fn prometheus_push_task(
         let mut interval = tokio::time::interval(mp_config.config.push_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut client = create_push_client();
-        
-        tracing::info!("starting prometheus remote write push to '{}'", &mp_config.config.push_url);
-        
+
+        tracing::info!(
+            "starting prometheus remote write push to '{}'",
+            &mp_config.config.push_url
+        );
+
         loop {
             tokio::select! {
                 _ = interval.tick() => {
