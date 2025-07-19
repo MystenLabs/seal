@@ -76,10 +76,10 @@ pub async fn relay_metrics_to_mimir(
             StatusCode::BAD_GATEWAY
         })?;
 
-    Ok(response.text().await.map_err(|e| {
+    response.text().await.map_err(|e| {
         tracing::error!("Error reading response text: {}", e);
         StatusCode::BAD_GATEWAY
-    })?)
+    })
 }
 
 fn convert_axum_method_to_reqwest_method(method: Method) -> reqwest::Method {
