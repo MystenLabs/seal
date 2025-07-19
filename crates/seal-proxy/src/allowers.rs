@@ -1,7 +1,7 @@
-use crate::{BearerToken, Allower};
-use std::collections::HashMap;
 use crate::config::{load, BearerTokenConfig};
+use crate::{Allower, BearerToken};
 use anyhow::Result;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct BearerTokenProvider {
@@ -15,10 +15,15 @@ impl BearerTokenProvider {
         }
 
         let bearer_token_config: BearerTokenConfig = load(bearer_token_config_path.unwrap())?;
-        Ok(Some(Self { bearer_tokens: bearer_token_config.iter().map(|item| {
-            tracing::info!("bearer token loaded for: {:?}", item.name);
-            (item.token.clone(), item.name.clone())
-        }).collect() }))
+        Ok(Some(Self {
+            bearer_tokens: bearer_token_config
+                .iter()
+                .map(|item| {
+                    tracing::info!("bearer token loaded for: {:?}", item.name);
+                    (item.token.clone(), item.name.clone())
+                })
+                .collect(),
+        }))
     }
 }
 

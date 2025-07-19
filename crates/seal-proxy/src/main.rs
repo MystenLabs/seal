@@ -1,16 +1,16 @@
-use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-use seal_proxy::metrics;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 use clap::Parser;
+use seal_proxy::metrics;
 use seal_proxy::{
-    config::{load, ProxyConfig},
-    server::app,
     allowers::BearerTokenProvider,
+    config::{load, ProxyConfig},
     handlers::make_reqwest_client,
+    server::app,
 };
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Metrics {
@@ -45,11 +45,7 @@ struct Args {
         help = "Specify the config file path to use"
     )]
     config: String,
-    #[arg(
-        long,
-        short,
-        help = "Specify the bearer tokens file path to use"
-    )]
+    #[arg(long, short, help = "Specify the bearer tokens file path to use")]
     bearer_tokens_path: Option<String>,
 }
 
@@ -85,9 +81,9 @@ async fn main() -> Result<()> {
     // Run it
     let addr = config.listen_address.parse::<SocketAddr>()?;
     tracing::info!("listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }

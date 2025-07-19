@@ -3,27 +3,24 @@
 
 use std::time::Duration;
 
-use axum::{Extension, Router, extract::DefaultBodyLimit, middleware, routing::post};
-use tokio::signal;
-use tower::ServiceBuilder;
-use tower_http::{
-    LatencyUnit,
-    timeout::TimeoutLayer,
-    trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
-};
-use tracing::Level;
+use crate::allowers::BearerTokenProvider;
 use crate::handlers::relay_metrics_to_mimir;
 use crate::handlers::ReqwestClient;
 use crate::middleware::expect_valid_bearer_token;
 use crate::var;
-use crate::allowers::BearerTokenProvider;
+use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
 use std::sync::Arc;
+use tokio::signal;
+use tower::ServiceBuilder;
+use tower_http::{
+    timeout::TimeoutLayer,
+    trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
+    LatencyUnit,
+};
+use tracing::Level;
 
 /// build our axum app
-pub fn app(
-    reqwest_client: ReqwestClient,
-    allower: Option<BearerTokenProvider>,
-) -> Router {
+pub fn app(reqwest_client: ReqwestClient, allower: Option<BearerTokenProvider>) -> Router {
     // build our application with a route and our sender mpsc
     let mut router = Router::new()
         .route("/publish/metrics", post(relay_metrics_to_mimir))
@@ -32,16 +29,17 @@ pub fn app(
             "MAX_BODY_SIZE",
             1024 * 1024 * 5
         )));
-    
+
     // if we have an allower, add the middleware and extension
     if let Some(allower) = allower {
         tracing::info!("adding bearer token middleware");
-        router = router.route_layer(middleware::from_fn(expect_valid_bearer_token))
+        router = router
+            .route_layer(middleware::from_fn(expect_valid_bearer_token))
             .layer(Extension(Arc::new(allower)));
     } else {
         tracing::info!("no bearer token middleware");
     }
-        
+
     router
         // Enforce on all routes.
         // If the request does not complete within the specified timeout it will be aborted

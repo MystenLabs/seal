@@ -1,13 +1,13 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod metrics;
+pub mod allowers;
 pub mod config;
 pub mod handlers;
-pub mod server;
-pub mod allowers;
-pub mod middleware;
+pub mod metrics;
 pub mod metrics_push;
+pub mod middleware;
+pub mod server;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {

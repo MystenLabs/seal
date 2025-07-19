@@ -2,18 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{
-    extract::Request, http::{Method, HeaderMap}, Extension,
     body::to_bytes,
+    extract::Request,
     http::StatusCode,
+    http::{HeaderMap, Method},
+    Extension,
 };
-use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderValue, HeaderName};
+use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName, HeaderValue};
 
-use std::time::Duration;
-use crate::var;
-use serde::{Deserialize, Serialize};
-use fastcrypto::secp256r1::Secp256r1PublicKey;
 use crate::config::ProxyConfig;
+use crate::var;
+use fastcrypto::secp256r1::Secp256r1PublicKey;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub type NetworkPublicKey = Secp256r1PublicKey;
 
@@ -41,7 +43,10 @@ pub fn make_reqwest_client(config: Arc<ProxyConfig>, user_agent: &str) -> Reqwes
         .build()
         .expect("cannot create reqwest client");
 
-    ReqwestClient { client, mimir_url: config.mimir_url.clone() }
+    ReqwestClient {
+        client,
+        mimir_url: config.mimir_url.clone(),
+    }
 }
 
 /// relay handler which receives metrics from nodes.  Nodes will call us at
@@ -52,7 +57,10 @@ pub async fn relay_metrics_to_mimir(
 ) -> Result<String, StatusCode> {
     let (parts, body) = req.into_parts();
 
-    let req_builder = reqwest_client.client.request(convert_axum_method_to_reqwest_method(parts.method), reqwest_client.mimir_url);
+    let req_builder = reqwest_client.client.request(
+        convert_axum_method_to_reqwest_method(parts.method),
+        reqwest_client.mimir_url,
+    );
     // convert the axum body to bytes
     let body_bytes = to_bytes(body, usize::MAX).await.map_err(|e| {
         tracing::error!("Error converting axum body to bytes: {}", e);
@@ -62,7 +70,8 @@ pub async fn relay_metrics_to_mimir(
         .headers(convert_headers(&parts.headers))
         .body(body_bytes)
         .send()
-        .await.map_err(|e| {
+        .await
+        .map_err(|e| {
             tracing::error!("Error sending request: {}", e);
             StatusCode::BAD_GATEWAY
         })?;
