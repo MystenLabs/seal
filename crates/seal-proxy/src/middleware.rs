@@ -15,10 +15,8 @@ pub async fn expect_valid_bearer_token(
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    // tracing::info!("in fn expect_valid_bearer_token");
     // Extract the Authorization header
     if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
-        tracing::info!("auth_header: {:?}", auth_header);
         if let Ok(auth_str) = auth_header.to_str() {
             // Check if it's a Bearer token
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
