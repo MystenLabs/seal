@@ -7414,7 +7414,6 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "const-str 0.6.2",
- "fastcrypto 0.1.8",
  "git-version",
  "headers",
  "once_cell",

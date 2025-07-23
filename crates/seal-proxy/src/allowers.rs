@@ -12,13 +12,9 @@ pub struct BearerTokenProvider {
 }
 
 impl BearerTokenProvider {
-    pub fn new(bearer_token_config_path: Option<String>) -> Result<Option<Self>> {
-        if bearer_token_config_path.is_none() {
-            return Ok(None);
-        }
-
-        let bearer_token_config: BearerTokenConfig = load(bearer_token_config_path.unwrap())?;
-        Ok(Some(Self {
+    pub fn new(bearer_token_config_path: String) -> Result<Self> {
+        let bearer_token_config: BearerTokenConfig = load(bearer_token_config_path)?;
+        Ok(Self {
             bearer_tokens: bearer_token_config
                 .iter()
                 .map(|item| {
@@ -26,7 +22,7 @@ impl BearerTokenProvider {
                     (item.token.clone(), item.name.clone())
                 })
                 .collect(),
-        }))
+        })
     }
 }
 

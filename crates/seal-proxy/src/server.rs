@@ -20,7 +20,7 @@ use tower_http::{
 use tracing::Level;
 
 /// build our axum app
-pub fn app(reqwest_client: ReqwestClient, allower: Option<BearerTokenProvider>) -> Router {
+pub fn app(reqwest_client: ReqwestClient, allower: BearerTokenProvider) -> Router {
     // build our application with a route and our sender mpsc
     let mut router = Router::new()
         .route("/publish/metrics", post(relay_metrics_to_mimir))
@@ -31,14 +31,10 @@ pub fn app(reqwest_client: ReqwestClient, allower: Option<BearerTokenProvider>) 
         )));
 
     // if we have an allower, add the middleware and extension
-    if let Some(allower) = allower {
-        tracing::info!("adding bearer token middleware");
-        router = router
-            .route_layer(middleware::from_fn(expect_valid_bearer_token))
-            .layer(Extension(Arc::new(allower)));
-    } else {
-        tracing::info!("no bearer token middleware");
-    }
+    tracing::info!("adding bearer token middleware");
+    router = router
+        .route_layer(middleware::from_fn(expect_valid_bearer_token))
+        .layer(Extension(Arc::new(allower)));
 
     router
         // Enforce on all routes.

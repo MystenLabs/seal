@@ -15,11 +15,6 @@ pub mod _hidden {
     pub use git_version::git_version;
 }
 
-use fastcrypto::secp256r1::Secp256r1PublicKey;
-/// The public key type for the storage node. This should be the same type as the network public
-/// key defined in the walrus-core crate. Defining it here to avoid depending on the walrus-core
-/// crate.
-pub type NetworkPublicKey = Secp256r1PublicKey;
 pub type BearerToken = String;
 
 /// The Allower trait provides an interface for callers to decide if a generic

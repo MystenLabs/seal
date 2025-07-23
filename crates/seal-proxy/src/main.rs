@@ -10,17 +10,9 @@ use seal_proxy::{
     handlers::make_reqwest_client,
     server::app,
 };
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Metrics {
-    // Add your metrics fields here based on Alloy's format
-    #[serde(flatten)]
-    data: serde_json::Value,
-}
 
 // Define the `GIT_REVISION` and `VERSION` consts
 seal_proxy::bin_version!();
@@ -49,7 +41,7 @@ struct Args {
     )]
     config: String,
     #[arg(long, short, help = "Specify the bearer tokens file path to use")]
-    bearer_tokens_path: Option<String>,
+    bearer_tokens_path: String,
 }
 
 #[tokio::main]
