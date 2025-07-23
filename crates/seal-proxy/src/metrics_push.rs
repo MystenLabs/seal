@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::client::EnableMetricsPush;
+use anyhow::{anyhow, Error, Result};
 use axum::{extract::Extension, http::StatusCode};
 use prometheus::{Registry, TextEncoder};
+use prost::Message;
 use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
-use anyhow::{anyhow, Error, Result};
-use prost::Message;
 
 // Prometheus Remote Write Protocol Buffers
 // Based on https://github.com/prometheus/prometheus/blob/main/prompb/types.proto

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod allowers;
+pub mod client;
 pub mod config;
 pub mod handlers;
 pub mod metrics;
 pub mod metrics_push;
 pub mod middleware;
 pub mod server;
-pub mod client;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {
