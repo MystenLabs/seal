@@ -12,22 +12,8 @@ use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName, HeaderValue};
 
 use crate::config::ProxyConfig;
 use crate::var;
-use fastcrypto::secp256r1::Secp256r1PublicKey;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-
-pub type NetworkPublicKey = Secp256r1PublicKey;
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NodeInfo {
-    /// name of the node, can be anything
-    pub name: String,
-    /// the dns or ip address of the node with port number
-    pub network_address: String,
-    /// the pubkey stored on chain
-    pub network_public_key: NetworkPublicKey,
-}
 
 #[derive(Debug, Clone)]
 pub struct ReqwestClient {

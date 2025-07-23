@@ -29,6 +29,5 @@ snap = "1.1.0"
 uuid = { version = "1.17.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
 const-str = "0.6.2"
 git-version = "0.3.9"
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
 prost = "0.12"
 prost-types = "0.12"
