@@ -1,19 +1,19 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::metrics_push::{metrics, push_metrics_to_prometheus};
+use anyhow::Result;
+use axum::{extract::Extension, routing::get, Router};
+use prometheus::Registry;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DurationSeconds;
 use std::collections::HashMap;
-use std::time::Duration;
-use tokio_util::sync::CancellationToken;
-use anyhow::{Result};
-use crate::metrics_push::{metrics, push_metrics_to_prometheus};
-use axum::{extract::Extension, routing::get, Router};
-use prometheus::{Registry};
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 pub const METRICS_ROUTE: &str = "/metrics";
 
@@ -78,7 +78,6 @@ pub fn start_prometheus_server(addr: SocketAddr) -> Registry {
 
     registry
 }
-
 
 /// Create a task that periodically pushes metrics to Prometheus remote write endpoint
 pub fn prometheus_push_task(
