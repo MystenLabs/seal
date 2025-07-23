@@ -10,12 +10,16 @@ A public-facing HTTP proxy server that accepts metrics packets. It:
 - Authenticates requests using bearer tokens (securely encrypted and stored internally)
 - **Encodes the metrics into a Protobuf format**
 - Relays them to an **Alloy sidecar container**, which forwards the data to the **Mimir metrics cluster**
+- usage: `seal-proxy --config=seal-proxy.yaml --bearer-tokens-path=bearer-tokens.yaml`
+    - [sample config file](../../docker/seal-proxy/local-test/seal-proxy.yaml)
+    - [sample bearer token file](../../docker/seal-proxy/local-test/bearer-tokens.yaml)
 
 #### Client Library: [location](./src/client.rs)
 A reusable library that allows clients to:
 
 - Push metrics to the `seal-proxy`
 - Authenticate via bearer tokens
+- please refer to Sample Client Setup for more details.
 
 ---
 
