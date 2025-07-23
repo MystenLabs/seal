@@ -9,7 +9,6 @@ pub mod metrics;
 pub mod metrics_push;
 pub mod middleware;
 pub mod server;
-pub mod client;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {
