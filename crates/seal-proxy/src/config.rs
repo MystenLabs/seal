@@ -5,10 +5,6 @@ use crate::BearerToken;
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
-use serde_with::DurationSeconds;
-use std::collections::HashMap;
-use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[serde_as]
@@ -66,46 +62,4 @@ pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize + std::fm
         std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
     )?;
     Ok(config)
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct MetricsPushConfig {
-    /// The interval of time we will allow to elapse before pushing metrics.
-    #[serde_as(as = "DurationSeconds<u64>")]
-    #[serde(
-        rename = "push_interval_secs",
-        default = "push_interval",
-        skip_serializing_if = "is_push_interval_default"
-    )]
-    pub push_interval: Duration,
-    /// The URL that we will push metrics to.
-    pub push_url: String,
-    /// Static labels to provide to the push process.
-    #[serde(default, skip_serializing_if = "is_none")]
-    pub labels: Option<HashMap<String, String>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct EnableMetricsPush {
-    pub config: MetricsPushConfig,
-    pub cancel: CancellationToken,
-    pub bearer_token: String,
-}
-
-/// Configure the default push interval for metrics.
-pub fn push_interval() -> Duration {
-    Duration::from_secs(60)
-}
-
-/// Returns true if the `duration` is equal to the default push interval for metrics.
-pub fn is_push_interval_default(duration: &Duration) -> bool {
-    duration == &push_interval()
-}
-
-/// Returns true iff the value is `None` and we don't run in test mode.
-pub fn is_none<T>(t: &Option<T>) -> bool {
-    // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
-    // to generate the example configuration files.
-    !cfg!(test) && t.is_none()
 }

@@ -1,17 +1,13 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::config::EnableMetricsPush;
-use axum::{extract::Extension, http::StatusCode, routing::get, Router};
+use crate::client::EnableMetricsPush;
+use axum::{extract::Extension, http::StatusCode};
 use prometheus::{Registry, TextEncoder};
 use std::{
     collections::HashMap,
-    net::SocketAddr,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
-pub const METRICS_ROUTE: &str = "/metrics";
 use anyhow::{anyhow, Error, Result};
 use prost::Message;
 
@@ -87,34 +83,6 @@ pub async fn metrics(Extension(registry): Extension<Registry>) -> (StatusCode, S
             format!("unable to encode metrics: {error}"),
         ),
     }
-}
-
-// Creates a new http server that has as a sole purpose to expose
-// and endpoint that prometheus agent can use to poll for the metrics.
-// A RegistryService is returned that can be used to get access in prometheus Registries.
-pub fn start_prometheus_server(addr: SocketAddr) -> Registry {
-    let registry = Registry::new();
-
-    let app = Router::new()
-        .route(METRICS_ROUTE, get(metrics))
-        .layer(Extension(registry.clone()));
-
-    tokio::spawn(async move {
-        let listener = TcpListener::bind(&addr).await.unwrap();
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
-    });
-
-    registry
-}
-
-/// Create a request client builder that is used to push metrics to mimir.
-fn create_push_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("unable to build client")
 }
 
 /// Push metrics directly to Prometheus remote write endpoint
@@ -323,43 +291,4 @@ pub async fn push_metrics_to_prometheus(
         write_request.timeseries.len()
     );
     Ok(())
-}
-
-/// Create a task that periodically pushes metrics to Prometheus remote write endpoint
-pub fn prometheus_push_task(
-    mp_config: EnableMetricsPush,
-    registry: Registry,
-    external_labels: Option<HashMap<String, String>>,
-) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(mp_config.config.push_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut client = create_push_client();
-
-        tracing::info!(
-            "starting prometheus remote write push to '{}'",
-            &mp_config.config.push_url
-        );
-
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    if let Err(error) = push_metrics_to_prometheus(
-                        &mp_config,
-                        &client,
-                        &registry,
-                        external_labels.clone(),
-                    ).await {
-                        tracing::warn!(?error, "unable to push metrics to prometheus");
-                        // Recreate client on error
-                        client = create_push_client();
-                    }
-                }
-                _ = mp_config.cancel.cancelled() => {
-                    tracing::info!("received cancellation request, shutting down prometheus push");
-                    return Ok(());
-                }
-            }
-        }
-    })
 }
