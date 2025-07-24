@@ -39,6 +39,7 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
+use seal_proxy::client::{prometheus_push_task, EnableMetricsPush};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -438,6 +439,27 @@ impl Server {
         )
         .await
     }
+
+    /// Spawn a metrics push background jobs that push metrics to seal-proxy
+    fn spawn_metrics_push_job(
+        &self,
+        registry: prometheus::Registry,
+    ) -> JoinHandle<()> {
+        let bearer_token = seal_proxy::var!("METRICS_PROXY_BEARER_TOKEN");
+        let push_config = self.options.metrics_push_config.clone();
+        if let Some(push_config) = push_config {
+            let mp_config = EnableMetricsPush {
+                config: push_config.clone(),
+                bearer_token: bearer_token,
+                cancel: None,
+            };
+            prometheus_push_task(mp_config, registry, push_config.labels.clone())
+        } else {
+            tokio::spawn(async move {
+                println!("No metrics push config is found, exiting");
+            })
+        }
+    }
 }
 
 async fn handle_fetch_key_internal(
@@ -639,11 +661,13 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 /// Spawn server's background tasks:
 ///  - background checkpoint downloader
 ///  - reference gas price updater.
+///  - optional metrics pusher (if configured).
 ///
 /// The returned JoinHandle can be used to catch any tasks error or panic.
 async fn start_server_background_tasks(
     server: Arc<Server>,
     metrics: Arc<Metrics>,
+    registry: prometheus::Registry,
 ) -> (
     Receiver<Timestamp>,
     Receiver<u64>,
@@ -659,7 +683,10 @@ async fn start_server_background_tasks(
         .spawn_reference_gas_price_updater(Some(&metrics))
         .await;
 
-    // Spawn a monitor task that will exit the program if either updater task panics
+    // Spawn metrics push task
+    let metrics_push_handle = server.spawn_metrics_push_job(registry);
+
+    // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
         tokio::select! {
             result = latest_checkpoint_timestamp_handle => {
@@ -674,6 +701,15 @@ async fn start_server_background_tasks(
             result = reference_gas_price_handle => {
                 if let Err(e) = result {
                     error!("Reference gas price updater panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+            result = metrics_push_handle => {
+                if let Err(e) = result {
+                    error!("Metrics push task panicked: {:?}", e);
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
                     }
@@ -764,7 +800,11 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
-        start_server_background_tasks(server.clone(), metrics.clone()).await;
+        start_server_background_tasks(
+            server.clone(), 
+            metrics.clone(), 
+            registry.clone(), 
+        ).await;
 
     let state = MyState {
         metrics,

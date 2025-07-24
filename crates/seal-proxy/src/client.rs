@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::metrics_push::{metrics, push_metrics_to_prometheus};
-use anyhow::Result;
 use axum::{extract::Extension, routing::get, Router};
 use prometheus::Registry;
 use serde::{Deserialize, Serialize};
@@ -38,7 +37,7 @@ pub struct MetricsPushConfig {
 #[derive(Clone, Debug)]
 pub struct EnableMetricsPush {
     pub config: MetricsPushConfig,
-    pub cancel: CancellationToken,
+    pub cancel: Option<CancellationToken>,
     pub bearer_token: String,
 }
 
@@ -84,7 +83,7 @@ pub fn prometheus_push_task(
     mp_config: EnableMetricsPush,
     registry: Registry,
     external_labels: Option<HashMap<String, String>>,
-) -> JoinHandle<Result<()>> {
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(mp_config.config.push_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -95,11 +94,16 @@ pub fn prometheus_push_task(
             &mp_config.config.push_url
         );
 
+        // if mp_config.cancel is not None, we'll use it to cancel the task
+        // otherwise, we'll use a default cancel token
+        let cancel_token = mp_config.cancel.unwrap_or(CancellationToken::new());
+
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(error) = push_metrics_to_prometheus(
-                        &mp_config,
+                        mp_config.config.push_url.clone(),
+                        mp_config.bearer_token.clone(),
                         &client,
                         &registry,
                         external_labels.clone(),
@@ -109,9 +113,8 @@ pub fn prometheus_push_task(
                         client = create_push_client();
                     }
                 }
-                _ = mp_config.cancel.cancelled() => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("received cancellation request, shutting down prometheus push");
-                    return Ok(());
                 }
             }
         }
