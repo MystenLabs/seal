@@ -96,7 +96,7 @@ pub fn prometheus_push_task(
 
         // if mp_config.cancel is not None, we'll use it to cancel the task
         // otherwise, we'll use a default cancel token
-        let cancel_token = mp_config.cancel.unwrap_or(CancellationToken::new());
+        let cancel_token = mp_config.cancel.unwrap_or(CancellationToken::new()).child_token();
 
         loop {
             tokio::select! {
