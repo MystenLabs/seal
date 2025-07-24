@@ -412,7 +412,7 @@ fun test_parse_encrypted_object() {
 fun test_seal_decrypt() {
     use sui::bls12381::{g1_from_bytes};
     use sui::test_scenario::{Self, next_tx, ctx};
-    use seal::key_server::{create_v1, destroy_cap};
+    use seal::key_server::{create_v1, destroy_for_testing as ks_destroy};
     use std::string;
 
     let addr1 = @0xA;
@@ -421,7 +421,7 @@ fun test_seal_decrypt() {
     // sk0 = 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
     let pk0 =
         x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
-    let cap0 = create_v1(
+    create_v1(
         string::utf8(b"mysten0"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -429,12 +429,12 @@ fun test_seal_decrypt() {
         ctx(&mut scenario),
     );
     next_tx(&mut scenario, addr1);
-    let s0: KeyServer = test_scenario::take_shared(&scenario);
+    let s0: KeyServer = scenario.take_from_sender();
 
     // sk1 = 09ba20939b2300c5ffa42e71809d3dc405b1e68259704b3cb8e04c36b0033e24
     let pk1 =
         x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
-    let cap1 = create_v1(
+    create_v1(
         string::utf8(b"mysten1"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -442,12 +442,12 @@ fun test_seal_decrypt() {
         ctx(&mut scenario),
     );
     next_tx(&mut scenario, addr1);
-    let s1: KeyServer = test_scenario::take_shared(&scenario);
+    let s1: KeyServer = scenario.take_from_sender();
 
     // sk2 = 692071ce90e2eea0ddfe16c5656879fa18b094f0eaa759759f4c3bb20db58cf3
     let pk2 =
         x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
-    let cap2 = create_v1(
+    create_v1(
         string::utf8(b"mysten2"),
         string::utf8(b"https://mysten-labs.com"),
         0,
@@ -455,7 +455,7 @@ fun test_seal_decrypt() {
         ctx(&mut scenario),
     );
     next_tx(&mut scenario, addr1);
-    let s2: KeyServer = test_scenario::take_shared(&scenario);
+    let s2: KeyServer = scenario.take_from_sender();
 
     // For reference, the encryption was created with the following CLI command:
     // cargo run --bin seal-cli encrypt-hmac --message 48656C6C6F2C20776F726C6421 --aad 0x0000000000000000000000000000000000000000000000000000000000000001 --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --threshold 2 a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161 a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6 93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651 -- 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96 0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3 0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97
@@ -483,12 +483,8 @@ fun test_seal_decrypt() {
     let decrypted = decrypt(&encrypted_object, &vdks, &all_pks);
     assert!(decrypted.borrow() == b"Hello, world!");
 
-    test_scenario::return_shared(s0);
-    test_scenario::return_shared(s1);
-    test_scenario::return_shared(s2);
-
-    destroy_cap(cap0);
-    destroy_cap(cap1);
-    destroy_cap(cap2);
+    ks_destroy(s0);
+    ks_destroy(s1);
+    ks_destroy(s2);
     test_scenario::end(scenario);
 }
