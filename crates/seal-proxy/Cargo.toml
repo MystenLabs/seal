@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "seal-proxy"
+path = "src/main.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
 base64 = "0.22.1"
