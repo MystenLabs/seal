@@ -6,6 +6,7 @@ use crate::time::from_mins;
 use crate::types::Network;
 use anyhow::{anyhow, Result};
 use duration_str::deserialize_duration;
+use seal_proxy::client::MetricsPushConfig;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -144,6 +145,10 @@ pub struct KeyServerOptions {
     /// The configuration for the Sui RPC client.
     #[serde(default)]
     pub rpc_config: RpcConfig,
+
+    /// Optional configuration for pushing metrics to an external endpoint (e.g., seal-proxy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics_push_config: Option<MetricsPushConfig>,
 }
 
 impl KeyServerOptions {
@@ -165,6 +170,7 @@ impl KeyServerOptions {
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
+            metrics_push_config: None,
         }
     }
 
@@ -183,6 +189,7 @@ impl KeyServerOptions {
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
+            metrics_push_config: None,
         }
     }
 

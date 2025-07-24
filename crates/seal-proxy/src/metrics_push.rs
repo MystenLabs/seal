@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::client::EnableMetricsPush;
 use anyhow::{anyhow, Error, Result};
 use axum::{extract::Extension, http::StatusCode};
 use prometheus::{Registry, TextEncoder};
@@ -10,6 +9,7 @@ use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+use crate::BearerToken;
 
 // Prometheus Remote Write Protocol Buffers
 // Based on https://github.com/prometheus/prometheus/blob/main/prompb/types.proto
@@ -89,12 +89,12 @@ pub async fn metrics(Extension(registry): Extension<Registry>) -> (StatusCode, S
 /// This function converts Registry metrics to the Prometheus remote write protobuf format
 /// and sends them via HTTP POST with Bearer token authentication
 pub async fn push_metrics_to_prometheus(
-    mp_config: &EnableMetricsPush,
+    push_url: String,
+    bearer_token: BearerToken,
     client: &reqwest::Client,
     registry: &Registry,
     external_labels: Option<HashMap<String, String>>,
 ) -> Result<(), Error> {
-    let push_url = mp_config.config.push_url.clone();
     tracing::debug!(push_url, "pushing metrics to prometheus remote write");
 
     // Get current timestamp in milliseconds
@@ -261,7 +261,7 @@ pub async fn push_metrics_to_prometheus(
         .map_err(|e| anyhow!("Failed to compress: {}", e))?;
 
     // Send HTTP request
-    let bearer_token_formatted = format!("Bearer {}", mp_config.bearer_token);
+    let bearer_token_formatted = format!("Bearer {}", bearer_token);
 
     let response = client
         .post(&push_url)
