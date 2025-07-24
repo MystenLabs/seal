@@ -62,6 +62,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
 use valid_ptb::ValidPtb;
+use futures::future::pending;
 
 mod cache;
 mod errors;
@@ -456,7 +457,8 @@ impl Server {
             prometheus_push_task(mp_config, registry, push_config.labels.clone())
         } else {
             tokio::spawn(async move {
-                println!("No metrics push config is found, exiting");
+                tracing::warn!("No metrics push config is found");
+                pending().await
             })
         }
     }

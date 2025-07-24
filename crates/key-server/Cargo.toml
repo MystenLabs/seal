@@ -48,10 +48,10 @@ sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", 
 prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "prometheus-closure-metric" }
 hyper-util = "0.1.10"
 http-body-util = "0.1.2"
+futures = "0.3"
 
 [dev-dependencies]
 tracing-test = "0.2.5"
 test_cluster = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "test-cluster" }
 sui_move_build = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-move-build" }
-futures = "0.3"
 temp-env = { version = "0.3", features = ["async_closure"] }
