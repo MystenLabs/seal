@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     // let bearer_token = "1234567890";
     let bearer_token = "abcdefghijklmnopqrstuvwxyz";
     let config = EnableMetricsPush {
-        cancel: cancel.child_token(),
+        cancel: Some(cancel.child_token()),
         bearer_token: bearer_token.to_string(),
         config: MetricsPushConfig {
             push_url: "http://seal-proxy:8000/publish/metrics".to_string(),
@@ -40,7 +40,8 @@ async fn main() -> Result<()> {
         }
     });
 
-    join_handle.await?
+    join_handle.await?;
+    Ok(())
 
 }
 
