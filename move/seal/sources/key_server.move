@@ -11,7 +11,6 @@ module seal::key_server;
 use std::string::String;
 use sui::{bls12381::{G2, g2_from_bytes}, dynamic_field as df, group_ops::Element};
 
-const EInvalidCap: u64 = 0;
 const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
 const KeyTypeBonehFranklinBLS12381: u8 = 0;
@@ -29,18 +28,13 @@ public struct KeyServerV1 has store {
     pk: vector<u8>,
 }
 
-public struct Cap has key, store {
-    id: UID,
-    key_server_id: ID,
-}
-
 public fun create_v1(
     name: String,
     url: String,
     key_type: u8,
     pk: vector<u8>,
     ctx: &mut TxContext,
-): Cap {
+) {
     // Currently only BLS12-381 is supported.
     assert!(key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
     let _ = g2_from_bytes(&pk);
@@ -58,14 +52,7 @@ public fun create_v1(
         pk,
     };
     df::add(&mut key_server.id, 1, key_server_v1);
-
-    let cap = Cap {
-        id: object::new(ctx),
-        key_server_id: object::id(&key_server),
-    };
-
-    transfer::share_object(key_server);
-    cap
+    transfer::transfer(key_server, tx_context::sender(ctx));
 }
 
 // Helper function to register a key server and transfer the cap to the caller.
@@ -76,8 +63,7 @@ entry fun create_and_transfer_v1(
     pk: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    let cap = create_v1(name, url, key_type, pk, ctx);
-    transfer::transfer(cap, ctx.sender());
+    create_v1(name, url, key_type, pk, ctx);
 }
 
 public fun v1(s: &KeyServer): &KeyServerV1 {
@@ -95,7 +81,7 @@ public fun url(s: &KeyServer): String {
     v1.url
 }
 
-public fun key_type(s: &mut KeyServer): u8 {
+public fun key_type(s: &KeyServer): u8 {
     let v1 = v1(s);
     v1.key_type
 }
@@ -115,16 +101,15 @@ public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
     g2_from_bytes(&v1.pk)
 }
 
-public fun update(s: &mut KeyServer, cap: &Cap, url: String) {
-    assert!(object::id(s) == cap.key_server_id, EInvalidCap);
+public fun update(s: &mut KeyServer, url: String) {
     assert!(df::exists_(&s.id, 1), EInvalidVersion);
     let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
     v1.url = url;
 }
 
 #[test_only]
-public fun destroy_cap(c: Cap) {
-    let Cap { id, .. } = c;
+public fun destroy_for_testing(v: KeyServer) {
+    let KeyServer { id, .. } = v;
     object::delete(id);
 }
 
@@ -139,7 +124,7 @@ fun test_flow() {
 
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
-    let cap = create_v1(
+    create_v1(
         string::utf8(b"mysten"),
         string::utf8(b"https::/mysten-labs.com"),
         0,
@@ -148,14 +133,13 @@ fun test_flow() {
     );
     next_tx(&mut scenario, addr1);
 
-    let mut s: KeyServer = test_scenario::take_shared(&scenario);
+    let mut s: KeyServer = scenario.take_from_sender();
     assert!(name(&s) == string::utf8(b"mysten"), 0);
     assert!(url(&s) == string::utf8(b"https::/mysten-labs.com"), 0);
     assert!(pk(&s) == pk.bytes(), 0);
-    s.update(&cap, string::utf8(b"https::/mysten-labs2.com"));
+    s.update(string::utf8(b"https::/mysten-labs2.com"));
     assert!(url(&s) == string::utf8(b"https::/mysten-labs2.com"), 0);
 
-    test_scenario::return_shared(s);
-    destroy_cap(cap);
+    destroy_for_testing(s);
     test_scenario::end(scenario);
 }
