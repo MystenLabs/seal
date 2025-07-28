@@ -38,6 +38,8 @@ Move.lock
 
 # Python
 .pyc
+__pycache__/
+.cache
 
 # Node.js
 node_modules
@@ -57,6 +59,12 @@ coverage/
 test-results/
 playwright-report/
 playwright/.cache/
+
+# MkDocs build output
+site/
+
+# Distribution files
+*.egg-info/
 
 # logs
 wallet.log.*

@@ -22,7 +22,21 @@ Provide as much detail as possible, including steps to reproduce the issue, expe
 
 Is something missing or incorrect in our documentation? You can make a PR if you prefer to fix it yourself.
 
-For larger documentation issues, please create an issue in GitHub.
+### Documentation on Walrus Sites (In development)
+
+We’re actively working on publishing Seal’s documentation using Walrus Sites. The site will be built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), a static site generator that supports clean, customizable documentation.
+
+You’ll find all documentation content inside the [docs directory](./docs), with site configuration defined in [mkdocs.yml](./mkdocs.yml).
+
+To contribute or test updates locally:
+
+- Install `mkdocs-material` using either:
+    - `brew install mkdocs-material`, or
+    - `pip install mkdocs-material`
+- From the root of the repository, run `mkdocs serve`. This will start a local development server so you can preview changes in your browser.
+
+> [!INFO]
+> For larger documentation issues, please create an issue in GitHub.
 
 ## Proposing Code Changes
 

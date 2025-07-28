@@ -1,0 +1,26 @@
+site_name: Seal Documentation
+theme:
+  name: material
+  features:
+    - content.code.copy
+  highlightjs: true
+  hljs_languages:
+    - rust
+    - move
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+nav:
+  - Home: index.md
+  - Seal Design: Design.md
+  - Using Seal: UsingSeal.md
+  - Security Best Practices: SecurityBestPractices.md
+  - Pricing: Pricing.md
+  - Terms of Service (Beta): TermsOfService.md
