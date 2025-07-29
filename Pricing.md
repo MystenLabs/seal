@@ -39,6 +39,7 @@ Please refer to [this document](UsingSeal.md#for-key-server-operators) for detai
         - URL: https://seal-testnet.nodeinfra.com
         - Contact the provider to configure your client and generate a unique key server object id
 - [Studio Mirai](https://x.com/_StudioMirai):
+- [Studio Mirai](https://x.com/_StudioMirai):
     - `Open` mode
         - URL: https://public.key-server.testnet.seal.mirai.cloud
         - Object Id: `0x27cf65cfd514e9fad1211c2f6e164b59c000be43466088faeb4a65952b6bfb99`
@@ -59,7 +60,7 @@ Please refer to [this document](UsingSeal.md#for-key-server-operators) for detai
     - `Permissioned` mode
         - URL: https://seal-permissioned.sui-testnet.h2o-nodes.com
         - Contact the provider to configure your client and generate a unique key server object id
-- [Trion One](https://x.com/triton_one)
+- [Triton One](https://x.com/triton_one)
     - `Open` mode
         - URL: https://seal.testnet.sui.rpcpool.com
         - Object Id: `0x4cded1abeb52a22b6becb42a91d3686a4c901cf52eee16234214d0b5b2da4c46`

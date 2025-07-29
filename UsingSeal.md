@@ -10,7 +10,7 @@
 
 ## For dapp developers
 
-**Access control management**
+### Access control management
 
 Packages should define `seal_approve*` functions in their modules to control access to the keys associated with their identity namespace. Guidelines for defining `seal_approve*` functions::
 - A package can include multiple `seal_approve*` functions, each implementing different access control logic and accepting different input parameters.
@@ -58,7 +58,7 @@ entry fun seal_approve(id: vector<u8>, cnt1: &Counter, cnt2: &Counter) {
 - Although the `Random` module is available, its output is not secure and not deterministic across full nodes. Avoid using it within `seal_approve*` functions.
 - During Seal evaluation, only `seal_approve*` functions can be invoked directly. These functions should not assume composition with other [PTB (Programmable Transaction Block)](https://docs.sui.io/concepts/transactions/prog-txn-blocks) commands.
 
-**Encryption and decryption**
+### Encryption
 
 The recommended way to encrypt and decrypt the data is to use the [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
@@ -115,6 +115,8 @@ Note that the encryption does **not** conceal the size of the message. If messag
 
 > [!TIP]
 > The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an EncryptedObject instance that includes metadata such as the ID and other associated fields.
+
+### Decryption
 
 Decryption involves a few additional steps:
 - The app must create a `SessionKey` object to access the decryption keys for a specific package.
