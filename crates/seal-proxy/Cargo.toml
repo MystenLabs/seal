@@ -10,7 +10,7 @@ name = "seal-proxy"
 path = "src/main.rs"
 
 [dependencies]
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", default-features = false, features = ["http2", "tokio", "macros"] }
 base64 = "0.22.1"
 clap.workspace = true
 tokio = { version = "1.44", features = ["full"] }
@@ -22,7 +22,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 anyhow.workspace = true
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 headers = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 prometheus = "0.13.4"
@@ -35,3 +35,6 @@ const-str = "0.6.2"
 git-version = "0.3.9"
 prost = "0.12"
 prost-types = "0.12"
+protobuf = { version = "2.28", features = ["with-bytes"] }
+bytes = "1.10.1"
+itertools.workspace = true

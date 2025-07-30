@@ -8,7 +8,7 @@ use std::{
 
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
-use prometheus::{IntCounter, Opts, Registry, TextEncoder};
+use prometheus::{IntCounter, Opts, Registry, TextEncoder, Counter, CounterVec, HistogramVec, HistogramOpts, opts};
 use tower::ServiceBuilder;
 use tower_http::{
     trace::{DefaultOnResponse, TraceLayer},

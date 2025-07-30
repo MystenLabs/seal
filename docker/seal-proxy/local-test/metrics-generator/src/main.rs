@@ -6,10 +6,11 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use rand::Rng;
 use tokio::time::{sleep, Duration};
-use seal_proxy::client::{start_prometheus_server, prometheus_push_task, MetricsPushConfig, EnableMetricsPush};
-use tokio_util::sync::CancellationToken;
+use seal_proxy::client::{start_prometheus_server, MetricsPushConfig, EnableMetricsPush};
 use std::collections::HashMap;
 use prometheus::{Registry, IntGauge, IntGaugeVec, Histogram};
+
+mod metrics_push;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,11 +18,9 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().init();
 
     let metrics_address = SocketAddr::from(([0, 0, 0, 0], 9185));
-    let cancel = CancellationToken::new();
     // let bearer_token = "1234567890";
     let bearer_token = "abcdefghijklmnopqrstuvwxyz";
     let config = EnableMetricsPush {
-        cancel: Some(cancel.child_token()),
         bearer_token: bearer_token.to_string(),
         config: MetricsPushConfig {
             push_url: "http://seal-proxy:8000/publish/metrics".to_string(),
@@ -31,7 +30,7 @@ async fn main() -> Result<()> {
     };
     let registry = start_prometheus_server(metrics_address);
     let metrics = create_metrics(&registry);
-    let join_handle = prometheus_push_task(config, registry.clone(), None);
+    let join_handle = metrics_push::prometheus_push_handler(config, registry.clone(), None);
 
     tokio::spawn(async move {
         loop {
@@ -68,7 +67,7 @@ fn create_metrics(registry: &Registry) -> Metrics {
     .expect("metric registration should succeed");
 
     let histogram_opts = prometheus::HistogramOpts::new("seal_request_duration", "Seal request duration")
-        .buckets(vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]);
+        .buckets(vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY]);
     let seal_request_duration = prometheus::register_histogram_with_registry!(histogram_opts, registry).expect("metric registration should succeed");
 
     Metrics {

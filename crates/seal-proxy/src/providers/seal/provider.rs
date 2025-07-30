@@ -24,16 +24,20 @@ impl BearerTokenProvider {
                 .collect(),
         })
     }
+
+    pub fn get_bearer_token_owner_name(&self, token: &str) -> Option<String> {
+        self.bearer_tokens.get(token).map(|name| name.clone())
+    }
 }
 
 impl Allower<BearerToken> for BearerTokenProvider {
-    fn allowed(&self, token: &BearerToken) -> bool {
+    fn allowed(&self, token: &String) -> (bool, String) {
         if let Some(name) = self.bearer_tokens.get(token) {
             tracing::info!("Accepted Request from: {:?}", name);
-            true
+            (true, name.clone())
         } else {
             tracing::info!("Rejected Bearer Token: {:?}", token);
-            false
+            (false, "".to_string())
         }
     }
 }

@@ -12,6 +12,7 @@ use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
+use crate::metrics_push::metrics_push_handler;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -39,7 +40,7 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
-use seal_proxy::client::{prometheus_push_task, EnableMetricsPush};
+use seal_proxy::client::EnableMetricsPush;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -76,6 +77,7 @@ mod valid_ptb;
 mod key_server_options;
 mod master_keys;
 mod metrics;
+mod metrics_push;
 mod mvr;
 mod periodic_updater;
 #[cfg(test)]
@@ -452,12 +454,11 @@ impl Server {
             let mp_config = EnableMetricsPush {
                 config: push_config.clone(),
                 bearer_token: bearer_token,
-                cancel: None,
             };
-            prometheus_push_task(mp_config, registry, push_config.labels.clone())
+            metrics_push_handler(mp_config, registry, push_config.labels.clone())
         } else {
             tokio::spawn(async move {
-                tracing::warn!("No metrics push config is found");
+                warn!("No metrics push config is found");
                 pending().await
             })
         }

@@ -1,14 +1,16 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod allowers;
-pub mod client;
 pub mod config;
 pub mod handlers;
 pub mod metrics;
-pub mod metrics_push;
 pub mod middleware;
-pub mod server;
+pub mod admin;
+pub mod histogram_relay;
+pub mod consumer;
+pub mod remote_write;
+pub mod prom_to_mimir;
+pub mod providers;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {
@@ -23,7 +25,7 @@ pub type BearerToken = String;
 pub trait Allower<KeyType>: std::fmt::Debug + Send + Sync {
     /// allowed is called in middleware to determine if a client should be
     /// allowed. Providers implement this interface
-    fn allowed(&self, key: &KeyType) -> bool;
+    fn allowed(&self, key: &KeyType) -> (bool, String);
 }
 
 /// Define constants that hold the git revision and package versions.
@@ -101,5 +103,13 @@ macro_rules! var {
             Ok(val) => val.parse::<_>().unwrap(),
             Err(_) => $default,
         }
+    };
+}
+
+
+#[macro_export]
+macro_rules! with_label {
+    ($metric:expr, $($label:expr),+$(,)?) => {
+        $metric.with_label_values(&[$($label.as_ref()),+])
     };
 }

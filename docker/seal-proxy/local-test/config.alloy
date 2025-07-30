@@ -7,6 +7,16 @@ prometheus.receive_http "api" {
   forward_to = [prometheus.remote_write.local.receiver]
 }
 
+// scrape http://seal-proxy:8001/metrics
+prometheus.scrape "seal_proxy" {
+  targets = [
+    {"__address__" = "seal-proxy:8001"},
+  ]
+  forward_to = [prometheus.remote_write.local.receiver]
+  scrape_interval = "15s"
+  metrics_path = "/metrics"
+}
+
 // Send metrics to a locally running Mimir.
 prometheus.remote_write "local" {
   endpoint {

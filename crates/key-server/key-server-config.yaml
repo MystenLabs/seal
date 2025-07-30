@@ -88,5 +88,5 @@ server_mode: !Open
 # Optional: Metrics push configuration to send metrics to seal-proxy
 # Uncomment and configure to enable pushing metrics to an external endpoint
 # metrics_push_config:
-#   push_interval_secs: 60
-#   push_url: "http://seal-proxy:8080/api/v1/metrics"
+#   push_interval_secs: 10
+#   push_url: "http://localhost:8000/publish/metrics"

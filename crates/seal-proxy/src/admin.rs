@@ -3,10 +3,9 @@
 
 use std::time::Duration;
 
-use crate::allowers::BearerTokenProvider;
-use crate::handlers::relay_metrics_to_mimir;
-use crate::handlers::ReqwestClient;
-use crate::middleware::expect_valid_bearer_token;
+use crate::providers::BearerTokenProvider;
+use crate::handlers::publish_metrics;
+use crate::middleware::{expect_valid_bearer_token, expect_content_length};
 use crate::var;
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
 use std::sync::Arc;
@@ -18,17 +17,44 @@ use tower_http::{
     LatencyUnit,
 };
 use tracing::Level;
+use crate::histogram_relay::HistogramRelay;
+use crate::config::{RemoteWriteConfig, LabelActions};
+
+/// Reqwest client holds the global client for remote_push api calls
+/// it also holds the username and password.  The client has an underlying
+/// connection pool.  See reqwest documentation for details
+#[derive(Debug, Clone)]
+pub struct ReqwestClient {
+    /// client pool builder for connections to mimir
+    pub client: reqwest::Client,
+    /// settings for remote write connection
+    pub settings: RemoteWriteConfig,
+}
+
+
+/// make a reqwest client to connect to mimir
+pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> ReqwestClient {
+    ReqwestClient {
+        client: reqwest::Client::builder()
+            .user_agent(user_agent)
+            .pool_max_idle_per_host(settings.pool_max_idle_per_host)
+            .timeout(Duration::from_secs(var!("MIMIR_CLIENT_TIMEOUT", 30)))
+            .build()
+            .expect("cannot create reqwest client"),
+        settings,
+    }
+}
 
 /// build our axum app
-pub fn app(reqwest_client: ReqwestClient, allower: BearerTokenProvider) -> Router {
+pub fn app(reqwest_client: ReqwestClient, allower: BearerTokenProvider, histogram_relay: HistogramRelay, label_actions: LabelActions) -> Router {
     // build our application with a route and our sender mpsc
     let mut router = Router::new()
-        .route("/publish/metrics", post(relay_metrics_to_mimir))
-        .layer(Extension(reqwest_client))
+        .route("/publish/metrics", post(publish_metrics))
         .route_layer(DefaultBodyLimit::max(var!(
             "MAX_BODY_SIZE",
             1024 * 1024 * 5
-        )));
+        )))
+        .route_layer(middleware::from_fn(expect_content_length));
 
     // if we have an allower, add the middleware and extension
     tracing::info!("adding bearer token middleware");
@@ -44,6 +70,9 @@ pub fn app(reqwest_client: ReqwestClient, allower: BearerTokenProvider) -> Route
             "NODE_CLIENT_TIMEOUT",
             20
         ))))
+        .layer(Extension(reqwest_client))
+        .layer(Extension(histogram_relay))
+        .layer(Extension(label_actions))
         .layer(
             ServiceBuilder::new().layer(
                 TraceLayer::new_for_http()

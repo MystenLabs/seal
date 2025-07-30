@@ -5,14 +5,12 @@ use anyhow::Result;
 use clap::Parser;
 use seal_proxy::metrics;
 use seal_proxy::{
-    allowers::BearerTokenProvider,
+    providers::BearerTokenProvider,
     config::{load, ProxyConfig},
-    handlers::make_reqwest_client,
-    server::app,
+    admin::{app, make_reqwest_client, server},
+    histogram_relay::start_prometheus_server,
 };
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::info;
 
 // Define the `GIT_REVISION` and `VERSION` consts
 seal_proxy::bin_version!();
@@ -47,23 +45,29 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    tracing_subscriber::fmt::init();
 
     let _registry_guard = metrics::seal_proxy_prom_registry();
-
     let args = Args::parse();
-    let config: Arc<ProxyConfig> = Arc::new(load(&args.config)?);
-    let reqwest_client = make_reqwest_client(config.clone(), APP_USER_AGENT);
+
+    let config: ProxyConfig = load(&args.config)?;
+    info!(
+        "listen on {:?} send to {:?}",
+        config.listen_address, config.remote_write.url
+    );
+
+    let listener = tokio::net::TcpListener::bind(config.listen_address).await?;
+    let histogram_listener = std::net::TcpListener::bind(config.histogram_address)?;
+    let metrics_listener = std::net::TcpListener::bind(config.metrics_address)?;
+
+    let remote_write_client = make_reqwest_client(config.remote_write, APP_USER_AGENT);
+    let histogram_relay = start_prometheus_server(histogram_listener);
+    metrics::start_prometheus_server(metrics_listener);
 
     // if bearer tokens path is not provided, don't create a bearer token provider
     // if the bearer tokens path is provided but the file is not found or is invalid, return an error
-    let allower = match BearerTokenProvider::new(args.bearer_tokens_path) {
-        Ok(allower) => allower,
+    let bearer_token_provider = match BearerTokenProvider::new(args.bearer_tokens_path) {
+        Ok(bearer_token_provider) => bearer_token_provider,
         Err(e) => {
             tracing::error!("error creating bearer token provider: {}", e);
             return Err(e);
@@ -71,14 +75,9 @@ async fn main() -> Result<()> {
     };
 
     // Build our application with a route
-    let app = app(reqwest_client, allower);
+    let app = app(remote_write_client, bearer_token_provider, histogram_relay, config.labels_actions);
 
-    // Run it
-    let addr = config.listen_address.parse::<SocketAddr>()?;
-    tracing::info!("listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    server(listener, app).await?;
 
     Ok(())
 }
