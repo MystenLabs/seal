@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "key_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "key-server"
 path = "src/server.rs"

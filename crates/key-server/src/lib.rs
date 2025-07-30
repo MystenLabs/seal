@@ -1,5 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
+pub mod types;
+
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
 use fastcrypto::ed25519::Ed25519PublicKey;
@@ -48,7 +51,7 @@ pub fn signed_request(
 
 #[cfg(test)]
 mod tests {
-    use crate::signed_message::{signed_message, signed_request};
+    use crate::{signed_message, signed_request};
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
     use fastcrypto::traits::KeyPair;
