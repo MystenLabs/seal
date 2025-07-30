@@ -51,7 +51,7 @@ Please refer to [this document](UsingSeal.md#for-key-server-operators) for detai
     - `Permissioned` mode
         - URL: https://seal-permissioned.sui-testnet.h2o-nodes.com
         - Contact the provider to configure your client and generate a unique key server object id
-- [Trion One](https://x.com/triton_one)
+- [Triton One](https://x.com/triton_one)
     - `Open` mode
         - URL: https://seal.testnet.sui.rpcpool.com
         - Object Id: `0x4cded1abeb52a22b6becb42a91d3686a4c901cf52eee16234214d0b5b2da4c46`
