@@ -88,7 +88,7 @@ type DefaultEncoding = PrefixedHex;
 
 // The "session" certificate, signed by the user
 #[derive(Clone, Serialize, Deserialize, Debug)]
-struct Certificate {
+pub struct Certificate {
     pub user: SuiAddress,
     pub session_vk: Ed25519PublicKey,
     pub creation_time: u64,
@@ -98,7 +98,7 @@ struct Certificate {
 }
 
 #[derive(Serialize, Deserialize)]
-struct FetchKeyRequest {
+pub struct FetchKeyRequest {
     // Next fields must be signed to prevent others from sending requests on behalf of the user and
     // being able to fetch the key
     ptb: String, // must adhere specific structure, see ValidPtb
