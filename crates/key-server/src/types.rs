@@ -3,6 +3,7 @@
 
 use crypto::elgamal;
 use crypto::ibe;
+use fastcrypto::ed25519::Ed25519Signature;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use sui_types::signature::GenericSignature;
@@ -67,4 +68,19 @@ pub struct Certificate {
     pub ttl_min: u16,
     pub signature: GenericSignature,
     pub mvr_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FetchKeyRequest {
+    // Next fields must be signed to prevent others from sending requests on behalf of the user and
+    // being able to fetch the key
+    pub ptb: String, // must adhere specific structure, see ValidPtb
+    // We don't want to rely on https only for restricting the response to this user, since in the
+    // case of multiple services, one service can do a replay attack to get the key from other
+    // services.
+    pub enc_key: ElGamalPublicKey,
+    pub enc_verification_key: ElgamalVerificationKey,
+    pub request_signature: Ed25519Signature,
+
+    pub certificate: Certificate,
 }

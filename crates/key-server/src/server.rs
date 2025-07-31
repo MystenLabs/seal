@@ -50,7 +50,7 @@ use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use key_server::types::Certificate;
+use key_server::types::{Certificate, FetchKeyRequest};
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
@@ -84,22 +84,6 @@ const GIT_VERSION: &str = utils::git_version!();
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
-
-
-#[derive(Serialize, Deserialize)]
-pub struct FetchKeyRequest {
-    // Next fields must be signed to prevent others from sending requests on behalf of the user and
-    // being able to fetch the key
-    ptb: String, // must adhere specific structure, see ValidPtb
-    // We don't want to rely on https only for restricting the response to this user, since in the
-    // case of multiple services, one service can do a replay attack to get the key from other
-    // services.
-    enc_key: ElGamalPublicKey,
-    enc_verification_key: ElgamalVerificationKey,
-    request_signature: Ed25519Signature,
-
-    certificate: Certificate,
-}
 
 type KeyId = Vec<u8>;
 
