@@ -4,6 +4,9 @@
 use crypto::elgamal;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
+use sui_types::base_types::SuiAddress;
+use sui_types::signature::GenericSignature;
+use fastcrypto::ed25519::Ed25519PublicKey;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
@@ -53,4 +56,15 @@ impl Network {
             _ => panic!("Unknown network: {}", str),
         }
     }
+}
+
+// The "session" certificate, signed by the user
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Certificate {
+    pub user: SuiAddress,
+    pub session_vk: Ed25519PublicKey,
+    pub creation_time: u64,
+    pub ttl_min: u16,
+    pub signature: GenericSignature,
+    pub mvr_name: Option<String>,
 }

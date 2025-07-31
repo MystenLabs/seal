@@ -26,7 +26,7 @@ use crypto::ibe::create_proof_of_possession;
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
-use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
+use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
@@ -50,7 +50,7 @@ use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use sui_sdk::types::signature::GenericSignature;
+use key_server::types::Certificate;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
@@ -85,16 +85,6 @@ const GIT_VERSION: &str = utils::git_version!();
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-// The "session" certificate, signed by the user
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Certificate {
-    pub user: SuiAddress,
-    pub session_vk: Ed25519PublicKey,
-    pub creation_time: u64,
-    pub ttl_min: u16,
-    pub signature: GenericSignature,
-    pub mvr_name: Option<String>,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct FetchKeyRequest {
