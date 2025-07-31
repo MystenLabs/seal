@@ -1,49 +1,102 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use seal_proxy::client::create_push_client;
-use seal_proxy::metrics_push::push_metrics_to_prometheus;
-use seal_proxy::client::EnableMetricsPush;
-use tokio::task::JoinHandle;
-use prometheus::Registry;
+use prometheus::{Registry, Encoder};
 use std::collections::HashMap;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use serde_json;
+use reqwest;
+use anyhow;
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct EnableMetricsPush {
+    pub bearer_token: String,
+    pub config: MetricsPushConfig,
+}
 
-/// Create a task that periodically pushes metrics to Prometheus remote write endpoint
-pub fn metrics_push_handler(
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct MetricsPushConfig {
+    pub push_url: String,
+    pub push_interval: Duration,
+    pub labels: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+/// MetricPayload holds static labels and metric data
+/// the static labels are always sent and will be merged within the proxy
+pub struct MetricPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// static labels defined in config, eg host, network, etc
+    pub labels: Option<HashMap<String, String>>,
+    /// protobuf encoded metric families. these must be decoded on the proxy side
+    pub buf: Vec<u8>,
+}
+
+/// Responsible for sending data to seal-proxy, used within the async scope of
+pub async fn push_metrics(
     mp_config: EnableMetricsPush,
-    registry: Registry,
-    external_labels: Option<HashMap<String, String>>,
-) -> JoinHandle<()> {
-    info!("starting metrics push task, push_url: {}", mp_config.config.push_url);
-    tokio::task::spawn(async move {
-        let mut interval = tokio::time::interval(mp_config.config.push_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut client = create_push_client();
+    client: &reqwest::Client,
+    registry: &Registry,
+) -> Result<(), anyhow::Error> {
+    tracing::info!(mp_config.config.push_url, "pushing metrics to remote");
 
-        let cancel_token = CancellationToken::new().child_token();
+    // now represents a collection timestamp for all of the metrics we send to the proxy.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("current time is definitely after the UNIX epoch")
+        .as_millis()
+        .try_into()
+        .expect("timestamp must fit into an i64");
 
-        debug!("metrics push task started");
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    if let Err(error) = push_metrics_to_prometheus(
-                        mp_config.config.push_url.clone(),
-                        mp_config.bearer_token.clone(),
-                        &client,
-                        &registry,
-                        external_labels.clone(),
-                    ).await {
-                        warn!(?error, "unable to push metrics to prometheus");
-                        // Recreate client on error
-                        client = create_push_client();
-                    }
-                }
-                _ = cancel_token.cancelled() => {
-                    info!("received cancellation request, shutting down prometheus push");
-                }
-            }
+    let mut metric_families = registry.gather();
+    for mf in metric_families.iter_mut() {
+        for m in mf.mut_metric() {
+            m.set_timestamp_ms(now);
         }
-    })
+    }
+
+    let mut buf: Vec<u8> = vec![];
+    let encoder = prometheus::ProtobufEncoder::new();
+    encoder.encode(&metric_families, &mut buf)?;
+
+    // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
+    let serialized = serde_json::to_vec(&MetricPayload { labels: mp_config.config.labels, buf }).inspect_err(|error| {
+        tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
+    })?;
+
+    let mut s = snap::raw::Encoder::new();
+    let compressed = s.compress_vec(&serialized).inspect_err(|error| {
+        tracing::warn!(?error, "unable to snappy encode metrics");
+    })?;
+
+    let response = client
+        .post(&mp_config.config.push_url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", mp_config.bearer_token))
+        .header(reqwest::header::CONTENT_ENCODING, "snappy")
+        .body(compressed)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => format!("couldn't decode response body; {error}"),
+        };
+        return Err(anyhow::anyhow!(
+            "metrics push failed: [{}]:{}",
+            status,
+            body
+        ));
+    }
+    tracing::debug!("successfully pushed metrics to {}", mp_config.config.push_url);
+    Ok(())
+}
+
+/// Create a request client builder that is used to push metrics to mimir.
+pub fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("unable to build client")
 }

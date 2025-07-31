@@ -6,12 +6,12 @@ use crate::time::from_mins;
 use crate::types::Network;
 use anyhow::{anyhow, Result};
 use duration_str::deserialize_duration;
-use seal_proxy::client::MetricsPushConfig;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_types::base_types::ObjectID;
 use tracing::info;
+use crate::metrics_push::MetricsPushConfig;
 
 /// ClientKeyType for a permissioned client.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

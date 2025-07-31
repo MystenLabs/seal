@@ -12,7 +12,7 @@ use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
-use crate::metrics_push::metrics_push_handler;
+use crate::metrics_push::{EnableMetricsPush, create_push_client};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -40,7 +40,6 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
-use seal_proxy::client::EnableMetricsPush;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -452,10 +451,29 @@ impl Server {
         let push_config = self.options.metrics_push_config.clone();
         if let Some(push_config) = push_config {
             let mp_config = EnableMetricsPush {
-                config: push_config.clone(),
                 bearer_token: bearer_token,
+                config: push_config.clone(),
             };
-            metrics_push_handler(mp_config, registry, push_config.labels.clone())
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(push_config.push_interval);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut client = create_push_client();
+                tracing::info!("starting metrics push to '{}'", &push_config.push_url);
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Err(error) = metrics_push::push_metrics(
+                                mp_config.clone(),
+                                &client,
+                                &registry,
+                            ).await {
+                                tracing::warn!(?error, "unable to push metrics");
+                                client = create_push_client();
+                            }
+                        }
+                    }
+                }
+            })
         } else {
             tokio::spawn(async move {
                 warn!("No metrics push config is found");
