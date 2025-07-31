@@ -6,11 +6,23 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use rand::Rng;
 use tokio::time::{sleep, Duration};
-use seal_proxy::client::{start_prometheus_server, MetricsPushConfig, EnableMetricsPush};
 use std::collections::HashMap;
 use prometheus::{Registry, IntGauge, IntGaugeVec, Histogram};
 
 mod metrics_push;
+
+#[derive(Clone)]
+pub struct EnableMetricsPush {
+    bearer_token: String,
+    config: MetricsPushConfig,
+}
+
+#[derive(Clone)]
+pub struct MetricsPushConfig {
+    push_url: String,
+    push_interval: Duration,
+    labels: Option<HashMap<String, String>>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,9 +40,30 @@ async fn main() -> Result<()> {
             labels: Some(HashMap::from([("host".to_string(), "demo".to_string())])),
         },
     };
-    let registry = start_prometheus_server(metrics_address);
-    let metrics = create_metrics(&registry);
-    let join_handle = metrics_push::prometheus_push_handler(config, registry.clone(), None);
+    let registry = mysten_metrics::start_prometheus_server(metrics_address);
+    let default_registry = registry.default_registry();
+    let metrics = create_metrics(&default_registry);
+
+    let metric_push_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(config.config.push_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut client = create_push_client();
+        tracing::info!("starting metrics push to '{}'", &config.config.push_url);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(error) = metrics_push::push_metrics(
+                        config.clone(),
+                        &client,
+                        &default_registry,
+                    ).await {
+                        tracing::warn!(?error, "unable to push metrics");
+                        client = create_push_client();
+                    }
+                }
+            }
+        }
+    });
 
     tokio::spawn(async move {
         loop {
@@ -39,7 +72,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    join_handle.await?;
+    metric_push_handle.await?;
     Ok(())
 
 }
@@ -94,4 +127,12 @@ fn generate_metrics(metrics: &Metrics) {
     let duration = Duration::from_millis(rand::thread_rng().gen_range(1..10000));
     metrics.seal_request_duration.observe(duration.as_secs_f64());
 
+}
+
+/// Create a request client builder that is used to push metrics to mimir.
+fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("unable to build client")
 }

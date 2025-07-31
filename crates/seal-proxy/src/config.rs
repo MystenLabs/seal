@@ -41,7 +41,9 @@ pub struct ProxyConfig {
     /// Sets the maximum idle connection per host allowed in the pool.
     #[serde(default = "pool_max_idle_per_host_default")]
     pub pool_max_idle_per_host: usize,
-    pub labels_actions: LabelActions,
+    /// label actions to apply to the metrics
+    #[serde(default = "default_label_actions")]
+    pub label_actions: LabelActions,
     pub remote_write: RemoteWriteConfig,
     /// what address to bind to
     #[serde(default = "listen_address_default")]
@@ -69,6 +71,10 @@ fn metrics_address_default() -> String {
 
 fn histogram_address_default() -> String {
     "0.0.0.0:8001".to_string()
+}
+
+fn default_label_actions() -> LabelActions {
+    HashMap::new()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

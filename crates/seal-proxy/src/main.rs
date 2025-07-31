@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     };
 
     // Build our application with a route
-    let app = app(remote_write_client, bearer_token_provider, histogram_relay, config.labels_actions);
+    let app = app(remote_write_client, bearer_token_provider, histogram_relay, config.label_actions);
 
     server(listener, app).await?;
 

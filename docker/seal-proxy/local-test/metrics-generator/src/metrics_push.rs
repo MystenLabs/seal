@@ -1,23 +1,33 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use seal_proxy::client::create_push_client;
-use seal_proxy::metrics_push::push_metrics_to_prometheus;
-use seal_proxy::client::EnableMetricsPush;
-use tokio::task::JoinHandle;
-use prometheus::Registry;
+use prometheus::{Registry, Encoder};
 use std::collections::HashMap;
-use tokio_util::sync::CancellationToken;
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json;
+use reqwest;
+use anyhow;
+use serde::{Deserialize, Serialize};
+use crate::EnableMetricsPush;
 
-/// Responsible for sending data to walrus-proxy, used within the async scope of
-/// MetricPushRuntime::start.
-async fn push_metrics(
+#[derive(Debug, Deserialize, Serialize)]
+/// MetricPayload holds static labels and metric data
+/// the static labels are always sent and will be merged within the proxy
+pub struct MetricPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// static labels defined in config, eg host, network, etc
+    pub labels: Option<HashMap<String, String>>,
+    /// protobuf encoded metric families. these must be decoded on the proxy side
+    pub buf: Vec<u8>,
+}
+
+/// Responsible for sending data to seal-proxy, used within the async scope of
+pub async fn push_metrics(
+    mp_config: EnableMetricsPush,
     client: &reqwest::Client,
-    push_url: &str,
     registry: &Registry,
-    label_actions: Option<HashMap<String, String>>,
 ) -> Result<(), anyhow::Error> {
-    tracing::debug!(push_url, "pushing metrics to remote");
+    tracing::info!(mp_config.config.push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
@@ -39,7 +49,7 @@ async fn push_metrics(
     encoder.encode(&metric_families, &mut buf)?;
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
-    let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
+    let serialized = serde_json::to_vec(&MetricPayload { labels: mp_config.config.labels, buf }).inspect_err(|error| {
         tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
@@ -48,17 +58,9 @@ async fn push_metrics(
         tracing::warn!(?error, "unable to snappy encode metrics");
     })?;
 
-    let uid = Uuid::now_v7();
-    let uids = uid.simple().to_string();
-    let signature = network_key_pair.sign_recoverable(uid.as_bytes());
-    let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
-    let auth_encoded_with_scheme = format!(
-        "Secp256k1-recoverable: {}",
-        Base64::from_bytes(auth.to_string().as_bytes()).encoded()
-    );
     let response = client
-        .post(push_url)
-        .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
+        .post(&mp_config.config.push_url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", mp_config.bearer_token))
         .header(reqwest::header::CONTENT_ENCODING, "snappy")
         .body(compressed)
         .send()
@@ -76,6 +78,6 @@ async fn push_metrics(
             body
         ));
     }
-    tracing::debug!("successfully pushed metrics to {push_url}");
+    tracing::debug!("successfully pushed metrics to {}", mp_config.config.push_url);
     Ok(())
 }

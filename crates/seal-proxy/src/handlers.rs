@@ -49,7 +49,7 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 /// this endpoint and we relay them to the upstream tsdb. Clients will receive
 /// a response after successfully relaying the metrics upstream
 pub async fn publish_metrics(
-    Extension(req): Extension<TypedHeader<Authorization<Bearer>>>,
+    TypedHeader(req): TypedHeader<Authorization<Bearer>>,
     Extension(allower): Extension<Arc<BearerTokenProvider>>,
     Extension(label_actions): Extension<LabelActions>,
     Extension(remote_write_client): Extension<ReqwestClient>,

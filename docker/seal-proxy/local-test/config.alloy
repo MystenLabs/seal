@@ -1,13 +1,4 @@
-// Receives metrics over HTTP
-prometheus.receive_http "api" {
-  http {
-    listen_address = "0.0.0.0"
-    listen_port = 9000
-  }
-  forward_to = [prometheus.remote_write.local.receiver]
-}
-
-// scrape http://seal-proxy:8001/metrics
+// scrape http://seal-proxy:8001/metrics for histogram data
 prometheus.scrape "seal_proxy" {
   targets = [
     {"__address__" = "seal-proxy:8001"},

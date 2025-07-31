@@ -4,7 +4,7 @@
 use crate::providers::BearerTokenProvider;
 use crate::Allower;
 use axum::{
-    body::Body, extract::Request, http::header, http::StatusCode, middleware::Next,
+    body::Body, extract::Request, http::StatusCode, middleware::Next,
     response::Response, Extension, extract::FromRequest,
 };
 use axum_extra::{typed_header::{TypedHeader}, headers::{ContentLength, Authorization, authorization::Bearer}};
@@ -21,7 +21,6 @@ use crate::register_metric;
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, Opts};
 use crate::consumer::{Label, ProtobufDecoder};
-use crate::BearerToken;
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(
