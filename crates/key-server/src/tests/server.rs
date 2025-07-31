@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use key_server::{signed_message, signed_request};
 use prometheus::Registry;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,7 +14,6 @@ use crate::start_server_background_tasks;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
 
-use crate::signed_message::{signed_message, signed_request};
 use crate::FetchKeyResponse;
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest, GetServiceResponse};
 use axum::body::Body;

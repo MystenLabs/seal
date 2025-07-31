@@ -3,11 +3,11 @@
 
 use crypto::elgamal;
 use crypto::ibe;
+use fastcrypto::ed25519::Ed25519PublicKey;
 use fastcrypto::ed25519::Ed25519Signature;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use sui_types::signature::GenericSignature;
-use fastcrypto::ed25519::Ed25519PublicKey;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
@@ -83,4 +83,17 @@ pub struct FetchKeyRequest {
     pub request_signature: Ed25519Signature,
 
     pub certificate: Certificate,
+}
+
+pub type KeyId = Vec<u8>;
+
+#[derive(Serialize, Deserialize)]
+pub struct DecryptionKey {
+    pub id: KeyId,
+    pub encrypted_key: ElgamalEncryption,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FetchKeyResponse {
+    pub decryption_keys: Vec<DecryptionKey>,
 }

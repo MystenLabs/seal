@@ -18,7 +18,6 @@ use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
-use key_server::{signed_message, signed_request};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe;
@@ -30,6 +29,8 @@ use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::traits::VerifyingKey;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
+use key_server::types::{Certificate, DecryptionKey, FetchKeyRequest, FetchKeyResponse, KeyId};
+use key_server::{signed_message, signed_request};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
@@ -50,7 +51,6 @@ use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use key_server::types::{Certificate, FetchKeyRequest};
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
@@ -59,7 +59,7 @@ use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
-use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
+use types::{ElGamalPublicKey, ElgamalVerificationKey};
 use valid_ptb::ValidPtb;
 
 mod cache;
@@ -85,22 +85,8 @@ const GIT_VERSION: &str = utils::git_version!();
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-type KeyId = Vec<u8>;
-
 /// UNIX timestamp in milliseconds.
 type Timestamp = u64;
-
-#[derive(Serialize, Deserialize)]
-struct DecryptionKey {
-    id: KeyId,
-    encrypted_key: ElgamalEncryption,
-}
-
-#[derive(Serialize, Deserialize)]
-struct FetchKeyResponse {
-    decryption_keys: Vec<DecryptionKey>,
-}
-
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
