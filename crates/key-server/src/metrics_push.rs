@@ -1,11 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow;
 use prometheus::{Encoder, Registry};
-use reqwest;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use serde_with::serde_as;
 use serde_with::DurationSeconds;
 use std::collections::HashMap;
