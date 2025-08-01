@@ -41,7 +41,7 @@ function LandingPage() {
             <h2>Subscription Example</h2>
             <p>
               Shows how a creator can define a subscription based access to its published files. The
-              creator defines subcriptoin fee and how long a subscription is valid for. The creator
+              creator defines subscription fee and how long a subscription is valid for. The creator
               can then associate encrypted files to the service. Only users who have purchased a
               subscription (NFT) have access to decrypt the files, along with the condition that the
               subscription must not have expired (i.e. the subscription creation timestamp plus the
