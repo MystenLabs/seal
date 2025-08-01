@@ -121,10 +121,11 @@ async fn test_server_background_task_monitor() {
 
     let (latest_checkpoint_timestamp_receiver, _reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(
-            Arc::new(tc.server().clone()), 
-            metrics.clone(), 
-            metrics_registry.clone(), 
-        ).await;
+            Arc::new(tc.server().clone()),
+            metrics.clone(),
+            metrics_registry.clone(),
+        )
+        .await;
 
     // Drop the receiver to trigger the panic in the background
     // spawn_latest_checkpoint_timestamp_updater task.

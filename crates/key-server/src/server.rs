@@ -5,6 +5,7 @@ use crate::errors::InternalError::{
 };
 use crate::externals::get_reference_gas_price;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
+use crate::metrics_push::{create_push_client, EnableMetricsPush};
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::{signed_message, signed_request};
@@ -12,7 +13,6 @@ use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
-use crate::metrics_push::{EnableMetricsPush, create_push_client};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -29,6 +29,7 @@ use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::traits::VerifyingKey;
+use futures::future::pending;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
@@ -62,7 +63,6 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
 use valid_ptb::ValidPtb;
-use futures::future::pending;
 
 mod cache;
 mod errors;
@@ -443,10 +443,7 @@ impl Server {
     }
 
     /// Spawn a metrics push background jobs that push metrics to seal-proxy
-    fn spawn_metrics_push_job(
-        &self,
-        registry: prometheus::Registry,
-    ) -> JoinHandle<()> {
+    fn spawn_metrics_push_job(&self, registry: prometheus::Registry) -> JoinHandle<()> {
         let bearer_token = seal_proxy::var!("METRICS_PROXY_BEARER_TOKEN");
         let push_config = self.options.metrics_push_config.clone();
         if let Some(push_config) = push_config {
@@ -821,11 +818,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
-        start_server_background_tasks(
-            server.clone(), 
-            metrics.clone(), 
-            registry.clone(), 
-        ).await;
+        start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;
 
     let state = MyState {
         metrics,
