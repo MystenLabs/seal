@@ -1,5 +1,6 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 use itertools::Itertools;
 use prometheus::proto::{Counter, Gauge, Histogram, Metric, MetricFamily, MetricType};
 use protobuf::RepeatedField;
