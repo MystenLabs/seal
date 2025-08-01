@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Install licensesnip
-        uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@v2.52.4
+        uses: taiki-e/install-action@d31232495ad76f47aad66e3501e47780b49f0f3e # pin@v2.57.5
         with:
           tool: licensesnip@1.7.0
       - run: licensesnip check
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
-      - uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # pin@v2.52.4
+      - uses: taiki-e/install-action@d31232495ad76f47aad66e3501e47780b49f0f3e # pin@v2.57.5
         with:
           tool: cargo-nextest
       - name: Run tests
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # pin@v2
+      - uses: EmbarkStudios/cargo-deny-action@30f817c6f72275c6d54dc744fbca09ebc958599f # pin@v2
         with:
           command: check
           arguments: --all-features
