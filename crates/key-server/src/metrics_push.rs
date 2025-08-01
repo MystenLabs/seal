@@ -8,17 +8,35 @@ use serde_json;
 use reqwest;
 use anyhow;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use serde_with::DurationSeconds;
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EnableMetricsPush {
     pub bearer_token: String,
     pub config: MetricsPushConfig,
 }
 
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MetricsPushConfig {
     pub push_url: String,
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(
+        rename = "push_interval_secs",
+        default = "push_interval_default",
+        skip_serializing_if = "is_push_interval_default"
+    )]
     pub push_interval: Duration,
     pub labels: Option<HashMap<String, String>>,
+}
+
+fn push_interval_default() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn is_push_interval_default(duration: &Duration) -> bool {
+    *duration == Duration::from_secs(10)
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -32,7 +32,7 @@ A reusable library that allows clients to:
 - Receives, authenticates, and processes metrics.
 
 #### Alloy Sidecar
-- Forwards encoded metrics to the Mimir cluster.
+- Collects histogram metrics from seal-proxy instance due to lack of support of native histogram in prometheus rust library.
 
 #### Mimir Cluster
 - Stores the incoming metrics.

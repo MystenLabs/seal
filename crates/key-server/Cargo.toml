@@ -43,6 +43,7 @@ moka = { version = "0.12.10", features = ["sync"] }
 tokio-util = "0.7.13"
 snap = "1.1.0"
 reqwest = { version = "0.12", features = ["json"] }
+serde_with = { workspace = true, features = ["base64"] }
 
 move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
