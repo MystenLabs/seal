@@ -28,7 +28,6 @@ tokio = { version = "1.45.1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
 tower-http = { version = "0.6.6", features = ["cors"] }
 crypto = { path = "../crypto" }
-seal-proxy = { path = "../seal-proxy" }
 tap = "1.0.1"
 prometheus = "0.13.3"
 anyhow = "1.0.79"

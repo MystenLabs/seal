@@ -5,7 +5,7 @@ use crate::errors::InternalError::{
 };
 use crate::externals::get_reference_gas_price;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
-use crate::metrics_push::{create_push_client, EnableMetricsPush};
+use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::{signed_message, signed_request};
@@ -444,13 +444,8 @@ impl Server {
 
     /// Spawn a metrics push background jobs that push metrics to seal-proxy
     fn spawn_metrics_push_job(&self, registry: prometheus::Registry) -> JoinHandle<()> {
-        let bearer_token = seal_proxy::var!("METRICS_PROXY_BEARER_TOKEN");
         let push_config = self.options.metrics_push_config.clone();
         if let Some(push_config) = push_config {
-            let mp_config = EnableMetricsPush {
-                bearer_token: bearer_token,
-                config: push_config.clone(),
-            };
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(push_config.push_interval);
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -460,7 +455,7 @@ impl Server {
                     tokio::select! {
                         _ = interval.tick() => {
                             if let Err(error) = metrics_push::push_metrics(
-                                mp_config.clone(),
+                                push_config.clone(),
                                 &client,
                                 &registry,
                             ).await {

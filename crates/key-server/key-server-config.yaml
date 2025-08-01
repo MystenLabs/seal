@@ -88,5 +88,6 @@ server_mode: !Open
 # Optional: Metrics push configuration to send metrics to seal-proxy
 # Uncomment and configure to enable pushing metrics to an external endpoint
 # metrics_push_config:
+#   bearer_token: "random-string-for-testing"
 #   push_interval_secs: 10
 #   push_url: "http://localhost:8000/publish/metrics"

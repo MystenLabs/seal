@@ -11,15 +11,10 @@ use serde_with::DurationSeconds;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct EnableMetricsPush {
-    pub bearer_token: String,
-    pub config: MetricsPushConfig,
-}
-
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MetricsPushConfig {
+    pub bearer_token: String,
     pub push_url: String,
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(
@@ -52,11 +47,11 @@ pub struct MetricPayload {
 
 /// Responsible for sending data to seal-proxy, used within the async scope of
 pub async fn push_metrics(
-    mp_config: EnableMetricsPush,
+    config: MetricsPushConfig,
     client: &reqwest::Client,
     registry: &Registry,
 ) -> Result<(), anyhow::Error> {
-    tracing::info!(mp_config.config.push_url, "pushing metrics to remote");
+    tracing::info!(config.push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
@@ -79,7 +74,7 @@ pub async fn push_metrics(
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
     let serialized = serde_json::to_vec(&MetricPayload {
-        labels: mp_config.config.labels,
+        labels: config.labels,
         buf,
     })
     .inspect_err(|error| {
@@ -92,10 +87,10 @@ pub async fn push_metrics(
     })?;
 
     let response = client
-        .post(&mp_config.config.push_url)
+        .post(&config.push_url)
         .header(
             reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", mp_config.bearer_token),
+            format!("Bearer {}", config.bearer_token),
         )
         .header(reqwest::header::CONTENT_ENCODING, "snappy")
         .body(compressed)
@@ -116,7 +111,7 @@ pub async fn push_metrics(
     }
     tracing::debug!(
         "successfully pushed metrics to {}",
-        mp_config.config.push_url
+        config.push_url
     );
     Ok(())
 }
