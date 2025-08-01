@@ -88,7 +88,7 @@ public fun decrypt(
     // Verify that the public keys are from the key servers in the encrypted object and in the same order.
     public_keys.zip_do_ref!(services, |a, b| assert!(a.key_server.to_address() == b));
 
-    // Find the indices of the key servers corresponsing to the derived keys.
+    // Find the indices of the key servers corresponding to the derived keys.
     let given_indices = verified_derived_keys.map_ref!(
         |vdk| services.find_index!(|service| vdk.key_server.to_address() == service).extract(),
     );
