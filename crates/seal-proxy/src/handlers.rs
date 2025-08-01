@@ -54,7 +54,7 @@ pub async fn publish_metrics(
     LenDelimProtobuf(data): LenDelimProtobuf,
 ) -> (StatusCode, &'static str) {
     let node_name = allower
-        .get_bearer_token_owner_name(&req.token().to_string())
+        .get_bearer_token_owner_name(req.token())
         .unwrap();
     with_label!(HANDLER_HITS, "publish_metrics", &node_name).inc();
 

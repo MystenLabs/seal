@@ -60,13 +60,13 @@ pub async fn expect_valid_bearer_token(
         with_label!(
             MIDDLEWARE_HEADERS,
             "bearer-token-owner",
-            &format!("{}", owner_name)
+            &owner_name.to_string()
         )
         .inc();
-        return Ok(next.run(req).await);
+        Ok(next.run(req).await)
     } else {
         tracing::info!("invalid token, rejecting request");
-        return Err((StatusCode::UNAUTHORIZED, "Unauthorized"));
+        Err((StatusCode::UNAUTHORIZED, "Unauthorized"))
     }
 }
 

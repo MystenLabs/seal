@@ -26,7 +26,7 @@ impl BearerTokenProvider {
     }
 
     pub fn get_bearer_token_owner_name(&self, token: &str) -> Option<String> {
-        self.bearer_tokens.get(token).map(|name| name.clone())
+        self.bearer_tokens.get(token).cloned()
     }
 }
 

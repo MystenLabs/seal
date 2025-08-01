@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, io::Read, sync::Arc};
+use std::io::Read;
 
 use anyhow::Result;
 use axum::{body::Bytes, http::StatusCode};

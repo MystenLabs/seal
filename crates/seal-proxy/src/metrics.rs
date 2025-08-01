@@ -9,7 +9,7 @@ use std::{
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
 use prometheus::{
-    opts, Counter, CounterVec, HistogramOpts, HistogramVec, IntCounter, Opts, Registry, TextEncoder,
+    IntCounter, Opts, Registry, TextEncoder,
 };
 use tower::ServiceBuilder;
 use tower_http::{
