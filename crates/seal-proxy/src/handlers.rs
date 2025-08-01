@@ -53,9 +53,7 @@ pub async fn publish_metrics(
     Extension(relay): Extension<HistogramRelay>,
     LenDelimProtobuf(data): LenDelimProtobuf,
 ) -> (StatusCode, &'static str) {
-    let node_name = allower
-        .get_bearer_token_owner_name(req.token())
-        .unwrap();
+    let node_name = allower.get_bearer_token_owner_name(req.token()).unwrap();
     with_label!(HANDLER_HITS, "publish_metrics", &node_name).inc();
 
     let timer = with_label!(HTTP_HANDLER_DURATION, "publish_metrics", &node_name).start_timer();

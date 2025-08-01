@@ -106,10 +106,7 @@ pub async fn push_metrics(
             body
         ));
     }
-    tracing::debug!(
-        "successfully pushed metrics to {}",
-        config.push_url
-    );
+    tracing::debug!("successfully pushed metrics to {}", config.push_url);
     Ok(())
 }
 
