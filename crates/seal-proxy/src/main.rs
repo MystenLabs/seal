@@ -5,10 +5,10 @@ use anyhow::Result;
 use clap::Parser;
 use seal_proxy::metrics;
 use seal_proxy::{
-    providers::BearerTokenProvider,
-    config::{load, ProxyConfig},
     admin::{app, make_reqwest_client, server},
+    config::{load, ProxyConfig},
     histogram_relay::start_prometheus_server,
+    providers::BearerTokenProvider,
 };
 use tracing::info;
 
@@ -75,7 +75,12 @@ async fn main() -> Result<()> {
     };
 
     // Build our application with a route
-    let app = app(remote_write_client, bearer_token_provider, histogram_relay, config.label_actions);
+    let app = app(
+        remote_write_client,
+        bearer_token_provider,
+        histogram_relay,
+        config.label_actions,
+    );
 
     server(listener, app).await?;
 

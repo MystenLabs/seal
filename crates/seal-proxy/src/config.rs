@@ -5,8 +5,8 @@ use crate::BearerToken;
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
-use tracing::info;
 use std::collections::HashMap;
+use tracing::info;
 
 /// RemoteWriteConfig defines the mimir config items for connecting to mimir
 #[serde_as]

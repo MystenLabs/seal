@@ -1,51 +1,50 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::providers::BearerTokenProvider;
-use crate::Allower;
-use axum::{
-    body::Body, extract::Request, http::StatusCode, middleware::Next,
-    response::Response, Extension, extract::FromRequest,
-};
-use axum_extra::{typed_header::{TypedHeader}, headers::{ContentLength, Authorization, authorization::Bearer}};
-use bytes::Buf;
-use std::{sync::Arc};
-use bytes::{Bytes};
-use prometheus::proto::{MetricFamily};
-use serde::Deserialize;
-use std::collections::{HashMap};
-use tracing::{error};
-use crate::with_label;
-use axum::http::header::CONTENT_ENCODING;
-use crate::register_metric;
-use once_cell::sync::Lazy;
-use prometheus::{CounterVec, Opts};
 use crate::consumer::{Label, ProtobufDecoder};
+use crate::providers::BearerTokenProvider;
+use crate::register_metric;
+use crate::with_label;
+use crate::Allower;
+use axum::http::header::CONTENT_ENCODING;
+use axum::{
+    body::Body, extract::FromRequest, extract::Request, http::StatusCode, middleware::Next,
+    response::Response, Extension,
+};
+use axum_extra::{
+    headers::{authorization::Bearer, Authorization, ContentLength},
+    typed_header::TypedHeader,
+};
+use bytes::Buf;
+use bytes::Bytes;
+use once_cell::sync::Lazy;
+use prometheus::proto::MetricFamily;
+use prometheus::{CounterVec, Opts};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::error;
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(
-        CounterVec::new(
-            Opts::new(
-                "middleware_operations",
-                "Operations counters and status for axum middleware.",
-            ),
-            &["operation", "status"]
-        )
-        .unwrap()
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "middleware_operations",
+            "Operations counters and status for axum middleware.",
+        ),
+        &["operation", "status"]
     )
+    .unwrap())
 });
 
 static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(
-        CounterVec::new(
-            Opts::new(
-                "middleware_headers",
-                "Operations counters and status for axum middleware.",
-            ),
-            &["header", "value"]
-        )
-        .unwrap()
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "middleware_headers",
+            "Operations counters and status for axum middleware.",
+        ),
+        &["header", "value"]
     )
+    .unwrap())
 });
 
 /// we expect that calling seal nodes have known bearer tokens
@@ -85,7 +84,6 @@ pub async fn expect_content_length(
     .inc();
     Ok(next.run(request).await)
 }
-
 
 /// MetricFamilyWithStaticLabels takes labels that were signaled to us from the node as well
 /// as their metrics and creates an axum Extension type param that can be used in middleware

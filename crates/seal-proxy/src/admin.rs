@@ -3,9 +3,11 @@
 
 use std::time::Duration;
 
-use crate::providers::BearerTokenProvider;
+use crate::config::{LabelActions, RemoteWriteConfig};
 use crate::handlers::publish_metrics;
-use crate::middleware::{expect_valid_bearer_token, expect_content_length};
+use crate::histogram_relay::HistogramRelay;
+use crate::middleware::{expect_content_length, expect_valid_bearer_token};
+use crate::providers::BearerTokenProvider;
 use crate::var;
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
 use std::sync::Arc;
@@ -17,8 +19,6 @@ use tower_http::{
     LatencyUnit,
 };
 use tracing::Level;
-use crate::histogram_relay::HistogramRelay;
-use crate::config::{RemoteWriteConfig, LabelActions};
 
 /// Reqwest client holds the global client for remote_push api calls
 /// it also holds the username and password.  The client has an underlying
@@ -30,7 +30,6 @@ pub struct ReqwestClient {
     /// settings for remote write connection
     pub settings: RemoteWriteConfig,
 }
-
 
 /// make a reqwest client to connect to mimir
 pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> ReqwestClient {
@@ -46,7 +45,12 @@ pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> Req
 }
 
 /// build our axum app
-pub fn app(reqwest_client: ReqwestClient, allower: BearerTokenProvider, histogram_relay: HistogramRelay, label_actions: LabelActions) -> Router {
+pub fn app(
+    reqwest_client: ReqwestClient,
+    allower: BearerTokenProvider,
+    histogram_relay: HistogramRelay,
+    label_actions: LabelActions,
+) -> Router {
     // build our application with a route and our sender mpsc
     let mut router = Router::new()
         .route("/publish/metrics", post(publish_metrics))

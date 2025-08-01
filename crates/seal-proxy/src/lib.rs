@@ -1,16 +1,16 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod admin;
 pub mod config;
+pub mod consumer;
 pub mod handlers;
+pub mod histogram_relay;
 pub mod metrics;
 pub mod middleware;
-pub mod admin;
-pub mod histogram_relay;
-pub mod consumer;
-pub mod remote_write;
 pub mod prom_to_mimir;
 pub mod providers;
+pub mod remote_write;
 
 /// Hidden reexports for the bin_version macro
 pub mod _hidden {
@@ -105,7 +105,6 @@ macro_rules! var {
         }
     };
 }
-
 
 #[macro_export]
 macro_rules! with_label {

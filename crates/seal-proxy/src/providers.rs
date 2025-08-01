@@ -4,6 +4,4 @@
 mod seal;
 
 // Re-export for easier access
-pub use crate::providers::seal::{
-    provider::BearerTokenProvider,
-};
+pub use crate::providers::seal::provider::BearerTokenProvider;
