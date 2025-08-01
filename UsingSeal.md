@@ -249,7 +249,7 @@ Example of a request:
 ```
 curl http://0.0.0.0:2024/health
 
-curl --header "Client-Sdk-Version: x.x.x" http://0.0.0.0:2024/v1/service # lastest sdk version from https://www.npmjs.com/package/@mysten/seal
+curl --header "Client-Sdk-Version: x.x.x" http://0.0.0.0:2024/v1/service # latest sdk version from https://www.npmjs.com/package/@mysten/seal
 ``` -->
 
 ### Permissioned mode

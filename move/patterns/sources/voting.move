@@ -23,7 +23,7 @@ const EAlreadyFinalized: u64 = 3;
 public struct Vote has key {
     /// The id of a vote is the id of the object.
     id: UID,
-    /// The eligble voters of the vote.
+    /// The eligible voters of the vote.
     voters: vector<address>,
     /// This holds the encrypted votes assuming the same order as the `voters` vector.
     votes: vector<Option<EncryptedObject>>,
