@@ -8,7 +8,6 @@ import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
 import {
   getAllowlistedKeyServers,
-  KeyServerConfig,
   SealClient,
   SessionKey,
   type SessionKeyType,
