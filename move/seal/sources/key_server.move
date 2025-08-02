@@ -64,7 +64,7 @@ entry fun create_and_transfer_v1(
     ctx: &mut TxContext,
 ) {
     let key_server = create_v1(name, url, key_type, pk, ctx);
-    transfer::transfer(key_server, tx_context::sender(ctx));
+    transfer::transfer(key_server, ctx.sender());
 }
 
 public fun v1(s: &KeyServer): &KeyServerV1 {
@@ -111,14 +111,13 @@ public fun update(s: &mut KeyServer, url: String) {
 #[test_only]
 public fun destroy_for_testing(v: KeyServer) {
     let KeyServer { id, .. } = v;
-    object::delete(id);
+    id.delete();
 }
 
 #[test]
 fun test_flow() {
     use sui::test_scenario::{Self, next_tx, ctx};
     use sui::bls12381::{g2_generator};
-    use std::string;
 
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
@@ -126,20 +125,20 @@ fun test_flow() {
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
     create_and_transfer_v1(
-        string::utf8(b"mysten"),
-        string::utf8(b"https::/mysten-labs.com"),
+        b"mysten".to_string(),
+        b"https::/mysten-labs.com".to_string(),
         0,
         pk_bytes,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
+    scenario.next_tx(addr1);
 
     let mut s: KeyServer = scenario.take_from_sender();
-    assert!(name(&s) == string::utf8(b"mysten"), 0);
-    assert!(url(&s) == string::utf8(b"https::/mysten-labs.com"), 0);
+    assert!(name(&s) == b"mysten".to_string(), 0);
+    assert!(url(&s) == b"https::/mysten-labs.com".to_string(), 0);
     assert!(pk(&s) == pk.bytes(), 0);
-    s.update(string::utf8(b"https::/mysten-labs2.com"));
-    assert!(url(&s) == string::utf8(b"https::/mysten-labs2.com"), 0);
+    s.update(b"https::/mysten-labs2.com".to_string());
+    assert!(url(&s) == b"https::/mysten-labs2.com".to_string(), 0);
 
     destroy_for_testing(s);
     test_scenario::end(scenario);

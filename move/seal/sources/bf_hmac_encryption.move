@@ -60,7 +60,7 @@ public fun new_public_key(key_server_id: ID, pk_bytes: vector<u8>): PublicKey {
 #[test_only]
 public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
     PublicKey {
-        key_server: object::id(key_server),
+        key_server: key_server.id().to_inner(),
         pk: key_server.pk_as_bf_bls12381(),
     }
 }
@@ -422,7 +422,6 @@ fun test_seal_decrypt() {
     use sui::bls12381::{g1_from_bytes};
     use sui::test_scenario::{Self, next_tx, ctx};
     use seal::key_server::{create_and_transfer_v1, destroy_for_testing as ks_destroy, KeyServer};
-    use std::string;
 
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
@@ -431,39 +430,39 @@ fun test_seal_decrypt() {
     let pk0 =
         x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
     create_and_transfer_v1(
-        string::utf8(b"mysten0"),
-        string::utf8(b"https://mysten-labs.com"),
+        b"mysten0".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk0,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
+    scenario.next_tx(addr1);
     let s0: KeyServer = scenario.take_from_sender();
 
     // sk1 = 09ba20939b2300c5ffa42e71809d3dc405b1e68259704b3cb8e04c36b0033e24
     let pk1 =
         x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
     create_and_transfer_v1(
-        string::utf8(b"mysten1"),
-        string::utf8(b"https://mysten-labs.com"),
+        b"mysten1".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk1,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
+    scenario.next_tx(addr1);
     let s1: KeyServer = scenario.take_from_sender();
 
     // sk2 = 692071ce90e2eea0ddfe16c5656879fa18b094f0eaa759759f4c3bb20db58cf3
     let pk2 =
         x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
     create_and_transfer_v1(
-        string::utf8(b"mysten2"),
-        string::utf8(b"https://mysten-labs.com"),
+        b"mysten2".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk2,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
+    scenario.next_tx(addr1);
     let s2: KeyServer = scenario.take_from_sender();
 
     // For reference, the encryption was created with the following CLI command:
@@ -495,5 +494,5 @@ fun test_seal_decrypt() {
     ks_destroy(s0);
     ks_destroy(s1);
     ks_destroy(s2);
-    test_scenario::end(scenario);
+    scenario.end();
 }

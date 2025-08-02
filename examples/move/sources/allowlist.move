@@ -94,11 +94,10 @@ public fun publish(allowlist: &mut Allowlist, cap: &Cap, blob_id: String) {
 
 #[test_only]
 public fun new_allowlist_for_testing(ctx: &mut TxContext): Allowlist {
-    use std::string::utf8;
 
     Allowlist {
         id: object::new(ctx),
-        name: utf8(b"test"),
+        name: b"test".to_string(),
         list: vector::empty(),
     }
 }
