@@ -34,7 +34,7 @@ public fun create_v1(
     key_type: u8,
     pk: vector<u8>,
     ctx: &mut TxContext,
-) {
+): KeyServer {
     // Currently only BLS12-381 is supported.
     assert!(key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
     let _ = g2_from_bytes(&pk);
@@ -52,7 +52,7 @@ public fun create_v1(
         pk,
     };
     df::add(&mut key_server.id, 1, key_server_v1);
-    transfer::transfer(key_server, tx_context::sender(ctx));
+    key_server
 }
 
 // Helper function to register a key server and transfer the cap to the caller.
@@ -63,7 +63,8 @@ entry fun create_and_transfer_v1(
     pk: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    create_v1(name, url, key_type, pk, ctx);
+    let key_server = create_v1(name, url, key_type, pk, ctx);
+    transfer::transfer(key_server, tx_context::sender(ctx));
 }
 
 public fun v1(s: &KeyServer): &KeyServerV1 {
@@ -124,7 +125,7 @@ fun test_flow() {
 
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
-    create_v1(
+    create_and_transfer_v1(
         string::utf8(b"mysten"),
         string::utf8(b"https::/mysten-labs.com"),
         0,
