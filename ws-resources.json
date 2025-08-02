@@ -1,0 +1,18 @@
+{
+  "routes": {
+    "/Design": "/Design/index.html",
+    "/Pricing": "/Pricing/index.html",
+    "/SecurityBestPractices": "/SecurityBestPractices/index.html",
+    "/TermsOfService": "/TermsOfService/index.html",
+    "/UsingSeal": "/UsingSeal/index.html"
+  },
+  "metadata": {
+    "link": "https://seal-docs.wal.app",
+    "image_url": "https://www.walrus.xyz/walrus-site",
+    "description": "This is a Walrus Site for Seal documentation.",
+    "project_url": "https://seal.mystenlabs.com",
+    "creator": "MystenLabs"
+  },
+  "site_name": "Seal documentation",
+  "object_id": "0x8e54f4bab1d7ebc5e80fefab79fab44865049677a90c14a95c706c5580b58ac2"
+}
