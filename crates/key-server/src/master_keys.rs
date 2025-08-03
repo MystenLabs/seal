@@ -161,7 +161,6 @@ fn test_master_keys_open_mode() {
 
     let options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
         ObjectID::from_hex_literal("0x2").unwrap(),
     );
 
@@ -192,7 +191,6 @@ fn test_master_keys_permissioned_mode() {
 
     let mut options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
         ObjectID::from_hex_literal("0x2").unwrap(),
     );
     options.server_mode = ServerMode::Permissioned {

@@ -553,10 +553,13 @@ async fn handle_get_service(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<GetServiceResponse>, InternalError> {
     app_state.metrics.service_requests.inc();
-    let service_id = match params.get("service_id") {
-        Some(id) => ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)?,
-        None => app_state.server.options.get_legacy_key_server_object_id()?,
-    };
+
+    let service_id = params
+        .get("service_id")
+        .ok_or(InternalError::InvalidServiceId)
+        .and_then(|id| {
+            ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
+        })?;
 
     let pop = *app_state
         .server
@@ -761,7 +764,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     let _guard = mysten_service::logging::init();
 
     // If CONFIG_PATH is set, read the configuration from the file.
-    // Otherwise, use the legacy environment variables.
+    // Otherwise, use the local environment variables.
     let options = match env::var("CONFIG_PATH") {
         Ok(config_path) => {
             info!("Loading config file: {}", config_path);
@@ -772,14 +775,12 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             .expect("Failed to parse configuration file")
         }
         Err(_) => {
-            info!("Using legacy environment variables for configuration");
-            // TODO: remove this when the legacy key server is no longer needed
+            info!("Using local environment variables for configuration, should only be used for testing");
             let network = env::var("NETWORK")
                 .map(|n| Network::from_str(&n))
                 .unwrap_or(Network::Testnet);
             KeyServerOptions::new_open_server_with_default_values(
                 network,
-                utils::decode_object_id("LEGACY_KEY_SERVER_OBJECT_ID")?,
                 utils::decode_object_id("KEY_SERVER_OBJECT_ID")?,
             )
         }

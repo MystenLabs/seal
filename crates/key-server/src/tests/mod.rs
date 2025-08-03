@@ -124,7 +124,6 @@ impl SealTestCluster {
                     options: KeyServerOptions {
                         network: Network::TestCluster,
                         server_mode: ServerMode::Open {
-                            legacy_key_server_object_id: None,
                             key_server_object_id,
                         },
                         metrics_host_port: 0,
