@@ -633,7 +633,7 @@ async fn handle_request_headers(
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
         .and_then(|v| state.validate_sdk_version(v))
         .tap_err(|e| {
-            warn!("Invalid SDK version: {:?}", e);
+            debug!("Invalid SDK version: {:?}", e);
             state.metrics.observe_error(e.as_str());
         })?;
     Ok(next.run(request).await)
