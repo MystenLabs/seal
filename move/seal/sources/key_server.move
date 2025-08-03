@@ -55,7 +55,7 @@ public fun create_v1(
     key_server
 }
 
-// Helper function to register a key server and transfer the cap to the caller.
+// Helper function to register a key server object and transfer it to the caller.
 entry fun create_and_transfer_v1(
     name: String,
     url: String,
@@ -82,7 +82,7 @@ public fun url(s: &KeyServer): String {
     v1.url
 }
 
-public fun key_type(s: &mut KeyServer): u8 {
+public fun key_type(s: &KeyServer): u8 {
     let v1 = v1(s);
     v1.key_type
 }
