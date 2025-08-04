@@ -8,7 +8,8 @@
 
 # Using Seal
 
-It is recommended that readers review the Seal Design document beforehand.
+> [!TIP]
+> Read the [Seal Design document](Design.md) first to understand the underlying architecture and concepts before using this guide.
 
 ## For dapp developers
 
@@ -146,7 +147,7 @@ sessionKey.setPersonalMessageSignature(signature); // Initialization complete
 > Notes on Session Key
 > 1. You can also optionally initialize a `SessionKey` with a passed in `Signer` in the constructor. This is useful for classes that extend `Signer`, e.g. `EnokiSigner`.
 > 2. You can optionally set an `mvr_name` value in the `SessionKey`. This should be the [Move Package Registry](https://www.moveregistry.com/) name for the package. Seal requires the MVR name to be registered to the first version of the package for this to work. If this is set, the message shown to the user in the wallet would use the much more readable MVR package name instead of `packageId`.
-> 3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class. 
+> 3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class. 
 
 The simplest way to perform decryption is to call the client’s `decrypt` function. This function expects a `Transaction` object that invokes the relevant `seal_approve*` functions. The transaction must meet the following requirements:
 - It may only call `seal_approve*` functions.
@@ -196,13 +197,13 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 
 ### Optimizing performance
 
-Depending on the use case, several strategies can improve performance:
-- Reuse `SealClient` - It caches retrieved keys internally (as described above) and fetches required objects from the full-node during initialization.
-- Reuse `SessionKey` - This reduces friction for the user and also fetches necessary objects from the full-node on initialization.
-- Set `verifyKeyServers` to `false` - Unless key server verification is explicitly required, disabling it can reduce latency.
-- Use fully specified objects in PTB creation – Providing objects explicitly (including their version, etc.) reduces object resolution requests to the full-node.
-- Reuse keys when possible - Avoid unnecessary key retrievals to reduce overhead and take advantage of the cache.
-- Use `fetchKeys` to retrieve multiple keys in a single call 
+To reduce latency and improve efficiency when using the Seal SDK, apply the following strategies based on your use case:
+- **Reuse the `SealClient` instance**: The client caches retrieved keys and fetches necessary onchain objects during initialization. Reusing it prevents redundant setup work.
+- **Reuse the `SessionKey`**: You can keep a session key active for a fixed duration to avoid prompting users multiple times. This also reuses previously fetched objects.
+- **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization.
+- **Include fully specified objects in PTBs**:  When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui Full node.
+- **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK’s internal caching to reduce overhead.
+- Use `fetchKeys()` for batch decryption: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
 
 
 ## For key server operators
@@ -440,15 +441,15 @@ To operate the key server securely, it's recommended to place it behind an API g
 
 For observability, the server exposes Prometheus-compatible metrics on port `9184`. You can access raw metrics by running `curl http://0.0.0.0:9184`. These metrics can also be visualized using tools like Grafana. The key server also includes a basic health check endpoint on port `2024`: `curl http://0.0.0.0:2024/health`.
 
-#### CORS
-You will need to configure CORS (Cross-Origin Resource Sharing) to allow client-side applications to make requests to your key server. Here's a recommended CORS configuration:
+#### CORS configuration
+Configure Cross-Origin Resource Sharing (CORS) on your key server to allow applications to make requests directly from the browser. Use the following recommended headers:
 
 ```shell
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, OPTIONS
 Access-Control-Allow-Headers: Request-Id, Client-Sdk-Type, Client-Sdk-Version
 ```
-If an API key is required, please add also its HTTP header name to `Access-Control-Allow-Headers`.
+If your key server requires an API key, make sure to include the corresponding HTTP header name in `Access-Control-Allow-Headers` as well.
 
 
 

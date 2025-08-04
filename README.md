@@ -13,7 +13,7 @@ Seal is a decentralized secrets management (DSM) service that relies on access c
 - **Seamless access:** Applications can interact with Seal key servers using software development kits (SDKs). The [typescript SDK](https://www.npmjs.com/package/@mysten/seal) is available through npm.
 
 > [!NOTE]
-> Currently there are two separate Mysten Labs managed Testnet Seal key servers. Users can choose `1-out-of-1`, `1-out-of-2` or `2-out-of-2` key servers for threshold encryption. More key servers managed by other parties are listed [here](Pricing.md). If you’re interested in operating one, reach out to the Sui Foundation or Mysten Labs team.
+> Refer to the [verified key servers](Pricing.md#verified-key-servers) for a list of available key servers in different environments.. If you’re interested in operating one, reach out to the Sui Foundation or Mysten Labs team.
 
 ### Use cases
 
