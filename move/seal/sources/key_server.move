@@ -15,7 +15,7 @@ const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
 const KeyTypeBonehFranklinBLS12381: u8 = 0;
 
-public struct KeyServer has key {
+public struct KeyServer has key, store {
     id: UID,
     first_version: u64,
     last_version: u64,
