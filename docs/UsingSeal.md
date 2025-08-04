@@ -192,6 +192,13 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 
 ## For key server operators
 
+The current package ID `<PACKAGE_ID>` to register your key servers are: 
+
+| Network | Package ID | 
+| -------- | ------- |
+| Testnet | 0xf4d1b4f32f88d345a59e9c175a3035bc5c21b3eaeb1eee67d83d0963a999f2bc |
+| Mainnet | TODO | 
+
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
 - **Open mode**: In open mode, the key server accepts decryption requests for any onchain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
@@ -216,9 +223,9 @@ To make the key server discoverable by Seal clients, register it on-chain.
 Call the `create_and_transfer_v1` function from the `seal::key_server` module like following:
 
 ```shell
-$ sui client call --function create_and_transfer_v1 --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
+$ sui client call --function create_and_transfer_v1 --module key_server --package <PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 
-# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID> and object of type key_server::Cap <KEY_SERVER_CAP_ID>
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID>
 ```
 
 To start the key server in `Open` mode, run the command `cargo run --bin key-server`, but before running the server, set the following environment variables:
@@ -291,9 +298,9 @@ Each supported client must have a registered on-chain key server object to enabl
 ```shell
 -- Replace `0` with the appropriate derivation index and derived public key for the nth client.
 
-$ sui client call --function create_and_transfer_v1 --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_0>
+$ sui client call --function create_and_transfer_v1 --module key_server --package <PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_0>
 
-# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_0> and object of type key_server::Cap <KEY_SERVER_CAP_ID_0>
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_0>
 ```
 
 - Add an entry in config file:
@@ -357,18 +364,18 @@ For example:
          deprecated_derivation_index: 0
 ```
 
-- To import the client master key into a new key server, transfer the previous key server cap object to the new key server owner. The new key server owner can now update to its own URL using the cap. 
+- To import the client master key into a new key server, transfer the previous key server object to the new key server owner. The new key server owner can now update to its own URL. 
 
 Here's an example `Sui CLI` command assuming we are exporting <KEY_SERVER_OBJECT_ID_0>:
 
 ```shell
-$ sui transfer --object-id <KEY_SERVER_CAP_ID_0> --to <NEW_OWNER_ADDRESS>
+$ sui transfer --object-id <KEY_SERVER_ID_0> --to <NEW_OWNER_ADDRESS>
 ```
 
 The owner of <NEW_OWNER_ADDRESS> can now run:
 
 ```shell
-$ sui client call --function update --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_CAP_ID_0> https://<NEW_URL>
+$ sui client call --function update --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_ID_0> https://<NEW_URL>
 ```
 
 - The new key server owner can now add it to their config file:
