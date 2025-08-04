@@ -192,7 +192,7 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 
 ## For key server operators
 
-The current package ID `<PACKAGE_ID>` to register your key servers are: 
+Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Sui network:
 
 | Network | Package ID | 
 | -------- | ------- |
@@ -364,7 +364,7 @@ For example:
          deprecated_derivation_index: 0
 ```
 
-- To import the client master key into a new key server, transfer the previous key server object to the new key server owner. The new key server owner can now update to its own URL. 
+- To import a client master key into a different key server, first transfer the existing key server object to the target server’s owner. After completing the transfer, the new owner should update the object’s URL to point to their key server.
 
 Here's an example `Sui CLI` command assuming we are exporting <KEY_SERVER_OBJECT_ID_0>:
 
@@ -375,7 +375,7 @@ $ sui transfer --object-id <KEY_SERVER_ID_0> --to <NEW_OWNER_ADDRESS>
 The owner of <NEW_OWNER_ADDRESS> can now run:
 
 ```shell
-$ sui client call --function update --module key_server --package 0xe3d7e7a08ec189788f24840d27b02fee45cf3afc0fb579d6e3fd8450c5153d26 --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_ID_0> https://<NEW_URL>
+$ sui client call --function update --module key_server --package <PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_ID_0> https://<NEW_URL>
 ```
 
 - The new key server owner can now add it to their config file:
