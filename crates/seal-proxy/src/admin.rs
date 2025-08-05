@@ -18,7 +18,7 @@ use tower_http::{
     trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
     LatencyUnit,
 };
-use tracing::Level;
+use tracing::{info, Level};
 
 /// Reqwest client holds the global client for remote_push api calls
 /// it also holds the username and password.  The client has an underlying
@@ -33,6 +33,7 @@ pub struct ReqwestClient {
 
 /// make a reqwest client to connect to mimir
 pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> ReqwestClient {
+    info!("making reqwest client with user agent: {:?}", user_agent);
     ReqwestClient {
         client: reqwest::Client::builder()
             .user_agent(user_agent)

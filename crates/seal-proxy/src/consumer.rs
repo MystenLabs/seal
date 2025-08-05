@@ -327,7 +327,7 @@ pub async fn convert_to_remote_write(
 
         let response = match rc
             .client
-            .post(rc.settings.url.clone())
+            .post(rc.settings.url.to_owned())
             .header(reqwest::header::CONTENT_ENCODING, "snappy")
             .header(reqwest::header::CONTENT_TYPE, "application/x-protobuf")
             .header("X-Prometheus-Remote-Write-Version", "0.1.0")
