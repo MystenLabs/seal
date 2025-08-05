@@ -18,7 +18,7 @@ use protobuf::CodedInputStream;
 
 use crate::config::LabelActions;
 use crate::{config::LabelModifier, with_label};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
     admin::ReqwestClient, middleware::MetricFamilyWithStaticLabels, prom_to_mimir::Mimir,
@@ -125,61 +125,63 @@ pub fn populate_labels(
     // from the stakingObject data on chain
     name: String,
     // labels to apply from local config from walrus-proxy
-    mut label_actions: LabelActions,
+    label_actions: LabelActions,
     // labels and metric data sent to use from the node
     data: MetricFamilyWithStaticLabels,
 ) -> Vec<MetricFamily> {
     let timer = with_label!(CONSUMER_OPERATION_DURATION, "populate_labels").start_timer();
     debug!("received metrics from {name}");
 
-    // merge our node provided labels
-    let mut label_pairs: Vec<_> = data
-        .labels
+    let mut to_add_labels = Vec::new();
+    let to_remove_labels = label_actions.get(&LabelModifier::Remove);
+
+    if let Some(add_labels) = label_actions.get(&LabelModifier::Add) {
+        to_add_labels = add_labels
+            .iter()
+            .map(|(name, value)| Label {
+                name: name.to_owned(),
+                value: value.to_owned(),
+            })
+            .collect();
+    }
+
+    // merge our node provided labels, careful not to overwrite any labels we
+    // specified in our config.  our labels take precedence
+    let label_pairs: Vec<_> = to_add_labels
         .iter()
-        .flatten()
-        .filter_map(|Label { name, value }| {
-            let mut label = LabelPair::default();
-
-            if let Some(to_add) = label_actions.get_mut(&LabelModifier::Add) {
-                // if the label is in the add list, prioritize the node's value
-                if to_add.contains_key(name) {
-                    // Node label takes precedence over add action
-                    to_add.remove(name);
-                }
-            }
-
-            if let Some(to_remove) = label_actions.get(&LabelModifier::Remove) {
-                if to_remove.contains_key(name) {
-                    return None;
-                }
-            }
-
-            if let Some(to_override) = label_actions.get(&LabelModifier::Override) {
-                if to_override.contains_key(name) {
-                    label.set_name(name.to_owned());
-                    label.set_value(to_override.get(name).unwrap().to_owned());
-                } else {
-                    label.set_name(name.to_owned());
-                    label.set_value(value.to_owned());
-                }
-            }
-
-            Some(label)
-        })
-        .collect();
-
-    // iterator over to_add and add it to the label_pairs
-    if let Some(to_add) = label_actions.get_mut(&LabelModifier::Add) {
-        for (name, value) in to_add.iter() {
+        .chain(
+            data.labels
+                .iter()
+                .flatten()
+                .filter(|label| !to_add_labels.iter().any(|l| l.name == label.name)),
+        )
+        .map(|Label { name, value }| {
             let mut label = LabelPair::default();
             label.set_name(name.to_owned());
             label.set_value(value.to_owned());
-            label_pairs.push(label);
-        }
-    }
+            label
+        })
+        .collect();
+
+    // apply all of the labels we made here to all of the metrics we received from the node
+    let mut metric_families = data.metric_families;
+    metric_families
+        .iter_mut()
+        .flat_map(|mf| mf.mut_metric())
+        .for_each(|m| {
+            m.mut_label().extend(label_pairs.clone());
+            // if the metric has a label that is in the remove_labels list, remove it
+            m.mut_label().retain(|label| {
+                if let Some(remove_labels) = to_remove_labels {
+                    !remove_labels.contains_key(label.get_name())
+                } else {
+                    true
+                }
+            });
+        });
 
     timer.observe_duration();
-    data.metric_families
+    metric_families
 }
 
 // encode and compress our metric data before it gets sent to mimir
