@@ -33,7 +33,7 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
     result
 }
 
-public(package) fun degree(x: &Polynomial): u64 {
+fun degree(x: &Polynomial): u64 {
     x.coefficients.length() - 1
 }
 
