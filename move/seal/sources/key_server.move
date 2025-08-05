@@ -15,6 +15,9 @@ const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
 const KeyTypeBonehFranklinBLS12381: u8 = 0;
 
+/// KeyServer should always be guarded as it's a capability
+/// on its own. It should either be an owned object, wrapped object,
+/// or TTO'd object (where access to it is controlled externally).
 public struct KeyServer has key, store {
     id: UID,
     first_version: u64,
@@ -28,7 +31,52 @@ public struct KeyServerV1 has store {
     pk: vector<u8>,
 }
 
-public fun create_v1(
+// Helper function to register a key server object and transfer it to the caller.
+entry fun create_and_transfer_v1(
+    name: String,
+    url: String,
+    key_type: u8,
+    pk: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    let key_server = create_v1(name, url, key_type, pk, ctx);
+    transfer::transfer(key_server, ctx.sender());
+}
+
+public fun v1(s: &KeyServer): &KeyServerV1 {
+    assert!(df::exists_(&s.id, 1), EInvalidVersion);
+    df::borrow(&s.id, 1)
+}
+
+public fun name(s: &KeyServer): String {
+    s.v1().name
+}
+
+public fun url(s: &KeyServer): String {
+    s.v1().url
+}
+
+public fun key_type(s: &KeyServer): u8 {
+    s.v1().key_type
+}
+
+public fun pk(s: &KeyServer): &vector<u8> {
+    &s.v1().pk
+}
+
+public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
+    let v1 = s.v1();
+    assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
+    g2_from_bytes(&v1.pk)
+}
+
+public fun update(s: &mut KeyServer, url: String) {
+    assert!(df::exists_(&s.id, 1), EInvalidVersion);
+    let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
+    v1.url = url;
+}
+
+fun create_v1(
     name: String,
     url: String,
     key_type: u8,
@@ -53,59 +101,6 @@ public fun create_v1(
     };
     df::add(&mut key_server.id, 1, key_server_v1);
     key_server
-}
-
-// Helper function to register a key server object and transfer it to the caller.
-entry fun create_and_transfer_v1(
-    name: String,
-    url: String,
-    key_type: u8,
-    pk: vector<u8>,
-    ctx: &mut TxContext,
-) {
-    let key_server = create_v1(name, url, key_type, pk, ctx);
-    transfer::transfer(key_server, ctx.sender());
-}
-
-public fun v1(s: &KeyServer): &KeyServerV1 {
-    assert!(df::exists_(&s.id, 1), EInvalidVersion);
-    df::borrow(&s.id, 1)
-}
-
-public fun name(s: &KeyServer): String {
-    let v1 = v1(s);
-    v1.name
-}
-
-public fun url(s: &KeyServer): String {
-    let v1 = v1(s);
-    v1.url
-}
-
-public fun key_type(s: &KeyServer): u8 {
-    let v1 = v1(s);
-    v1.key_type
-}
-
-public fun pk(s: &KeyServer): &vector<u8> {
-    let v1 = v1(s);
-    &v1.pk
-}
-
-public fun id(s: &KeyServer): &UID {
-    &s.id
-}
-
-public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
-    let v1: &KeyServerV1 = v1(s);
-    assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
-    g2_from_bytes(&v1.pk)
-}
-
-public fun update(s: &mut KeyServer, url: String) {
-    assert!(df::exists_(&s.id, 1), EInvalidVersion);
-    let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
-    v1.url = url;
 }
 
 #[test_only]
