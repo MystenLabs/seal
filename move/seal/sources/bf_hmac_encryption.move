@@ -123,9 +123,6 @@ public fun decrypt(
         32,
         |i| polynomial::interpolate(&share_indices, &decrypted_shares.map_ref!(|share| share[i])),
     );
-    if (polynomials.any!(|p| p.degree() + 1 != *threshold as u64)) {
-        return none()
-    };
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
 
     // The encryption randomness can now be decrypted and used to decrypt the rest of the shares.
