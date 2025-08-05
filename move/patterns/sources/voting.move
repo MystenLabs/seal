@@ -30,7 +30,7 @@ public struct Vote has key {
     /// This will be set after the vote is finalised. The vote options are represented by a Option<u8> which is None if the vote was invalid.
     result: Option<vector<Option<u8>>>,
     /// The key servers that must be used for the encryption of the votes.
-    key_servers: vector<ID>,
+    key_servers: vector<address>,
     /// The threshold for the vote.
     threshold: u8,
 }
@@ -50,7 +50,7 @@ public fun destroy_for_testing(v: Vote) {
 /// The associated key-ids are [pkg id][vote id].
 public fun create_vote(
     voters: vector<address>,
-    key_servers: vector<ID>,
+    key_servers: vector<address>,
     threshold: u8,
     ctx: &mut TxContext,
 ): Vote {
@@ -73,7 +73,7 @@ public fun cast_vote(vote: &mut Vote, encrypted_vote: EncryptedObject, ctx: &mut
 
     // All encrypted vote must have been encrypted using the same key servers and the same threshold.
     // We could allow the order of the key servers to be different, but for the sake of simplicity, we also require the same order.
-    assert!(encrypted_vote.services() == vote.key_servers.map_ref!(|id| id.to_address()));
+    assert!(encrypted_vote.services() == vote.key_servers);
     assert!(encrypted_vote.threshold() == vote.threshold);
 
     // This aborts if the sender is not a voter.
@@ -165,7 +165,7 @@ fun test_vote() {
     // Anyone can create a vote.
     let mut vote = create_vote(
         vector[@0x1, @0x2],
-        vector[s0.id().to_inner(), s1.id().to_inner(), s2.id().to_inner()],
+        vector[s0.id(), s1.id(), s2.id()],
         2,
         scenario.ctx(),
     );

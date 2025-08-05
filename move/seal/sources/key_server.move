@@ -64,6 +64,10 @@ public fun pk(s: &KeyServer): &vector<u8> {
     &s.v1().pk
 }
 
+public fun id(s: &KeyServer): address {
+    s.id.to_address()
+}
+
 public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
     let v1 = s.v1();
     assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
