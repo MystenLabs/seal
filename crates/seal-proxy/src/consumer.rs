@@ -18,7 +18,7 @@ use protobuf::CodedInputStream;
 
 use crate::config::LabelActions;
 use crate::{config::LabelModifier, with_label};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::{
     admin::ReqwestClient, middleware::MetricFamilyWithStaticLabels, prom_to_mimir::Mimir,
