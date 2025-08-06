@@ -50,9 +50,9 @@ public struct PublicKey has drop {
 }
 
 /// Creates PublicKey from key server ID and public key bytes.
-public fun new_public_key(key_server_id: ID, pk_bytes: vector<u8>): PublicKey {
+public fun new_public_key(key_server_id: address, pk_bytes: vector<u8>): PublicKey {
     PublicKey {
-        key_server: key_server_id,
+        key_server: key_server_id.to_id(),
         pk: g2_from_bytes(&pk_bytes),
     }
 }
@@ -530,4 +530,43 @@ fun test_verify_derived_key() {
     assert!(!verify_derived_key(&other_derived_key, &gid, &public_key));
     assert!(!verify_derived_key(&derived_key,&gid, &other_public_key));
     assert!(!verify_derived_key(&derived_key, &other_gid, &public_key));
+}
+
+#[test]
+fun test_verify_derived_keys() {
+    let public_key_1 = new_public_key(@0x0, x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80");
+    let public_key_2 = new_public_key(@0x0, x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f");
+    let public_key_3 = new_public_key(@0x0, x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf");
+
+    let derived_key_1 = sui::bls12381::g1_from_bytes(&x"8b34f8188bedf3aa7cb87f94ce7bf457f5546dc47beb35b5a8a068d978caa7067558106d7868015a860b2404e943ecc3");
+    let derived_key_2 = sui::bls12381::g1_from_bytes(&x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c");
+    let derived_key_3 = sui::bls12381::g1_from_bytes(&x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d");
+
+    let id = x"01020304";
+    let package_id = @0x0;
+
+    let verfied_derived_keys = verify_derived_keys(
+        &vector[derived_key_1, derived_key_2, derived_key_3], package_id, id, 
+        &vector[public_key_1, public_key_2, public_key_3]);
+
+    assert!(verfied_derived_keys.length() == 3);
+}
+
+#[test]
+#[expected_failure]
+fun test_verify_invalid_derived_keys() {
+    let public_key_1 = new_public_key(@0x0, x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80");
+    let public_key_2 = new_public_key(@0x0, x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f");
+    let public_key_3 = new_public_key(@0x0, x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf");
+
+    let invalid_derived_key_1 = sui::bls12381::g1_from_bytes(&x"b422f84796342a08487df375e705d896e2eef13aded6e2c64344eb6c0c795020741173489994f238891491e8026a5992");
+    let derived_key_2 = sui::bls12381::g1_from_bytes(&x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c");
+    let derived_key_3 = sui::bls12381::g1_from_bytes(&x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d");
+
+    let id = x"01020304";
+    let package_id = @0x0;
+
+    verify_derived_keys(
+        &vector[invalid_derived_key_1, derived_key_2, derived_key_3], package_id, id, 
+        &vector[public_key_1, public_key_2, public_key_3]);
 }
