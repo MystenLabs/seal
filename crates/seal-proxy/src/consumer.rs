@@ -123,14 +123,14 @@ pub struct Label {
 pub fn populate_labels(
     // we will use this for the host field in grafana, this is sourced
     // from the stakingObject data on chain
-    name: String,
+    node_name: String,
     // labels to apply from local config from walrus-proxy
     label_actions: LabelActions,
     // labels and metric data sent to use from the node
     data: MetricFamilyWithStaticLabels,
 ) -> Vec<MetricFamily> {
     let timer = with_label!(CONSUMER_OPERATION_DURATION, "populate_labels").start_timer();
-    debug!("received metrics from {name}");
+    debug!("received metrics from {node_name}");
 
     let mut to_add_labels = Vec::new();
     let to_remove_labels = label_actions.get(&LabelModifier::Remove);
@@ -144,6 +144,10 @@ pub fn populate_labels(
             })
             .collect();
     }
+
+    let node_name_pair = LabelPair::new();
+    node_name_pair.set_name("node_name".to_string());
+    node_name_pair.set_value(node_name);
 
     // merge our node provided labels, careful not to overwrite any labels we
     // specified in our config.  our labels take precedence
@@ -161,6 +165,8 @@ pub fn populate_labels(
             label.set_value(value.to_owned());
             label
         })
+        // add the node name label to the list of labels to identify the source of the metrics
+        .chain(vec![node_name_pair])
         .collect();
 
     // apply all of the labels we made here to all of the metrics we received from the node
