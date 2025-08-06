@@ -194,7 +194,7 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 
 Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
 
-| <NETWORK>` | <PACKAGE_ID> | 
+| <NETWORK> | <PACKAGE_ID> | 
 | -------- | ------- |
 | testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
 | mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
