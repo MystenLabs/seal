@@ -142,7 +142,7 @@ async fn test_e2e_permissioned() {
                 package_ids: vec![ObjectID::random()],
             },
         ],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 
@@ -157,7 +157,7 @@ async fn test_e2e_permissioned() {
             key_server_object_id: ObjectID::random(),
             package_ids: vec![ObjectID::random()],
         }],
-        [("MASTER_SEED", [0u8; 32].as_slice())],
+        [("MASTER_KEY", [0u8; 32].as_slice())],
     )
     .await;
 
@@ -252,7 +252,7 @@ async fn test_e2e_imported_key() {
             key_server_object_id,
             package_ids: vec![package_id],
         }],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 
@@ -323,7 +323,7 @@ async fn test_e2e_imported_key() {
                 "IMPORTED_MASTER_KEY",
                 derived_master_key.to_byte_array().as_slice(),
             ),
-            ("MASTER_SEED", [0u8; 32].as_slice()),
+            ("MASTER_KEY", [0u8; 32].as_slice()),
         ],
     )
     .await;
@@ -364,7 +364,7 @@ async fn test_e2e_imported_key() {
                 package_ids: vec![ObjectID::random()],
             },
         ],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 

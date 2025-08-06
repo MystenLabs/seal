@@ -222,7 +222,7 @@ fn test_master_keys_permissioned_mode() {
     let seed = [1u8; 32];
     with_vars(
         [
-            ("MASTER_SEED", Some(sk_as_bytes.clone())),
+            ("MASTER_KEY", Some(sk_as_bytes.clone())),
             ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
         ],
         || {
@@ -235,7 +235,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_SEED", None::<&str>),
+            ("MASTER_KEY", None::<&str>),
             ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
         ],
         || {
@@ -244,7 +244,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_SEED", Some(&sk_as_bytes)),
+            ("MASTER_KEY", Some(&sk_as_bytes)),
             ("ALICE_KEY", None::<&String>),
         ],
         || {
