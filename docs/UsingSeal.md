@@ -196,8 +196,8 @@ Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Su
 
 | Network | Package ID | 
 | -------- | ------- |
-| Testnet | 0xf4d1b4f32f88d345a59e9c175a3035bc5c21b3eaeb1eee67d83d0963a999f2bc |
-| Mainnet | TODO | 
+| Testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
+| Mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
 
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
@@ -235,6 +235,7 @@ To start the key server in `Open` mode, run the command `cargo run --bin key-ser
 
 In the config file, make sure to:
 
+- Set the network, e.g. `Testnet`. 
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to <KEY_SERVER_OBJECT_ID>, the ID of the key server object you registered on-chain. 
 
@@ -369,7 +370,7 @@ For example:
 Here's an example `Sui CLI` command assuming we are exporting <KEY_SERVER_OBJECT_ID_0>:
 
 ```shell
-$ sui transfer --object-id <KEY_SERVER_ID_0> --to <NEW_OWNER_ADDRESS>
+$ sui transfer --object-id <KEY_SERVER_OBJECT_ID_0> --to <NEW_OWNER_ADDRESS>
 ```
 
 The owner of <NEW_OWNER_ADDRESS> can now run:
