@@ -412,6 +412,24 @@ fun test_parse_encrypted_object() {
         object.services == vector[@0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96, @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3, @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97],
     );
     assert!(object.threshold == 2);
+    assert!(object.nonce == g2_from_bytes(&x"8812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e"));
+    assert!(object.indices == x"b7fc7b");
+
+    assert!(object.services.length() == 3);
+    assert!(object.services[0] == @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96);
+    assert!(object.services[1] == @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3);
+    assert!(object.services[2] == @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97);
+
+    assert!(object.encrypted_shares.length() == 3);
+    assert!(object.encrypted_shares[0] == x"6315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878");
+    assert!(object.encrypted_shares[1] == x"bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1");
+    assert!(object.encrypted_shares[2] == x"e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722");
+
+    assert!(object.encrypted_randomness == x"b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b");
+    assert!(object.blob == x"e6062eb2dcb2f86bca32f83c93");
+
+    assert!(object.aad.is_some_and!(|x| x == x"0000000000000000000000000000000000000000000000000000000000000001"));
+    assert!(object.mac == x"184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9");
 }
 
 #[test]
@@ -492,4 +510,24 @@ fun test_seal_decrypt() {
     ks_destroy(s1);
     ks_destroy(s2);
     scenario.end();
+}
+
+#[test]
+fun test_verify_derived_key() {
+    let public_key = sui::bls12381::g2_from_bytes(&x"ae7577bd3fe7f470f31ad2c9209e58eaa703d8585581d5e327e3c411805b7723b2f8403f7606d2c7bce6fafc27f3b091053c5e4b215e2e4be81877c499e7f26c5c7ebc0c5fdf657c53cd72f37cb1d9dc29e1a8f9cf5a8257a2f6ffdcb84589dc");
+    let derived_key = sui::bls12381::g1_from_bytes(&x"b86c7e836fe7c4b5ab9258f9e8c223b85db2892b3c91da2ad32e103ffad2238c38fd64e6fb9575c62a2076942cf28e9d");
+    let id = x"01020304";
+    let full_id = create_full_id(@0x0, id);
+    let gid = hash_to_g1_with_dst(&full_id);
+
+    assert!(verify_derived_key(&derived_key, &gid, &public_key));
+
+    let other_public_key = sui::bls12381::g2_from_bytes(&x"a0c2e4dd4830aec2d6c6bf13bb98e20db09a1354d48eabbe2cdbfeb36d3d8a87efb25c5f7ccc771f7b1c0e387bc6432b009dbd1ed9374059fb5b7c7497fddb2e8c5a08cd5cd1c0ae421868ca2c1250390223273288bcbb47ea4ac5e4850d6d27");
+    let other_derived_key = sui::bls12381::g1_from_bytes(&x"85e9ccf31b955739a70a18e20cfa77a44c0275c4781b563aaa453cfb7a947259df8f16be0ef4288d7994432f9f0f3713");
+    let other_full_id = create_full_id(@0x1, id);
+    let other_gid = hash_to_g1_with_dst(&other_full_id);
+
+    assert!(!verify_derived_key(&other_derived_key, &gid, &public_key));
+    assert!(!verify_derived_key(&derived_key,&gid, &other_public_key));
+    assert!(!verify_derived_key(&derived_key, &other_gid, &public_key));
 }
