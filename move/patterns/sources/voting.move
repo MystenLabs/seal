@@ -30,7 +30,7 @@ public struct Vote has key {
     /// This will be set after the vote is finalised. The vote options are represented by a Option<u8> which is None if the vote was invalid.
     result: Option<vector<Option<u8>>>,
     /// The key servers that must be used for the encryption of the votes.
-    key_servers: vector<ID>,
+    key_servers: vector<address>,
     /// The threshold for the vote.
     threshold: u8,
 }
@@ -50,7 +50,7 @@ public fun destroy_for_testing(v: Vote) {
 /// The associated key-ids are [pkg id][vote id].
 public fun create_vote(
     voters: vector<address>,
-    key_servers: vector<ID>,
+    key_servers: vector<address>,
     threshold: u8,
     ctx: &mut TxContext,
 ): Vote {
@@ -73,7 +73,7 @@ public fun cast_vote(vote: &mut Vote, encrypted_vote: EncryptedObject, ctx: &mut
 
     // All encrypted vote must have been encrypted using the same key servers and the same threshold.
     // We could allow the order of the key servers to be different, but for the sake of simplicity, we also require the same order.
-    assert!(encrypted_vote.services() == vote.key_servers.map_ref!(|id| id.to_address()));
+    assert!(encrypted_vote.services() == vote.key_servers);
     assert!(encrypted_vote.threshold() == vote.threshold);
 
     // This aborts if the sender is not a voter.
@@ -117,8 +117,7 @@ public fun finalize_vote(
 #[test]
 fun test_vote() {
     use seal::bf_hmac_encryption::{verify_derived_keys, get_public_key};
-    use seal::key_server::{create_v1, destroy_cap, KeyServer};
-    use std::string;
+    use seal::key_server::{create_and_transfer_v1, KeyServer, destroy_for_testing as ks_destroy};
     use seal::bf_hmac_encryption::parse_encrypted_object;
     use sui::test_scenario::{Self, next_tx, ctx};
     use sui::bls12381::g1_from_bytes;
@@ -129,44 +128,44 @@ fun test_vote() {
     // Setup key servers.
     let pk0 =
         x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
-    let cap0 = create_v1(
-        string::utf8(b"mysten0"),
-        string::utf8(b"https://mysten-labs.com"),
+    create_and_transfer_v1(
+        b"mysten0".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk0,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
-    let s0: KeyServer = test_scenario::take_shared(&scenario);
+    scenario.next_tx(addr1);
+    let s0: KeyServer = scenario.take_from_sender();
 
     let pk1 =
         x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
-    let cap1 = create_v1(
-        string::utf8(b"mysten1"),
-        string::utf8(b"https://mysten-labs.com"),
+    create_and_transfer_v1(
+        b"mysten1".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk1,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
-    let s1: KeyServer = test_scenario::take_shared(&scenario);
+    scenario.next_tx(addr1);
+    let s1: KeyServer = scenario.take_from_sender();
 
     let pk2 =
         x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
-    let cap2 = create_v1(
-        string::utf8(b"mysten2"),
-        string::utf8(b"https://mysten-labs.com"),
+    create_and_transfer_v1(
+        b"mysten2".to_string(),
+        b"https://mysten-labs.com".to_string(),
         0,
         pk2,
-        ctx(&mut scenario),
+        scenario.ctx(),
     );
-    next_tx(&mut scenario, addr1);
-    let s2: KeyServer = test_scenario::take_shared(&scenario);
+    scenario.next_tx(addr1);
+    let s2: KeyServer = scenario.take_from_sender();
 
     // Anyone can create a vote.
     let mut vote = create_vote(
         vector[@0x1, @0x2],
-        vector[s0.id().to_inner(), s1.id().to_inner(), s2.id().to_inner()],
+        vector[s0.id(), s1.id(), s2.id()],
         2,
         scenario.ctx(),
     );
@@ -221,12 +220,9 @@ fun test_vote() {
     assert!(vote.result.borrow()[1].borrow() == 42);
 
     // Clean up
-    test_scenario::return_shared(s0);
-    test_scenario::return_shared(s1);
-    test_scenario::return_shared(s2);
+    ks_destroy(s0);
+    ks_destroy(s1);
+    ks_destroy(s2);
     destroy_for_testing(vote);
-    destroy_cap(cap0);
-    destroy_cap(cap1);
-    destroy_cap(cap2);
-    test_scenario::end(scenario);
+    scenario.end();
 }

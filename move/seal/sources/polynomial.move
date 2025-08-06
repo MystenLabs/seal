@@ -1,3 +1,6 @@
+// Copyright (c), Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module seal::polynomial;
 
 use seal::gf256;
@@ -30,7 +33,7 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
     result
 }
 
-public(package) fun degree(x: &Polynomial): u64 {
+fun degree(x: &Polynomial): u64 {
     x.coefficients.length() - 1
 }
 

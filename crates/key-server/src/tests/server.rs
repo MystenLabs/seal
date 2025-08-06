@@ -15,7 +15,7 @@ use crate::tests::SealTestCluster;
 
 use crate::signed_message::{signed_message, signed_request};
 use crate::FetchKeyResponse;
-use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest, GetServiceResponse};
+use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
 use crypto::elgamal;
@@ -120,7 +120,12 @@ async fn test_server_background_task_monitor() {
     let metrics = Arc::new(Metrics::new(&metrics_registry));
 
     let (latest_checkpoint_timestamp_receiver, _reference_gas_price_receiver, monitor_handle) =
-        start_server_background_tasks(Arc::new(tc.server().clone()), metrics.clone()).await;
+        start_server_background_tasks(
+            Arc::new(tc.server().clone()),
+            metrics.clone(),
+            metrics_registry.clone(),
+        )
+        .await;
 
     // Drop the receiver to trigger the panic in the background
     // spawn_latest_checkpoint_timestamp_updater task.
@@ -142,13 +147,8 @@ async fn test_service() {
     let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let legacy_key_server_object_id = ObjectID::random().to_hex_uncompressed();
     let key_server_object_id = ObjectID::random().to_hex_uncompressed();
     let vars = vec![
-        (
-            "LEGACY_KEY_SERVER_OBJECT_ID",
-            Some(legacy_key_server_object_id.as_str()),
-        ),
         ("KEY_SERVER_OBJECT_ID", Some(key_server_object_id.as_str())),
         (
             "MASTER_KEY",
@@ -204,7 +204,7 @@ async fn test_service() {
             &key_server_object_id
         );
 
-        // If the service_id query param is NOT set, the legacy object id is returned
+        // If the service_id query param is NOT set, return error
         let response = client
             .request(
                 Request::builder()
@@ -215,19 +215,7 @@ async fn test_service() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), 200);
-        let response_bytes = response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec();
-        let response: GetServiceResponse = serde_json::from_slice(&response_bytes).unwrap();
-        assert_eq!(
-            response.service_id.to_hex_uncompressed(),
-            legacy_key_server_object_id
-        );
+        assert_eq!(response.status(), 400);
     })
     .await;
 }
@@ -257,21 +245,15 @@ async fn test_fetch_key() {
     let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let legacy_key_server_object_id = ObjectID::random();
     let key_server_object_id = ObjectID::random();
 
     let mut rng = thread_rng();
     let (master_key, public_key) = generate_key_pair(&mut rng);
 
     // Generate a master seed for the first key server
-    let legacy_key_server_object_id_string = legacy_key_server_object_id.to_hex_uncompressed();
     let key_server_object_id_string = key_server_object_id.to_hex_uncompressed();
     let master_key_string = DefaultEncoding::encode(master_key.to_byte_array());
     let vars = vec![
-        (
-            "LEGACY_KEY_SERVER_OBJECT_ID",
-            Some(&legacy_key_server_object_id_string),
-        ),
         ("KEY_SERVER_OBJECT_ID", Some(&key_server_object_id_string)),
         ("MASTER_KEY", Some(&master_key_string)),
     ];

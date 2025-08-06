@@ -1,0 +1,12 @@
+listen-address: 0.0.0.0:8000
+metrics-address: 0.0.0.0:9185
+histogram-address: 0.0.0.0:8001
+label-actions:
+  add:
+    network: "pei-test"
+    host: "docker-compose"
+remote-write:
+  url: "http://mimir:9009/api/v1/push"
+  username: ""
+  password: ""
+  pool_max_idle_per_host: 100

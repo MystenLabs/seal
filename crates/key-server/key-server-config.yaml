@@ -84,3 +84,10 @@ server_mode: !Open
 # rgp_update_interval: '60s'
 # allowed_staleness: '2m'
 # session_key_ttl_max: '30m'
+
+# Optional: Metrics push configuration to send metrics to seal-proxy
+# Uncomment and configure to enable pushing metrics to an external endpoint
+# metrics_push_config:
+#   bearer_token: "random-string-for-testing"
+#   push_interval_secs: 10
+#   push_url: "http://localhost:8000/publish/metrics"

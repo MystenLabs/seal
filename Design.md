@@ -36,7 +36,8 @@ const ENoAccess : u64 = 1;
 
 /////////////////////////////////////////////
 /// Access control
-/// key format: [pkg id][bcs::to_bytes(time)]
+/// The IBE identity being used: [pkg id][bcs::to_bytes(time)]
+/// The following function accepts only the inner identity, i.e., [bcs::to_bytes(time)], and Seal extends it with the namespace.
 entry fun seal_approve(id: vector<u8>, c: &clock::Clock) {
     // Convert the identity to u64.
     let mut prepared: BCS = bcs::new(id);
@@ -54,7 +55,7 @@ Time-lock encryption can be applied to a variety of onchain use cases, including
 
 The framework is fully generic. Developers can define custom authorization logic within `seal_approve*` functions and choose which key servers to use based on their application's needs. For example, they may use a fixed set of trusted key servers or allow users to select their preferred servers.
 
-When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see [move/patterns](./move/patterns).
+When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see the whitelist and subscription [patterns](./move/patterns).
 Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
 
 ### Decentralization and trust model
