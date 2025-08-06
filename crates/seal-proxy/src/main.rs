@@ -16,13 +16,7 @@ use tracing::info;
 seal_proxy::bin_version!();
 
 /// user agent we use when posting to mimir
-static APP_USER_AGENT: &str = const_str::concat!(
-    env!("CARGO_BIN_NAME"),
-    "/",
-    env!("CARGO_PKG_VERSION"),
-    "/",
-    VERSION
-);
+static APP_USER_AGENT: &str = const_str::concat!(env!("CARGO_BIN_NAME"), "/", VERSION);
 
 #[derive(Parser, Debug)]
 #[command(

@@ -3,7 +3,7 @@ FROM rust:1.86-bookworm AS build
 ARG PROFILE=release
 WORKDIR /work
 
-RUN apt-get update && apt-get install -y cmake clang
+RUN apt-get update && apt-get install -y cmake clang ca-certificates curl && update-ca-certificates
 
 COPY .git/ .git/
 COPY Cargo.toml Cargo.lock ./

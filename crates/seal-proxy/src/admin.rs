@@ -36,6 +36,7 @@ pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> Req
     info!("making reqwest client with user agent: {:?}", user_agent);
     ReqwestClient {
         client: reqwest::Client::builder()
+            .use_native_tls()
             .user_agent(user_agent)
             .pool_max_idle_per_host(settings.pool_max_idle_per_host)
             .timeout(Duration::from_secs(var!("MIMIR_CLIENT_TIMEOUT", 30)))

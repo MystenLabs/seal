@@ -342,7 +342,7 @@ pub async fn convert_to_remote_write(
             Ok(response) => response,
             Err(error) => {
                 with_label!(CONSUMER_OPS, "check_response", "INTERNAL_SERVER_ERROR").inc();
-                error!("DROPPING METRICS due to post error: {error}");
+                error!("DROPPING METRICS due to post error: {:#?}", error);
                 timer.stop_and_discard();
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
