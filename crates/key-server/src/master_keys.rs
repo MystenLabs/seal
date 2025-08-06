@@ -15,11 +15,7 @@ use std::collections::HashMap;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
-/// In Open mode, the key server has a single master key which should be set in the environment variable `MASTER_KEY`.
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
-
-/// In Permissioned mode, the key server has a seed used to derive master keys for clients, which should be set in the environment variable `MASTER_SEED`.
-const MASTER_SEED_ENV_VAR: &str = "MASTER_SEED";
 
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
@@ -49,7 +45,7 @@ impl MasterKeys {
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
-                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_SEED_ENV_VAR)?;
+                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_KEY_ENV_VAR)?;
                 for config in client_configs {
                     let master_key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
