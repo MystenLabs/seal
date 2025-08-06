@@ -376,7 +376,7 @@ $ sui transfer --object-id <KEY_SERVER_OBJECT_ID_0> --to <NEW_OWNER_ADDRESS>
 The owner of <NEW_OWNER_ADDRESS> can now run:
 
 ```shell
-$ sui client call --function update --module key_server --package <PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> <KEY_SERVER_ID_0> https://<NEW_URL>
+$ sui client call --function update --module key_server --package <PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> https://<NEW_URL>
 ```
 
 - The new key server owner can now add it to their config file:
