@@ -192,12 +192,12 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 
 ## For key server operators
 
-Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Sui network:
+Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
 
-| Network | Package ID | 
+| <NETWORK>` | <PACKAGE_ID> | 
 | -------- | ------- |
-| Testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
-| Mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
+| testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
+| mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
 
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
@@ -223,6 +223,8 @@ To make the key server discoverable by Seal clients, register it on-chain.
 Call the `create_and_transfer_v1` function from the `seal::key_server` module like following:
 
 ```shell
+$ sui client switch --env <NETWORK>
+$ sui client active-address # fund this if necessary
 $ sui client call --function create_and_transfer_v1 --module key_server --package <PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID>
