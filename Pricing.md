@@ -39,7 +39,6 @@ Please refer to [this document](UsingSeal.md#for-key-server-operators) for detai
         - URL: https://seal-testnet.nodeinfra.com
         - Contact the provider to configure your client and generate a unique key server object id
 - [Studio Mirai](https://x.com/_StudioMirai):
-- [Studio Mirai](https://x.com/_StudioMirai):
     - `Open` mode
         - URL: https://public.key-server.testnet.seal.mirai.cloud
         - Object Id: `0x27cf65cfd514e9fad1211c2f6e164b59c000be43466088faeb4a65952b6bfb99`

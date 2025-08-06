@@ -1,5 +1,8 @@
 # Using Seal
 
+!!! tip
+    Read the [Seal Design document](Design.md) first to understand the underlying architecture and concepts before using this guide.
+
 ## For dapp developers
 
 ### Access control management
@@ -57,14 +60,15 @@ entry fun seal_approve(id: vector<u8>, cnt1: &Counter, cnt2: &Counter) {
 
 The recommended way to encrypt and decrypt the data is to use the [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
-First, the app must select the set of key servers it intends to use. Each key server registers its name, public key, and URL onchain by creating a `KeyServer` object. To reference a key server, use the object ID of its corresponding `KeyServer`. A common approach for app developers is to use a fixed, preconfigured set of key servers within their app. Alternatively, the app can support a dynamic selection of key servers, for example, allowing users to choose which servers to use. In this case, the app should display a list of available key servers along with their URLs. After the user selects one or more servers, the app must verify that each provided URL corresponds to the claimed key server.
+First, the app must select the set of key servers it intends to use. Each key server registers its name, public key, and URL onchain by creating a `KeyServer` object. To reference a key server, use the object ID of its corresponding `KeyServer`. A common approach for app developers is to use a fixed, preconfigured set of key servers within their app. Alternatively, the app can support a dynamic selection of key servers, for example, allowing users to choose which servers to use. In this case, the app should display a list of available key servers along with their URLs. After the user selects one or more servers, the app must verify that each provided URL corresponds to the claimed key server (see `verifyKeyServers` below).
 
 A key server may be used multiple times to enable weighting, which allows the app to specify how many times a key server can contribute towards reaching the decryption threshold. This is useful for scenarios where some key servers are more reliable or trusted than others, or when the app wants to ensure that certain key servers are always included in the decryption process.
 
 !!! info
     Anyone can create an onchain `KeyServer` object that references a known URL (such as `seal.mystenlabs.com`) but uses a different public key. To prevent impersonation, the SDK performs a verification step: it fetches the object ID from the server’s `/v1/service` endpoint and compares it with the object ID registered onchain.
 
-Apps can retrieve a list of trusted (allowlisted) Seal key servers using the `getAllowlistedKeyServers()` function, or use a custom app-defined or user-defined list. See list of object IDs of available key servers in [this section](Pricing.md#testnet).
+Apps can retrieve a list of allowlisted Seal key servers using the `getAllowlistedKeyServers('<NETWORK>')` function, or use a custom app-defined or user-defined list. 
+Refer to the [verified key servers](Pricing.md#verified-key-servers) for a list of available key servers in different environments.
 
 Next, the app should create a `SealClient` object for the selected key servers.
 
@@ -83,7 +87,7 @@ const client = new SealClient({
   verifyKeyServers: false,
 });
 ```
-The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1. The object may contain also the fields `apiKeyName` and `apiKey` for sending the HTTP header `apiKeyName: apiKey` in case a key server expects an API key.
+The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1. The config object may contain also the fields `apiKeyName` and `apiKey` for sending the HTTP header `apiKeyName: apiKey` in case a key server expects an API key.
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described above. Note that enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
 
@@ -91,7 +95,7 @@ Next, the app can call the `encrypt` method on the `client` instance. This funct
 
 - the encryption threshold
 - the package id of the deployed contract containing the `seal_approve*` functions
-- the id associated with the access control policy
+- the id associated with the access control policy (without the prefix of the package id discussed in [Seal Design](Design.md))
 - the data to encrypt
 
 The `encrypt` function returns two values: the encrypted object, and the symmetric key used for encryption (i.e., the key from the DEM component of the KEM/DEM scheme). The symmetric key can either be ignored or returned to the user as a backup for disaster recovery. If retained, the user can decrypt the data manually using the CLI and the `symmetric-decrypt` command, as shown in the example below.
@@ -111,7 +115,7 @@ Note that the encryption does **not** conceal the size of the message. If messag
     Seal supports encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
 
 !!! tip
-    The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an EncryptedObject instance that includes metadata such as the ID and other associated fields.
+    The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an `EncryptedObject` instance that includes metadata such as the ID and other associated fields.
 
 ### Decryption
 
@@ -137,9 +141,9 @@ sessionKey.setPersonalMessageSignature(signature); // Initialization complete
 
 !!! note
     Notes on Session Key:
-    1. You can also optionally initialize a `SessionKey` with a passed in Signer in the constructor. This is useful for classes that extend `Signer`, e.g. `EnokiSigner`.
+    1. You can also optionally initialize a `SessionKey` with a passed in `Signer` in the constructor. This is useful for classes that extend `Signer`, e.g. `EnokiSigner`.
     2. You can optionally set an `mvr_name` value in the `SessionKey`. This should be the [Move Package Registry](https://www.moveregistry.com/) name for the package. Seal requires the MVR name to be registered to the first version of the package for this to work. If this is set, the message shown to the user in the wallet would use the much more readable MVR package name instead of `packageId`.
-    3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the SessionKey across tabs. See usage for `import` and `export` methods in the SessionKey class. 
+    3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class. 
 
 The simplest way to perform decryption is to call the client’s `decrypt` function. This function expects a `Transaction` object that invokes the relevant `seal_approve*` functions. The transaction must meet the following requirements:
 
@@ -167,9 +171,10 @@ const decryptedBytes = await client.decrypt({
 !!! tip
     To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
 
-The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same id is used across multiple encryptions. 
+The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same id is used across multiple encryptions.
+Reusing the same client instance helps reduce backend calls and improve latency.
 
-To retrieve multiple keys efficiently, use the `fetchKeys` function with a multi-command PTB. This approach is recommended when multiple keys are required, as it reduces the number of requests to the key servers. Because key servers may apply rate limiting, developers should design their applications and access policies to minimize the frequency of key retrieval requests.
+To retrieve multiple keys more efficiently, use the `fetchKeys` function with a multi-command PTB. This approach is recommended when multiple keys are required, as it reduces the number of requests to the key servers. Because key servers may apply rate limiting, developers should design their applications and access policies to minimize the frequency of key retrieval requests.
 
 ```typescript
 await client.fetchKeys({
@@ -187,8 +192,16 @@ On-chain decryption in Move is supported using derived keys. For an example, see
 !!! tip
     If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
 
-!!! info
-    Refer to the [verified key servers](Pricing.md#verified-key-servers) for a list of available key servers in different environments.
+### Optimizing performance
+
+To reduce latency and improve efficiency when using the Seal SDK, apply the following strategies based on your use case:
+
+- **Reuse the `SealClient` instance**: The client caches retrieved keys and fetches necessary onchain objects during initialization. Reusing it prevents redundant setup work.
+- **Reuse the `SessionKey`**: You can keep a session key active for a fixed duration to avoid prompting users multiple times. This also reuses previously fetched objects.
+- **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization.
+- **Include fully specified objects in PTBs**:  When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui Full node.
+- **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK’s internal caching to reduce overhead.
+- **Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
 
 ## For key server operators
 
@@ -196,12 +209,12 @@ Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Su
 
 | <NETWORK> | <PACKAGE_ID> | 
 | -------- | ------- |
-| testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
-| mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
+| Testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
+| Mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
 
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
-- **Open mode**: In open mode, the key server accepts decryption requests for any onchain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
+- **Open mode**: In open mode, the key server accepts decryption requests for *any* onchain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
 - **Permissioned mode**: In permissioned mode, the key server restricts access to a manually approved list of packages associated with specific clients or applications. Each client is served using a dedicated master key.
   - This mode also supports importing or exporting the client-specific key if needed, for purposes such as disaster recovery or key server rotation.
 
@@ -237,7 +250,7 @@ To start the key server in `Open` mode, run the command `cargo run --bin key-ser
 
 In the config file, make sure to:
 
-- Set the network, e.g. `Testnet`. 
+- Set the network, e.g. `Testnet` or `Mainnet`. 
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to <KEY_SERVER_OBJECT_ID>, the ID of the key server object you registered on-chain. 
 
@@ -357,7 +370,7 @@ Public key: <CLIENT_MASTER_PUBKEY>
 
 - Disable this key on the current server:
   - Change the client's `client_master_key` type to `Exported`.
-  - Set the `deprecated_derivation_index` field with the appropriate index.
+  - Set the `deprecated_derivation_index` field with the derivation index.
 
 For example: 
 
@@ -429,6 +442,16 @@ To operate the key server securely, it's recommended to place it behind an API g
 - Optionally integrate usage tracking for commercial or billable offerings, such as logging access frequency per client or package
 
 For observability, the server exposes Prometheus-compatible metrics on port `9184`. You can access raw metrics by running `curl http://0.0.0.0:9184`. These metrics can also be visualized using tools like Grafana. The key server also includes a basic health check endpoint on port `2024`: `curl http://0.0.0.0:2024/health`.
+
+#### CORS configuration
+Configure Cross-Origin Resource Sharing (CORS) on your key server to allow applications to make requests directly from the browser. Use the following recommended headers:
+
+```shell
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Request-Id, Client-Sdk-Type, Client-Sdk-Version
+```
+If your key server requires an API key, make sure to include the corresponding HTTP header name in `Access-Control-Allow-Headers` as well.
 
 ## The CLI
 

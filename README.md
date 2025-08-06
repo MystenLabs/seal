@@ -13,7 +13,7 @@ Seal is a decentralized secrets management (DSM) service that relies on access c
 - **Seamless access:** Applications can interact with Seal key servers using software development kits (SDKs). The [typescript SDK](https://www.npmjs.com/package/@mysten/seal) is available through npm.
 
 > [!NOTE]
-> Refer to the [verified key servers](Pricing.md#verified-key-servers) for a list of available key servers in different environments.. If you’re interested in operating one, reach out to the Sui Foundation or Mysten Labs team.
+> Refer to the [verified key servers](Pricing.md#verified-key-servers) for a list of available key servers in different environments. If you’re interested in operating one, reach out to the Sui Foundation or Mysten Labs team.
 
 ### Use cases
 
@@ -51,7 +51,7 @@ Both the [SDK](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/src
 
 ### Contact Us
 
-For questions about Seal, use case discussions, or integration support, contact the Seal team on [Sui Discord](https://discord.com/channels/916379725201563759/1356767654265880586).
+For questions about Seal, use case discussions, or integration support, contact the Seal team on [Sui Discord](https://discord.com/channels/916379725201563759/1356767654265880586) or create a Github issue.
 
 ## More information 
 - [Seal Design](Design.md)
