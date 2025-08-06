@@ -145,7 +145,7 @@ pub fn populate_labels(
             .collect();
     }
 
-    let node_name_pair = LabelPair::new();
+    let mut node_name_pair = LabelPair::new();
     node_name_pair.set_name("node_name".to_string());
     node_name_pair.set_value(node_name);
 
