@@ -136,9 +136,7 @@ public fun decrypt(
             &derive_key(
                 KeyPurpose::EncryptedRandomness,
                 &base_key,
-                encrypted_shares,
-                *threshold,
-                services,
+                encrypted_object,
             ),
         ),
     );
@@ -147,11 +145,8 @@ public fun decrypt(
     };
     let all_shares = decrypt_shares_with_randomness(
         &randomness,
-        encrypted_shares,
+        encrypted_object,
         &public_keys.map_ref!(|pk| pk.pk),
-        services,
-        &full_id,
-        indices,
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
@@ -168,7 +163,7 @@ public fun decrypt(
         blob,
         mac,
         &aad.get_with_default(vector[]),
-        &derive_key(KeyPurpose::DEM, &base_key, encrypted_shares, *threshold, services),
+        &derive_key(KeyPurpose::DEM, &base_key, encrypted_object),
     )
 }
 
@@ -203,21 +198,19 @@ public enum KeyPurpose {
 /// Derives a key for a specific purpose from the base key.
 fun derive_key(
     purpose: KeyPurpose,
-    key: &vector<u8>,
-    encrypted_shares: &vector<vector<u8>>,
-    threshold: u8,
-    key_servers: &vector<address>,
+    base_key: &vector<u8>,
+    encrypted_object: &EncryptedObject,
 ): vector<u8> {
     let tag = match (purpose) {
         KeyPurpose::EncryptedRandomness => vector[0],
         KeyPurpose::DEM => vector[1],
     };
     let mut bytes = DST_DERIVE_KEY;
-    bytes.append(*key);
+    bytes.append(*base_key);
     bytes.append(tag);
-    bytes.push_back(threshold);
-    encrypted_shares.do_ref!(|share| bytes.append(*share));
-    key_servers.do_ref!(|key_server| bytes.append((*key_server).to_bytes()));
+    bytes.push_back(encrypted_object.threshold);
+    encrypted_object.encrypted_shares.do_ref!(|share| bytes.append(*share));
+    encrypted_object.services.do_ref!(|key_server| bytes.append((*key_server).to_bytes()));
     sha3_256(bytes)
 }
 
@@ -229,29 +222,28 @@ fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
 /// Returns the decrypted shares and the indices of the shares that were decrypted.
 fun decrypt_shares_with_randomness(
     randomness: &Element<Scalar>,
-    encrypted_shares: &vector<vector<u8>>,
+    encrypted_object: &EncryptedObject,
     public_keys: &vector<Element<G2>>,
-    object_ids: &vector<address>,
-    full_id: &vector<u8>,
-    indices: &vector<u8>,
 ): (vector<vector<u8>>) {
-    let n = indices.length();
-    assert!(n == encrypted_shares.length());
+    let n = encrypted_object.indices.length();
+    assert!(n == encrypted_object.encrypted_shares.length());
     assert!(n == public_keys.length());
-    assert!(n == object_ids.length());
+    assert!(n == encrypted_object.services.length());
 
-    let gid = hash_to_g1_with_dst(full_id);
+    let gid = hash_to_g1_with_dst(
+        &create_full_id(encrypted_object.package_id, encrypted_object.id),
+    );
     let gid_r = g1_mul(randomness, &gid);
     let nonce = g2_mul(randomness, &g2_generator());
     vector::tabulate!(n, |i| {
         xor(
-            &encrypted_shares[i],
+            &encrypted_object.encrypted_shares[i],
             &kdf(
                 &pairing(&gid_r, &public_keys[i]),
                 &nonce,
                 &gid,
-                object_ids[i],
-                indices[i] as u8,
+                encrypted_object.services[i],
+                encrypted_object.indices[i] as u8,
             ),
         )
     })
