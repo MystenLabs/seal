@@ -169,14 +169,7 @@ fun verify_share(
     share: &vector<u8>,
     index: u8,
 ): bool {
-    let mut i = 0;
-    while (i < polynomials.length()) {
-        if (polynomials[i].evaluate(index) != share[i]) {
-            return false
-        };
-        i = i + 1;
-    };
-    true
+    polynomials.zip_map_ref!(share, |p, s| p.evaluate(index) == s).all!(|verified| *verified)
 }
 
 fun create_full_id(package_id: address, id: vector<u8>): vector<u8> {
@@ -212,6 +205,7 @@ fun derive_key(
 }
 
 fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
+    assert!(a.length() == b.length());
     a.zip_map_ref!(b, |a, b| *a ^ *b)
 }
 
