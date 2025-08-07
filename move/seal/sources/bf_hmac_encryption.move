@@ -18,7 +18,7 @@ use sui::{
         g1_mul,
         g2_mul
     },
-    group_ops::Element,
+    group_ops::Element
 };
 
 const DST_DERIVE_KEY: vector<u8> = b"SUI-SEAL-IBE-BLS12381-H3-00";
