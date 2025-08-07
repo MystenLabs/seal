@@ -27,7 +27,6 @@ pub struct RemoteWriteConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum LabelModifier {
-    Override,
     Add,
     Remove,
 }
