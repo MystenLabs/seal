@@ -588,7 +588,6 @@ fun test_inconsistent_shares() {
     );
 
     let decrypted = decrypt(&encrypted_object, &vdks, &public_keys);
-    std::debug::print(&decrypted);
     assert!(decrypted.is_none());
 }
 
