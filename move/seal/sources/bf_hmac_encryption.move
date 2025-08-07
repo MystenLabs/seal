@@ -18,7 +18,8 @@ use sui::{
         g1_mul,
         g2_mul
     },
-    group_ops::Element
+    group_ops::Element,
+    hex::decode
 };
 
 const DST_DERIVE_KEY: vector<u8> = b"SUI-SEAL-IBE-BLS12381-H3-00";
@@ -118,10 +119,12 @@ public fun decrypt(
     });
 
     // Construct the key from the decrypted shares.
-    let share_indices = given_indices.map!(|i| indices[i]);
     let polynomials = vector::tabulate!(
         32,
-        |i| polynomial::interpolate(&share_indices, &decrypted_shares.map_ref!(|share| share[i])),
+        |i| polynomial::interpolate(
+            &given_indices.map!(|i| indices[i]),
+            &decrypted_shares.map_ref!(|share| share[i]),
+        ),
     );
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
 
@@ -141,20 +144,19 @@ public fun decrypt(
     if (nonce != g2_mul(&randomness, &g2_generator())) {
         return none()
     };
-    let (remaining_shares, remaining_indices) = decrypt_shares_with_randomness(
+    let all_shares = decrypt_shares_with_randomness(
         &randomness,
         encrypted_shares,
         &public_keys.map_ref!(|pk| pk.pk),
         services,
         &full_id,
         indices,
-        &given_indices,
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
     let mut i = 0;
-    while (i < remaining_shares.length()) {
-        if (!verify_share(&polynomials, &remaining_shares[i], remaining_indices[i])) {
+    while (i < encrypted_shares.length()) {
+        if (!verify_share(&polynomials, &all_shares[i], indices[i])) {
             return none()
         };
         i = i + 1;
@@ -169,7 +171,11 @@ public fun decrypt(
     )
 }
 
-fun verify_share(polynomials: &vector<polynomial::Polynomial>, share: &vector<u8>, index: u8): bool {
+fun verify_share(
+    polynomials: &vector<polynomial::Polynomial>,
+    share: &vector<u8>,
+    index: u8,
+): bool {
     let mut i = 0;
     while (i < polynomials.length()) {
         if (polynomials[i].evaluate(index) != share[i]) {
@@ -227,8 +233,7 @@ fun decrypt_shares_with_randomness(
     object_ids: &vector<address>,
     full_id: &vector<u8>,
     indices: &vector<u8>,
-    indices_to_omit: &vector<u64>,
-): (vector<vector<u8>>, vector<u8>) {
+): (vector<vector<u8>>) {
     let n = indices.length();
     assert!(n == encrypted_shares.length());
     assert!(n == public_keys.length());
@@ -236,29 +241,19 @@ fun decrypt_shares_with_randomness(
 
     let gid = hash_to_g1_with_dst(full_id);
     let gid_r = g1_mul(randomness, &gid);
-    let mut decrypted_shares = vector::empty();
-    let mut remaining_indices = vector::empty();
-
     let nonce = g2_mul(randomness, &g2_generator());
-    n.do!(|i| {
-        if (!indices_to_omit.contains(&(indices[i] as u64))) {
-            decrypted_shares.push_back(
-                xor(
-                    &encrypted_shares[i],
-                    &kdf(
-                        &pairing(&gid_r, &public_keys[i]),
-                        &nonce,
-                        &gid,
-                        object_ids[i],
-                        indices[i] as u8,
-                    ),
-                ),
-            );
-            remaining_indices.push_back(indices[i]);
-        }
-    });
-
-    (decrypted_shares, remaining_indices)
+    vector::tabulate!(n, |i| {
+        xor(
+            &encrypted_shares[i],
+            &kdf(
+                &pairing(&gid_r, &public_keys[i]),
+                &nonce,
+                &gid,
+                object_ids[i],
+                indices[i] as u8,
+            ),
+        )
+    })
 }
 
 /// Returns a vector of `VerifiedDerivedKey`s, asserting that all derived_keys are valid for the given full ID and key servers.
@@ -271,7 +266,6 @@ public fun verify_derived_keys(
 ): vector<VerifiedDerivedKey> {
     assert!(public_keys.length() == derived_keys.length());
     let gid = hash_to_g1_with_dst(&create_full_id(package_id, id));
-
     public_keys.zip_map_ref!(derived_keys, |vpk, derived_key| {
         assert!(verify_derived_key(derived_key, &gid, &vpk.pk));
         VerifiedDerivedKey {
@@ -412,23 +406,45 @@ fun test_parse_encrypted_object() {
         object.services == vector[@0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96, @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3, @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97],
     );
     assert!(object.threshold == 2);
-    assert!(object.nonce == g2_from_bytes(&x"8812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e"));
+    assert!(
+        object.nonce == g2_from_bytes(&x"8812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e"),
+    );
     assert!(object.indices == x"b7fc7b");
 
     assert!(object.services.length() == 3);
-    assert!(object.services[0] == @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96);
-    assert!(object.services[1] == @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3);
-    assert!(object.services[2] == @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97);
+    assert!(
+        object.services[0] == @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96,
+    );
+    assert!(
+        object.services[1] == @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3,
+    );
+    assert!(
+        object.services[2] == @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97,
+    );
 
     assert!(object.encrypted_shares.length() == 3);
-    assert!(object.encrypted_shares[0] == x"6315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878");
-    assert!(object.encrypted_shares[1] == x"bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1");
-    assert!(object.encrypted_shares[2] == x"e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722");
+    assert!(
+        object.encrypted_shares[0] == x"6315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878",
+    );
+    assert!(
+        object.encrypted_shares[1] == x"bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1",
+    );
+    assert!(
+        object.encrypted_shares[2] == x"e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722",
+    );
 
-    assert!(object.encrypted_randomness == x"b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b");
+    assert!(
+        object.encrypted_randomness == x"b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b",
+    );
     assert!(object.blob == x"e6062eb2dcb2f86bca32f83c93");
 
-    assert!(object.aad.is_some_and!(|x| x == x"0000000000000000000000000000000000000000000000000000000000000001"));
+    assert!(
+        object
+            .aad
+            .is_some_and!(
+                |x| x == x"0000000000000000000000000000000000000000000000000000000000000001",
+            ),
+    );
     assert!(object.mac == x"184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9");
 }
 
@@ -514,40 +530,66 @@ fun test_seal_decrypt() {
 
 #[test]
 fun test_verify_derived_key() {
-    let public_key = sui::bls12381::g2_from_bytes(&x"ae7577bd3fe7f470f31ad2c9209e58eaa703d8585581d5e327e3c411805b7723b2f8403f7606d2c7bce6fafc27f3b091053c5e4b215e2e4be81877c499e7f26c5c7ebc0c5fdf657c53cd72f37cb1d9dc29e1a8f9cf5a8257a2f6ffdcb84589dc");
-    let derived_key = sui::bls12381::g1_from_bytes(&x"b86c7e836fe7c4b5ab9258f9e8c223b85db2892b3c91da2ad32e103ffad2238c38fd64e6fb9575c62a2076942cf28e9d");
+    let public_key = sui::bls12381::g2_from_bytes(
+        &x"ae7577bd3fe7f470f31ad2c9209e58eaa703d8585581d5e327e3c411805b7723b2f8403f7606d2c7bce6fafc27f3b091053c5e4b215e2e4be81877c499e7f26c5c7ebc0c5fdf657c53cd72f37cb1d9dc29e1a8f9cf5a8257a2f6ffdcb84589dc",
+    );
+    let derived_key = sui::bls12381::g1_from_bytes(
+        &x"b86c7e836fe7c4b5ab9258f9e8c223b85db2892b3c91da2ad32e103ffad2238c38fd64e6fb9575c62a2076942cf28e9d",
+    );
     let id = x"01020304";
     let full_id = create_full_id(@0x0, id);
     let gid = hash_to_g1_with_dst(&full_id);
 
     assert!(verify_derived_key(&derived_key, &gid, &public_key));
 
-    let other_public_key = sui::bls12381::g2_from_bytes(&x"a0c2e4dd4830aec2d6c6bf13bb98e20db09a1354d48eabbe2cdbfeb36d3d8a87efb25c5f7ccc771f7b1c0e387bc6432b009dbd1ed9374059fb5b7c7497fddb2e8c5a08cd5cd1c0ae421868ca2c1250390223273288bcbb47ea4ac5e4850d6d27");
-    let other_derived_key = sui::bls12381::g1_from_bytes(&x"85e9ccf31b955739a70a18e20cfa77a44c0275c4781b563aaa453cfb7a947259df8f16be0ef4288d7994432f9f0f3713");
+    let other_public_key = sui::bls12381::g2_from_bytes(
+        &x"a0c2e4dd4830aec2d6c6bf13bb98e20db09a1354d48eabbe2cdbfeb36d3d8a87efb25c5f7ccc771f7b1c0e387bc6432b009dbd1ed9374059fb5b7c7497fddb2e8c5a08cd5cd1c0ae421868ca2c1250390223273288bcbb47ea4ac5e4850d6d27",
+    );
+    let other_derived_key = sui::bls12381::g1_from_bytes(
+        &x"85e9ccf31b955739a70a18e20cfa77a44c0275c4781b563aaa453cfb7a947259df8f16be0ef4288d7994432f9f0f3713",
+    );
     let other_full_id = create_full_id(@0x1, id);
     let other_gid = hash_to_g1_with_dst(&other_full_id);
 
     assert!(!verify_derived_key(&other_derived_key, &gid, &public_key));
-    assert!(!verify_derived_key(&derived_key,&gid, &other_public_key));
+    assert!(!verify_derived_key(&derived_key, &gid, &other_public_key));
     assert!(!verify_derived_key(&derived_key, &other_gid, &public_key));
 }
 
 #[test]
 fun test_verify_derived_keys() {
-    let public_key_1 = new_public_key(@0x0, x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80");
-    let public_key_2 = new_public_key(@0x0, x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f");
-    let public_key_3 = new_public_key(@0x0, x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf");
+    let public_key_1 = new_public_key(
+        @0x0,
+        x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80",
+    );
+    let public_key_2 = new_public_key(
+        @0x0,
+        x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f",
+    );
+    let public_key_3 = new_public_key(
+        @0x0,
+        x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf",
+    );
 
-    let derived_key_1 = sui::bls12381::g1_from_bytes(&x"8b34f8188bedf3aa7cb87f94ce7bf457f5546dc47beb35b5a8a068d978caa7067558106d7868015a860b2404e943ecc3");
-    let derived_key_2 = sui::bls12381::g1_from_bytes(&x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c");
-    let derived_key_3 = sui::bls12381::g1_from_bytes(&x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d");
+    let derived_key_1 = sui::bls12381::g1_from_bytes(
+        &x"8b34f8188bedf3aa7cb87f94ce7bf457f5546dc47beb35b5a8a068d978caa7067558106d7868015a860b2404e943ecc3",
+    );
+    let derived_key_2 = sui::bls12381::g1_from_bytes(
+        &x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c",
+    );
+    let derived_key_3 = sui::bls12381::g1_from_bytes(
+        &x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d",
+    );
 
     let id = x"01020304";
     let package_id = @0x0;
 
     let verfied_derived_keys = verify_derived_keys(
-        &vector[derived_key_1, derived_key_2, derived_key_3], package_id, id, 
-        &vector[public_key_1, public_key_2, public_key_3]);
+        &vector[derived_key_1, derived_key_2, derived_key_3],
+        package_id,
+        id,
+        &vector[public_key_1, public_key_2, public_key_3],
+    );
 
     assert!(verfied_derived_keys.length() == 3);
 }
@@ -555,18 +597,84 @@ fun test_verify_derived_keys() {
 #[test]
 #[expected_failure]
 fun test_verify_invalid_derived_keys() {
-    let public_key_1 = new_public_key(@0x0, x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80");
-    let public_key_2 = new_public_key(@0x0, x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f");
-    let public_key_3 = new_public_key(@0x0, x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf");
+    let public_key_1 = new_public_key(
+        @0x0,
+        x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80",
+    );
+    let public_key_2 = new_public_key(
+        @0x0,
+        x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f",
+    );
+    let public_key_3 = new_public_key(
+        @0x0,
+        x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf",
+    );
 
-    let invalid_derived_key_1 = sui::bls12381::g1_from_bytes(&x"b422f84796342a08487df375e705d896e2eef13aded6e2c64344eb6c0c795020741173489994f238891491e8026a5992");
-    let derived_key_2 = sui::bls12381::g1_from_bytes(&x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c");
-    let derived_key_3 = sui::bls12381::g1_from_bytes(&x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d");
+    let invalid_derived_key_1 = sui::bls12381::g1_from_bytes(
+        &x"b422f84796342a08487df375e705d896e2eef13aded6e2c64344eb6c0c795020741173489994f238891491e8026a5992",
+    );
+    let derived_key_2 = sui::bls12381::g1_from_bytes(
+        &x"834b2758d1d6ba335affc0b2268e3f9883e19984a501d6419e0d206d2819c9ea499eb8de8e24b9fb6bfd57d15769719c",
+    );
+    let derived_key_3 = sui::bls12381::g1_from_bytes(
+        &x"9274d5ca9113924e81fad704c36147758f1178212a15c29e072d55cf8d405e07b8730f3794bc6519d17e9cf0d519f38d",
+    );
 
     let id = x"01020304";
     let package_id = @0x0;
 
     verify_derived_keys(
-        &vector[invalid_derived_key_1, derived_key_2, derived_key_3], package_id, id, 
-        &vector[public_key_1, public_key_2, public_key_3]);
+        &vector[invalid_derived_key_1, derived_key_2, derived_key_3],
+        package_id,
+        id,
+        &vector[public_key_1, public_key_2, public_key_3],
+    );
+}
+
+#[test]
+fun test_inconsistent_shares() {
+    use sui::bls12381::g1_from_bytes;
+
+    // Test vector generated by the
+
+    let encrypted_object = parse_encrypted_object(
+        x"0001c83873c4a8e5934501f26cf5e82057ea8316ba9be6b35df42ae83b87746bae040102030403e9819a166e94f227405f77ae24c5a078cce38f37a90f20521607e6eb6135f8a301ffd18f0cec409c1c87e4765f0073f0dae5e1294e97ec102f7f73f1aecc7375ed02795b7179463ffc21f7182862cbfb7e9dd56ba9b1770e1144dfebcabe2d970dfb030200aeb3147dcf252de39d64d4784d2c1442845a4d85c58e9fd8d0a97de7ce6c1b7a335b6da71e9d5d2a88a60dab480e76dd0e234545ceeb81c36078ac2acf2928f6169212a5b52d83cb60964ea48a9267d5b0ecd15563f90f0250e4df397b3a920803062af76d555e6587ef7e31990ab0b0cd475fc440aa4ca4dc4e1a7d6292f816877c1e2105eaeeb7efa6891484afdddd44773a8cfc44d27cb7cf7f976571985f215bbdad9f398e8135d6362fef863c2f264a701e5f5aeaf55ea660c1f34d56a2ee6b953c332a0d7655133a49d7d8fdfd6a26c47348a845e1c98121034018bddb3a010d0a7e4ce9c3531c57f41b925c670109736f6d657468696e67717fd46482a5ed5094279a6b59b57105989efd0fe895ee12b986acf94d03d6e0",
+    );
+
+    let pk0_bytes =
+        x"a92411a2e7ff0a76bfb4e6e033b114e15908884778defef5d13b31bd9a6c7d0440aa6ffca5bc1a3e0448594b032fe9310e4c33b8f8134f495698c00965385bc6c680bd0fa5224309ee7f537096b44e0baf4a23a382873156a747178fc9f1365c";
+    let pk1_bytes =
+        x"870b95522bf7e89b43cbda10c37ece8a71226e3d07f2bed7e353e88abd9467dce75fcdb165886832ad3d6e5502c43465112748fce3f44ff824365bf398f5f9cc9544149c74736cd2c7caf54137489b57c9345d47473768f85197c2ff3928879a";
+    let pk2_bytes =
+        x"ae4d78e2851c0945ee45d8452cbd7026871cf042ee396f09d1f64841db5026a0edc1d5da6f030cfde62112d5d6bf6f9606ed3d4913494741cab577c7e860437f564df0ba7868262e525614cd4e9c8f4d1c50e36542c00ae86178b83d061cf601";
+
+    let public_keys = vector[
+        new_public_key(encrypted_object.services[0], pk0_bytes),
+        new_public_key(encrypted_object.services[1], pk1_bytes),
+        new_public_key(encrypted_object.services[2], pk2_bytes),
+    ];
+    let some_public_keys = vector[
+        // new_public_key(encrypted_object.services[0], pk0_bytes),
+        new_public_key(encrypted_object.services[1], pk1_bytes),
+        new_public_key(encrypted_object.services[2], pk2_bytes),
+    ];
+
+    // let usk0 = g1_from_bytes(&x"b17efcfcd5da311d857c6f2becfe6333eae5b17217dc37532de283ecdefb7c297b2177a3ee7c41008dd87e188325acd1");
+    let usk1 = g1_from_bytes(
+        &x"b22dadcaa4787729141c936a773f78ff2eed8a3f0507eb65298dc4aa3362076891c54430fe24821d081c80d35f096eb3",
+    );
+    let usk2 = g1_from_bytes(
+        &x"986980b01b2b410c0d174253d36010626d30edac624cf8702f2079bb59245b17fbea26d5e1cdf3fc4dd088b82233c3e6",
+    );
+
+    let vdks = verify_derived_keys(
+        &vector[usk1, usk2],
+        encrypted_object.package_id,
+        encrypted_object.id,
+        &some_public_keys,
+    );
+
+    let decrypted = decrypt(&encrypted_object, &vdks, &public_keys);
+    std::debug::print(&decrypted);
+    assert!(decrypted.is_none());
 }
