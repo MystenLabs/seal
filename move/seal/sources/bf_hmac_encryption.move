@@ -117,17 +117,17 @@ public fun decrypt(
             &decrypted_shares.map_ref!(|share| share[i]),
         ),
     );
+
+    // Compute base key and derive keys for the randomness and DEM.
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
+    let randomness_key = derive_key(KeyPurpose::EncryptedRandomness, &base_key, encrypted_object);
+    let dem_key = derive_key(KeyPurpose::DEM, &base_key, encrypted_object);
 
     // The encryption randomness can now be decrypted and used to decrypt the rest of the shares.
     let randomness = scalar_from_bytes(
         &xor(
             encrypted_randomness,
-            &derive_key(
-                KeyPurpose::EncryptedRandomness,
-                &base_key,
-                encrypted_object,
-            ),
+            &randomness_key,
         ),
     );
     if (!verify_nonce(&randomness, nonce)) {
@@ -153,7 +153,7 @@ public fun decrypt(
         blob,
         mac,
         &aad.get_with_default(vector[]),
-        &derive_key(KeyPurpose::DEM, &base_key, encrypted_object),
+        &dem_key,
     )
 }
 
