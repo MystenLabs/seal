@@ -57,14 +57,6 @@ public fun new_public_key(key_server_id: ID, pk_bytes: vector<u8>): PublicKey {
     }
 }
 
-#[test_only]
-public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
-    PublicKey {
-        key_server: object::id(key_server),
-        pk: key_server.pk_as_bf_bls12381(),
-    }
-}
-
 /// Decrypts an encrypted object using the given verified derived keys.
 ///
 /// Call `verify_derived_keys` to verify derived keys before calling this function.
@@ -115,7 +107,7 @@ public fun decrypt(
                 nonce,
                 &gid,
                 services[*i],
-                indices[*i] as u8,
+                indices[*i],
             ),
         )
     });
@@ -141,7 +133,7 @@ public fun decrypt(
             ),
         ),
     );
-    if (nonce != g2_mul(&randomness, &g2_generator())) {
+    if (!verify_nonce(&randomness, nonce)) {
         return none()
     };
     let all_shares = decrypt_shares_with_randomness(
@@ -154,7 +146,7 @@ public fun decrypt(
     if (
         all_shares
             .zip_map_ref!(indices, |share, index| verify_share(&polynomials, share, *index))
-            .any!(|v| !*v)
+            .any!(|verified| !*verified)
     ) {
         return none()
     };
@@ -166,6 +158,10 @@ public fun decrypt(
         &aad.get_with_default(vector[]),
         &derive_key(KeyPurpose::DEM, &base_key, encrypted_object),
     )
+}
+
+fun verify_nonce(randomness: &Element<Scalar>, nonce: &Element<G2>): bool {
+    nonce == g2_mul(randomness, &g2_generator())
 }
 
 fun verify_share(
