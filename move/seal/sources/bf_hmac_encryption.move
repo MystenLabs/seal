@@ -229,7 +229,7 @@ fun decrypt_shares_with_randomness(
                 &nonce,
                 &gid,
                 encrypted_object.services[i],
-                encrypted_object.indices[i] as u8,
+                encrypted_object.indices[i],
             ),
         )
     })
@@ -245,11 +245,11 @@ public fun verify_derived_keys(
 ): vector<VerifiedDerivedKey> {
     assert!(public_keys.length() == derived_keys.length());
     let gid = hash_to_g1_with_dst(&create_full_id(package_id, id));
-    public_keys.zip_map_ref!(derived_keys, |vpk, derived_key| {
-        assert!(verify_derived_key(derived_key, &gid, &vpk.pk));
+    public_keys.zip_map_ref!(derived_keys, |pk, derived_key| {
+        assert!(verify_derived_key(derived_key, &gid, &pk.pk));
         VerifiedDerivedKey {
             derived_key: *derived_key,
-            key_server: vpk.key_server,
+            key_server: pk.key_server,
             package_id,
             id,
         }
@@ -296,6 +296,7 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
 
     // Shares are 32 bytes.
     let encrypted_shares = bcs.peel_vec!(|share_bcs| peel_tuple_u8(share_bcs, 32));
+    assert!(encrypted_shares.length() == indices.length());
 
     // Encrypted randomness is 32 bytes.
     let encrypted_randomness = peel_tuple_u8(&mut bcs, 32);
