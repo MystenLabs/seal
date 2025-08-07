@@ -25,9 +25,13 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
         // We assume that x is the longer vector
         return add(y, x)
     };
-    let mut coefficients: vector<u8> = vector::empty<u8>();
-    y_length.do!(|i| coefficients.push_back(gf256::add(x.coefficients[i], y.coefficients[i])));
-    (x_length - y_length).do!(|i| coefficients.push_back(x.coefficients[i + y_length]));
+    let coefficients = vector::tabulate!(x_length, |i| {
+        if (i < y_length) {
+            gf256::add(x.coefficients[i], y.coefficients[i])
+        } else {
+            x.coefficients[i]
+        }
+    });
     let result = Polynomial { coefficients };
     reduce(result);
     result
@@ -93,6 +97,20 @@ public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     sum
 }
 
+/// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
+/// The length of the input vectors must be the same.
+/// The length of each vector in y must be the same (equal to the l above).
+public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
+    assert!(x.length() == y.length());
+    let l = y[0].length();
+    assert!(y.all!(|yi| yi.length() == l));
+    vector::tabulate!(l, |i| {
+        let yi = y.map_ref!(|yj| yj[i]);
+        interpolate(x, &yi)
+    })
+}
+
+/// Evaluate a polynomial at a given point.
 public fun evaluate(p: &Polynomial, x: u8): u8 {
     let mut result = 0;
     let n = p.coefficients.length();
