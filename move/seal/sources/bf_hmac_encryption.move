@@ -87,7 +87,10 @@ public fun decrypt(
     assert!(verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id));
 
     // Verify that the public keys are from the key servers in the encrypted object and in the same order.
-    public_keys.zip_do_ref!(services, |a, b| assert!(a.key_server.to_address() == b));
+    let public_keys = public_keys.zip_map_ref!(services, |pk, addr| {
+        assert!(pk.key_server.to_address() == addr);
+        pk.pk
+    });
 
     // Find the indices of the key servers corresponsing to the derived keys.
     let given_indices = verified_derived_keys.map_ref!(
@@ -134,7 +137,7 @@ public fun decrypt(
     let all_shares = decrypt_shares_with_randomness(
         &randomness,
         encrypted_object,
-        &public_keys.map_ref!(|pk| pk.pk),
+        &public_keys,
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
