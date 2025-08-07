@@ -97,7 +97,7 @@ public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     sum
 }
 
-/// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y_[j][i] for all i, j.
+/// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
 /// The length of the input vectors must be the same.
 /// The length of each vector in y must be the same (equal to the l above).
 public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
