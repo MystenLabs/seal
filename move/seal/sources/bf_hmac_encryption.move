@@ -94,11 +94,8 @@ public fun decrypt(
         |vdk| services.find_index!(|service| vdk.key_server.to_address() == service).extract(),
     );
 
-    // Create the full ID for the IBE scheme.
-    let full_id = create_full_id(*package_id, *id);
-
     // Decrypt shares.
-    let gid = hash_to_g1_with_dst(&full_id);
+    let gid = hash_to_g1_with_dst(&create_full_id(*package_id, *id));
     let decrypted_shares = given_indices.zip_map_ref!(verified_derived_keys, |i, vdk| {
         xor(
             &encrypted_shares[*i],
