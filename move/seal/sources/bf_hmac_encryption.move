@@ -110,12 +110,10 @@ public fun decrypt(
     });
 
     // Construct the key from the decrypted shares.
+    let share_indices = given_indices.map!(|i| indices[i]);
     let polynomials = vector::tabulate!(
         32,
-        |i| polynomial::interpolate(
-            &given_indices.map!(|i| indices[i]),
-            &decrypted_shares.map_ref!(|share| share[i]),
-        ),
+        |i| polynomial::interpolate(&share_indices, &decrypted_shares.map_ref!(|share| share[i])),
     );
 
     // Compute base key and derive keys for the randomness and DEM.
