@@ -25,9 +25,13 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
         // We assume that x is the longer vector
         return add(y, x)
     };
-    let mut coefficients: vector<u8> = vector::empty<u8>();
-    y_length.do!(|i| coefficients.push_back(gf256::add(x.coefficients[i], y.coefficients[i])));
-    (x_length - y_length).do!(|i| coefficients.push_back(x.coefficients[i + y_length]));
+    let coefficients = vector::tabulate!(x_length, |i| {
+        if (i < y_length) {
+            gf256::add(x.coefficients[i], y.coefficients[i])
+        } else {
+            x.coefficients[i]
+        }
+    });
     let result = Polynomial { coefficients };
     reduce(result);
     result
