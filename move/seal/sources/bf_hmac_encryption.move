@@ -107,14 +107,16 @@ public fun decrypt(
 
     // Decrypt shares.
     let decrypted_shares = given_indices.zip_map_ref!(verified_derived_keys, |i, vdk| {
-        let symmetric_key = kdf(
-            &pairing(&vdk.derived_key, nonce),
-            nonce,
-            &hash_to_g1_with_dst(&full_id),
-            services[*i],
-            indices[*i] as u8,
-        );
-        encrypted_shares[*i].zip_map!(symmetric_key, |a, b| a ^ b)
+        xor(
+            &encrypted_shares[*i],
+            &kdf(
+                &pairing(&vdk.derived_key, nonce),
+                nonce,
+                &hash_to_g1_with_dst(&full_id),
+                services[*i],
+                indices[*i] as u8,
+            ),
+        )
     });
 
     // Construct the key from the decrypted shares.
@@ -666,9 +668,7 @@ fun test_decryption_too_few_shares() {
 
     let parsed_encrypted_object = parse_encrypted_object(encrypted_object);
 
-    let pks = vector[
-        new_public_key(parsed_encrypted_object.services[0].to_id(), pk0),
-    ];
+    let pks = vector[new_public_key(parsed_encrypted_object.services[0].to_id(), pk0)];
 
     // cargo run --bin seal-cli extract --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --master-key 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
     let usk0 =
