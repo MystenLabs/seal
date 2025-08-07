@@ -4,7 +4,7 @@
 /// Implementation of decryption for Seal using Boneh-Franklin over BLS12-381 as KEM and Hmac256Ctr as DEM.
 module seal::bf_hmac_encryption;
 
-use seal::{hmac256ctr, kdf::{hash_to_g1_with_dst, kdf}, polynomial};
+use seal::{hmac256ctr, kdf::{hash_to_g1_with_dst, kdf}, polynomial::{interpolate_all, Polynomial}};
 use std::{hash::sha3_256, option::none};
 use sui::{
     bls12381::{
@@ -112,12 +112,8 @@ public fun decrypt(
         )
     });
 
-    // Construct the key from the decrypted shares.
-    let share_indices = given_indices.map!(|i| indices[i]);
-    let polynomials = vector::tabulate!(
-        32,
-        |i| polynomial::interpolate(&share_indices, &decrypted_shares.map_ref!(|share| share[i])),
-    );
+    // Interpolate polynomials from the decrypted shares.
+    let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
 
     // Compute base key and derive keys for the randomness and DEM.
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
@@ -163,7 +159,7 @@ fun verify_nonce(randomness: &Element<Scalar>, nonce: &Element<G2>): bool {
 }
 
 fun verify_share(
-    polynomials: &vector<polynomial::Polynomial>,
+    polynomials: &vector<Polynomial>,
     share: &vector<u8>,
     index: u8,
 ): bool {
