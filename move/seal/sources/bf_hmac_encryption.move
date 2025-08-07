@@ -154,12 +154,12 @@ public fun decrypt(
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
-    let mut i = 0;
-    while (i < encrypted_shares.length()) {
-        if (!verify_share(&polynomials, &all_shares[i], indices[i])) {
-            return none()
-        };
-        i = i + 1;
+    if (
+        all_shares
+            .zip_map_ref!(indices, |share, index| verify_share(&polynomials, share, *index))
+            .any!(|v| !*v)
+    ) {
+        return none()
     };
 
     // Decrypt the blob.
