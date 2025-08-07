@@ -51,9 +51,9 @@ public struct PublicKey has drop {
 }
 
 /// Creates PublicKey from key server ID and public key bytes.
-public fun new_public_key(key_server_id: address, pk_bytes: vector<u8>): PublicKey {
+public fun new_public_key(key_server_id: ID, pk_bytes: vector<u8>): PublicKey {
     PublicKey {
-        key_server: key_server_id.to_id(),
+        key_server: key_server_id,
         pk: g2_from_bytes(&pk_bytes),
     }
 }
@@ -559,15 +559,15 @@ fun test_verify_derived_key() {
 #[test]
 fun test_verify_derived_keys() {
     let public_key_1 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80",
     );
     let public_key_2 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f",
     );
     let public_key_3 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf",
     );
 
@@ -598,15 +598,15 @@ fun test_verify_derived_keys() {
 #[expected_failure]
 fun test_verify_invalid_derived_keys() {
     let public_key_1 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"8fcce930177ddbe52e2efb4a81d306d67b4325bc9ac1abe9add4a357c1004e53e1956ecdae9395c527a838dea2b7ff5b1007c3793950bfb2f5cd053eab7925ce15189d42650aa88e93a7ad95aad45e8cdb99020fb9c83573673cd66a484bba80",
     );
     let public_key_2 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"a5988b80eb9eda86299c1ffa7a9b8937dc6b576bf505f7ea3d5e5f5736ed176228289419d62c88aa3fd56cd1e11ee10d1348f4ab336f940763b1d5c6843a5233edbf51c294ad2afaf2dfede72998ec41c005d8a177df90bfb868449b6434791f",
     );
     let public_key_3 = new_public_key(
-        @0x0,
+        @0x0.to_id(),
         x"b45f4e2988d9d2b2bda53d3c086bbd7b6a3d7ad8402f869bc58b55b0915e9dda5d2335b60054bcc177d049b879876f9d0c7f9d86d99eb33053bbbc36b1a48993d3f8590b50bec358323083f6edef4384e4581ff6e9c3757b92592bb990fdfddf",
     );
 
@@ -649,14 +649,14 @@ fun test_inconsistent_shares() {
         x"ae4d78e2851c0945ee45d8452cbd7026871cf042ee396f09d1f64841db5026a0edc1d5da6f030cfde62112d5d6bf6f9606ed3d4913494741cab577c7e860437f564df0ba7868262e525614cd4e9c8f4d1c50e36542c00ae86178b83d061cf601";
 
     let public_keys = vector[
-        new_public_key(encrypted_object.services[0], pk0_bytes),
-        new_public_key(encrypted_object.services[1], pk1_bytes),
-        new_public_key(encrypted_object.services[2], pk2_bytes),
+        new_public_key(encrypted_object.services[0].to_id(), pk0_bytes),
+        new_public_key(encrypted_object.services[1].to_id(), pk1_bytes),
+        new_public_key(encrypted_object.services[2].to_id(), pk2_bytes),
     ];
     let some_public_keys = vector[
         // new_public_key(encrypted_object.services[0], pk0_bytes),
-        new_public_key(encrypted_object.services[1], pk1_bytes),
-        new_public_key(encrypted_object.services[2], pk2_bytes),
+        new_public_key(encrypted_object.services[1].to_id(), pk1_bytes),
+        new_public_key(encrypted_object.services[2].to_id(), pk2_bytes),
     ];
 
     // let usk0 = g1_from_bytes(&x"b17efcfcd5da311d857c6f2becfe6333eae5b17217dc37532de283ecdefb7c297b2177a3ee7c41008dd87e188325acd1");
