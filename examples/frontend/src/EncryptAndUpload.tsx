@@ -1,6 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Transaction } from '@mysten/sui/transactions';
 import { useNetworkVariable } from './networkConfig';
 import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';

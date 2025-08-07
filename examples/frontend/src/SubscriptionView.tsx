@@ -14,7 +14,7 @@ import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 import { SealClient, SessionKey, getAllowlistedKeyServers } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+
 
 const TTL_MIN = 10;
 export interface FeedData {
