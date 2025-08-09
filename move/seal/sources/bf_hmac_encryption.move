@@ -73,6 +73,7 @@ public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
 /// Aborts if any of the key servers are not among the key servers found in the encrypted object.
 ///
 /// If the decryption fails, e.g. the AAD or MAC is invalid, the function returns `none`.
+#[allow(unused_variable)]
 public fun decrypt(
     encrypted_object: &EncryptedObject,
     verified_derived_keys: &vector<VerifiedDerivedKey>,
@@ -106,19 +107,11 @@ public fun decrypt(
     );
 
     // Decrypt shares.
-    let gid = hash_to_g1_with_dst(&create_full_id(*package_id, *id));
-    let decrypted_shares = given_indices.zip_map_ref!(verified_derived_keys, |i, vdk| {
-        xor(
-            &encrypted_shares[*i],
-            &kdf(
-                &pairing(&vdk.derived_key, nonce),
-                nonce,
-                &gid,
-                services[*i],
-                indices[*i],
-            ),
-        )
-    });
+    let decrypted_shares = decrypt_shares_with_derived_keys(
+        &given_indices,
+        verified_derived_keys,
+        encrypted_object,
+    );
 
     // Interpolate polynomials from the decrypted shares.
     let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
@@ -128,17 +121,19 @@ public fun decrypt(
     let randomness_key = derive_key(KeyPurpose::EncryptedRandomness, &base_key, encrypted_object);
     let dem_key = derive_key(KeyPurpose::DEM, &base_key, encrypted_object);
 
-    // The encryption randomness can now be decrypted and used to decrypt the rest of the shares.
-    let randomness = scalar_from_bytes(
-        &xor(
-            encrypted_randomness,
-            &randomness_key,
-        ),
+    // Decrypt the randomness
+    let randomness = decrypt_randomness(
+        &randomness_key,
+        encrypted_randomness,
     );
-    if (!verify_nonce(&randomness, nonce)) {
+
+    // Use the randomness to verify the nonce.
+    if (!verify_nonce(&randomness, &encrypted_object.nonce)) {
         return none()
     };
-    let all_shares = decrypt_shares_with_randomness(
+
+    // Now, all shares can be decrypted using the randomness and the public keys.
+    let all_shares = decrypt_all_shares_with_randomness(
         &randomness,
         encrypted_object,
         &public_keys,
@@ -162,16 +157,74 @@ public fun decrypt(
     )
 }
 
+fun decrypt_randomness(
+    randomness_key: &vector<u8>,
+    encrypted_randomness: &vector<u8>,
+): Element<Scalar> {
+    scalar_from_bytes(
+        &xor(
+            encrypted_randomness,
+            randomness_key,
+        ),
+    )
+}
+
 fun verify_nonce(randomness: &Element<Scalar>, nonce: &Element<G2>): bool {
     nonce == g2_mul(randomness, &g2_generator())
 }
 
-fun verify_share(
-    polynomials: &vector<Polynomial>,
-    share: &vector<u8>,
-    index: u8,
-): bool {
+fun verify_share(polynomials: &vector<Polynomial>, share: &vector<u8>, index: u8): bool {
     polynomials.zip_map_ref!(share, |p, s| p.evaluate(index) == s).all!(|verified| *verified)
+}
+
+/// Decrypt the given shares with the derived keys.
+fun decrypt_shares_with_derived_keys(
+    indices: &vector<u64>,
+    derived_keys: &vector<VerifiedDerivedKey>,
+    encrypted_object: &EncryptedObject,
+): vector<vector<u8>> {
+    assert!(indices.length() == derived_keys.length());
+    let gid = hash_to_g1_with_dst(
+        &create_full_id(encrypted_object.package_id, encrypted_object.id),
+    );
+    indices.zip_map_ref!(derived_keys, |i, vdk| {
+        xor(
+            &encrypted_object.encrypted_shares[*i],
+            &kdf(
+                &pairing(&vdk.derived_key, &encrypted_object.nonce),
+                &encrypted_object.nonce,
+                &gid,
+                encrypted_object.services[*i],
+                encrypted_object.indices[*i],
+            ),
+        )
+    })
+}
+
+/// Decrypts shares with the given randomness.
+fun decrypt_all_shares_with_randomness(
+    randomness: &Element<Scalar>,
+    encrypted_object: &EncryptedObject,
+    public_keys: &vector<Element<G2>>,
+): (vector<vector<u8>>) {
+    let n = encrypted_object.indices.length();
+    assert!(n == public_keys.length());
+    let gid = hash_to_g1_with_dst(
+        &create_full_id(encrypted_object.package_id, encrypted_object.id),
+    );
+    let gid_r = g1_mul(randomness, &gid);
+    vector::tabulate!(n, |i| {
+        xor(
+            &encrypted_object.encrypted_shares[i],
+            &kdf(
+                &pairing(&gid_r, &public_keys[i]),
+                &encrypted_object.nonce,
+                &gid,
+                encrypted_object.services[i],
+                encrypted_object.indices[i],
+            ),
+        )
+    })
 }
 
 fun create_full_id(package_id: address, id: vector<u8>): vector<u8> {
@@ -209,37 +262,6 @@ fun derive_key(
 fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
     assert!(a.length() == b.length());
     a.zip_map_ref!(b, |a, b| *a ^ *b)
-}
-
-/// Decrypts shares with the given randomness.
-/// Returns the decrypted shares and the indices of the shares that were decrypted.
-fun decrypt_shares_with_randomness(
-    randomness: &Element<Scalar>,
-    encrypted_object: &EncryptedObject,
-    public_keys: &vector<Element<G2>>,
-): (vector<vector<u8>>) {
-    let n = encrypted_object.indices.length();
-    assert!(n == encrypted_object.encrypted_shares.length());
-    assert!(n == public_keys.length());
-    assert!(n == encrypted_object.services.length());
-
-    let gid = hash_to_g1_with_dst(
-        &create_full_id(encrypted_object.package_id, encrypted_object.id),
-    );
-    let gid_r = g1_mul(randomness, &gid);
-    let nonce = g2_mul(randomness, &g2_generator());
-    vector::tabulate!(n, |i| {
-        xor(
-            &encrypted_object.encrypted_shares[i],
-            &kdf(
-                &pairing(&gid_r, &public_keys[i]),
-                &nonce,
-                &gid,
-                encrypted_object.services[i],
-                encrypted_object.indices[i],
-            ),
-        )
-    })
 }
 
 /// Returns a vector of `VerifiedDerivedKey`s, asserting that all derived_keys are valid for the given full ID and key servers.
