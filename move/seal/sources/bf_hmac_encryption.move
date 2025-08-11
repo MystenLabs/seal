@@ -102,6 +102,7 @@ public fun decrypt(
     });
 
     // Find the indices of the key servers corresponsing to the derived keys.
+    // This aborts if one of the given derived keys is not from a key server in the encrypted object.
     let given_indices = verified_derived_keys.map_ref!(
         |vdk| services.find_index!(|service| vdk.key_server.to_address() == service).extract(),
     );
