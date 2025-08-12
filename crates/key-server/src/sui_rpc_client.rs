@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use crypto::ObjectID;
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{
@@ -12,6 +11,7 @@ use sui_sdk::{
     },
     SuiClient,
 };
+use sui_types::base_types::ObjectID;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
 
 use crate::{key_server_options::RetryConfig, metrics::Metrics};
