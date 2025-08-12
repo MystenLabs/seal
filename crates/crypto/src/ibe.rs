@@ -16,7 +16,7 @@ use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::{AllowedRng, ToFromBytes};
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::ObjectId as ObjectID;
 
 pub type MasterKey = Scalar;
 pub type PublicKey = G2Element;
@@ -170,7 +170,7 @@ fn kdf(
     hash.update(input.to_byte_array());
     hash.update(nonce.to_byte_array());
     hash.update(gid.to_byte_array());
-    hash.update(object_id.as_slice());
+    hash.update(object_id.as_bytes());
     hash.update([*index]);
     hash.finalize().digest
 }

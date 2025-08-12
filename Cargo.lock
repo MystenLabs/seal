@@ -1837,6 +1837,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
+ "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
  "sui-types",
  "typenum",
 ]
@@ -4168,6 +4169,7 @@ dependencies = [
  "prometheus-closure-metric",
  "rand 0.8.5",
  "reqwest",
+ "seal-sdk",
  "semver",
  "serde",
  "serde_json",
@@ -7494,6 +7496,23 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "seal-sdk"
+version = "0.4.7"
+dependencies = [
+ "bcs",
+ "chrono",
+ "crypto",
+ "fastcrypto 0.1.8",
+ "hex",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
+ "sui-types",
+ "tracing",
 ]
 
 [[package]]

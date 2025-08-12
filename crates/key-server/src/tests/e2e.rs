@@ -53,14 +53,19 @@ async fn test_e2e() {
 
     // Read the public keys from the service objects
     let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        examples_package_id,
+        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        services.clone(),
+        services_ids.clone(),
         &pks,
         2,
         EncryptionInput::Aes256Gcm {
@@ -88,7 +93,7 @@ async fn test_e2e() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip(usks).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip(usks).collect()),
         Some(&pks),
     )
     .unwrap();
@@ -175,13 +180,17 @@ async fn test_e2e_permissioned() {
 
     // This is encrypted using just the client on the first server
     let services = vec![key_server_object_id];
-
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        package_id,
+        sui_sdk_types::ObjectId::new(package_id.into_bytes()),
         whitelist.to_vec(),
-        services.to_vec(),
+        services_ids.to_vec(),
         &pks,
         1,
         EncryptionInput::Aes256Gcm {
@@ -206,7 +215,7 @@ async fn test_e2e_permissioned() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip([usk]).collect()),
         Some(&pks),
     )
     .unwrap();
@@ -270,13 +279,17 @@ async fn test_e2e_imported_key() {
 
     // This is encrypted using just the first client
     let services = vec![key_server_object_id];
-
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        package_id,
+        sui_sdk_types::ObjectId::new(package_id.into_bytes()),
         whitelist.to_vec(),
-        services.to_vec(),
+        services_ids.clone().to_vec(),
         &pks,
         1,
         EncryptionInput::Aes256Gcm {
@@ -299,7 +312,7 @@ async fn test_e2e_imported_key() {
     let decryption = seal_decrypt(
         &encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(
-            services.clone().into_iter().zip([usk]).collect(),
+            services_ids.clone().into_iter().zip([usk]).collect(),
         ),
         Some(&pks),
     )
@@ -336,7 +349,7 @@ async fn test_e2e_imported_key() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip([usk]).collect()),
         Some(&pks),
     )
     .unwrap();
