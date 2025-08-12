@@ -211,7 +211,7 @@ fn main() -> FastCryptoResult<()> {
             master_key,
         } => ExtractOutput(ibe::extract(
             &master_key,
-            &create_full_id(&package_id, &id.0),
+            &create_full_id(package_id.inner(), &id.0),
         ))
         .to_string(),
         Command::Verify {
@@ -221,7 +221,7 @@ fn main() -> FastCryptoResult<()> {
             public_key,
         } => VerifyOutput(ibe::verify_user_secret_key(
             &user_secret_key,
-            &create_full_id(&package_id, &id.0),
+            &create_full_id(package_id.inner(), &id.0),
             &public_key,
         ))
         .to_string(),
