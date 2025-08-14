@@ -144,7 +144,7 @@ public fun decrypt(
     if (
         all_shares
             .zip_map_ref!(indices, |share, index| verify_share(&polynomials, share, *index))
-            .any!(|verified| *!verified)
+            .any!(|verified| !*verified)
     ) {
         return none()
     };
