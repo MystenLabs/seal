@@ -49,11 +49,47 @@ We will provide a clear migration path for existing users to upgrade to new vers
 New versions of the Key Server will be published under [GitHub Releases](https://github.com/MystenLabs/seal/releases) and tagged with the appropriate version number.
 Both the [SDK](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/src/key-server.ts#L31) and the [Key Server](https://github.com/MystenLabs/seal/blob/main/crates/key-server/src/server.rs#L85) are configured to expect specific versions from each other. Either component may reject messages from outdated or deprecated counterparties.
 
+### Key Server API
+
+The key server exposes two HTTP endpoints:
+
+- `GET /v1/service?service_id=<OBJECT_ID>` – Returns a proof-of-possession (POP) for the key server master key bound to the given service object id.
+- `POST /v1/fetch_key` – Requests one or more derived (identity-based) decryption keys. The request must include:
+	- A Base64-encoded BCS Programmable Transaction Block (`ptb`) that invokes a `seal_approve*` function for policy evaluation.
+	- A user session certificate signed with the user's Sui address key (`certificate.*`).
+	- A session signature (`request_signature`) over `(ptb, enc_key, enc_verification_key)` performed by the session public key contained in the certificate.
+	- An ephemeral ElGamal public key pair (`enc_key`, `enc_verification_key`) used by the server to encrypt returned derived keys.
+
+Full request / response schemas (including error variants) are documented in the OpenAPI specification at [`openapi.yaml`](./openapi.yaml).
+
+Quick example (abridged) `POST /v1/fetch_key` payload:
+
+```jsonc
+{
+	"ptb": "BASE64_BCS_PTB==",
+	"enc_key": "<hex G1>",
+	"enc_verification_key": "<hex G2>",
+	"request_signature": "<ed25519 sig>",
+	"certificate": {
+		"user": "0xabc...",
+		"session_vk": "<ed25519 pk>",
+		"creation_time": 1710000000000,
+		"ttl_min": 10,
+		"signature": "<personal msg sig>"
+	}
+}
+```
+
+Clients MUST send header `Client-Sdk-Version: <semver>`; the server returns `426 UPGRADE REQUIRED` if the version is outside the supported range.
+
+See the TypeScript SDK for helpers that assemble and sign this request.
+
 ### Contact Us
 
 For questions about Seal, use case discussions, or integration support, contact the Seal team on [Sui Discord](https://discord.com/channels/916379725201563759/1356767654265880586) or create a Github issue.
 
-## More information 
+## More information
+
 - [Seal Design](Design.md)
 - [Using Seal](UsingSeal.md)
 - [Security Best Practices and Risk Mitigations](SecurityBestPractices.md)
