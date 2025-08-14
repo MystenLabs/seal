@@ -343,12 +343,32 @@ server_mode: !Open
     assert_eq!(
         options.network,
         Network::Custom {
-            node_url: "https://node.dk".to_string(),
+            node_url: Some("https://node.dk".to_string()),
         }
     );
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
+}
+
+#[test]
+fn test_parse_custom_network_with_env_var() {
+    // Test that NODE_URL can be omitted from config when not set in env
+    let config_without_url = r#"
+network: !Custom {}
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+
+    let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
+        .expect("Failed to parse configuration without node_url");
+
+    match options.network {
+        Network::Custom { node_url } => {
+            assert_eq!(node_url, None);
+        }
+        _ => panic!("Expected Custom network"),
+    }
 }
 
 #[test]

@@ -254,7 +254,8 @@ To start the key server in `Open` mode, run the command `cargo run --bin key-ser
 
 In the config file, make sure to:
 
-- Set the network, e.g. `Testnet` or `Mainnet`. 
+- Set the network, e.g. `Testnet`, `Mainnet`, or `!Custom` for custom RPC endpoints.
+  - For `!Custom` network, you can either specify `node_url` in the config or set the `NODE_URL` environment variable.
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to <KEY_SERVER_OBJECT_ID>, the ID of the key server object you registered on-chain. 
 

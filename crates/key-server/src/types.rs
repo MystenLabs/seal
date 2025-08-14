@@ -24,7 +24,7 @@ pub enum Network {
     Testnet,
     Mainnet,
     Custom {
-        node_url: String,
+        node_url: Option<String>,
     },
     #[cfg(test)]
     TestCluster,
@@ -36,7 +36,10 @@ impl Network {
             Network::Devnet => "https://fullnode.devnet.sui.io:443".into(),
             Network::Testnet => "https://fullnode.testnet.sui.io:443".into(),
             Network::Mainnet => "https://fullnode.mainnet.sui.io:443".into(),
-            Network::Custom { node_url, .. } => node_url.clone(),
+            Network::Custom { node_url } => node_url
+                .as_ref()
+                .expect("Custom network must have node_url set")
+                .clone(),
             #[cfg(test)]
             Network::TestCluster => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
         }
@@ -48,7 +51,7 @@ impl Network {
             "testnet" => Network::Testnet,
             "mainnet" => Network::Mainnet,
             "custom" => Network::Custom {
-                node_url: std::env::var("NODE_URL").expect("NODE_URL must be set"),
+                node_url: std::env::var("NODE_URL").ok(),
             },
             _ => panic!("Unknown network: {}", str),
         }

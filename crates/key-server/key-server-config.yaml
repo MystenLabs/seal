@@ -5,10 +5,13 @@
 # network: Mainnet
 # network: Devnet
 # network: !Custom
-#   node_url: 'url_to_node_endpoint'
+#   node_url: 'url_to_node_endpoint'  # Optional - see below
 #
-# Use Custom for production deployments, and set the `node_url` 
-# with the URL of your Full Node endpoint.
+# Use Custom for production deployments. You must provide the node URL
+# in exactly one of these ways:
+# 1. Set the `node_url` in this config file
+# 2. OR omit `node_url` here and set the NODE_URL environment variable
+#
 #
 # Example:
 network: Testnet

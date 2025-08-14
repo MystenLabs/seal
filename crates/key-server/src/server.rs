@@ -153,7 +153,6 @@ impl Server {
             metrics,
         );
         info!("Server started with network: {:?}", options.network);
-
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {}", e);
         });
@@ -768,11 +767,34 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     let options = match env::var("CONFIG_PATH") {
         Ok(config_path) => {
             info!("Loading config file: {}", config_path);
-            serde_yaml::from_reader(
+            let mut opts: KeyServerOptions = serde_yaml::from_reader(
                 std::fs::File::open(&config_path)
                     .context(format!("Cannot open configuration file {config_path}"))?,
             )
-            .expect("Failed to parse configuration file")
+            .expect("Failed to parse configuration file");
+
+            // Handle Custom network NODE_URL configuration
+            if let Network::Custom { ref mut node_url } = opts.network {
+                let env_node_url = env::var("NODE_URL").ok();
+
+                match (node_url.as_ref(), env_node_url.as_ref()) {
+                    (Some(_), Some(_)) => {
+                        panic!("NODE_URL cannot be provided in both config file and environment variable. Please use only one source.");
+                    }
+                    (None, Some(url)) => {
+                        info!("Using NODE_URL from environment variable: {}", url);
+                        *node_url = Some(url.clone());
+                    }
+                    (Some(url), None) => {
+                        info!("Using NODE_URL from config file: {}", url);
+                    }
+                    (None, None) => {
+                        panic!("Custom network requires NODE_URL to be set either in config file or as environment variable");
+                    }
+                }
+            }
+
+            opts
         }
         Err(_) => {
             info!("Using local environment variables for configuration, should only be used for testing");
