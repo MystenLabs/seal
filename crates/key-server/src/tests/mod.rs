@@ -35,8 +35,8 @@ mod externals;
 mod pd;
 mod tle;
 pub(crate) mod whitelist;
-
 mod server;
+mod error_handlings;
 
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
