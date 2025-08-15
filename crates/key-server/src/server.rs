@@ -291,6 +291,7 @@ impl Server {
                             // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
                             // In that case, the user gets a FORBIDDEN status response.
                             debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
+                            debug!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
                             return InternalError::InvalidParameter;
                         }
                         METHOD_NOT_FOUND_CODE => {
