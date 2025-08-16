@@ -4172,7 +4172,6 @@ dependencies = [
  "temp-env",
  "test-cluster",
  "tokio",
- "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower-http 0.6.6",
  "tracing",
  "tracing-test",

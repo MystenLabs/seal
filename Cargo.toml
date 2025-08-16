@@ -23,7 +23,7 @@ serde_with = "3.13.0"
 
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "mysten-service" }
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0" }
 sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-sdk"}
 shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "shared-crypto" }
 move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "42ba6c0" }
