@@ -12,7 +12,7 @@ use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
-pub use sui_types::base_types::ObjectID;
+pub use sui_sdk_types::ObjectId as ObjectID;
 use tss::split;
 use utils::generate_random_bytes;
 
@@ -120,7 +120,7 @@ pub fn seal_encrypt(
     }
 
     let mut rng = thread_rng();
-    let full_id = create_full_id(&package_id, &id);
+    let full_id = create_full_id(&package_id.into_inner(), &id);
 
     // Generate a random base key
     let base_key = generate_random_bytes(&mut rng);
@@ -219,7 +219,7 @@ pub fn seal_decrypt(
         return Err(InvalidInput);
     }
 
-    let full_id = create_full_id(package_id, id);
+    let full_id = create_full_id(package_id.inner(), id);
 
     // Decap IBE keys and decrypt shares
     let shares = match (&encrypted_shares, user_secret_keys) {
@@ -334,7 +334,7 @@ fn derive_key(
         hash.update(encrypted_share.as_ref());
     }
     for key_server in key_servers {
-        hash.update(key_server.as_slice());
+        hash.update(key_server.as_bytes());
     }
     hash.finalize().digest
 }
@@ -430,6 +430,8 @@ impl IBEEncryptions {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::dem::{Aes256Gcm, Hmac256Ctr};
     use crate::ibe::{hash_to_g1, public_key_from_master_key, PublicKey};
@@ -439,8 +441,7 @@ mod tests {
         groups::bls12381::Scalar,
         serde_helpers::ToFromByteArray,
     };
-    use std::str::FromStr;
-
+    use sui_types::base_types::ObjectID;
     #[test]
     fn test_hash_with_prefix_regression() {
         let hash = hash_to_g1(&create_full_id(
@@ -464,15 +465,18 @@ mod tests {
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
-
+        let services_ids = services
+            .into_iter()
+            .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+            .collect_vec();
         let threshold = 2;
         let public_keys =
             IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
 
         let encrypted = seal_encrypt(
-            package_id,
+            sui_sdk_types::ObjectId::new(package_id.into_bytes()),
             id,
-            services.clone(),
+            services_ids.clone(),
             &public_keys,
             threshold,
             EncryptionInput::Aes256Gcm {
@@ -484,7 +488,7 @@ mod tests {
         .0;
 
         let user_secret_keys = IBEUserSecretKeys::BonehFranklinBLS12381(
-            services
+            services_ids
                 .into_iter()
                 .zip(keypairs)
                 .map(|(s, kp)| (s, ibe::extract(&kp.0, &full_id)))
@@ -525,15 +529,19 @@ mod tests {
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+        let services_ids = services
+            .into_iter()
+            .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+            .collect_vec();
 
         let threshold = 2;
         let public_keys =
             IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
 
         let encrypted = seal_encrypt(
-            package_id,
+            sui_sdk_types::ObjectId::new(package_id.into_bytes()),
             id,
-            services.clone(),
+            services_ids.clone(),
             &public_keys,
             threshold,
             EncryptionInput::Hmac256Ctr {
@@ -545,7 +553,7 @@ mod tests {
         .0;
 
         let user_secret_keys = IBEUserSecretKeys::BonehFranklinBLS12381(
-            services
+            services_ids
                 .into_iter()
                 .zip(keypairs)
                 .map(|(s, kp)| (s, ibe::extract(&kp.0, &full_id)))
@@ -584,22 +592,25 @@ mod tests {
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
-
+        let services_ids = services
+            .into_iter()
+            .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+            .collect_vec();
         let threshold = 2;
         let public_keys =
             IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
 
         let (encrypted, key) = seal_encrypt(
-            package_id,
+            sui_sdk_types::ObjectId::new(package_id.into_bytes()),
             id,
-            services.clone(),
+            services_ids.clone(),
             &public_keys,
             threshold,
             EncryptionInput::Plain,
         )
         .unwrap();
 
-        let user_secret_keys = services
+        let user_secret_keys = services_ids
             .into_iter()
             .zip(keypairs)
             .map(|(s, kp)| (s, ibe::extract(&kp.0, &full_id)))
@@ -645,7 +656,7 @@ mod tests {
             "0x0000000000000000000000000000000000000000000000000000000000000003",
         ]
         .iter()
-        .map(|id| ObjectID::from_str(id).unwrap())
+        .map(|id| sui_sdk_types::ObjectId::from_str(id).unwrap())
         .collect::<Vec<_>>();
 
         let full_id = create_full_id(&package_id, &inner_id);
@@ -678,7 +689,11 @@ mod tests {
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
-
+        let services_ids = services
+            .clone()
+            .into_iter()
+            .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+            .collect_vec();
         let threshold = 2;
         let pks = keypairs.iter().map(|(_, pk)| *pk).collect_vec();
         let public_keys = IBEPublicKeys::BonehFranklinBLS12381(pks.clone());
@@ -697,7 +712,7 @@ mod tests {
         .unwrap()
         .0;
 
-        let usks: [_; 3] = services
+        let usks: [_; 3] = services_ids
             .iter()
             .zip(&keypairs)
             .map(|(s, kp)| (*s, ibe::extract(&kp.0, &full_id)))
@@ -746,7 +761,11 @@ mod tests {
         } = split(&mut rng, base_key, threshold, number_of_shares)?;
 
         let services = key_servers.into_iter().zip(indices).collect::<Vec<_>>();
-
+        let services_ids = services
+            .clone()
+            .into_iter()
+            .map(|(id, index)| (sui_sdk_types::ObjectId::new(id.into_bytes()), index))
+            .collect_vec();
         if pks.len() != number_of_shares as usize {
             return Err(InvalidInput);
         }
@@ -755,13 +774,16 @@ mod tests {
         // Encrypt the shares using the IBE keys.
         // Use the share index as the `index` parameter for the IBE decryption, allowing to encrypt shares for the same identity to the same public key.
         let (nonce, mut ciphertexts) =
-            encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services)?;
+            encrypt_batched_deterministic(&randomness, &shares, pks, &full_id, &services_ids)?;
 
         // Modify the first share
         ciphertexts[0][0] = ciphertexts[0][0].wrapping_add(1);
 
-        let service_ids = services.iter().map(|(id, _)| *id).collect_vec();
-
+        let services = services.iter().map(|(id, _)| *id).collect_vec();
+        let service_ids = services
+            .into_iter()
+            .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+            .collect_vec();
         let encrypted_randomness = ibe::encrypt_randomness(
             &randomness,
             &derive_key(
@@ -802,9 +824,9 @@ mod tests {
         Ok((
             EncryptedObject {
                 version: 0,
-                package_id,
+                package_id: sui_sdk_types::ObjectId::new(package_id.into_bytes()),
                 id,
-                services,
+                services: services_ids,
                 threshold,
                 encrypted_shares,
                 ciphertext,
