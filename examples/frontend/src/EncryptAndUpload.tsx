@@ -7,6 +7,7 @@ import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Button, Card, Flex, Spinner, Text } from '@radix-ui/themes';
 import { getAllowlistedKeyServers, SealClient } from '@mysten/seal';
 import { fromHex, toHex } from '@mysten/sui/utils';
+import { getKeyServers } from './utils';
 
 export type Data = {
   status: string;
@@ -47,7 +48,7 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
   const suiClient = useSuiClient();
   const client = new SealClient({
     suiClient,
-    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    serverConfigs: getKeyServers('testnet').map((id) => ({
       objectId: id,
       weight: 1,
     })),

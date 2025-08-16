@@ -14,7 +14,7 @@ import {
   type SessionKeyType,
 } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
-import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
+import { downloadAndDecrypt, getKeyServers, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { set, get } from 'idb-keyval';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 
@@ -38,7 +38,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
   const client = new SealClient({
     suiClient,
-    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    serverConfigs: getKeyServers('testnet').map((id) => ({
       objectId: id,
       weight: 1,
     })),
