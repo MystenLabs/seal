@@ -64,7 +64,7 @@ impl IntoResponse for InternalError {
             ),
             InternalError::InvalidParameter(ref inner) => (
                 StatusCode::FORBIDDEN,
-                format!("Invalid parameter: {inner}").to_string(),
+                format!("Invalid parameter to PTB: {inner}").to_string(),
             ),
             InternalError::InvalidMVRName => {
                 (StatusCode::FORBIDDEN, "Invalid MVR name".to_string())
