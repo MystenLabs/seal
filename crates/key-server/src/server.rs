@@ -289,8 +289,10 @@ impl Server {
                 if let Error::RpcError(ClientError::Call(ref e)) = e {
                     match e.code() {
                         INVALID_PARAMS_CODE => {
-                            // Note that a dry run will fail if called with a newly created object parameter that the FN has not yet seen.
-                            // This may also happen if the PTB is invalid in some other way, so we return the entire message to the user.
+                            // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
+                            // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
+                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
+                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
                             debug!("Invalid parameter: {}", e.message());
                             return InternalError::InvalidParameter(e.message().to_string());
                         }
