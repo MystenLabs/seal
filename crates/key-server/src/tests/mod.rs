@@ -33,9 +33,10 @@ use test_cluster::{TestCluster, TestClusterBuilder};
 mod e2e;
 mod externals;
 mod pd;
-mod server;
 mod tle;
 pub(crate) mod whitelist;
+
+mod server;
 
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
