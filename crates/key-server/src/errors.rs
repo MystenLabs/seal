@@ -17,7 +17,7 @@ pub enum InternalError {
     InvalidSDKVersion,
     DeprecatedSDKVersion,
     MissingRequiredHeader(String),
-    InvalidParameter,
+    InvalidParameter(String),
     InvalidMVRName,
     InvalidServiceId,
     UnsupportedPackageId,
@@ -62,9 +62,9 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid session key signature".to_string(),
             ),
-            InternalError::InvalidParameter => (
+            InternalError::InvalidParameter(ref inner) => (
                 StatusCode::FORBIDDEN,
-                "Invalid parameter. If the object was just created, try again later.".to_string(),
+                format!("Invalid parameter: {inner}").to_string(),
             ),
             InternalError::InvalidMVRName => {
                 (StatusCode::FORBIDDEN, "Invalid MVR name".to_string())
@@ -103,7 +103,7 @@ impl InternalError {
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
-            InternalError::InvalidParameter => "InvalidParameter",
+            InternalError::InvalidParameter(_) => "InvalidParameter",
             InternalError::InvalidMVRName => "InvalidMVRName",
             InternalError::InvalidServiceId => "InvalidServiceId",
             InternalError::UnsupportedPackageId => "UnsupportedPackageId",

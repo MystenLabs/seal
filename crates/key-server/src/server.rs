@@ -281,23 +281,25 @@ impl Server {
                 None,
             )
             .await;
-        let dry_run_res = self.sui_rpc_client
-                .dry_run_transaction_block(tx_data.clone())
-                .await
+        let dry_run_res = self
+            .sui_rpc_client
+            .dry_run_transaction_block(tx_data.clone())
+            .await
             .map_err(|e| {
                 if let Error::RpcError(ClientError::Call(ref e)) = e {
                     match e.code() {
                         INVALID_PARAMS_CODE => {
-                            // A dry run will fail if called with a newly created object parameter that the FN has not yet seen.
-                            // In that case, the user gets a FORBIDDEN status response.
-                            debug!("Invalid parameter: This could be because the FN has not yet seen the object.");
-                            debug!("Dry run execution failed ({:?}) (req_id: {:?})", e, req_id);
-                            return InternalError::InvalidParameter;
+                            // Note that a dry run will fail if called with a newly created object parameter that the FN has not yet seen.
+                            // This may also happen if the PTB is invalid in some other way, so we return the entire message to the user.
+                            debug!("Invalid parameter: {}", e.message());
+                            return InternalError::InvalidParameter(e.message().to_string());
                         }
                         METHOD_NOT_FOUND_CODE => {
                             // This means that the seal_approve function is not found on the given module.
                             debug!("Function not found: {:?}", e);
-                            return InternalError::InvalidPTB("The seal_approve function was not found on the module".to_string());
+                            return InternalError::InvalidPTB(
+                                "The seal_approve function was not found on the module".to_string(),
+                            );
                         }
                         _ => {}
                     }
