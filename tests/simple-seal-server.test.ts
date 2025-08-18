@@ -7,40 +7,39 @@ import { Transaction } from '@mysten/sui/transactions';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { SealClient, SessionKey } from '@mysten/seal';
 import assert from 'assert';
+import { parseArgs } from 'node:util';
 
 const TEST_DATA = 
     {'testnet': {
         "packageId": "0x58dce5d91278bceb65d44666ffa225ab397fc3ae9d8398c8c779c5530bd978c2",
         "serverObjectIds": [
-            "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
-            "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8",
-            // TODO: add your server object id here
+            "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", // mysten testnet-1 server, open
+            "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8" // mysten testnet-2 server, open
         ]
     },
     'mainnet': {
         "packageId": "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029",
         "serverObjectIds": [
-            "0xfabd2fb03a16ba9a8f2f961876675aa7ac2359b863627d7e3b948dc2cb3077ba",
-            // TODO: add your server object id here
+            "0xfabd2fb03a16ba9a8f2f961876675aa7ac2359b863627d7e3b948dc2cb3077ba" // mysten mainnet server, permissioned
         ]
     }};
-async function main(network: "testnet" | "mainnet") {
-    const keypair = Ed25519Keypair.fromSecretKey(
-        'suiprivkey1qqgzvw5zc2zmga0uyp4rzcgk42pzzw6387zqhahr82pp95yz0scscffh2d8',
-    );
+async function main(network: "testnet" | "mainnet", additionalObjectIds?: string[]) {
+    const keypair = Ed25519Keypair.generate();
     const suiAddress = keypair.getPublicKey().toSuiAddress();
     const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
-    const testData = new Uint8Array([1, 2, 3, 4, 5]);
+    const testData = crypto.getRandomValues(new Uint8Array(1000));
 
     const packageId = TEST_DATA[network].packageId;
-    const serverObjectIds = TEST_DATA[network].serverObjectIds;
+    const serverObjectIds = additionalObjectIds 
+        ? [...TEST_DATA[network].serverObjectIds, ...additionalObjectIds]
+        : TEST_DATA[network].serverObjectIds;
     const client = new SealClient({
         suiClient,
         serverConfigs: serverObjectIds.map(objectId => ({
             objectId,
             weight: 1,
         })),
-        verifyKeyServers: false,
+        verifyKeyServers: true,
     });
 
     // Encrypt data
@@ -80,6 +79,31 @@ async function main(network: "testnet" | "mainnet") {
     console.log('✅ Test passed!');
 }
 
-// TODO: select your network
-main('testnet').catch(console.error);
-// main('mainnet').catch(console.error);
+// Parse command line arguments
+const { values } = parseArgs({
+    args: process.argv.slice(2),
+    options: {
+        network: {
+            type: 'string',
+            default: 'testnet',
+        },
+        object_ids: {
+            type: 'string',
+        },
+    },
+});
+
+const network = values.network as "testnet" | "mainnet";
+if (network !== 'testnet' && network !== 'mainnet') {
+    console.error('Error: network must be either "testnet" or "mainnet"');
+    process.exit(1);
+}
+
+const additionalObjectIds = values.object_ids ? values.object_ids.split(',').map(id => id.trim()) : undefined;
+
+console.log(`Running test on ${network}${additionalObjectIds ? ` with additional object IDs: ${additionalObjectIds.join(', ')}` : ''}`);
+
+main(network, additionalObjectIds).catch(error => {
+    console.error('Test failed:', error);
+    process.exit(1);
+});
