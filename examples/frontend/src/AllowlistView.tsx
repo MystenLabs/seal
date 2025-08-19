@@ -10,7 +10,7 @@ import {
   KeyServerConfig,
   SealClient,
   SessionKey,
-  type SessionKeyType,
+  type ExportedSessionKey
 } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
@@ -89,7 +89,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   }
 
   const onView = async (blobIds: string[], allowlistId: string) => {
-    const imported: SessionKeyType = await get('sessionKey');
+    const imported: ExportedSessionKey = await get('sessionKey');
 
     if (imported) {
       try {
