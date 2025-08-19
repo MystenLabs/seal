@@ -752,6 +752,7 @@ async fn start_server_background_tasks(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _guard = mysten_service::logging::init();
     let (monitor_handle, app) = app().await?;
 
     tokio::select! {
@@ -767,8 +768,6 @@ async fn main() -> Result<()> {
 }
 
 pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
-    let _guard = mysten_service::logging::init();
-
     // If CONFIG_PATH is set, read the configuration from the file.
     // Otherwise, use the local environment variables.
     let options = match env::var("CONFIG_PATH") {
