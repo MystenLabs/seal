@@ -7,7 +7,6 @@ import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes'
 import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
 import {
-  getAllowlistedKeyServers,
   KeyServerConfig,
   SealClient,
   SessionKey,
@@ -36,9 +35,10 @@ function constructMoveCall(packageId: string, allowlistId: string): MoveCallCons
 
 const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
+  const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
   const client = new SealClient({
     suiClient,
-    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    serverConfigs: serverObjectIds.map((id) => ({
       objectId: id,
       weight: 1,
     })),
