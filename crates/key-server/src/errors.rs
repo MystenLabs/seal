@@ -10,7 +10,7 @@ use serde::Serialize;
 pub enum InternalError {
     InvalidPTB(String),
     InvalidPackage,
-    NoAccess,
+    NoAccess(String),
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
@@ -39,7 +39,9 @@ impl IntoResponse for InternalError {
             InternalError::InvalidPackage => {
                 (StatusCode::FORBIDDEN, "Invalid package ID".to_string())
             }
-            InternalError::NoAccess => (StatusCode::FORBIDDEN, "Access denied".to_string()),
+            InternalError::NoAccess(ref inner) => {
+                (StatusCode::FORBIDDEN, format!("Access denied: {inner}"))
+            }
             InternalError::InvalidCertificate => (
                 StatusCode::FORBIDDEN,
                 "Invalid certificate time or ttl".to_string(),
@@ -96,7 +98,7 @@ impl InternalError {
         match self {
             InternalError::InvalidPTB(_) => "InvalidPTB",
             InternalError::InvalidPackage => "InvalidPackage",
-            InternalError::NoAccess => "NoAccess",
+            InternalError::NoAccess(_) => "NoAccess",
             InternalError::InvalidCertificate => "InvalidCertificate",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",

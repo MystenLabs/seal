@@ -87,7 +87,7 @@ async fn test_tle_policy() {
                 None,
             )
             .await;
-        assert_eq!(result, Err(InternalError::NoAccess));
+        assert!(matches!(result, Err(InternalError::NoAccess(_))));
     }
 }
 

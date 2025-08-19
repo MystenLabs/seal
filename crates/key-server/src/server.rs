@@ -50,7 +50,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
-use sui_sdk::rpc_types::SuiTransactionBlockEffectsAPI;
+use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
@@ -310,10 +310,12 @@ impl Server {
                 InternalError::Failure
             })?;
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
-        if dry_run_res.effects.status().is_err() {
-            debug!("Dry run execution asserted (req_id: {:?})", req_id);
-            // TODO: Should we return a different error per status, e.g., InsufficientGas?
-            return Err(InternalError::NoAccess);
+        if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
+            debug!(
+                "Dry run execution asserted (req_id: {:?}) {:?}",
+                req_id, error
+            );
+            return Err(InternalError::NoAccess(error.clone()));
         }
 
         // all good!
