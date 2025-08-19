@@ -193,7 +193,7 @@ See our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/pack
 > [!TIP]
 > If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
 
-## On-chain decryption
+#### On-chain decryption
 On-chain decryption in Move is supported, and can be done using the [`seal::bf_mac_encryption`](./move/seal/sources/bf_hmac_encryption.move) package. This allows Move packages to decrypt Seal encryptions and use the decrypted values to allow use cases such as on-chain auctions, secure voting (see [voting.move](./move/patterns/sources/voting.move)), etc.
 
 To decrypt an encrypted object in a Move package you should follow these steps:
