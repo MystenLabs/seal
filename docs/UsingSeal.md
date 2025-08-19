@@ -185,18 +185,24 @@ await client.fetchKeys({
 });
 ```
 
-See our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/test/unit/integration.test.ts) for an E2E example. Also, see our [example app](https://seal-example.vercel.app/) for a demonstration of allowlist/NFT gated content access.
+!!! tip
+    If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
 
-On-chain decryption in Move is supported using derived keys. For an example, see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move). The published package can be found at following: 
+#### On-chain decryption
+On-chain decryption in Move is supported, and can be done using the [`seal::bf_mac_encryption`](./move/seal/sources/bf_hmac_encryption.move) package. This allows Move packages to decrypt Seal encryptions and use the decrypted values to allow use cases such as on-chain auctions, secure voting (see [voting.move](./move/patterns/sources/voting.move)), etc.
+
+To decrypt an encrypted object in a Move package you should follow these steps:
+1. **Verify derived keys:** Use `bf_hmac_encryption::verify_derived_keys` to verify each derived key. This function takes the raw keys, package ID, identity and the vector of public keys for each key server, and returns a vector of VerifiedDerivedKey objects. Note that the derived keys can be fetched through the Seal SDK client using the `client.getDerivedKeys` function which returns a map from key server object IDs to the derived keys, and the public keys can be also retrieved using the SDK by calling the `client.getPublicKeys` function and passing them to the `bf_hmac_encryption::new_public_key`. For both derived keys and public keys, you likely need to convert from bytes to `Element<G1>` and `Element<G2>` respectively using the [[`from_bytes`]](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes) function.  
+2. **Perform decryption:** Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys and the vector of public keys. The return value is an `Option<vector<u8>>`, and if the decryption fails, it will return a `None` value.
+
+Note that the on-chain decryption only works for HMAC‑CTR mode and _not_ for AES.
+
+The published package can be found at following: 
 
 | <NETWORK> | <PACKAGE_ID> |
 | -------- | ------- |
 | Testnet | 0x4614e5da0136ee7d464992ddd3719d388ae2bfdb48dfec6d9ad579f87341f2e1 |
 | Mainnet | 0xbfc8d50ed03d52864779e5bc9bd2a9e0417a03c42830d3757c99289c779967b7 | 
-
-
-!!! tip
-    If a key server request fails with an `InvalidParameter` error, the cause may be a recently created on-chain object in the PTB input. The key server's full node may not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
 
 ### Optimizing performance
 

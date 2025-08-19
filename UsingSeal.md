@@ -202,6 +202,13 @@ To decrypt an encrypted object in a Move package you should follow these steps:
 
 Note that the on-chain decryption only works for HMAC‑CTR mode and _not_ for AES.
 
+The published package can be found at following: 
+
+| <NETWORK> | <PACKAGE_ID> |
+| -------- | ------- |
+| Testnet | 0x4614e5da0136ee7d464992ddd3719d388ae2bfdb48dfec6d9ad579f87341f2e1 |
+| Mainnet | 0xbfc8d50ed03d52864779e5bc9bd2a9e0417a03c42830d3757c99289c779967b7 | 
+
 ### Optimizing performance
 
 To reduce latency and improve efficiency when using the Seal SDK, apply the following strategies based on your use case:
