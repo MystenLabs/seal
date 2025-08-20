@@ -22,10 +22,10 @@ Please refer to [this document](UsingSeal.md#for-key-server-operators) for detai
 ### Testnet
 
 - Mysten Labs: The following key servers are configured using the `Open` mode and freely available for experimentation, development, and testing. A source-based rate limit is configured which can not be changed for any client.
-    - mysten-testnet-1
+    - mysten-testnet-1 (`Open` mode)
         - Object Id: `0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75`
         - URL: https://seal-key-server-testnet-1.mystenlabs.com
-    - mysten-testnet-2
+    - mysten-testnet-2 (`Open` mode)
         - Object Id: `0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8`
         - https://seal-key-server-testnet-2.mystenlabs.com
 - [Ruby Nodes](https://seal.rubynodes.io):

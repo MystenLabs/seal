@@ -67,7 +67,7 @@ A key server may be used multiple times to enable weighting, which allows the ap
 !!! info
     Anyone can create an onchain `KeyServer` object that references a known URL (such as `seal.mystenlabs.com`) but uses a different public key. To prevent impersonation, the SDK performs a verification step: it fetches the object ID from the server’s `/v1/service` endpoint and compares it with the object ID registered onchain.
 
-Apps can define a list of Seal servers object IDs to use from [verified key servers](Pricing.md#verified-key-servers) in different environments. You can use any Open mode Seal key servers, but for any permissioned mode servers, you need to contact the key server operators to allow your particular package ID and receive an object Id.
+Apps can define a list of Seal key server object IDs from the [verified key servers](Pricing.md#verified-key-servers) available in each environment. You can use any `Open` mode key servers directly. For `Permissioned` mode servers, contact the key server operator to register your package ID and receive the corresponding object ID.
 
 Next, the app should create a `SealClient` object for the selected key servers.
 
