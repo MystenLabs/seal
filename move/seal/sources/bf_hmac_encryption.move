@@ -657,6 +657,40 @@ fun test_decryption() {
 }
 
 #[test]
+fun test_decryption_one_server() {
+    use sui::bls12381::{g1_from_bytes};
+
+    let pk0 =
+        x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
+
+    // For reference, the encryption was created with the following CLI command:
+    // cargo run --bin seal-cli encrypt-hmac --message 48656C6C6F2C20776F726C6421 --aad 0x0000000000000000000000000000000000000000000000000000000000000001 --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --threshold 1 a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161 -- 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96
+    let encrypted_object =
+        x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40901034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96010100b7452a3ea753ef5ba8afa990cac0b48319a583a13443bfd34ad172601434669963b530cd587d54d6eaa58685c3b0516b02050261e5c8a18f21cb9dd41803ab66baaff02c987e33ea9bd579d541dcc5d5608fe08751888d4360c4405d6aea0b65017f724abd69e0825e4aa59cdd8cb271333bc4e35587f6e7775a1dfb1f15f3d8018e3b2279ee7c5ae1b51152ff2b85177dda0ef60cdf065c72ed98b108575aa6fa010d798e404fbf5cb28034b941a6d4012000000000000000000000000000000000000000000000000000000000000000018a00ea13a81aa512647815af7d535b3c9248b142c0f825a6a15acdc778229453";
+
+    let parsed_encrypted_object = parse_encrypted_object(encrypted_object);
+
+    let pks = vector[new_public_key(parsed_encrypted_object.services[0].to_id(), pk0)];
+
+    // cargo run --bin seal-cli extract --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --master-key 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
+    let usk0 =
+        x"8cb19351dbd351d02292a77a18e2f0f4ec0d3becf23f37cc87e4870bf35522c3e59487e0ee5023d5e2e383e40b77bd98";
+
+    let user_secret_keys = vector[g1_from_bytes(&usk0)];
+    let vdks = verify_derived_keys(
+        &user_secret_keys,
+        @0x0,
+        x"381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409",
+        &pks,
+    );
+
+    let all_pks = vector[new_public_key(parsed_encrypted_object.services[0].to_id(), pk0)];
+
+    let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks);
+    assert!(decrypted.borrow() == b"Hello, world!");
+}
+
+#[test]
 #[expected_failure]
 fun test_decryption_too_few_shares() {
     use sui::bls12381::{g1_from_bytes};
