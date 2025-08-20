@@ -26,7 +26,7 @@ pub enum InternalError {
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
-    error: InternalError,
+    error: String,
     message: String,
 }
 
@@ -85,7 +85,7 @@ impl IntoResponse for InternalError {
         };
 
         let error_response = ErrorResponse {
-            error: self,
+            error: self.as_str().to_string(),
             message,
         };
 
