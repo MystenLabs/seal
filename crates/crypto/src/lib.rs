@@ -82,6 +82,7 @@ pub enum IBEEncryptions {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IBEPublicKeys {
     BonehFranklinBLS12381(Vec<ibe::PublicKey>),
+    Falcon(Vec<fastcrypto_lattice::falcon_util::PublicKey>),
 }
 
 pub enum IBEUserSecretKeys {
