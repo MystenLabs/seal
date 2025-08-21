@@ -129,7 +129,7 @@ pub fn decrypt(
 }
 
 /// Verify that the given randomness was used to crate the nonce.
-fn verify_nonce(randomness: &Randomness, nonce: &Nonce) -> FastCryptoResult<()> {
+pub fn verify_nonce(randomness: &Randomness, nonce: &Nonce) -> FastCryptoResult<()> {
     if G2Element::generator() * randomness != *nonce {
         return Err(GeneralError("Invalid randomness".to_string()));
     }
@@ -181,14 +181,11 @@ pub fn encrypt_randomness(randomness: &Randomness, key: &[u8; KEY_SIZE]) -> Encr
 }
 
 /// Decrypt the Randomness using a key and verify that the randomness was used to create the given nonce.
-pub fn decrypt_and_verify_nonce(
+pub fn decrypt_randomness(
     encrypted_randomness: &EncryptedRandomness,
     derived_key: &[u8; KEY_SIZE],
-    nonce: &Nonce,
 ) -> FastCryptoResult<Randomness> {
-    let randomness = Scalar::from_byte_array(&xor(derived_key, encrypted_randomness))?;
-    verify_nonce(&randomness, nonce)?;
-    Ok(randomness)
+    Scalar::from_byte_array(&xor(derived_key, encrypted_randomness))
 }
 
 pub type ProofOfPossession = G1Element;
