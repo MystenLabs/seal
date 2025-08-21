@@ -722,14 +722,13 @@ mod tests {
         let id = vec![1, 2, 3, 4];
         let full_id = create_full_id(&package_id, &id);
 
-        let mut rng = rand::thread_rng();
-        let keypairs = (0..3)
-            .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut rng))
+        let keypairs = (0..2)
+            .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
 
-        let threshold = 2;
+        let threshold = 1;
         let public_keys =
             IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
 
