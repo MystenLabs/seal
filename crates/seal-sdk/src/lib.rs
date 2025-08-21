@@ -4,11 +4,11 @@
 pub mod types;
 
 pub use crypto::elgamal::{decrypt as elgamal_decrypt, genkey};
+pub use crypto::ibe::verify_user_secret_key as ibe_verify_user_secret_key;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
 pub use crypto::{
     seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys,
 };
-pub use crypto::ibe::verify_user_secret_key as ibe_verify_user_secret_key;
 pub use types::{Certificate, DecryptionKey, FetchKeyRequest, FetchKeyResponse, KeyId};
 
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
@@ -67,25 +67,21 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::str::FromStr;
-    use sui_types::crypto::deterministic_random_account_key;
     use sui_sdk_types::ProgrammableTransaction as NewProgrammableTransaction;
+    use sui_types::crypto::deterministic_random_account_key;
     #[test]
     fn test_signed_message_regression() {
-        let pkg_id =
-            sui_sdk_types::ObjectId::from_str("0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5")
-                .unwrap();
+        let pkg_id = sui_sdk_types::ObjectId::from_str(
+            "0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
+        )
+        .unwrap();
         let (_, kp): (_, Ed25519KeyPair) = deterministic_random_account_key();
         let creation_time = 1622548800;
         let ttl_min = 30;
 
         let expected_output = "Accessing keys of package 0x0000c457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5 for 30 mins from 1970-01-19 18:42:28 UTC, session key DX2rNYyNrapO+gBJp1sHQ2VVsQo2ghm7aA9wVxNJ13U=";
 
-        let result = signed_message(
-            pkg_id.to_string(),
-            kp.public(),
-            creation_time,
-            ttl_min,
-        );
+        let result = signed_message(pkg_id.to_string(), kp.public(), creation_time, ttl_min);
         assert_eq!(result, expected_output);
     }
 
@@ -112,7 +108,7 @@ mod tests {
             "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
         )
         .unwrap();
-        
+
         let move_call = sui_sdk_types::Command::MoveCall(sui_sdk_types::MoveCall {
             package: pkg_id,
             module: sui_sdk_types::Identifier::from_str("bla").unwrap(),
@@ -120,7 +116,7 @@ mod tests {
             type_arguments: vec![],
             arguments: vec![],
         });
-        
+
         let ptb = NewProgrammableTransaction {
             inputs: vec![],
             commands: vec![move_call],
