@@ -343,7 +343,8 @@ fn derive_key(
 
 impl IBEEncryptions {
     /// Given all shares, check that the shares are consistent, e.g., check that all subsets of shares would reconstruct the same polynomial.
-    /// Returns the reconstructed secret which in this case is the base key.
+    /// If there are not enough shares, this will return an error.
+    /// Returns the reconstructed secret, aka the base key.
     fn combine_and_check_share_consistency(
         &self,
         shares: &[(u8, [u8; KEY_SIZE])],
@@ -375,6 +376,9 @@ impl IBEEncryptions {
         Ok(base_key)
     }
 
+    /// Given enough shares, combine them to reconstruct the base key.
+    /// If there are not enough shares, this will return an error.
+    /// This also verifies the nonce and returns an error if the nonce is invalid.
     fn combine_and_verify_nonce(
         &self,
         shares: &[(u8, [u8; KEY_SIZE])],
@@ -402,7 +406,7 @@ impl IBEEncryptions {
         Ok(base_key)
     }
 
-    /// Given the derived key, decrypt all shares
+    /// Given the derived key, decrypt all shares and verify the nonce.
     fn decrypt_all_shares_and_verify_nonce(
         &self,
         full_id: &[u8],
