@@ -722,7 +722,7 @@ mod tests {
         let id = vec![1, 2, 3, 4];
         let full_id = create_full_id(&package_id, &id);
 
-        let keypairs = (0..2)
+        let keypairs = (0..3)
             .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
             .collect_vec();
 
