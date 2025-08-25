@@ -14,5 +14,6 @@ bcs.workspace = true
 itertools.workspace = true
 serde_with.workspace = true
 sui_types.workspace = true
+fastcrypto-lattice = { path = "../../../fastcrypto-lattice" }
 
 typenum = "1.18.0"
