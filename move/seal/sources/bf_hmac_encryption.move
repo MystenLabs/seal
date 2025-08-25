@@ -316,6 +316,7 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
     });
     assert!(services.length() == indices.length());
     let threshold = bcs.peel_u8();
+    assert!(threshold > 0 && threshold <= indices.length() as u8);
 
     let ibe_type = bcs.peel_enum_tag();
     assert!(ibe_type == 0);
@@ -796,4 +797,12 @@ fun test_decryption_invalid_usk() {
 
     // Fails during decryption. In this case it fails since decryption of the randomness fails.
     decrypt(&parsed_encrypted_object, &vdks, &all_pks);
+}
+
+#[test]
+#[expected_failure]
+fun test_zero_threshold() {
+    parse_encrypted_object(
+        x"00571ce2217b77605970898d1ddb29e235ed46d0768c6d32e28509ed0678f678080401020304000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010d48656c6c6f2c20576f726c64210109736f6d657468696e670000000000000000000000000000000000000000000000000000000000000000",
+    );
 }
