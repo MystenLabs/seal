@@ -738,7 +738,10 @@ mod tests {
             services.clone(),
             &public_keys,
             threshold,
-            EncryptionInput::Plain,
+            EncryptionInput::Aes256Gcm {
+                data: b"Hello, World!".to_vec(),
+                aad: None,
+            },
         )
         .unwrap();
 
@@ -754,7 +757,7 @@ mod tests {
             .collect();
 
         assert_eq!(
-            key.to_vec(),
+            b"Hello, World!".to_vec(),
             seal_decrypt(
                 &encrypted,
                 &IBEUserSecretKeys::Falcon512(user_secret_keys),
