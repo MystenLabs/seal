@@ -10,12 +10,7 @@ use crate::{
     providers::BearerTokenProvider,
     register_metric, with_label,
 };
-use axum::{
-    extract::Extension,
-    http::StatusCode,
-    middleware::{self, Next},
-    response::Response,
-};
+use axum::{extract::Extension, http::StatusCode, middleware::Next, response::Response};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     typed_header::TypedHeader,
