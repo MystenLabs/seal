@@ -69,9 +69,21 @@ pub async fn push_metrics(
     let encoder = prometheus::ProtobufEncoder::new();
     encoder.encode(&metric_families, &mut buf)?;
 
+    // Collect hostname and merge with existing labels
+    let mut labels = config.labels.unwrap_or_default();
+    if let Ok(hostname) = hostname::get() {
+        if let Some(hostname_str) = hostname.to_str() {
+            labels.insert("hostname".to_string(), hostname_str.to_string());
+        } else {
+            tracing::warn!("hostname contains invalid UTF-8 characters");
+        }
+    } else {
+        tracing::warn!("failed to get hostname");
+    }
+
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
     let serialized = serde_json::to_vec(&MetricPayload {
-        labels: config.labels,
+        labels: Some(labels),
         buf,
     })
     .inspect_err(|error| {
