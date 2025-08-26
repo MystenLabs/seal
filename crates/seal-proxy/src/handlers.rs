@@ -10,7 +10,12 @@ use crate::{
     providers::BearerTokenProvider,
     register_metric, with_label,
 };
-use axum::{extract::Extension, http::StatusCode};
+use axum::{
+    extract::Extension,
+    http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
+};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     typed_header::TypedHeader,
@@ -42,6 +47,46 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap())
 });
 
+/// Middleware to extract client IP address from various headers and add it as an extension
+pub async fn extract_client_ip(
+    mut request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, (StatusCode, &'static str)> {
+    // Try to get IP from various headers in order of preference
+    let client_ip = request
+        .headers()
+        .get("X-Forwarded-For")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            request
+                .headers()
+                .get("X-Real-IP")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            request
+                .headers()
+                .get("X-Client-IP")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            request
+                .extensions()
+                .get::<std::net::SocketAddr>()
+                .map(|addr| addr.ip().to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Add the client IP as an extension
+    request.extensions_mut().insert(client_ip);
+
+    Ok(next.run(request).await)
+}
+
 /// Publish handler which receives metrics from nodes.  Nodes will call us at
 /// this endpoint and we relay them to the upstream tsdb. Clients will receive
 /// a response after successfully relaying the metrics upstream
@@ -51,6 +96,7 @@ pub async fn publish_metrics(
     Extension(label_actions): Extension<LabelActions>,
     Extension(remote_write_client): Extension<ReqwestClient>,
     Extension(relay): Extension<HistogramRelay>,
+    Extension(client_ip): Extension<String>,
     LenDelimProtobuf(data): LenDelimProtobuf,
 ) -> (StatusCode, &'static str) {
     let node_name = allower.get_bearer_token_owner_name(req.token()).unwrap();
@@ -58,7 +104,7 @@ pub async fn publish_metrics(
 
     let timer = with_label!(HTTP_HANDLER_DURATION, "publish_metrics", &node_name).start_timer();
 
-    let data = populate_labels(node_name, label_actions, data);
+    let data = populate_labels(node_name, label_actions, data, client_ip);
     relay.submit(data.clone());
     let response = convert_to_remote_write(remote_write_client.clone(), data).await;
 

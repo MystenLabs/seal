@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use crate::config::{LabelActions, RemoteWriteConfig};
-use crate::handlers::publish_metrics;
+use crate::handlers::{extract_client_ip, publish_metrics};
 use crate::histogram_relay::HistogramRelay;
 use crate::middleware::{expect_content_length, expect_valid_bearer_token};
 use crate::providers::BearerTokenProvider;
@@ -60,7 +60,8 @@ pub fn app(
             "MAX_BODY_SIZE",
             1024 * 1024 * 5
         )))
-        .route_layer(middleware::from_fn(expect_content_length));
+        .route_layer(middleware::from_fn(expect_content_length))
+        .route_layer(middleware::from_fn(extract_client_ip));
 
     // if we have an allower, add the middleware and extension
     tracing::info!("adding bearer token middleware");

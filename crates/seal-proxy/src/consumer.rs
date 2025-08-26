@@ -128,6 +128,8 @@ pub fn populate_labels(
     label_actions: LabelActions,
     // labels and metric data sent to use from the node
     data: MetricFamilyWithStaticLabels,
+    // IP address of the incoming request
+    client_ip: String,
 ) -> Vec<MetricFamily> {
     let timer = with_label!(CONSUMER_OPERATION_DURATION, "populate_labels").start_timer();
     debug!("received metrics from {node_name}");
@@ -149,6 +151,10 @@ pub fn populate_labels(
     node_name_pair.set_name("node_name".to_string());
     node_name_pair.set_value(node_name);
 
+    let mut client_ip_pair = LabelPair::new();
+    client_ip_pair.set_name("client_ip".to_string());
+    client_ip_pair.set_value(client_ip);
+
     // merge our node provided labels, careful not to overwrite any labels we
     // specified in our config.  our labels take precedence
     let label_pairs: Vec<_> = to_add_labels
@@ -165,8 +171,8 @@ pub fn populate_labels(
             label.set_value(value.to_owned());
             label
         })
-        // add the node name label to the list of labels to identify the source of the metrics
-        .chain(vec![node_name_pair])
+        // add the node name and client IP labels to the list of labels to identify the source of the metrics
+        .chain(vec![node_name_pair, client_ip_pair])
         .collect();
 
     // apply all of the labels we made here to all of the metrics we received from the node
