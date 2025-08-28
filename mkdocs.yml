@@ -17,6 +17,9 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - toc:
+      permalink: true
+      permalink_title: Anchor link to this section for reference
 nav:
   - Home: index.md
   - Seal Design: Design.md
