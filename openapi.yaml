@@ -1,0 +1,228 @@
+openapi: 3.1.1
+info:
+  title: Seal Key Server API
+  description: |
+    OpenAPI specification for the Seal Key Server.
+
+    The server exposes two stable endpoints:
+      * `GET /v1/service` – Retrieve proof-of-possession (POP) for a key server service ID.
+      * `POST /v1/fetch_key` – Request one or more derived decryption keys (identity-based keys) encrypted for the caller.
+
+    Notes:
+    * All request/response bodies are JSON.
+    * All binary / BCS / group-element values are encoded as hex strings **without** `0x` prefix unless otherwise stated.
+    * `ptb` is a Base64 (standard, no URL-safe) string of the BCS-serialized Programmable Transaction Block used for access control evaluation.
+    * The server may reject requests if the connected Sui full node is considered stale.
+    * The server enforces SDK semver requirements via the `Client-Sdk-Version` header.
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://<key-server-host>
+    description: Example deployment
+paths:
+  /v1/service:
+    get:
+      summary: Get service proof-of-possession (POP)
+      description: Returns the proof-of-possession for a key server's master key bound to the provided service object id.
+      parameters:
+        - in: query
+          name: service_id
+          required: true
+          schema:
+            type: string
+            description: 32-byte Sui ObjectID hex (with or without 0x prefix).
+          example: 0x0f3ab4...deadbeef
+        - $ref: '#/components/parameters/ClientSdkVersion'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Service POP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetServiceResponse'
+        '400':
+          description: Invalid service id or missing required header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Backend unavailable / stale full node
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/fetch_key:
+    post:
+      summary: Fetch derived decryption keys
+      description: |
+        Returns encrypted (ElGamal) derived user secret keys for one or more identities, if the Move `seal_approve*` policy allows access.
+
+        Flow outline:
+        1. Client constructs PTB referencing the target package `seal_approve*` function.
+        2. User signs session certificate (personal message) producing `certificate.signature` and a session public key.
+        3. Client signs `(ptb, enc_key, enc_verification_key)` with the **session** key -> `request_signature`.
+        4. Sends request including ephemeral ElGamal public key (`enc_key`) and verification key (`enc_verification_key`).
+        5. Server validates headers, certificate TTL, signatures, policy dry-run, then responds.
+
+        The returned keys are still encrypted; the client must ElGamal-decrypt each `encrypted_key` with its ephemeral secret to obtain the IBE user secret key.
+      parameters:
+        - $ref: '#/components/parameters/ClientSdkVersion'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchKeyRequest'
+      responses:
+        '200':
+            description: Encrypted derived keys
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/FetchKeyResponse'
+        '400':
+          description: Bad header / invalid SDK version / invalid service id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied (policy failure, invalid signatures, unsupported package, invalid PTB, expired cert)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '426':
+          description: Deprecated SDK version (upgrade required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Server temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  parameters:
+    ClientSdkVersion:
+      in: header
+      name: Client-Sdk-Version
+      required: true
+      description: Semantic version (e.g. 0.2.1) of the calling SDK; must satisfy server's configured range.
+      schema:
+        type: string
+    RequestId:
+      in: header
+      name: Request-Id
+      required: false
+      description: Optional client-supplied correlation ID echoed in logs.
+      schema:
+        type: string
+  schemas:
+    GetServiceResponse:
+      type: object
+      properties:
+        service_id:
+          type: string
+          description: ObjectID of the key server service.
+        pop:
+          type: string
+          description: Proof-of-possession (hex) for the service master key.
+      required: [service_id, pop]
+    FetchKeyRequest:
+      type: object
+      properties:
+        ptb:
+          type: string
+          description: Base64 BCS-serialized ProgrammableTransaction (policy evaluation target).
+        enc_key:
+          $ref: '#/components/schemas/ElGamalPublicKey'
+        enc_verification_key:
+          $ref: '#/components/schemas/ElGamalVerificationKey'
+        request_signature:
+          $ref: '#/components/schemas/Ed25519Signature'
+        certificate:
+          $ref: '#/components/schemas/Certificate'
+      required: [ptb, enc_key, enc_verification_key, request_signature, certificate]
+    Certificate:
+      type: object
+      description: User session authorization signed with the user's address key.
+      properties:
+        user:
+          type: string
+          description: Hex Sui address (0x...).
+        session_vk:
+          type: string
+          description: Ed25519 public key (hex/base64 depending on SDK convention; server accepts whichever serde form library emits).
+        creation_time:
+          type: integer
+          format: int64
+          description: Unix epoch ms when certificate was created.
+        ttl_min:
+          type: integer
+          format: int32
+          description: Time-to-live in minutes (must be <= server max).
+        signature:
+          $ref: '#/components/schemas/GenericSignature'
+        mvr_name:
+          type: string
+          nullable: true
+          description: Optional Multi-Version Resolution (MVR) name mapping to package id.
+      required: [user, session_vk, creation_time, ttl_min, signature]
+    FetchKeyResponse:
+      type: object
+      properties:
+        decryption_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecryptionKey'
+      required: [decryption_keys]
+    DecryptionKey:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Identity bytes (full id = [first_pkg_id || inner_id]) encoded as hex.
+        encrypted_key:
+          $ref: '#/components/schemas/ElGamalEncryption'
+      required: [id, encrypted_key]
+    ElGamalPublicKey:
+      type: string
+      description: Hex encoding of group element (compressed) for ElGamal public key over BLS12-381 G1.
+    ElGamalVerificationKey:
+      type: string
+      description: Hex encoding of group element (compressed) for ElGamal verification key (G2).
+    ElGamalEncryption:
+      type: object
+      description: ElGamal ciphertext tuple (c1, c2) each hex-encoded compressed group element.
+      properties:
+        0:
+          type: string
+          description: c1 component.
+        1:
+          type: string
+          description: c2 component.
+      additionalProperties: false
+    Ed25519Signature:
+      type: string
+      description: Hex / base64 Ed25519 signature over request payload (session key signs).
+    GenericSignature:
+      type: string
+      description: Generic Sui personal message signature (e.g. Ed25519 / MultiSig) used for the certificate.
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Internal error code (enum). See `enum InternalError` in server.
+          enum: [InvalidPTB, InvalidPackage, NoAccess, InvalidSignature, InvalidSessionSignature, InvalidCertificate, InvalidSDKVersion, DeprecatedSDKVersion, MissingRequiredHeader, InvalidParameter, InvalidMVRName, InvalidServiceId, UnsupportedPackageId, Failure]
+        message:
+          type: string
+      required: [error, message]
