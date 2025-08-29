@@ -9,7 +9,7 @@ pub use crypto::ibe::PublicKey as IBEPublicKey;
 pub use crypto::{
     seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys,
 };
-pub use types::{Certificate, DecryptionKey, FetchKeyRequest, FetchKeyResponse, KeyId};
+pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
 
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
@@ -17,8 +17,6 @@ use fastcrypto::ed25519::Ed25519PublicKey;
 use serde::{Deserialize, Serialize};
 use sui_sdk_types::ProgrammableTransaction;
 use tracing::debug;
-
-pub type ElGamalSecretKey = crypto::elgamal::SecretKey<fastcrypto::groups::bls12381::G1Element>;
 
 pub fn signed_message(
     package_name: String,

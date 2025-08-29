@@ -6,12 +6,23 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use serde::{Deserialize, Serialize};
 use sui_sdk_types::{Address as SuiAddress, UserSignature};
 
-type IbeDerivedKey = ibe::UserSecretKey;
-type IbePublicKey = ibe::PublicKey;
+pub(crate) type ElGamalPublicKey = elgamal::PublicKey<ibe::UserSecretKey>;
+pub(crate) type ElgamalEncryption = elgamal::Encryption<ibe::UserSecretKey>;
+pub(crate) type ElgamalVerificationKey = elgamal::VerificationKey<ibe::PublicKey>;
 
-pub(crate) type ElGamalPublicKey = elgamal::PublicKey<IbeDerivedKey>;
-pub type ElgamalEncryption = elgamal::Encryption<IbeDerivedKey>;
-pub(crate) type ElgamalVerificationKey = elgamal::VerificationKey<IbePublicKey>;
+type KeyId = Vec<u8>;
+
+pub type ElGamalSecretKey = crypto::elgamal::SecretKey<fastcrypto::groups::bls12381::G1Element>;
+#[derive(Serialize, Deserialize)]
+pub struct DecryptionKey {
+    pub id: KeyId,
+    pub encrypted_key: ElgamalEncryption,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FetchKeyResponse {
+    pub decryption_keys: Vec<DecryptionKey>,
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Certificate {
@@ -55,17 +66,4 @@ impl FetchKeyRequest {
 
         serde_json::to_string(&json)
     }
-}
-
-pub type KeyId = Vec<u8>;
-
-#[derive(Serialize, Deserialize)]
-pub struct DecryptionKey {
-    pub id: KeyId,
-    pub encrypted_key: ElgamalEncryption,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FetchKeyResponse {
-    pub decryption_keys: Vec<DecryptionKey>,
 }
