@@ -1,19 +1,11 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crypto::elgamal;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
-type IbeDerivedKey = ibe::UserSecretKey;
-type IbePublicKey = ibe::PublicKey;
-
-/// ElGamal related types.
-pub type ElGamalPublicKey = elgamal::PublicKey<IbeDerivedKey>;
-pub type ElgamalEncryption = elgamal::Encryption<IbeDerivedKey>;
-pub type ElgamalVerificationKey = elgamal::VerificationKey<IbePublicKey>;
 
 /// Proof-of-possession of a key-servers master key.
 pub type MasterKeyPOP = ibe::ProofOfPossession;

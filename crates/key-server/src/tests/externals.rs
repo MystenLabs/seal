@@ -5,16 +5,14 @@ use crate::errors::InternalError;
 use crate::signed_message::signed_request;
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
-use crate::{
-    signed_message,
-    types::{ElGamalPublicKey, ElgamalVerificationKey},
-    Certificate, Server,
-};
+use crate::{Certificate, Server};
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::traits::{KeyPair, Signer};
 use fastcrypto::{ed25519::Ed25519KeyPair, groups::bls12381::G1Element};
 use rand::thread_rng;
+use seal_sdk::signed_message;
+use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
 use sui_types::{
     base_types::ObjectID, crypto::Signature, signature::GenericSignature,
@@ -33,7 +31,7 @@ pub(super) fn sign(
     // We use the same eddsa keypair for both the certificate and the request signature
 
     // create the cert
-    let msg_to_sign = signed_message::signed_message(
+    let msg_to_sign = signed_message(
         pkg_id.to_hex_uncompressed(),
         kp.public(),
         creation_time,

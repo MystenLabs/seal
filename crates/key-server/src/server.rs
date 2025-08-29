@@ -8,7 +8,7 @@ use crate::metrics::{call_with_duration, observation_callback, status_callback, 
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
-use crate::signed_message::{signed_message, signed_request};
+use crate::signed_message::signed_request;
 use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
@@ -41,6 +41,8 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
+use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
+use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -61,7 +63,6 @@ use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
-use types::{ElGamalPublicKey, ElgamalEncryption, ElgamalVerificationKey};
 use valid_ptb::ValidPtb;
 
 mod cache;
@@ -89,7 +90,7 @@ const GIT_VERSION: &str = utils::git_version!();
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-// The "session" certificate, signed by the user
+// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Certificate {
     pub user: SuiAddress,
@@ -100,6 +101,7 @@ struct Certificate {
     pub mvr_name: Option<String>,
 }
 
+// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 #[derive(Serialize, Deserialize)]
 struct FetchKeyRequest {
     // Next fields must be signed to prevent others from sending requests on behalf of the user and
@@ -115,21 +117,8 @@ struct FetchKeyRequest {
     certificate: Certificate,
 }
 
-type KeyId = Vec<u8>;
-
 /// UNIX timestamp in milliseconds.
 type Timestamp = u64;
-
-#[derive(Serialize, Deserialize)]
-struct DecryptionKey {
-    id: KeyId,
-    encrypted_key: ElgamalEncryption,
-}
-
-#[derive(Serialize, Deserialize)]
-struct FetchKeyResponse {
-    decryption_keys: Vec<DecryptionKey>,
-}
 
 #[derive(Clone)]
 struct Server {

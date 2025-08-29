@@ -6,11 +6,11 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use serde::{Deserialize, Serialize};
 use sui_sdk_types::{Address as SuiAddress, UserSignature};
 
-pub(crate) type ElGamalPublicKey = elgamal::PublicKey<ibe::UserSecretKey>;
-pub(crate) type ElgamalEncryption = elgamal::Encryption<ibe::UserSecretKey>;
-pub(crate) type ElgamalVerificationKey = elgamal::VerificationKey<ibe::PublicKey>;
+pub type ElGamalPublicKey = elgamal::PublicKey<ibe::UserSecretKey>;
+pub type ElgamalEncryption = elgamal::Encryption<ibe::UserSecretKey>;
+pub type ElgamalVerificationKey = elgamal::VerificationKey<ibe::PublicKey>;
 
-type KeyId = Vec<u8>;
+pub type KeyId = Vec<u8>;
 
 pub type ElGamalSecretKey = crypto::elgamal::SecretKey<fastcrypto::groups::bls12381::G1Element>;
 #[derive(Serialize, Deserialize)]
@@ -24,6 +24,7 @@ pub struct FetchKeyResponse {
     pub decryption_keys: Vec<DecryptionKey>,
 }
 
+/// The session certificate, signed by the user.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Certificate {
     pub user: SuiAddress,

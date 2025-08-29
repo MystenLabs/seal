@@ -13,8 +13,7 @@ use crate::start_server_background_tasks;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
 
-use crate::signed_message::{signed_message, signed_request};
-use crate::FetchKeyResponse;
+use crate::signed_message::signed_request;
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
@@ -32,6 +31,7 @@ use http_body_util::BodyExt;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use rand::thread_rng;
+use seal_sdk::{signed_message, FetchKeyResponse};
 use serde_json::from_slice;
 use serde_json::json;
 use serde_json::Value;

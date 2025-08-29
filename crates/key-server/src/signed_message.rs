@@ -1,31 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
-use chrono::{DateTime, Utc};
-use fastcrypto::ed25519::Ed25519PublicKey;
+use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use serde::{Deserialize, Serialize};
 use sui_types::transaction::ProgrammableTransaction;
-use tracing::debug;
 
-/// The format of the personal message shown to the user.
-pub fn signed_message(
-    package_name: String, // should use the original package id
-    vk: &Ed25519PublicKey,
-    creation_time: u64,
-    ttl_min: u16,
-) -> String {
-    let res = format!(
-        "Accessing keys of package {} for {} mins from {}, session key {}",
-        package_name,
-        ttl_min,
-        DateTime::<Utc>::from_timestamp((creation_time / 1000) as i64, 0) // convert to seconds
-            .expect("tested that in the future"),
-        vk,
-    );
-    debug!("Signed message: {}", res.clone());
-    res
-}
-
+// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 #[derive(Serialize, Deserialize)]
 struct RequestFormat {
     ptb: Vec<u8>,
@@ -33,6 +12,7 @@ struct RequestFormat {
     enc_verification_key: Vec<u8>,
 }
 
+// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 pub fn signed_request(
     ptb: &ProgrammableTransaction,
     enc_key: &ElGamalPublicKey,
@@ -48,12 +28,13 @@ pub fn signed_request(
 
 #[cfg(test)]
 mod tests {
-    use crate::signed_message::{signed_message, signed_request};
+    use crate::signed_message::signed_request;
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
     use fastcrypto::traits::KeyPair;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use seal_sdk::signed_message;
     use std::str::FromStr;
     use sui_types::base_types::ObjectID;
     use sui_types::crypto::deterministic_random_account_key;
