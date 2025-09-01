@@ -34,9 +34,9 @@ jobs:
     name: license-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
       - name: Install licensesnip
-        uses: taiki-e/install-action@d31232495ad76f47aad66e3501e47780b49f0f3e # pin@v2.57.5
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # pin@v2.58.29
         with:
           tool: licensesnip@1.7.0
       - run: licensesnip check
@@ -51,10 +51,10 @@ jobs:
     env:
       RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
-      - uses: taiki-e/install-action@d31232495ad76f47aad66e3501e47780b49f0f3e # pin@v2.57.5
+      - uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # pin@v2.58.29
         with:
           tool: cargo-nextest
       - name: Run tests
@@ -68,7 +68,7 @@ jobs:
   clippy:
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
       # See '.cargo/config' for list of enabled/disabled clippy lints
@@ -78,7 +78,7 @@ jobs:
   rustfmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
       - name: Check formatting
@@ -88,8 +88,8 @@ jobs:
     name: cargo-deny (advisories, licenses, bans, ...)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: EmbarkStudios/cargo-deny-action@30f817c6f72275c6d54dc744fbca09ebc958599f # pin@v2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+      - uses: EmbarkStudios/cargo-deny-action@f2ba7abc2abebaf185c833c3961145a3c275caad # pin@v2
         with:
           command: check
           arguments: --all-features

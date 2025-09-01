@@ -16,12 +16,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
         with:
           fetch-depth: 1
 
       - name: Install Sui
-        uses: cloudposse-github-actions/install-gh-releases@5a4dcf2f959d64832a8e2fe3e8063e4adac6af88 # pin@v1.4.1
+        uses: cloudposse-github-actions/install-gh-releases@33b15dbedceb0a3425d72f54a2300202d5c3418d # pin@v1.5.0
         with:
           config: |-
             mystenlabs/sui:
