@@ -418,7 +418,7 @@ impl Server {
             metrics.map(|m| {
                 observation_callback(&m.checkpoint_timestamp_delay, |ts| {
                     let duration = duration_since_as_f64(ts);
-                    info!("Latest checkpoint timestamp delay is {duration} ms");
+                    debug!("Latest checkpoint timestamp delay is {duration} ms");
                     duration
                 })
             }),
