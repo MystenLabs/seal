@@ -210,9 +210,11 @@ To decrypt an encrypted object in a Move package, follow these steps:
 !!! note
     On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
 
-Using the TypeScript SDK, a transaction to call to the on-chain decryption could look something like this. 
-Before encryption, the public keys should be made publicly available on-chain, and clients can verify these if needed.
-For each public key, the corresponding Move object can be created as follows: 
+**On-chain decryption with the TypeScript SDK**
+
+You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
+Before encrypting, make the public keys available on-chain so clients can verify them if needed.
+For each public key, create a corresponding Move object:
 ```typescript
 const publicKey = tx.moveCall({
   target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::new_public_key`,
@@ -223,11 +225,13 @@ const publicKey = tx.moveCall({
 });
 ```
 
-The on-chain decryption can then be done as follows. Assume we have `encryptedBytes` containing the BCS serialized encrypted object,
-and a `txBytes` containing the call to `seal_approve*` function as discussed in the [decryption](#Decryption) section.
-Furthermore, we assume that the Move objects for all public keys for an encryption is stored in an array called `allPublicKeys`,
-and the corresponding public keys for the the derived keys are stored in an array called `correspondingPublicKeys`.
-Building a transaction to decrypt the encrypted object could look like this:
+Assume you have:
+
+- `encryptedBytes`: a BCS-serialized encrypted object,
+- `txBytes`: a transaction block that calls a `seal_approve*` function (see [Decryption](#Decryption)).
+- `allPublicKeys`: an array of Move objects for all public keys in the encryption,
+- `correspondingPublicKeys`: the public keys that correspond to the derived keys.
+A transaction for on-chain decryption could look like this:
 ```typescript
 // Parse BCS serialized encrypted object
 const encryptedObject = EncryptedObject.parse(encryptedBytes);
@@ -278,7 +282,7 @@ tx.moveCall({
   ],
 });
 ```
-The `SEAL_PACKAGE_ID` should be one of the published Seal package IDs which are:
+Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
 | <NETWORK> | <PACKAGE_ID> |
 | -------- | ------- |
