@@ -208,9 +208,76 @@ To decrypt an encrypted object in a Move package, follow these steps:
     - The function returns an `Option<vector<u8>>`. If decryption fails, the return value will be `None`.
 
 !!! note
-    On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
+On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
 
-The published package IDs for on-chain decryption are:
+Using the TypeScript SDK, a transaction to call to the on-chain decryption could look something like this. 
+Before encryption, the public keys should be made publicly available on-chain, and clients can verify these if needed.
+For each public key, the corresponding Move object can be created as follows: 
+```typescript
+const publicKey = tx.moveCall({
+  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::new_public_key`,
+  arguments: [
+    tx.pure.address(keyserverId),
+    tx.pure.vector("u8", Array.from(publicKeyBytes))
+  ],
+});
+```
+
+The on-chain decryption can then be done as follows. Assume we have `encryptedBytes` containing the BCS serialized encrypted object,
+and a `txBytes` containing the call to `seal_approve*` function as discussed in the [decryption](#Decryption) section.
+Furthermore, we assume that the Move objects for all public keys for an encryption is stored in an array called `allPublicKeys`,
+and the corresponding public keys for the the derived keys are stored in an array called `correspondingPublicKeys`.
+Building a transaction to decrypt the encrypted object could look like this:
+```typescript
+// Parse BCS serialized encrypted object
+const encryptedObject = EncryptedObject.parse(encryptedBytes);
+
+// Get derived keys from key servers
+const derivedKeys = await sealClient.getDerivedKeys({
+  id: encryptedObject.id,
+  txBytes, // Should contain call to seal_approve as discussed in the [decryption](#Decryption) section
+  sessionKey,
+  threshold: encryptedObject.threshold,
+});
+
+// Parse encrypted object as Move object
+const tx = new Transaction();
+const parsedEncryptedObject = tx.moveCall({
+  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::parse_encrypted_object`,
+  arguments: [tx.pure.vector("u8", Array.from(encryptedObject.))],
+});
+
+
+// Convert the derived keys to G1 elements
+const derivedKeysAsG1Elements = Array.from(derivedKeys).map(([derivedKey]) => 
+  tx.moveCall({
+    target: `0x2::bls12381::g1_from_bytes`,
+    arguments: [tx.pure.vector("u8", fromHex(derivedKey.toString()))],
+  }),
+);
+
+// Verify the derived keys. This can be cached if decryption for the same ID is done again
+const verifiedDerivedKeys = tx.moveCall({
+  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::verify_derived_keys`,
+  arguments: [
+    tx.makeMoveVec({ elements: derivedKeysAsG1Elements }),
+    tx.pure.address(encryptedObject.packageId),
+    tx.pure.vector("u8", fromHex(encryptedObject.id)),
+    tx.makeMoveVec({ elements: correspondingPublicKeys }),
+  ],
+});
+
+// Add call to decryption
+tx.moveCall({
+  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::decrypt`,
+  arguments: [
+    parsedEncryptedObject,
+    verifiedDerivedKeys,
+    tx.makeMoveVec({ elements: allPublicKeys }),
+  ],
+});
+```
+The `SEAL_PACKAGE_ID` should be one of the published Seal package IDs which are:
 
 | <NETWORK> | <PACKAGE_ID> |
 | -------- | ------- |
