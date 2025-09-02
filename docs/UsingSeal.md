@@ -213,8 +213,8 @@ To decrypt an encrypted object in a Move package, follow these steps:
 **On-chain decryption with the TypeScript SDK**
 
 You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
-Before encrypting, make the public keys available on-chain so clients can verify them if needed.
-For each public key, create a corresponding Move object:
+
+Before encrypting, make the public keys available on-chain so clients can verify them if needed. For each public key, create a corresponding Move object:
 ```typescript
 const publicKey = tx.moveCall({
   target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::new_public_key`,
@@ -231,6 +231,7 @@ Assume you have:
 - `txBytes`: a transaction block that calls a `seal_approve*` function (see [Decryption](#Decryption)).
 - `allPublicKeys`: an array of Move objects for all public keys in the encryption,
 - `correspondingPublicKeys`: the public keys that correspond to the derived keys.
+
 A transaction for on-chain decryption could look like this:
 ```typescript
 // Parse BCS serialized encrypted object
@@ -282,6 +283,7 @@ tx.moveCall({
   ],
 });
 ```
+
 Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
 | <NETWORK> | <PACKAGE_ID> |
