@@ -208,7 +208,7 @@ To decrypt an encrypted object in a Move package, follow these steps:
     - The function returns an `Option<vector<u8>>`. If decryption fails, the return value will be `None`.
 
 !!! note
-On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
+    On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
 
 Using the TypeScript SDK, a transaction to call to the on-chain decryption could look something like this. 
 Before encryption, the public keys should be made publicly available on-chain, and clients can verify these if needed.
