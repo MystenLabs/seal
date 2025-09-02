@@ -308,8 +308,8 @@ Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Su
 
 | <NETWORK> | <PACKAGE_ID> | 
 | -------- | ------- |
-| Testnet | 0x73bba649fe918ef501e2fb6ab82e83450a4c286f52cf3399e678e6da257f0c50 |
-| Mainnet | 0x9636e0c761e7476b8579cb13d543838e3732ca482dc0a64f086f57b60c024e23 | 
+| Testnet | 0x4614e5da0136ee7d464992ddd3719d388ae2bfdb48dfec6d9ad579f87341f2e1 |
+| Mainnet | 0xbfc8d50ed03d52864779e5bc9bd2a9e0417a03c42830d3757c99289c779967b7 | 
 
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
