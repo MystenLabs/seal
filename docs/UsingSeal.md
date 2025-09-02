@@ -241,6 +241,7 @@ const derivedKeys = await sealClient.getDerivedKeys({
 });
 
 // Parse encrypted object as Move object
+// For some applications, this object should be stored on-chain (e.g., encrypted votes should be stored before the deadline, and decrypted after).
 const tx = new Transaction();
 const parsedEncryptedObject = tx.moveCall({
   target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::parse_encrypted_object`,
