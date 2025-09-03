@@ -9,6 +9,8 @@ use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
 use fastcrypto::hash::{HashFunction, Sha3_256};
+use fastcrypto_lattice::falcon_util::falcon;
+use fastcrypto_lattice::ibe::IBE;
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -77,15 +79,20 @@ pub enum IBEEncryptions {
         encrypted_shares: Vec<ibe::Ciphertext>,
         encrypted_randomness: ibe::EncryptedRandomness,
     },
+    Falcon512 {
+        encrypted_shares: Vec<fastcrypto_lattice::ibe::Ciphertext<512>>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IBEPublicKeys {
     BonehFranklinBLS12381(Vec<ibe::PublicKey>),
+    Falcon512(Vec<falcon::PublicKey<512>>),
 }
 
 pub enum IBEUserSecretKeys {
     BonehFranklinBLS12381(HashMap<ObjectID, ibe::UserSecretKey>),
+    Falcon512(HashMap<ObjectID, falcon::Signature<512>>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -165,13 +172,31 @@ pub fn seal_encrypt(
                 encrypted_randomness,
             }
         }
+        IBEPublicKeys::Falcon512(pks) => {
+            if pks.len() != number_of_shares as usize {
+                return Err(InvalidInput);
+            }
+            let encrypted_shares = pks
+                .iter()
+                .zip(shares)
+                .map(|(pk, share)| {
+                    fastcrypto_lattice::ibe::FalconIBE::encrypt(
+                        &mut rng,
+                        pk,
+                        &fastcrypto_lattice::ibe::Plaintext::<32>(share),
+                        &full_id,
+                    )
+                })
+                .collect_vec();
+            IBEEncryptions::Falcon512 { encrypted_shares }
+        }
     };
 
     // Derive the key used by the DEM
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        encrypted_shares.ciphertexts(),
+        &encrypted_shares.ciphertexts(),
         threshold,
         &key_servers,
     );
@@ -266,6 +291,31 @@ pub fn seal_decrypt(
                 })
                 .collect_vec()
         }
+        (
+            IBEEncryptions::Falcon512 { encrypted_shares },
+            IBEUserSecretKeys::Falcon512(user_secret_keys),
+        ) => {
+            // Check that the encrypted object is valid,
+            // e.g., that there is an encrypted share of the key per service
+            if encrypted_shares.len() != services.len() {
+                return Err(InvalidInput);
+            }
+
+            services
+                .iter()
+                .enumerate()
+                .map(|(i, (object_id, index))| {
+                    let user_secret_key = user_secret_keys
+                        .get(object_id)
+                        .expect("This shouldn't happen: It's checked above that this secret key is available");
+                    (index, fastcrypto_lattice::ibe::FalconIBE::decrypt(
+                        user_secret_key,
+                        &encrypted_shares[i],
+                    ))
+                }).map(|(index, share)| (*index, share.0))
+                .collect_vec()
+        }
+        _ => panic!("This shouldn't happen: It's not checked above that this secret"),
     };
 
     // Create the base key from the shares
@@ -285,7 +335,7 @@ pub fn seal_decrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        encrypted_shares.ciphertexts(),
+        &encrypted_shares.ciphertexts(),
         *threshold,
         &services.iter().map(|(id, _)| *id).collect_vec(),
     );
@@ -415,19 +465,22 @@ impl IBEEncryptions {
         base_key: &[u8; KEY_SIZE],
         threshold: u8,
     ) -> FastCryptoResult<Vec<(u8, [u8; KEY_SIZE])>> {
-        match self {
-            IBEEncryptions::BonehFranklinBLS12381 {
-                encrypted_randomness,
-                encrypted_shares,
-                nonce,
-            } => {
+        match (self, public_keys) {
+            (
+                IBEEncryptions::BonehFranklinBLS12381 {
+                    encrypted_randomness,
+                    encrypted_shares,
+                    nonce,
+                },
+                IBEPublicKeys::BonehFranklinBLS12381(public_keys),
+            ) => {
                 // Decrypt encrypted nonce,
                 let randomness = decrypt_randomness(
                     encrypted_randomness,
                     &derive_key(
                         KeyPurpose::EncryptedRandomness,
                         base_key,
-                        self.ciphertexts(),
+                        &self.ciphertexts(),
                         threshold,
                         &services.iter().map(|(id, _)| *id).collect_vec(),
                     ),
@@ -437,32 +490,33 @@ impl IBEEncryptions {
                 verify_nonce(&randomness, nonce)?;
 
                 // Decrypt all shares
-                match public_keys {
-                    IBEPublicKeys::BonehFranklinBLS12381(public_keys) => {
-                        if public_keys.len() != encrypted_shares.len() {
-                            return Err(InvalidInput);
-                        }
-                        public_keys
-                            .iter()
-                            .zip(encrypted_shares)
-                            .zip(services)
-                            .map(|((pk, ciphertext), service)| {
-                                decrypt_deterministic(&randomness, ciphertext, pk, full_id, service)
-                                    .map(|plaintext| (service.1, plaintext))
-                            })
-                            .collect::<FastCryptoResult<_>>()
-                    }
+                if public_keys.len() != encrypted_shares.len() {
+                    return Err(InvalidInput);
                 }
+                public_keys
+                    .iter()
+                    .zip(encrypted_shares)
+                    .zip(services)
+                    .map(|((pk, ciphertext), service)| {
+                        decrypt_deterministic(&randomness, ciphertext, pk, full_id, service)
+                            .map(|plaintext| (service.1, plaintext))
+                    })
+                    .collect::<FastCryptoResult<_>>()
             }
+            _ => unimplemented!(),
         }
     }
 
     /// Returns a binary representation of all encrypted shares.
-    fn ciphertexts(&self) -> &[impl AsRef<[u8]>] {
+    fn ciphertexts(&self) -> Vec<Vec<u8>> {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
-            } => encrypted_shares,
+            } => encrypted_shares.iter().map(|c| c.to_vec()).collect_vec(),
+            IBEEncryptions::Falcon512 { encrypted_shares } => encrypted_shares
+                .iter()
+                .map(|c| bcs::to_bytes(c).unwrap().to_vec())
+                .collect_vec(),
         }
     }
 }
@@ -656,6 +710,57 @@ mod tests {
     }
 
     #[test]
+    fn test_plain_round_trip_pq() {
+        let package_id = ObjectID::random();
+        let id = vec![1, 2, 3, 4];
+        let full_id = create_full_id(&package_id, &id);
+
+        let keypairs = (0..3)
+            .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
+            .collect_vec();
+
+        let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+
+        let threshold = 1;
+        let public_keys =
+            IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+        let (encrypted, key) = seal_encrypt(
+            package_id,
+            id,
+            services.clone(),
+            &public_keys,
+            threshold,
+            EncryptionInput::Aes256Gcm {
+                data: b"Hello, World!".to_vec(),
+                aad: None,
+            },
+        )
+        .unwrap();
+
+        let user_secret_keys = services
+            .into_iter()
+            .zip(keypairs)
+            .map(|(s, kp)| {
+                (
+                    s,
+                    fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            b"Hello, World!".to_vec(),
+            seal_decrypt(
+                &encrypted,
+                &IBEUserSecretKeys::Falcon512(user_secret_keys),
+                None,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
     fn typescript_test_vector() {
         let package_id = [0u8; 32];
         let inner_id = [1, 2, 3, 4];
@@ -821,7 +926,7 @@ mod tests {
         let dem_key = derive_key(
             KeyPurpose::DEM,
             &base_key,
-            encrypted_shares.ciphertexts(),
+            &encrypted_shares.ciphertexts(),
             threshold,
             &service_ids,
         );
