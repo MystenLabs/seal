@@ -8,6 +8,14 @@ import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { SealClient, SessionKey } from '@mysten/seal';
 import assert from 'assert';
 import { parseArgs } from 'node:util';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Get SDK version from package.json
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
+const sealSdkVersion = packageJson.dependencies['@mysten/seal'].replace('^', '');
 
 const PACKAGE_IDS = {
     'testnet': '0x58dce5d91278bceb65d44666ffa225ab397fc3ae9d8398c8c779c5530bd978c2',
@@ -15,7 +23,7 @@ const PACKAGE_IDS = {
 };
 
 async function testCorsHeaders(url: string, name: string, apiKeyName?: string, apiKey?: string) {
-    console.log(`Testing CORS headers for ${name} (${url})...`);
+    console.log(`Testing CORS headers for ${name} (${url}) ${sealSdkVersion}`);
 
     const response = await fetch(`${url}/v1/service`, {
         method: 'GET',
@@ -23,7 +31,7 @@ async function testCorsHeaders(url: string, name: string, apiKeyName?: string, a
             'Content-Type': 'application/json',
             'Request-Id': crypto.randomUUID(),
             'Client-Sdk-Type': 'typescript',
-            'Client-Sdk-Version': '0.5.2',
+            'Client-Sdk-Version': sealSdkVersion,
             ...(apiKeyName && apiKey ? { [apiKeyName]: apiKey } : {}),
         },
     });
