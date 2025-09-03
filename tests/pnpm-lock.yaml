@@ -12,11 +12,11 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0
       '@mysten/seal':
-        specifier: ^0.4.21
-        version: 0.4.21(typescript@5.9.2)
+        specifier: ^0.5.2
+        version: 0.5.2(typescript@5.9.2)
       '@mysten/sui':
-        specifier: ^1.37.2
-        version: 1.37.2(typescript@5.9.2)
+        specifier: ^1.37.6
+        version: 1.37.6(typescript@5.9.2)
     devDependencies:
       tsx:
         specifier: ^4.20.4
@@ -225,11 +225,11 @@ packages:
   '@mysten/bcs@1.7.0':
     resolution: {integrity: sha512-8zE2Jzj2ai55RlVXx2pEMbbq+X3vB+uPGBvZr0F79IdTwuwcu4QdFG3PT/zHsytsvATkn+z0f2YDWhM5916u2A==}
 
-  '@mysten/seal@0.4.21':
-    resolution: {integrity: sha512-m3YFhnKrssiQ4AHFkCeZwUXKn+Z+uuP5ItXmCDliqVHStEtLJ5PuYFOXqKnKJLArlxQponIv6Rpr9UlfHTpy9g==}
+  '@mysten/seal@0.5.2':
+    resolution: {integrity: sha512-hsUphZuZ3UycrYccCHQy5yUlWKjfZxTFKT9gezxWxitTR3TGSKPeiax1ISmchXFqnJ895k66aHf4OGtUTcYPyg==}
 
-  '@mysten/sui@1.37.2':
-    resolution: {integrity: sha512-HZLsKfiqbIgZvmoSPdW+AVNEzj9OYf9TV/VP9qEAIKERLS9EEeBYpz3Ju7WR6apuQvjOtPGs5yimEOuQQ7sRww==}
+  '@mysten/sui@1.37.6':
+    resolution: {integrity: sha512-7ut5tWuXx9OIE+DQ2D5hd22UB8j8K4/F2Lx3R8Ej/JMwkm6cpgbF5FKNu0vYqehxiFEktMnq2YzzajxmlFHNPw==}
     engines: {node: '>=18'}
 
   '@mysten/utils@0.1.1':
@@ -406,10 +406,10 @@ snapshots:
       '@mysten/utils': 0.1.1
       '@scure/base': 1.2.6
 
-  '@mysten/seal@0.4.21(typescript@5.9.2)':
+  '@mysten/seal@0.5.2(typescript@5.9.2)':
     dependencies:
       '@mysten/bcs': 1.7.0
-      '@mysten/sui': 1.37.2(typescript@5.9.2)
+      '@mysten/sui': 1.37.6(typescript@5.9.2)
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
     transitivePeerDependencies:
@@ -417,7 +417,7 @@ snapshots:
       - '@gql.tada/vue-support'
       - typescript
 
-  '@mysten/sui@1.37.2(typescript@5.9.2)':
+  '@mysten/sui@1.37.6(typescript@5.9.2)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.11.0)
       '@mysten/bcs': 1.7.0

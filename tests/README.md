@@ -15,7 +15,15 @@ If your server is in permissioned mode, ensure the following package IDs are all
 ```bash
 pnpm i
 
-# Run tests with additional server object IDs (comma-separated), in addition to mysten server(s).
-pnpm test -- --network testnet --object_ids 0xabc123,0xdef456
-pnpm test -- --network mainnet --object_ids 0x123abc,0x456def,0x789ghi
+# Run tests with server configurations
+# Format: --servers "objectId" or "objectId:apiKeyName:apiKeyValue"
+
+# Servers without API keys
+pnpm test -- --network testnet --servers "0xabc123,0xdef456"
+
+# Servers with API keys (for permissioned servers)
+pnpm test -- --network mainnet --servers "0x123abc:myKey:mySecret,0x456def:otherKey:otherSecret"
+
+# Mixed configuration (some with API keys, some without)
+pnpm test -- --network testnet --servers "0xabc123,0xdef456:apiKey:apiValue"
 ```

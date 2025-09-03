@@ -9,42 +9,31 @@ import { SealClient, SessionKey } from '@mysten/seal';
 import assert from 'assert';
 import { parseArgs } from 'node:util';
 
-const TEST_DATA = 
-    {'testnet': {
-        "packageId": "0x58dce5d91278bceb65d44666ffa225ab397fc3ae9d8398c8c779c5530bd978c2",
-        "serverObjectIds": [
-            "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", // mysten testnet-1 server, open
-            "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8" // mysten testnet-2 server, open
-        ]
-    },
-    'mainnet': {
-        "packageId": "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029",
-        "serverObjectIds": [
-            "0xfabd2fb03a16ba9a8f2f961876675aa7ac2359b863627d7e3b948dc2cb3077ba" // mysten mainnet server, permissioned
-        ]
-    }};
-async function main(network: "testnet" | "mainnet", additionalObjectIds?: string[]) {
+const PACKAGE_IDS = {
+    'testnet': "0x58dce5d91278bceb65d44666ffa225ab397fc3ae9d8398c8c779c5530bd978c2",
+    'mainnet': "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029"
+};
+async function main(network: "testnet" | "mainnet", keyServerConfigs: { objectId: string, apiKeyName?: string, apiKey?: string }[]) {
     const keypair = Ed25519Keypair.generate();
     const suiAddress = keypair.getPublicKey().toSuiAddress();
     const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
     const testData = crypto.getRandomValues(new Uint8Array(1000));
-
-    const packageId = TEST_DATA[network].packageId;
-    const serverObjectIds = additionalObjectIds 
-        ? [...TEST_DATA[network].serverObjectIds, ...additionalObjectIds]
-        : TEST_DATA[network].serverObjectIds;
+    const packageId = PACKAGE_IDS[network];
+    console.log(`packageId: ${packageId}`);
     const client = new SealClient({
         suiClient,
-        serverConfigs: serverObjectIds.map(objectId => ({
-            objectId,
-            weight: 1,
-        })),
+            serverConfigs: keyServerConfigs.map(({ objectId, apiKeyName, apiKey }) => ({
+                objectId,
+                apiKeyName,
+                apiKey,
+                weight: 1,
+            })),
         verifyKeyServers: true,
     });
 
     // Encrypt data
     const { encryptedObject: encryptedBytes } = await client.encrypt({
-        threshold: serverObjectIds.length,
+        threshold: keyServerConfigs.length,
         packageId: packageId,
         id: suiAddress,
         data: testData,
@@ -87,7 +76,7 @@ const { values } = parseArgs({
             type: 'string',
             default: 'testnet',
         },
-        object_ids: {
+        servers: {
             type: 'string',
         },
     },
@@ -99,11 +88,38 @@ if (network !== 'testnet' && network !== 'mainnet') {
     process.exit(1);
 }
 
-const additionalObjectIds = values.object_ids ? values.object_ids.split(',').map(id => id.trim()) : undefined;
+// Parse server configurations from command line
+// Format: --servers "objectId1:apiKeyName1:apiKeyValue1,objectId2:apiKeyName2:apiKeyValue2"
+let keyServerConfigs: { objectId: string, apiKeyName?: string, apiKey?: string }[] = [];
 
-console.log(`Running test on ${network}${additionalObjectIds ? ` with additional object IDs: ${additionalObjectIds.join(', ')}` : ''}`);
+if (values.servers) {
+    const serverSpecs = values.servers.split(',').map(s => s.trim());
+    keyServerConfigs = serverSpecs.map(spec => {
+        const parts = spec.split(':');
+        if (parts.length === 1) {
+            // Just object ID
+            return { objectId: parts[0] };
+        } else if (parts.length === 3) {
+            // Object ID, API key name, and API key value
+            return { 
+                objectId: parts[0],
+                apiKeyName: parts[1],
+                apiKey: parts[2]
+            };
+        } else {
+            console.error(`Invalid server specification: ${spec}. Format should be "objectId" or "objectId:apiKeyName:apiKeyValue"`);
+            process.exit(1);
+        }
+    });
+} else {
+    console.error('Error: --servers argument is required');
+    console.error('Example: --servers="0x123,0x456:myKey:mySecret"');
+    process.exit(1);
+}
 
-main(network, additionalObjectIds).catch(error => {
+console.log(`Running test on ${network} with servers:`, keyServerConfigs);
+
+main(network, keyServerConfigs).catch(error => {
     console.error('Test failed:', error);
     process.exit(1);
 });

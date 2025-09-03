@@ -13,8 +13,8 @@
   "license": "ISC",
   "dependencies": {
     "@mysten/bcs": "^1.7.0",
-    "@mysten/seal": "^0.4.21",
-    "@mysten/sui": "^1.37.2"
+    "@mysten/seal": "^0.5.2",
+    "@mysten/sui": "^1.37.6"
   },
   "devDependencies": {
     "tsx": "^4.20.4",
