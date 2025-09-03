@@ -553,6 +553,7 @@ Configure Cross-Origin Resource Sharing (CORS) on your key server to allow appli
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, OPTIONS
 Access-Control-Allow-Headers: Request-Id, Client-Sdk-Type, Client-Sdk-Version
+Access-Control-Expose-Headers: x-keyserver-version
 ```
 If your key server requires an API key, make sure to include the corresponding HTTP header name in `Access-Control-Allow-Headers` as well.
 
