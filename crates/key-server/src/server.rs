@@ -511,13 +511,12 @@ async fn handle_fetch_key_internal(
         .await.tap_ok(|_| info!(
             "Valid request: {}",
             json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version })
-        )).tap_err(|e|
-        match e {
-        InternalError::Failure(s) => {
-            warn!("Check request failed with failure '{s}': {}", json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version }));
-        }
-        _ => {}
-    })
+        )).tap_err(|e| match e {
+            InternalError::Failure(s) => {
+                warn!("Check request failed with failure '{s}': {}", json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version }));
+            }
+            _ => {}
+        })
 }
 
 async fn handle_fetch_key(
