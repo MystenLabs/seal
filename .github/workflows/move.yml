@@ -34,5 +34,5 @@ jobs:
         run: |
           for dir in move/*; do
             echo "Running sui move test in $dir"
-            sui move test --path $dir
+            sui move test --warnings-are-errors --path $dir
           done
