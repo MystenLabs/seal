@@ -807,6 +807,7 @@ fun test_zero_threshold() {
     );
 }
 
+#[test]
 fun test_decryption_from_sdk() {
     use sui::bls12381::{g1_from_bytes};
 
