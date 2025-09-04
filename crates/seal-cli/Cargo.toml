@@ -10,6 +10,14 @@ clap.workspace = true
 fastcrypto.workspace = true
 rand.workspace = true
 serde.workspace = true
+serde_yaml = "0.9"
+serde_json = { workspace = true }
 bcs.workspace = true
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+sui_sdk = { workspace = true }
+sui-sdk-types = { workspace = true }
+sui_types = { workspace = true }
 
 crypto = { path = "../crypto" }
+seal-sdk = { path = "../seal-sdk" }

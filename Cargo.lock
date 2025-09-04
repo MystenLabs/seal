@@ -802,7 +802,7 @@ dependencies = [
  "hyper-util",
  "pin-project-lite",
  "rustls",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -2719,7 +2719,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "once_cell",
  "regex",
- "reqwest",
+ "reqwest 0.12.15",
  "schemars 0.8.21",
  "serde",
  "serde_json",
@@ -3499,6 +3499,19 @@ dependencies = [
 
 [[package]]
 name = "hyper-tls"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
+dependencies = [
+ "bytes",
+ "hyper 0.14.31",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+]
+
+[[package]]
+name = "hyper-tls"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
@@ -4168,7 +4181,7 @@ dependencies = [
  "prometheus",
  "prometheus-closure-metric",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.15",
  "seal-sdk",
  "semver",
  "serde",
@@ -4596,7 +4609,7 @@ dependencies = [
  "move-types",
  "proc-macro2",
  "quote",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
@@ -5345,7 +5358,7 @@ dependencies = [
  "mysten-metrics",
  "parking_lot 0.12.4",
  "prometheus",
- "reqwest",
+ "reqwest 0.12.15",
  "snap",
  "sui-tls",
  "sui-types",
@@ -5754,9 +5767,9 @@ dependencies = [
  "percent-encoding",
  "quick-xml",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.15",
  "ring",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "snafu",
@@ -7036,6 +7049,46 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "reqwest"
+version = "0.11.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd67538700a17451e7cba03ac727fb961abb7607553461627b97de0b89cf4a62"
+dependencies = [
+ "base64 0.21.7",
+ "bytes",
+ "encoding_rs",
+ "futures-core",
+ "futures-util",
+ "h2 0.3.26",
+ "http 0.2.12",
+ "http-body 0.4.6",
+ "hyper 0.14.31",
+ "hyper-tls 0.5.0",
+ "ipnet",
+ "js-sys",
+ "log",
+ "mime",
+ "native-tls",
+ "once_cell",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper 0.1.2",
+ "system-configuration 0.5.1",
+ "tokio",
+ "tokio-native-tls",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winreg",
+]
+
+[[package]]
+name = "reqwest"
 version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d19c46a6fdd48bc4dab94b6103fccc55d34c67cc0ad04653aad4ea2a07cd7bbb"
@@ -7052,7 +7105,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.6.0",
  "hyper-rustls",
- "hyper-tls",
+ "hyper-tls 0.6.0",
  "hyper-util",
  "ipnet",
  "js-sys",
@@ -7065,13 +7118,13 @@ dependencies = [
  "quinn",
  "rustls",
  "rustls-native-certs 0.8.1",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper 1.0.2",
- "system-configuration",
+ "system-configuration 0.6.1",
  "tokio",
  "tokio-native-tls",
  "tokio-rustls",
@@ -7266,7 +7319,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5bfb394eeed242e909609f56089eecfe5fda225042e8b171791b9c95f5931e5"
 dependencies = [
  "openssl-probe",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "schannel",
  "security-framework 2.11.1",
@@ -7282,6 +7335,15 @@ dependencies = [
  "rustls-pki-types",
  "schannel",
  "security-framework 3.0.1",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
+dependencies = [
+ "base64 0.21.7",
 ]
 
 [[package]]
@@ -7461,7 +7523,15 @@ dependencies = [
  "crypto",
  "fastcrypto 0.1.8",
  "rand 0.8.5",
+ "reqwest 0.11.27",
+ "seal-sdk",
  "serde",
+ "serde_json",
+ "serde_yaml 0.9.34+deprecated",
+ "sui-sdk",
+ "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
+ "sui-types",
+ "tokio",
 ]
 
 [[package]]
@@ -7483,7 +7553,7 @@ dependencies = [
  "prost 0.12.6",
  "prost-types 0.12.6",
  "protobuf",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "serde_with",
@@ -8394,7 +8464,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "serde_with",
  "serde_yaml 0.8.26",
@@ -8454,7 +8524,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "rayon",
- "reqwest",
+ "reqwest 0.12.15",
  "roaring",
  "scopeguard",
  "serde",
@@ -8748,7 +8818,7 @@ dependencies = [
  "diesel_migrations",
  "futures",
  "prometheus",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "sui-field-count",
  "sui-indexer-alt-metrics",
@@ -9128,7 +9198,7 @@ dependencies = [
  "mysten-service",
  "parking_lot 0.12.4",
  "prometheus",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "sui-archival",
  "sui-config",
@@ -9333,7 +9403,7 @@ dependencies = [
  "futures-core",
  "jsonrpsee",
  "move-core-types",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "serde_with",
@@ -9484,7 +9554,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "percent-encoding",
  "prometheus",
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sui-config",
@@ -9560,7 +9630,7 @@ name = "sui-telemetry"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=42ba6c0#42ba6c03128233cdeb3fc6e0a22dabd0bfc55385"
 dependencies = [
- "reqwest",
+ "reqwest 0.12.15",
  "serde",
  "sui-core",
  "tracing",
@@ -9593,7 +9663,7 @@ dependencies = [
  "fastcrypto 0.1.8",
  "pkcs8 0.10.2",
  "rcgen",
- "reqwest",
+ "reqwest 0.12.15",
  "rustls",
  "rustls-webpki 0.103.3",
  "tokio",
@@ -9707,7 +9777,7 @@ dependencies = [
  "proptest-derive",
  "rand 0.8.5",
  "roaring",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "schemars 0.8.21",
  "serde",
  "serde-name",
@@ -9855,13 +9925,34 @@ dependencies = [
 
 [[package]]
 name = "system-configuration"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba3a3adc5c275d719af8cb4272ea1c4a6d668a777f37e115f6d11ddbc1c8e0e7"
+dependencies = [
+ "bitflags 1.3.2",
+ "core-foundation 0.9.4",
+ "system-configuration-sys 0.5.0",
+]
+
+[[package]]
+name = "system-configuration"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c879d448e9d986b661742763247d3693ed13609438cf3d006f51f5368a5ba6b"
 dependencies = [
  "bitflags 2.6.0",
  "core-foundation 0.9.4",
- "system-configuration-sys",
+ "system-configuration-sys 0.6.0",
+]
+
+[[package]]
+name = "system-configuration-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a75fb188eb626b924683e3b95e3a48e63551fcfb51949de2f06a9d91dbee93c9"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
@@ -10438,7 +10529,7 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost 0.13.4",
- "rustls-pemfile",
+ "rustls-pemfile 2.2.0",
  "socket2 0.5.8",
  "tokio",
  "tokio-rustls",
@@ -11710,6 +11801,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c06928c8748d81b05c9be96aad92e1b6ff01833332f281e8cfca3be4b35fc9ec"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winreg"
+version = "0.50.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "524e57b2c537c0f9b1e69f1965311ec12182b4122e45035b1508cd24d2adadb1"
+dependencies = [
+ "cfg-if",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
