@@ -21,7 +21,7 @@ pub enum InternalError {
     InvalidMVRName,
     InvalidServiceId,
     UnsupportedPackageId,
-    Failure, // Internal error, try again later
+    Failure(String), // Internal error, try again later. Debug message is for logging only.
 }
 
 #[derive(Debug, Serialize)]
@@ -78,7 +78,7 @@ impl IntoResponse for InternalError {
                 StatusCode::BAD_REQUEST,
                 "Unsupported package ID".to_string(),
             ),
-            InternalError::Failure => (
+            InternalError::Failure(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
             ),
@@ -109,7 +109,7 @@ impl InternalError {
             InternalError::InvalidMVRName => "InvalidMVRName",
             InternalError::InvalidServiceId => "InvalidServiceId",
             InternalError::UnsupportedPackageId => "UnsupportedPackageId",
-            InternalError::Failure => "Failure",
+            InternalError::Failure(_) => "Failure",
         }
     }
 }

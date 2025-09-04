@@ -80,7 +80,9 @@ pub(crate) async fn mvr_forward_resolution(
             .app_info
             .ok_or(InvalidMVRName)?
             .package_address
-            .ok_or(Failure)?,
+            .ok_or(Failure(format!(
+                "No package_address field on app_info for {mvr_name} on mainnet"
+            )))?,
         Network::Testnet => {
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
@@ -89,7 +91,7 @@ pub(crate) async fn mvr_forward_resolution(
                         .request_timeout(key_server_options.rpc_config.timeout)
                         .build_mainnet()
                         .await
-                        .map_err(|_| Failure)?,
+                        .map_err(|_| Failure("Failed to build sui client".to_string()))?,
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.get_metrics(),
                 ),
@@ -104,20 +106,24 @@ pub(crate) async fn mvr_forward_resolution(
                 .get(TESTNET_ID)
                 .ok_or(InvalidMVRName)?
                 .package_info_id
-                .ok_or(Failure)
+                .ok_or(Failure(format!(
+                    "No package info ID for MVR name {mvr_name} on testnet"
+                )))
                 .map(|id| ObjectID::new(id.into_inner()))?;
             let package_info: PackageInfo = get_object(package_info_id, sui_rpc_client).await?;
 
             // Check that the name in the package info matches the MVR name.
             let metadata: HashMap<_, _> = package_info.metadata.into();
-            let name_in_package_info = metadata.get("default").ok_or(Failure)?;
+            let name_in_package_info = metadata.get("default").ok_or(Failure(
+                "No 'default' field on package_info object".to_string(),
+            ))?;
             if name_in_package_info != mvr_name {
                 return Err(InvalidMVRName);
             }
 
             package_info.package_address
         }
-        _ => return Err(Failure),
+        _ => return Err(Failure("Invalid network for MVR resolution".to_string())),
     };
     Ok(ObjectID::new(package_address.into_inner()))
 }
@@ -134,7 +140,11 @@ async fn get_from_mvr_registry(
             dynamic_field_name.clone(),
         )
         .await
-        .map_err(|_| Failure)?
+        .map_err(|_| {
+            Failure(format!(
+                "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
+            ))
+        })?
         .object_id()
         .map_err(|_| InvalidMVRName)?;
 
@@ -169,9 +179,9 @@ async fn get_object<T: for<'a> Deserialize<'a>>(
         sui_rpc_client
             .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())
             .await
-            .map_err(|_| Failure)?
+            .map_err(|_| Failure(format!("Failed to get object {object_id}")))?
             .move_object_bcs()
-            .ok_or(Failure)?,
+            .ok_or(Failure(format!("No BCS on response of object {object_id}")))?,
     )
     .map_err(|_| InvalidPackage)
 }
