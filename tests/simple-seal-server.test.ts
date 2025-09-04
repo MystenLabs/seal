@@ -63,8 +63,8 @@ async function main(network: 'testnet' | 'mainnet', keyServerConfigs: { objectId
     });
 
     // Test CORS headers for each key server
+    const keyServers = await client.getKeyServers();
     for (const config of keyServerConfigs) {
-        const keyServers = await client.getKeyServers();
         const keyServer = keyServers.get(config.objectId)!;
         await testCorsHeaders(keyServer.url, keyServer.name, config.apiKeyName, config.apiKey);
     }
