@@ -915,6 +915,16 @@ fun test_safe_scalar_from_bytes() {
     let invalid_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001";
     assert!(safe_scalar_from_bytes(&invalid_bytes).is_none());
 
+    // 7
+    let seven = x"0000000000000000000000000000000000000000000000000000000000000007";
+    assert!(
+        safe_scalar_from_bytes(&seven).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(7)),
+    );
+
+    // 2^256 - 1
+    let invalid_bytes = x"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
+    assert!(safe_scalar_from_bytes(&invalid_bytes).is_none());
+
     // Short input
     let short_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF000000";
     assert!(safe_scalar_from_bytes(&short_bytes).is_none());
