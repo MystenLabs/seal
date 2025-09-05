@@ -77,6 +77,9 @@ fun monic_linear(c: &u8): Polynomial {
     Polynomial { coefficients: vector[gf256::sub(0, *c), 1] }
 }
 
+/// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
+/// Panics if the lengths of x and y are not the same.
+/// Panics if x contains duplicate values.
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     assert!(x.length() == y.length());
     let n = x.length();

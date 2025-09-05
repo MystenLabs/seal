@@ -105,7 +105,7 @@ public fun decrypt(
         pk.pk
     });
 
-    // Find the indices of the key servers corresponsing to the derived keys.
+    // Find the indices of the key servers corresponding to the derived keys.
     // This aborts if one of the given derived keys is not from a key server in the encrypted object.
     let given_indices = verified_derived_keys.map_ref!(
         |vdk| services.find_index!(|service| vdk.key_server.to_address() == service).extract(),
@@ -127,10 +127,14 @@ public fun decrypt(
     let dem_key = derive_key(KeyPurpose::DEM, &base_key, encrypted_object);
 
     // Decrypt the randomness
-    let randomness = decrypt_randomness(
+    let mut randomness = decrypt_randomness(
         &randomness_key,
         encrypted_randomness,
     );
+    if (randomness.is_none()) {
+        return none()
+    };
+    let randomness = randomness.extract();
 
     // Use the randomness to verify the nonce.
     if (!verify_nonce(&randomness, &encrypted_object.nonce)) {
@@ -165,13 +169,34 @@ public fun decrypt(
 fun decrypt_randomness(
     randomness_key: &vector<u8>,
     encrypted_randomness: &vector<u8>,
-): Element<Scalar> {
-    scalar_from_bytes(
+): Option<Element<Scalar>> {
+    safe_scalar_from_bytes(
         &xor(
             encrypted_randomness,
             randomness_key,
         ),
     )
+}
+
+/// The order of the scalar field for BLS12-381.
+const SCALAR_FIELD_ORDER: u256 =
+    52435875175126190479447740508185965837690552500527637822603658699938581184513u256;
+
+const SCALAR_BYTE_LENGTH: u64 = 32;
+
+/// Converts big-endian bytes to a scalar, returning none if the bytes are not a valid scalar.
+fun safe_scalar_from_bytes(be_bytes: &vector<u8>): Option<Element<Scalar>> {
+    if (be_bytes.length() != SCALAR_BYTE_LENGTH) {
+        return none()
+    };
+    // bcs peels in little-endian order, but the scalar is in big-endian order
+    let mut le_bytes = *be_bytes;
+    le_bytes.reverse();
+    let as_integer = sui::bcs::new(le_bytes).peel_u256();
+    if (as_integer >= SCALAR_FIELD_ORDER) {
+        return none()
+    };
+    option::some(scalar_from_bytes(be_bytes))
 }
 
 fun verify_nonce(randomness: &Element<Scalar>, nonce: &Element<G2>): bool {
@@ -183,12 +208,12 @@ fun verify_share(polynomials: &vector<Polynomial>, share: &vector<u8>, index: u8
 }
 
 /// Decrypt the given shares with the derived keys.
+/// Panics if the number of indices does not match the number of derived keys.
 fun decrypt_shares_with_derived_keys(
     indices: &vector<u64>,
     derived_keys: &vector<VerifiedDerivedKey>,
     encrypted_object: &EncryptedObject,
 ): vector<vector<u8>> {
-    assert!(indices.length() == derived_keys.length());
     let gid = hash_to_g1_with_dst(
         &create_full_id(encrypted_object.package_id, encrypted_object.id),
     );
@@ -754,7 +779,6 @@ fun test_decryption_too_few_shares() {
 }
 
 #[test]
-#[expected_failure(abort_code = sui::group_ops::EInvalidInput)]
 fun test_decryption_invalid_usk() {
     use sui::bls12381::g1_from_bytes;
 
@@ -819,7 +843,7 @@ fun test_decryption_invalid_usk() {
     );
 
     // Fails during decryption. In this case it fails since decryption of the randomness fails.
-    decrypt(&parsed_encrypted_object, &vdks, &all_pks);
+    assert!(decrypt(&parsed_encrypted_object, &vdks, &all_pks).is_none());
 }
 
 #[test]
@@ -879,4 +903,19 @@ fun test_all_unique_success() {
     assert_all_unique(&vector[4, 1, 2, 3]);
     assert_all_unique(&vector[1]);
     assert_all_unique(&vector<u8>[]);
+}
+
+#[test]
+fun test_safe_scalar_from_bytes() {
+    // p - 1
+    let valid_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000000";
+    assert!(safe_scalar_from_bytes(&valid_bytes).is_some());
+
+    // p
+    let invalid_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001";
+    assert!(safe_scalar_from_bytes(&invalid_bytes).is_none());
+
+    // Short input
+    let short_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF000000";
+    assert!(safe_scalar_from_bytes(&short_bytes).is_none());
 }
