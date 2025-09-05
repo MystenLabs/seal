@@ -18,7 +18,6 @@ use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use tracing::warn;
-use crypto::ObjectID;
 
 /// Default directory for storing DKG state
 const DKG_STATE_DIR: &str = ".dkg-state";
@@ -160,25 +159,6 @@ enum Commands {
 
     /// Finalize DKG: merge messages, complete protocol, and output keys (combines Merge and Complete)
     Finalize {
-        /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
-        state_dir: PathBuf,
-    },
-
-    /// Encyrpt
-    EncryptMPC {
-        message: Vec<u8>,
-        package_id: ObjectID,
-        threshold: u16,
-        partial_pks: Vec<String>,
-        partial_ks_object_ids: Vec<ObjectID>,
-    },
-
-    FetchKeys {
-
-    },
-    /// Decrypt from MPC
-    DecryptMPC {
         /// State directory
         #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
         state_dir: PathBuf,
@@ -566,18 +546,6 @@ fn main() -> Result<()> {
             println!("========================================");
 
             println!("\n✅ DKG finalization complete!");
-        }
-
-        Commands::EncryptMPC {
-            state_dir,
-        } => {
-            // TODO
-        }
-
-        Commands::DecryptMPC {
-            state_dir,
-        } => {
-            // TODO
         }
     }
 

@@ -6,6 +6,7 @@ use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, Server
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
+use crate::tests::KeyServerType::MPC;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
@@ -59,6 +60,7 @@ pub enum KeyServerType {
         seed: Vec<u8>,
         package_ids: Vec<ObjectID>,
     },
+    MPC(ibe::MasterKey),
 }
 
 impl SealTestCluster {
@@ -100,6 +102,14 @@ impl SealTestCluster {
     pub async fn add_open_servers(&mut self, num_servers: usize) {
         for _ in 0..num_servers {
             self.add_open_server().await;
+        }
+    }
+
+    pub async fn add_mpc_servers(&mut self, master_keys: Vec<ibe::MasterKey>) {
+        for master_key in master_keys.iter() {
+            let name =
+                DefaultEncoding::encode(public_key_from_master_key(master_key).to_byte_array());
+            self.add_server(MPC(*master_key), &name).await;
         }
     }
 
@@ -331,6 +341,47 @@ impl SealTestCluster {
             .into_iter()
             .map(|o| {
                 let value = o
+                    .data
+                    .unwrap()
+                    .content
+                    .unwrap()
+                    .try_as_move()
+                    .unwrap()
+                    .fields
+                    .field_value("value")
+                    .unwrap()
+                    .to_json_value();
+                let pk = value
+                    .as_object()
+                    .unwrap()
+                    .get("pk")
+                    .unwrap()
+                    .as_array()
+                    .unwrap();
+                pk.iter()
+                    .map(|v| v.as_u64().unwrap() as u8)
+                    .collect::<Vec<_>>()
+            })
+            .map(|v| ibe::PublicKey::from_byte_array(&v.try_into().unwrap()).unwrap())
+            .collect()
+    }
+
+    /// useful for mpc partial pks.
+    pub async fn get_partial_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
+        let futures = object_ids.iter().map(|id| {
+            self.cluster
+                .sui_client()
+                .read_api()
+                .get_object_with_options(*id, SuiObjectDataOptions::full_content())
+        });
+
+        let objects = join_all(futures).await;
+
+        objects
+            .into_iter()
+            .map(|o| {
+                let value = o
+                    .unwrap()
                     .data
                     .unwrap()
                     .content

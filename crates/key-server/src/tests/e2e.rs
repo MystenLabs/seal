@@ -417,3 +417,76 @@ async fn create_server(
         options,
     }
 }
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_mpc() {
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_mpc_servers(vec![ibe::generate_key_pair(&mut thread_rng()).0])
+        .await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    // Create test users
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    // Read the public keys from the service objects
+    let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_partial_public_keys(&services).await);
+
+    // Encrypt a message
+    let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    let encryption = seal_encrypt(
+        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        whitelist.to_vec(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Get keys from two key servers
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+    let usks = join_all(tc.servers[..2].iter().map(async |(_, server)| {
+        get_key(
+            server,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap()
+    }))
+    .await;
+
+    // Decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip(usks).collect()),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
+}

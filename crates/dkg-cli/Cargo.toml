@@ -19,7 +19,6 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 base64 = "0.21"
 dirs = "5.0"
-crypto = { path = "../crypto" }
 
 [[bin]]
 name = "dkg-cli"
