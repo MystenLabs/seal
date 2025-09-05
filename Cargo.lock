@@ -2336,6 +2336,7 @@ dependencies = [
  "base64 0.21.7",
  "bcs",
  "clap",
+ "crypto",
  "dirs 5.0.1",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=91ce23c3af86165d32af9f462d2cc18f3fae7a9f)",
  "fastcrypto-tbls 0.1.0 (git+https://github.com/MystenLabs/fastcrypto?rev=91ce23c3af86165d32af9f462d2cc18f3fae7a9f)",

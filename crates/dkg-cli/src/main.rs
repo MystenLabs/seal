@@ -18,6 +18,7 @@ use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use tracing::warn;
+use crypto::ObjectID;
 
 /// Default directory for storing DKG state
 const DKG_STATE_DIR: &str = ".dkg-state";
@@ -157,29 +158,27 @@ enum Commands {
         state_dir: PathBuf,
     },
 
-    /// Merge messages and check for complaints
-    Merge {
-        /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
-        state_dir: PathBuf,
-    },
-
-    /// Complete the DKG protocol (optimistic case)
-    Complete {
-        /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
-        state_dir: PathBuf,
-    },
-
-    /// Complete key rotation (optimistic case)
-    CompleteRotation {
-        /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
-        state_dir: PathBuf,
-    },
-
     /// Finalize DKG: merge messages, complete protocol, and output keys (combines Merge and Complete)
     Finalize {
+        /// State directory
+        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
+        state_dir: PathBuf,
+    },
+
+    /// Encyrpt
+    EncryptMPC {
+        message: Vec<u8>,
+        package_id: ObjectID,
+        threshold: u16,
+        partial_pks: Vec<String>,
+        partial_ks_object_ids: Vec<ObjectID>,
+    },
+
+    FetchKeys {
+
+    },
+    /// Decrypt from MPC
+    DecryptMPC {
         /// State directory
         #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
         state_dir: PathBuf,
@@ -454,87 +453,6 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Merge { state_dir } => {
-            let mut state = DkgState::load(&state_dir)?;
-
-            println!(
-                "Merging {} processed messages",
-                state.processed_messages.len()
-            );
-
-            let random_oracle = RandomOracle::new(&state.config.committee_id);
-            let mut rng = StdRng::from_entropy();
-
-            let party = Party::<G2Element, G2Element>::new_advanced(
-                state.config.enc_sk.clone(),
-                state.nodes.clone(),
-                state.config.threshold,
-                random_oracle,
-                state.config.old_share,
-                state.config.old_threshold,
-                &mut rng,
-            )?;
-
-            let (confirmation, used_msgs) = party.merge(&state.processed_messages)?;
-
-            // Check if there are any complaints
-            let has_complaints = !confirmation.complaints.is_empty();
-
-            if !has_complaints {
-                println!("No complaints found - ready to complete protocol");
-            } else {
-                warn!("Found {} complaints", confirmation.complaints.len());
-                for _complaint in &confirmation.complaints {
-                    warn!("Complaint against party (check logs for details)");
-                }
-                println!("\nComplaints found - do not approve keys onchain!");
-            }
-
-            state.confirmation = Some((confirmation, used_msgs));
-            state.save(&state_dir)?;
-        }
-
-        Commands::Complete { state_dir } => {
-            let mut state = DkgState::load(&state_dir)?;
-
-            if state.confirmation.is_none() {
-                return Err(anyhow!("Must run merge command first"));
-            }
-
-            let (confirmation, _used_msgs) = state.confirmation.as_ref().unwrap();
-            if !confirmation.complaints.is_empty() {
-                return Err(anyhow!("Cannot complete with complaints present"));
-            }
-
-            println!("Completing DKG protocol (optimistic)");
-
-            let random_oracle = RandomOracle::new(&state.config.committee_id);
-            let mut rng = StdRng::from_entropy();
-
-            let party = Party::<G2Element, G2Element>::new_advanced(
-                state.config.enc_sk.clone(),
-                state.nodes.clone(),
-                state.config.threshold,
-                random_oracle,
-                state.config.old_share,
-                state.config.old_threshold,
-                &mut rng,
-            )?;
-
-            let (_confirmation, used_msgs) = state.confirmation.as_ref().unwrap();
-            let output = party.complete_optimistic(used_msgs)?;
-
-            state.output = Some(output.clone());
-            state.save(&state_dir)?;
-
-            println!("DKG completed successfully");
-        }
-
-        Commands::CompleteRotation { state_dir } => {
-            let mut _state = DkgState::load(&state_dir)?;
-            // TODO
-        }
-
         Commands::Finalize { state_dir } => {
             // Step 1: Merge messages
             println!("Step 1/3: Merging messages and checking for complaints...");
@@ -648,6 +566,18 @@ fn main() -> Result<()> {
             println!("========================================");
 
             println!("\n✅ DKG finalization complete!");
+        }
+
+        Commands::EncryptMPC {
+            state_dir,
+        } => {
+            // TODO
+        }
+
+        Commands::DecryptMPC {
+            state_dir,
+        } => {
+            // TODO
         }
     }
 
