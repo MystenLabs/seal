@@ -94,7 +94,7 @@ public fun decrypt(
     } = encrypted_object;
     assert!(verified_derived_keys.length() >= *threshold as u64);
     assert!(verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id));
-    assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server.to_address()));
+    assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server));
 
     // Verify that the public keys are from the key servers in the encrypted object and in the same order.
     let public_keys = public_keys.zip_map_ref!(services, |pk, addr| {
