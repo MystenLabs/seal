@@ -1,0 +1,25 @@
+[package]
+name = "dkg-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "91ce23c3af86165d32af9f462d2cc18f3fae7a9f", features = ["aes"] }
+fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "91ce23c3af86165d32af9f462d2cc18f3fae7a9f" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bcs.workspace = true
+rand.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+base64 = "0.21"
+dirs = "5.0"
+
+[[bin]]
+name = "dkg-cli"
+path = "src/main.rs"
