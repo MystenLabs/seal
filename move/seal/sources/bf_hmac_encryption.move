@@ -864,3 +864,16 @@ fun test_decryption_from_sdk() {
     let decrypted = decrypt(&parsed_encrypted_object, &vdks, &pks);
     assert!(decrypted.borrow() == x"010203");
 }
+
+#[test]
+#[expected_failure]
+fun test_all_unique_failure() {
+    assert_all_unique(&vector[1, 2, 3, 1]);
+}
+
+#[test]
+fun test_all_unique_success() {
+    assert_all_unique(&vector[4, 1, 2, 3]);
+    assert_all_unique(&vector[1]);
+    assert_all_unique(&vector<u8>[]);
+}
