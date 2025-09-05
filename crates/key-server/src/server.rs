@@ -60,6 +60,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
+use tap::Tap;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
@@ -508,12 +509,14 @@ async fn handle_fetch_key_internal(
             req_id,
             payload.certificate.mvr_name.clone(),
         )
-        .await.tap_ok(|_| info!(
-            "Valid request: {}",
-            json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version })
-        )).tap_err(|e| match e {
-            InternalError::Failure(s) => warn!("Check request failed with failure '{s}': {}", json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version })),
-            _ => {}
+        .await
+        .tap(|r| {
+            let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version });
+            match r {
+                Ok(_) => info!("Valid request: {request_info}"),
+                Err(InternalError::Failure(s)) => warn!("Check request failed with failure ({s}): {request_info}"),
+                _ => {},
+            }
         })
 }
 
