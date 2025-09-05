@@ -127,14 +127,14 @@ public fun decrypt(
     let dem_key = derive_key(KeyPurpose::DEM, &base_key, encrypted_object);
 
     // Decrypt the randomness
-    let mut randomness = decrypt_randomness(
+    let randomness = decrypt_randomness(
         &randomness_key,
         encrypted_randomness,
     );
     if (randomness.is_none()) {
         return none()
     };
-    let randomness = randomness.extract();
+    let randomness = randomness.destroy_some();
 
     // Use the randomness to verify the nonce.
     if (!verify_nonce(&randomness, &encrypted_object.nonce)) {
@@ -917,9 +917,7 @@ fun test_safe_scalar_from_bytes() {
 
     // 0
     let zero = x"0000000000000000000000000000000000000000000000000000000000000000";
-    assert!(
-        safe_scalar_from_bytes(&zero).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(0)),
-    );
+    assert!(safe_scalar_from_bytes(&zero).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(0)));
 
     // 7
     let seven = x"0000000000000000000000000000000000000000000000000000000000000007";
@@ -934,4 +932,8 @@ fun test_safe_scalar_from_bytes() {
     // Short input
     let short_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF000000";
     assert!(safe_scalar_from_bytes(&short_bytes).is_none());
+
+    // Short input
+    let long_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF0000000000";
+    assert!(safe_scalar_from_bytes(&long_bytes).is_none());
 }
