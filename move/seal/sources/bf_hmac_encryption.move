@@ -116,7 +116,6 @@ public fun decrypt(
 
     // Interpolate polynomials from the decrypted shares.
     let used_indices = given_indices.map!(|i| indices[i]);
-    assert_unique_u8(&used_indices);
     let polynomials = interpolate_all(&used_indices, &decrypted_shares);
 
     // Compute base key and derive keys for the randomness and DEM.
@@ -296,17 +295,12 @@ fun verify_derived_key(
     pairing(derived_key, &g2_generator()) == pairing(gid, public_key)
 }
 
-fun assert_unique_u8(v: &vector<u8>) {
-    let n = v.length();
-    let mut i = 0;
-    while (i < n) {
-        let mut j = i + 1;
-        while (j < n) {
-            assert!(v[i] != v[j]);
-            j = j + 1;
-        };
-        i = i + 1;
-    };
+fun assert_all_unique<T: drop + copy>(items: &vector<T>) {
+    let mut seen = vector::empty();
+    items.do_ref!(|item| {
+        assert!(seen.find_index!(|i| i == item).is_none());
+        seen.push_back(*item);
+    })
 }
 
 /// Deserialize a BCS encoded EncryptedObject.
@@ -330,7 +324,7 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
         service.peel_u8()
     });
     assert!(services.length() == indices.length());
-    assert_unique_u8(&indices);
+    assert_all_unique(&indices);
     let threshold = bcs.peel_u8();
     assert!(threshold > 0 && threshold <= indices.length() as u8);
 
@@ -483,7 +477,6 @@ fun test_parse_encrypted_object_duplicate_indices_rejected() {
         x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96b7d726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3b7dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a977b02008812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e036315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b010de6062eb2dcb2f86bca32f83c9301200000000000000000000000000000000000000000000000000000000000000001184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9";
 
     let _ = parse_encrypted_object(encoded);
-
 }
 
 #[test]
