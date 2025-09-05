@@ -73,6 +73,9 @@ public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
 /// Aborts if any of the key servers are not among the key servers found in the encrypted object.
 ///
 /// If the decryption fails, e.g. the AAD or MAC is invalid, the function returns `none`.
+///
+/// For now, this only supports unweighted key servers, so even if the encrypted object has weighted key servers,
+/// each derived key contributes only 1 towards the threshold.
 #[allow(unused_variable)]
 public fun decrypt(
     encrypted_object: &EncryptedObject,
