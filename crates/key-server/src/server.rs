@@ -514,7 +514,7 @@ async fn handle_fetch_key_internal(
             let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version });
             match r {
                 Ok(_) => info!("Valid request: {request_info}"),
-                Err(InternalError::Failure(s)) => warn!("Check request failed with failure ({s}): {request_info}"),
+                Err(InternalError::Failure(s)) => warn!("Check request failed with debug message '{s}': {request_info}"),
                 _ => {},
             }
         })
