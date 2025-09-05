@@ -94,6 +94,7 @@ public fun decrypt(
     } = encrypted_object;
     assert!(verified_derived_keys.length() >= *threshold as u64);
     assert!(verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id));
+    assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server.to_address()));
 
     // Verify that the public keys are from the key servers in the encrypted object and in the same order.
     let public_keys = public_keys.zip_map_ref!(services, |pk, addr| {
@@ -115,9 +116,7 @@ public fun decrypt(
     );
 
     // Interpolate polynomials from the decrypted shares.
-    let used_indices = given_indices.map!(|i| indices[i]);
-    assert_all_unique(&used_indices);
-    let polynomials = interpolate_all(&used_indices, &decrypted_shares);
+    let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
 
     // Compute base key and derive keys for the randomness and DEM.
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
