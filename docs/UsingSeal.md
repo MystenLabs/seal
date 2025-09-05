@@ -289,7 +289,7 @@ Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 | <NETWORK> | <PACKAGE_ID> |
 | -------- | ------- |
 | Testnet | 0x4614e5da0136ee7d464992ddd3719d388ae2bfdb48dfec6d9ad579f87341f2e1 |
-| Mainnet | 0xbfc8d50ed03d52864779e5bc9bd2a9e0417a03c42830d3757c99289c779967b7 | 
+| Mainnet | 0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d | 
 
 ### Optimizing performance
 
@@ -309,7 +309,7 @@ Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Su
 | <NETWORK> | <PACKAGE_ID> | 
 | -------- | ------- |
 | Testnet | 0x4614e5da0136ee7d464992ddd3719d388ae2bfdb48dfec6d9ad579f87341f2e1 |
-| Mainnet | 0xbfc8d50ed03d52864779e5bc9bd2a9e0417a03c42830d3757c99289c779967b7 | 
+| Mainnet | 0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d | 
 
 A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 
