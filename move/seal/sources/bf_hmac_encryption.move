@@ -918,7 +918,7 @@ fun test_safe_scalar_from_bytes() {
     // 0
     let zero = x"0000000000000000000000000000000000000000000000000000000000000000";
     assert!(
-        safe_scalar_from_bytes(&seven).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(0)),
+        safe_scalar_from_bytes(&zero).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(0)),
     );
 
     // 7
