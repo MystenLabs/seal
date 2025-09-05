@@ -116,6 +116,7 @@ public fun decrypt(
 
     // Interpolate polynomials from the decrypted shares.
     let used_indices = given_indices.map!(|i| indices[i]);
+    assert_all_unique(&used_indices);
     let polynomials = interpolate_all(&used_indices, &decrypted_shares);
 
     // Compute base key and derive keys for the randomness and DEM.
