@@ -95,11 +95,11 @@ public fun decrypt(
         encrypted_randomness,
         services,
     } = encrypted_object;
-    assert!(verified_derived_keys.length() >= *threshold as u64);
     assert!(verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id));
     assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server));
 
     // Verify that the public keys are from the key servers in the encrypted object and in the same order.
+    // If there are duplicates, the public keys should also be duplicated.
     let public_keys = public_keys.zip_map_ref!(services, |pk, addr| {
         assert!(pk.key_server.to_address() == addr);
         pk.pk
@@ -107,16 +107,23 @@ public fun decrypt(
 
     // Find the indices of the key servers corresponding to the derived keys.
     // This aborts if one of the given derived keys is not from a key server in the encrypted object.
-    let given_indices = verified_derived_keys.map_ref!(
-        |vdk| services.find_index!(|service| vdk.key_server.to_address() == service).extract(),
+    let indices_per_vdk = verified_derived_keys.map_ref!(
+        |vdk| services.find_indices!(|service| vdk.key_server.to_address() == service),
     );
+
+    // Flatten the indices per derived key to get all the indices.
+    let given_indices = indices_per_vdk.flatten();
+    assert!(given_indices.length() >= *threshold as u64);
 
     // Decrypt shares.
     let decrypted_shares = decrypt_shares_with_derived_keys(
-        &given_indices,
+        &indices_per_vdk,
         verified_derived_keys,
         encrypted_object,
     );
+
+    std::debug::print(&given_indices.map!(|i| indices[i]));
+    std::debug::print(&decrypted_shares);
 
     // Interpolate polynomials from the decrypted shares.
     let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
@@ -125,6 +132,8 @@ public fun decrypt(
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
     let randomness_key = derive_key(KeyPurpose::EncryptedRandomness, &base_key, encrypted_object);
     let dem_key = derive_key(KeyPurpose::DEM, &base_key, encrypted_object);
+
+    std::debug::print(&1);
 
     // Decrypt the randomness
     let randomness = decrypt_randomness(
@@ -136,10 +145,14 @@ public fun decrypt(
     };
     let randomness = randomness.destroy_some();
 
+    std::debug::print(&2);
+
     // Use the randomness to verify the nonce.
     if (!verify_nonce(&randomness, &encrypted_object.nonce)) {
         return none()
     };
+
+    std::debug::print(&3);
 
     // Now, all shares can be decrypted using the randomness and the public keys.
     let all_shares = decrypt_all_shares_with_randomness(
@@ -147,6 +160,8 @@ public fun decrypt(
         encrypted_object,
         &public_keys,
     );
+
+    std::debug::print(&4);
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
     if (
@@ -156,6 +171,8 @@ public fun decrypt(
     ) {
         return none()
     };
+
+    std::debug::print(&5);
 
     // Decrypt the blob.
     hmac256ctr::decrypt(
@@ -210,25 +227,27 @@ fun verify_share(polynomials: &vector<Polynomial>, share: &vector<u8>, index: u8
 /// Decrypt the given shares with the derived keys.
 /// Panics if the number of indices does not match the number of derived keys.
 fun decrypt_shares_with_derived_keys(
-    indices: &vector<u64>,
+    indes_per_vdk: &vector<vector<u64>>,
     derived_keys: &vector<VerifiedDerivedKey>,
     encrypted_object: &EncryptedObject,
 ): vector<vector<u8>> {
     let gid = hash_to_g1_with_dst(
         &create_full_id(encrypted_object.package_id, encrypted_object.id),
     );
-    indices.zip_map_ref!(derived_keys, |i, vdk| {
-        xor(
-            &encrypted_object.encrypted_shares[*i],
-            &kdf(
-                &pairing(&vdk.derived_key, &encrypted_object.nonce),
-                &encrypted_object.nonce,
-                &gid,
-                encrypted_object.services[*i],
-                encrypted_object.indices[*i],
-            ),
-        )
-    })
+    indes_per_vdk.zip_map_ref!(derived_keys, |indices, vdk| {
+        indices.map_ref!(|i| {
+            xor(
+                &encrypted_object.encrypted_shares[*i],
+                &kdf(
+                    &pairing(&vdk.derived_key, &encrypted_object.nonce),
+                    &encrypted_object.nonce,
+                    &gid,
+                    encrypted_object.services[*i],
+                    encrypted_object.indices[*i],
+                ),
+            )
+        })
+    }).flatten()
 }
 
 /// Decrypts shares with the given randomness.
@@ -936,4 +955,46 @@ fun test_safe_scalar_from_bytes() {
     // Short input
     let long_bytes = x"73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF0000000000";
     assert!(safe_scalar_from_bytes(&long_bytes).is_none());
+}
+
+#[test]
+fun test_decryption_weighted() {
+    use sui::bls12381::{g1_from_bytes};
+
+    let pk0 =
+        x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
+    let pk1 =
+        x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
+
+    // For reference, the encryption was created with the following CLI command:
+    // cargo run --bin seal-cli encrypt-hmac --message 48656C6C6F2C20776F726C6421 --aad 0x0000000000000000000000000000000000000000000000000000000000000001 --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --threshold 2 a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161 a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161 93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651 -- 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96 0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96 0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97
+    let encrypted_object =
+        x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab9601034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab9602dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a970302008707022db5bd4db4f9ef77595f1647a170d457ad355b1e02089791a3ddd43ee7103eba147e731d1bba31ed19469b4dcd16c92f90f49c5874a678dbbc5fa7ef950dbe5171d8d898342a1df3e53b3f7f83d3fa150eb372f995173d5b59c66cd9fc037ce3baf132ebce3ac744c22d18425699e570f03c9234dacec1b9dda9c5f6fce26e03c8c7c15dd86670a8f3a6585425191a8de0e9c0b71045e644bfa45bf83d074d421e4f39bbabf913bf4e5c14b3ffa5803db6ee69955af0adda4bcc68c9e49cee6281aa3c72cacef6e14675e47dcc4b276500025c7e7c1f985683802382e3f0010dcc3e2d7dc960332f601edc1a7801200000000000000000000000000000000000000000000000000000000000000001cf4cee99f6433c8464587156e24cd21b784156a6f7cde3a70487d8e3059962e1";
+
+    let parsed_encrypted_object = parse_encrypted_object(encrypted_object);
+
+    let pks = vector[
+        new_public_key(parsed_encrypted_object.services[0].to_id(), pk0),
+    ];
+
+    // cargo run --bin seal-cli extract --package-id 0x0 --id 381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409 --master-key 3c185eb32f1ab43a013c7d84659ec7b59791ca76764af4ee8d387bf05621f0c7
+    let usk0 =
+        x"8cb19351dbd351d02292a77a18e2f0f4ec0d3becf23f37cc87e4870bf35522c3e59487e0ee5023d5e2e383e40b77bd98";
+
+    let user_secret_keys = vector[g1_from_bytes(&usk0)];
+    let vdks = verify_derived_keys(
+        &user_secret_keys,
+        @0x0,
+        x"381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409",
+        &pks,
+    );
+
+    let all_pks = vector[
+        new_public_key(parsed_encrypted_object.services[0].to_id(), pk0),
+        new_public_key(parsed_encrypted_object.services[1].to_id(), pk0),
+        new_public_key(parsed_encrypted_object.services[2].to_id(), pk1),
+    ];
+
+    let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks);
+    assert!(decrypted.borrow() == b"Hello, world!");
 }
