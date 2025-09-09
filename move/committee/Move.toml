@@ -1,0 +1,13 @@
+[package]
+name = "committee"
+edition = "2024.beta"
+
+[dependencies]
+seal = { local = "../seal" }
+
+[addresses]
+committee = "0x0"
+
+[dev-dependencies]
+
+[dev-addresses]

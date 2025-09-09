@@ -13,7 +13,7 @@ use crate::tests::SealTestCluster;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
-use crypto::ibe::{generate_seed, public_key_from_master_key};
+use crypto::ibe::{generate_seed, public_key_from_master_key, MasterKey};
 use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
@@ -384,6 +384,109 @@ async fn test_e2e_imported_key() {
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
         .is_err_and(|e| e == UnsupportedPackageId));
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_mpc() {
+    use crate::tests::KeyServerType::MPC;
+    use fastcrypto::encoding::Hex;
+
+    // create a test cluster with 2 funded user addresses
+    let mut tc = SealTestCluster::new(2).await;
+
+    // two servers with valid master keys from dkg
+    let msk1 = MasterKey::from_byte_array(
+        &Hex::decode("0x0a224ba7b6ca5ecfe9e288c98466d9c25d8786720a28d0260d56a5099c741118")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    )
+    .unwrap();
+
+    let msk2 = MasterKey::from_byte_array(
+        &Hex::decode("0x1ddf0fdcd547d8c0527d88e031cb07c9b7be52821930576e63b0b119af3eff34")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    )
+    .unwrap();
+
+    // set up the committee, key server, partial key server objects
+    let member1_addr = tc.cluster.get_address_0();
+    let member2_addr = tc.cluster.get_address_1();
+    let mut partial_pks = HashMap::new();
+    partial_pks.insert(member1_addr, public_key_from_master_key(&msk1));
+    partial_pks.insert(member2_addr, public_key_from_master_key(&msk2));
+    let partial_key_server_field_ids = tc.set_up_committee_server(partial_pks.clone()).await;
+
+    // add servers to the test cluster.
+    tc.add_server(MPC(msk1), "Server 1", Some(partial_key_server_field_ids[0]))
+        .await;
+    tc.add_server(MPC(msk2), "Server 2", Some(partial_key_server_field_ids[1]))
+        .await;
+
+    // publish the package and set up the whitelist user
+    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    let ordered_pks = vec![partial_pks[&member1_addr], partial_pks[&member2_addr]];
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(ordered_pks);
+
+    // encrypt a message
+    let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    let services_ids = partial_key_server_field_ids
+        .iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
+    let encryption = seal_encrypt(
+        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        whitelist.to_vec(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // fetch keys from two key servers
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+    let mut user_secret_keys = HashMap::new();
+    for (field_id, server) in tc.servers[..2].iter() {
+        let usk = get_key(
+            server,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap();
+        user_secret_keys.insert(sui_sdk_types::ObjectId::new(field_id.into_bytes()), usk);
+    }
+
+    // decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
 }
 
 async fn create_server(
