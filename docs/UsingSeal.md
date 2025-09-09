@@ -221,28 +221,28 @@ To decrypt an encrypted object in a Move package, follow these steps:
 
 You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
 
-Before encryption, the content creator may create a list of `PublicKey` Move objects containing the key server object ID and its public key. Clients can verify them if needed. 
+Before you encrypt data, create one or more `PublicKey` Move objects, each with a key server’s object ID and public key. Clients can verify these objects as needed.
 
 ```typescript
 const publicKey = tx.moveCall({
   target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::new_public_key`,
   arguments: [
     tx.pure.address(keyserverId),
-    tx.pure.vector("u8", Array.from(publicKeyBytes)) // stored in the desired key server object's dynamic object field `pk`. 
+    tx.pure.vector("u8", Array.from(publicKeyBytes)) // store this in the target key server object's dynamic field `pk`.
   ],
 });
 const allPublicKeys = [publicKey]; // can be many
 ```
 
-Now lient can first verify the keys, then decrypt using the Move functions. 
+First, client can verify the public keys. Then decrypt with the Move functions.
 
-Client should have:
+The client must have:
 
 - `encryptedBytes`: the BCS-serialized encrypted object.
 - `txBytes`: a valid transaction block that satisfies the `seal_approve*` policy function (see [Decryption](#decryption)).
-- `sessionKey`: a session key for the given package (see [Decryption](#decryption)).
-- `allPublicKeys`: an array of Move objects for all public keys in the encryption.
-- `correspondingPublicKeys`: the public keys that correspond to the derived keys. // whats this difference btw allPublicKeys vs correspondingPublicKeys????
+- `sessionKey`: a session key for the target package (see [Decryption](#decryption)).
+- `allPublicKeys`: an array of Move objects for all public keys used in the encryption.
+- `correspondingPublicKeys`: the public keys that correspond to the derived keys.
 
 ```typescript
 // Parse BCS serialized encrypted object from bytes.
@@ -273,7 +273,6 @@ const derivedKeysAsG1Elements = Array.from(derivedKeys).map(([derivedKey]) =>
 );
 
 // Call to verify the derived keys. This can be cached if decryption for the same ID is done again. 
-// what does this mean `for the same ID is done again.`????
 const verifiedDerivedKeys = tx.moveCall({
   target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::verify_derived_keys`,
   arguments: [
@@ -294,7 +293,7 @@ const result = tx.moveCall({
   ],
 });
 
-// result is in an option to be consumed if decryption is successful, none otherwise. 
+// result is in an option to be consumed if decryption is successful, `none` otherwise. 
 ```
 
 ### Optimizing performance
