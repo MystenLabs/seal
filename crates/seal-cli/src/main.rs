@@ -24,31 +24,24 @@ use std::str::FromStr;
 use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::ObjectId as NewObjectID;
-use sui_types::base_types::ObjectID as SuiObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 
 const KEY_LENGTH: usize = 32;
 
-/// Seal config containing key server object ids and pks.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SealConfig {
-    pub key_servers: Vec<String>,
-    pub public_keys: Vec<String>,
-}
-
 /// Key server object layout containing object id, name, url, and public key.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyServerInfo {
-    pub object_id: String,
+    pub object_id: ObjectID,
     pub name: String,
     pub url: String,
     pub public_key: String,
 }
 
 /// Fetch and parse key server object from fullnode.
+/// TODO: rewrite with sui-rust-sdk
 pub async fn fetch_key_server_urls(
-    key_server_ids: &[String],
+    key_server_ids: &[ObjectID],
     network: &str,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
     let sui_rpc = match network {
@@ -66,12 +59,7 @@ pub async fn fetch_key_server_urls(
         .await
         .map_err(|e| FastCryptoError::GeneralError(format!("Failed to build Sui client: {}", e)))?;
     let mut key_servers = Vec::new();
-
-    for object_id_str in key_server_ids {
-        let object_id: SuiObjectID = object_id_str.parse().map_err(|e| {
-            FastCryptoError::GeneralError(format!("Invalid object ID {}: {}", object_id_str, e))
-        })?;
-
+    for object_id in key_server_ids {
         // Get the dynamic field object for version 1
         let dynamic_field_name = DynamicFieldName {
             type_: TypeTag::U64,
@@ -80,7 +68,10 @@ pub async fn fetch_key_server_urls(
 
         match sui_client
             .read_api()
-            .get_dynamic_field_object(object_id, dynamic_field_name)
+            .get_dynamic_field_object(
+                sui_types::base_types::ObjectID::new(object_id.into_inner()),
+                dynamic_field_name,
+            )
             .await
         {
             Ok(response) => {
@@ -101,14 +92,14 @@ pub async fn fetch_key_server_urls(
                             let value_struct = fields_json.get("value").ok_or_else(|| {
                                 FastCryptoError::GeneralError(format!(
                                     "Missing 'value' field for object {}",
-                                    object_id_str
+                                    object_id
                                 ))
                             })?;
 
                             let value_fields = value_struct.get("fields").ok_or_else(|| {
                                 FastCryptoError::GeneralError(format!(
                                     "Missing 'fields' in value struct for object {}",
-                                    object_id_str
+                                    object_id
                                 ))
                             })?;
 
@@ -117,7 +108,7 @@ pub async fn fetch_key_server_urls(
                                     serde_json::Value::String(s) => Some(s.clone()),
                                     _ => None,
                                 })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {}", object_id_str)))?;
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {}", object_id)))?;
 
                             let name = value_fields
                                 .get("name")
@@ -140,10 +131,10 @@ pub async fn fetch_key_server_urls(
                                     serde_json::Value::String(s) => Some(s.clone()),
                                     _ => None,
                                 })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {}", object_id_str)))?;
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {}", object_id)))?;
 
                             key_servers.push(KeyServerInfo {
-                                object_id: object_id_str.clone(),
+                                object_id: *object_id,
                                 name,
                                 url,
                                 public_key,
@@ -151,26 +142,26 @@ pub async fn fetch_key_server_urls(
                         } else {
                             return Err(FastCryptoError::GeneralError(format!(
                                 "Unexpected content type for object {}",
-                                object_id_str
+                                object_id
                             )));
                         }
                     } else {
                         return Err(FastCryptoError::GeneralError(format!(
                             "No content found for object {}",
-                            object_id_str
+                            object_id
                         )));
                     }
                 } else {
                     return Err(FastCryptoError::GeneralError(format!(
                         "Object {} not found",
-                        object_id_str
+                        object_id
                     )));
                 }
             }
             Err(e) => {
                 return Err(FastCryptoError::GeneralError(format!(
                     "Failed to fetch dynamic field for object {}: {}",
-                    object_id_str, e
+                    object_id, e
                 )));
             }
         }
@@ -333,23 +324,24 @@ enum Command {
         #[arg(long)]
         key: EncodedByteArray<KEY_LENGTH>,
     },
-    /// Encrypt a secret using Seal.
+    /// Encrypt a secret using Seal. This uses the public fullnode for
+    /// retrieval of key servers' public keys for the given network.
     Encrypt {
         /// The secret to encrypt.
         #[arg(long)]
         secret: String,
 
-        /// Unique per package identifier of the secret, e.g. weather-api-key.
+        /// Unique per package identifier of the secret.
         #[arg(long)]
-        key_name: String,
+        id: EncodedBytes,
 
         /// Package ID that defines seal policy.
         #[arg(short = 'p', long)]
-        package_id: String,
+        package_id: ObjectID,
 
         /// Comma-separated key server object IDs (e.g., 0x123,0x456)
         #[arg(short = 'k', long, value_delimiter = ',')]
-        key_server_ids: Vec<String>,
+        key_server_ids: Vec<ObjectID>,
 
         /// Threshold
         #[arg(short = 't', long)]
@@ -361,13 +353,13 @@ enum Command {
     },
     /// Fetch keys from Seal servers using assembled fetch keys request.
     FetchKeys {
-        /// Encoded fetch keys request. Returned as response from /init_parameter_load.
+        /// Hex encoded fetch keys request.
         #[arg(long)]
-        request: String,
+        request: EncodedBytes,
 
         /// Comma-separated key server object IDs (e.g., 0x123,0x456)
         #[arg(short = 'k', long, value_delimiter = ',')]
-        key_server_ids: Vec<String>,
+        key_server_ids: Vec<ObjectID>,
 
         /// Threshold
         #[arg(short = 't', long)]
@@ -512,7 +504,7 @@ async fn main() -> FastCryptoResult<()> {
         .to_string(),
         Command::Encrypt {
             secret,
-            key_name,
+            id,
             package_id,
             key_server_ids,
             threshold,
@@ -524,16 +516,6 @@ async fn main() -> FastCryptoResult<()> {
                 .map_err(|e| {
                     FastCryptoError::GeneralError(format!("Failed to fetch key server info: {}", e))
                 })?;
-
-            // Parse key server ids for encryption
-            let object_ids = key_server_infos
-                .iter()
-                .map(|info| {
-                    NewObjectID::from_str(&info.object_id).map_err(|e| {
-                        FastCryptoError::GeneralError(format!("Invalid object ID: {}", e))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
 
             // Parse public keys from fetched data
             let pks: Vec<IBEPublicKey> = key_server_infos
@@ -550,12 +532,13 @@ async fn main() -> FastCryptoResult<()> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Encrypt the secret
-            let package_id = NewObjectID::from_str(&package_id)
-                .map_err(|e| FastCryptoError::GeneralError(format!("Invalid package ID: {}", e)))?;
+            let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
+                FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
+            })?);
             let (encrypted_object, _) = seal_encrypt(
                 package_id,
-                key_name.as_bytes().to_vec(),
-                object_ids,
+                id.0,
+                key_server_ids,
                 &IBEPublicKeys::BonehFranklinBLS12381(pks),
                 threshold,
                 EncryptionInput::Aes256Gcm {
@@ -575,16 +558,12 @@ async fn main() -> FastCryptoResult<()> {
             network,
         } => {
             // Parse fetch keys request.
-            let request: FetchKeyRequest =
-                bcs::from_bytes(&Hex::decode(&request).map_err(|e| {
-                    FastCryptoError::GeneralError(format!("Invalid hex encoding: {}", e))
-                })?)
-                .map_err(|e| {
-                    FastCryptoError::GeneralError(format!(
-                        "Failed to parse FetchKeyRequest from BCS: {}",
-                        e
-                    ))
-                })?;
+            let request: FetchKeyRequest = bcs::from_bytes(&request.0).map_err(|e| {
+                FastCryptoError::GeneralError(format!(
+                    "Failed to parse FetchKeyRequest from BCS: {}",
+                    e
+                ))
+            })?;
 
             // Fetch keys from key server urls and collect seal responses.
             let mut seal_responses = Vec::new();
@@ -824,8 +803,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_key_server_urls() {
-        let key_server_ids =
-            vec!["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75".to_string()];
+        let key_server_ids = vec![ObjectID::from_str(
+            "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+        )
+        .unwrap()];
         let key_servers = fetch_key_server_urls(&key_server_ids, "testnet")
             .await
             .unwrap();

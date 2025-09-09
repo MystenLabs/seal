@@ -667,11 +667,11 @@ Encrypted shares:
   Encapsulation: 841b3a59241e099e8b8d9cec1d531b1e8fe4b4170433e30d9aaa9fc764201f69e589a0b2a0e65bfb279d4b25ee1ce8141812bfb785abdb05134c3958f53c2e81e7bc06e5c1f1ebd7e489b5cf652216b13e6b7c2b13da70a4a7c05c3544a1ddf7
 ```
 
-Encrypt secret for a given game and seal policy package ID, using the specified Seal key server object IDs and network. 
+Encrypt secret for a given Hex encoded unique identifier and seal policy package ID, using the specified Seal key server object IDs and network. The public keys are fetched using the public fullnode. 
 
 ```shell
 $ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
-    --key-name weather-api-key \
+    --id 0000 \
     -p 0xfaeabd7f317dd7ae40d83b73cfa68b92795f48540d03f1232b33207e22d0a62f \
     -t 2 \
     -k 0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75,0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8 \
