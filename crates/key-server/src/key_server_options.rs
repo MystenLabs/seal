@@ -336,7 +336,7 @@ session_key_ttl_max: '60s'
     let valid_configuration_custom_network = r#"
 network: !Custom
   node_url: https://node.dk
-  network_name: Testnet
+  use_default_mainnet_for_mvr: false
 server_mode: !Open
   key_server_object_id: '0x0'
 "#;
@@ -348,7 +348,7 @@ server_mode: !Open
         options.network,
         Network::Custom {
             node_url: Some("https://node.dk".to_string()),
-            network_name: Some("Testnet".to_string()),
+            use_default_mainnet_for_mvr: Some(false),
         }
     );
 

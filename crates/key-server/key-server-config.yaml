@@ -6,7 +6,8 @@
 # network: Devnet
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
-#   network_name: 'Mainnet' # Default to Mainnet if not present, can be Mainnet or Testnet. 
+#   use_default_mainnet_for_mvr: 'true' # Optional, default to true if not present, 
+set this to false for mvr to resolve on testnet. 
 #
 # Use Custom for production deployments. You must provide the node URL
 # in exactly one of these ways:

@@ -17,7 +17,7 @@ pub enum Network {
     Mainnet,
     Custom {
         node_url: Option<String>,
-        network_name: Option<String>,
+        use_default_mainnet_for_mvr: Option<bool>,
     },
     #[cfg(test)]
     TestCluster,
@@ -45,7 +45,7 @@ impl Network {
             "mainnet" => Network::Mainnet,
             "custom" => Network::Custom {
                 node_url: std::env::var("NODE_URL").ok(),
-                network_name: None,
+                use_default_mainnet_for_mvr: None,
             },
             _ => panic!("Unknown network: {}", str),
         }

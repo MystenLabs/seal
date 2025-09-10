@@ -134,19 +134,13 @@ pub(crate) fn resolve_network(network: &Network) -> Result<Network, InternalErro
     match &network {
         Network::Mainnet => Ok(Network::Mainnet),
         Network::Testnet => Ok(Network::Testnet),
-        Network::Custom { network_name, .. } => {
-            match network_name {
-                Some(network_name) => {
-                    if network_name == "Mainnet" {
-                        Ok(Network::Mainnet)
-                    } else if network_name == "Testnet" {
-                        Ok(Network::Testnet)
-                    } else {
-                        return Err(Failure(
-                            "Invalid network name for custom network".to_string(),
-                        ));
-                    }
-                }
+        Network::Custom {
+            use_default_mainnet_for_mvr,
+            ..
+        } => {
+            match use_default_mainnet_for_mvr {
+                Some(true) => Ok(Network::Mainnet),
+                Some(false) => Ok(Network::Testnet),
                 None => Ok(Network::Mainnet), // Default to Mainnet if not present
             }
         }
