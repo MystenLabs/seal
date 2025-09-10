@@ -452,8 +452,8 @@ async fn test_e2e_mpc() {
     let encryption = seal_encrypt(
         sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        services_ids.clone(),
-        &pks,
+        services_ids.clone(), // should be one ks obj 
+        &pks, // should be one aggregated pk
         2,
         EncryptionInput::Aes256Gcm {
             data: message.to_vec(),
@@ -464,6 +464,8 @@ async fn test_e2e_mpc() {
     .0;
 
     // fetch keys from two key servers
+    // todo: here should aggreagte the secret keys first then pass to seal decrypt
+
     let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
     let mut user_secret_keys = HashMap::new();
     for (field_id, server) in tc.servers[..2].iter() {

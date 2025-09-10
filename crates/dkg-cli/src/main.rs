@@ -434,9 +434,9 @@ fn main() -> Result<()> {
 
             println!("========================================");
             println!("ALL PARTIES' PARTIAL PUBLIC KEYS:");
+            // vss_pk.c0 is the aggregated ks pk
             for (party_id, _) in state.received_messages {
-                // party id is 0 index and share index is + 1?
-                // todo: check if this is correct
+                // party id is 0 index and share index is party id + 1
                 let share_index = NonZeroU16::new(party_id + 1).unwrap();
                 let partial_pk = output.vss_pk.eval(share_index);
                 println!(

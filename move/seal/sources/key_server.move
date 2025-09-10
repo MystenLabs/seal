@@ -118,7 +118,7 @@ public fun upgrade_to_v2(
 /// Create and add partial key server objects for a committee-owned key server. 
 public fun add_all_partial_key_servers<T: key>(
     key_server: &mut KeyServer,
-    _committee_witness: &T, // only a committee package can call this, todo: check this.
+    _committee_witness: &T, // no need for this
     members: &vector<address>,
     partial_pks: &vector<vector<u8>>,
     ctx: &mut TxContext,
@@ -137,11 +137,14 @@ public fun add_all_partial_key_servers<T: key>(
             url: b"".to_string(), // intialize empty url, member can update this 
         };
         
+        // make this df for ks_v2 obj
+        // versioning for partial ks
         df::add(&mut key_server.id, members[i], partial_key_server);
         i = i + 1;
     };
 }
 
+// no need for this witness
 /// Update the URL of a partial key server, can only update the caller created server. 
 public fun update_url<T: key>(key_server: &mut KeyServer, _committee_witness: &T, url: String, ctx: &mut TxContext) {
     assert!(has_v2(key_server), EInvalidVersion);
