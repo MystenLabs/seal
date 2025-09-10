@@ -48,7 +48,7 @@ pub async fn push_metrics(
     client: &reqwest::Client,
     registry: &Registry,
 ) -> Result<(), anyhow::Error> {
-    tracing::info!(config.push_url, "pushing metrics to remote");
+    tracing::debug!(config.push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
