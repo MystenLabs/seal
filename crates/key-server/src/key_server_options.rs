@@ -303,6 +303,7 @@ fn default_sdk_version_requirement() -> VersionReq {
 
 #[test]
 fn test_parse_open_config() {
+    use crate::mvr::resolve_network;
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet
@@ -335,15 +336,19 @@ session_key_ttl_max: '60s'
     let valid_configuration_custom_network = r#"
 network: !Custom
   node_url: https://node.dk
+  network_name: Testnet
 server_mode: !Open
   key_server_object_id: '0x0'
 "#;
     let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
         .expect("Failed to parse valid configuration");
+
+    assert!(resolve_network(&options.network).unwrap() == Network::Testnet);
     assert_eq!(
         options.network,
         Network::Custom {
             node_url: Some("https://node.dk".to_string()),
+            network_name: Some("Testnet".to_string()),
         }
     );
 
@@ -353,6 +358,7 @@ server_mode: !Open
 
 #[test]
 fn test_parse_custom_network_with_env_var() {
+    use crate::mvr::resolve_network;
     // Test that NODE_URL can be omitted from config when not set in env
     let config_without_url = r#"
 network: !Custom {}
@@ -363,8 +369,9 @@ server_mode: !Open
     let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
         .expect("Failed to parse configuration without node_url");
 
+    assert!(resolve_network(&options.network).unwrap() == Network::Mainnet);
     match options.network {
-        Network::Custom { node_url } => {
+        Network::Custom { node_url, .. } => {
             assert_eq!(node_url, None);
         }
         _ => panic!("Expected Custom network"),

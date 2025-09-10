@@ -6,6 +6,7 @@
 # network: Devnet
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
+#   network_name: 'Mainnet' # Default to Mainnet if not present, can be Mainnet or Testnet. 
 #
 # Use Custom for production deployments. You must provide the node URL
 # in exactly one of these ways:

@@ -73,7 +73,8 @@ pub(crate) async fn mvr_forward_resolution(
     mvr_name: &str,
     key_server_options: &KeyServerOptions,
 ) -> Result<ObjectID, InternalError> {
-    let package_address = match key_server_options.network {
+    let network = resolve_network(&key_server_options.network)?;
+    let package_address = match network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
             .await?
             .value
@@ -126,6 +127,31 @@ pub(crate) async fn mvr_forward_resolution(
         _ => return Err(Failure("Invalid network for MVR resolution".to_string())),
     };
     Ok(ObjectID::new(package_address.into_inner()))
+}
+
+/// Resolve the network from the network configuration for Custom.
+pub(crate) fn resolve_network(network: &Network) -> Result<Network, InternalError> {
+    match &network {
+        Network::Mainnet => Ok(Network::Mainnet),
+        Network::Testnet => Ok(Network::Testnet),
+        Network::Custom { network_name, .. } => {
+            match network_name {
+                Some(network_name) => {
+                    if network_name == "Mainnet" {
+                        Ok(Network::Mainnet)
+                    } else if network_name == "Testnet" {
+                        Ok(Network::Testnet)
+                    } else {
+                        return Err(Failure(
+                            "Invalid network name for custom network".to_string(),
+                        ));
+                    }
+                }
+                None => Ok(Network::Mainnet), // Default to Mainnet if not present
+            }
+        }
+        _ => Err(Failure("Invalid network for MVR resolution".to_string())),
+    }
 }
 
 /// Given an MVR name, look up the record in the MVR registry on mainnet.

@@ -783,7 +783,10 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             .expect("Failed to parse configuration file");
 
             // Handle Custom network NODE_URL configuration
-            if let Network::Custom { ref mut node_url } = opts.network {
+            if let Network::Custom {
+                ref mut node_url, ..
+            } = opts.network
+            {
                 let env_node_url = env::var("NODE_URL").ok();
 
                 match (node_url.as_ref(), env_node_url.as_ref()) {
