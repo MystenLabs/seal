@@ -6,7 +6,7 @@ ARG PROFILE=release
 WORKDIR /work
 
 # Copy Cargo files first for better caching
-COPY Cargo.toml ./
+COPY Cargo.toml  Cargo.lock ./
 COPY .cargo/ .cargo/
 
 # Copy source code
