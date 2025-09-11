@@ -3,10 +3,10 @@ FROM rust:1.87-bullseye AS builder
 
 ARG PROFILE=release
 
-WORKDIR work
+WORKDIR /work
 
 # Copy Cargo files first for better caching
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY .cargo/ .cargo/
 
 # Copy source code
