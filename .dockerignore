@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+.pycache/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Tests
+tests/
+**/*.test.*
+
+# CI/CD
+.github/
+.pre-commit-*
+
+# Docker
+Dockerfile*
+.dockerignore
+
+# Build artifacts
+*.tar.gz
+*.zip
+
+# Local development
+.env
+.env.local
+.env.*.local
+
+# Node modules (if any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Move build artifacts
+move/build/

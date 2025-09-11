@@ -1,17 +1,24 @@
 # Start with a Rust base image
-FROM rust:1.87-bullseye  AS builder
+FROM rust:1.87-bullseye AS builder
 
 ARG PROFILE=release
 
 WORKDIR work
 
-COPY ./crates ./crates
-COPY ./Cargo.toml ./
+# Copy Cargo files first for better caching
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ .cargo/
+
+# Copy source code
+COPY crates/ ./crates
+COPY move/ ./move
+COPY scripts/ ./scripts
 
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 
 RUN cargo build --bin key-server --profile $PROFILE --config net.git-fetch-with-cli=true
+
 FROM debian:bullseye-slim AS runtime
 
 EXPOSE 2024
