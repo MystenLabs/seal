@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.5.9"
+version = "0.5.10"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
