@@ -36,17 +36,6 @@ static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap())
 });
 
-static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "middleware_headers",
-            "Operations counters and status for axum middleware.",
-        ),
-        &["header", "value"]
-    )
-    .unwrap())
-});
-
 /// we expect that calling seal nodes have known bearer tokens
 pub async fn expect_valid_bearer_token(
     TypedHeader(auth_header): TypedHeader<Authorization<Bearer>>,
@@ -55,14 +44,8 @@ pub async fn expect_valid_bearer_token(
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
     // Extract the Authorization header
-    let (allowed, owner_name) = allower.allowed(&auth_header.token().to_string());
+    let (allowed, _owner_name) = allower.allowed(&auth_header.token().to_string());
     if allowed {
-        with_label!(
-            MIDDLEWARE_HEADERS,
-            "bearer-token-owner",
-            &owner_name.to_string()
-        )
-        .inc();
         Ok(next.run(req).await)
     } else {
         tracing::info!("invalid token, rejecting request");
@@ -72,16 +55,10 @@ pub async fn expect_valid_bearer_token(
 
 /// we expect seal to send us an http header content-length encoding.
 pub async fn expect_content_length(
-    TypedHeader(content_length): TypedHeader<ContentLength>,
+    TypedHeader(_content_length): TypedHeader<ContentLength>,
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    with_label!(
-        MIDDLEWARE_HEADERS,
-        "content-length",
-        &format!("{}", content_length.0)
-    )
-    .inc();
     Ok(next.run(request).await)
 }
 
