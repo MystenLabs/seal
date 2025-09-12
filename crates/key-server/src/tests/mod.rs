@@ -178,13 +178,17 @@ impl SealTestCluster {
     }
 
     /// Set up all onchain artifiacts with the given partial public keys assuming dkg is done.
+    /// Returns (key_server_id, partial_key_server_field_ids)
     pub async fn set_up_committee_server(
         &mut self,
         partial_pks: HashMap<SuiAddress, ibe::PublicKey>,
-    ) -> Vec<ObjectID> {
+    ) -> (ObjectID, Vec<ObjectID>) {
         let (committee_package, _) = self.publish("committee").await;
 
-        // 1. create InitCommittee
+        // Prepare member addresses for the committee
+        let members = vec![self.cluster.get_address_0(), self.cluster.get_address_1()];
+
+        // 1. create Committee with threshold 2 and members
         let tx = self
             .cluster
             .sui_client()
@@ -193,9 +197,12 @@ impl SealTestCluster {
                 self.cluster.get_address_0(),
                 committee_package,
                 "committee",
-                "new_init_committee",
+                "init_committee",
                 vec![],
-                vec![SuiJsonValue::from_str("2").unwrap()],
+                vec![
+                    SuiJsonValue::from_str("2").unwrap(),
+                    SuiJsonValue::new(json!(members)).unwrap(),
+                ],
                 None,
                 50_000_000,
                 None,
@@ -204,8 +211,8 @@ impl SealTestCluster {
             .unwrap();
         let response = self.cluster.sign_and_execute_transaction(&tx).await;
 
-        // 2. get InitCommittee object id
-        let init_committee_id = response
+        // 2. get Committee object id
+        let committee_id = response
             .object_changes
             .unwrap()
             .into_iter()
@@ -214,10 +221,10 @@ impl SealTestCluster {
                     object_type,
                     object_id,
                     ..
-                } if object_type.name.as_str() == "InitCommittee" => Some(object_id),
+                } if object_type.name.as_str() == "Committee" => Some(object_id),
                 _ => None,
             })
-            .expect("InitCommittee should be created");
+            .expect("Committee should be created");
 
         // Step 2: register members for address_0 and address_1.
         let tx = self
@@ -233,7 +240,7 @@ impl SealTestCluster {
                 vec![
                     SuiJsonValue::new(json!(b"enc_pk_1".to_vec())).unwrap(),
                     SuiJsonValue::new(json!(b"signing_pk_1".to_vec())).unwrap(),
-                    SuiJsonValue::from_object_id(init_committee_id),
+                    SuiJsonValue::from_object_id(committee_id),
                 ],
                 None,
                 50_000_000,
@@ -256,7 +263,7 @@ impl SealTestCluster {
                 vec![
                     SuiJsonValue::new(json!(b"enc_pk_2".to_vec())).unwrap(),
                     SuiJsonValue::new(json!(b"signing_pk_2".to_vec())).unwrap(),
-                    SuiJsonValue::from_object_id(init_committee_id),
+                    SuiJsonValue::from_object_id(committee_id),
                 ],
                 None,
                 50_000_000,
@@ -266,13 +273,18 @@ impl SealTestCluster {
             .unwrap();
         self.cluster.sign_and_execute_transaction(&tx).await;
 
-        // 3. propose a committee with the two address and partial pks.
-        let mut addresses = Vec::new();
+        // 3. propose a committee with partial pks and aggregate pk.
+        // Order the partial keys by member addresses
         let mut partial_pks_bytes = Vec::new();
-        for (addr, pk) in &partial_pks {
-            addresses.push(*addr);
+        for member in &members {
+            let pk = partial_pks
+                .get(member)
+                .expect("Missing partial pk for member");
             partial_pks_bytes.push(pk.to_byte_array().to_vec());
         }
+
+        // Use a dummy aggregate public key for now
+        let aggregate_pk_bytes = vec![0u8; 48]; // Dummy 48-byte public key
 
         let tx = self
             .cluster
@@ -285,9 +297,9 @@ impl SealTestCluster {
                 "propose_committee",
                 vec![],
                 vec![
-                    SuiJsonValue::from_object_id(init_committee_id),
-                    SuiJsonValue::new(json!(addresses)).unwrap(),
+                    SuiJsonValue::from_object_id(committee_id),
                     SuiJsonValue::new(json!(partial_pks_bytes)).unwrap(),
+                    SuiJsonValue::new(json!(aggregate_pk_bytes)).unwrap(),
                 ],
                 None,
                 50_000_000,
@@ -295,22 +307,7 @@ impl SealTestCluster {
             )
             .await
             .unwrap();
-        let response = self.cluster.sign_and_execute_transaction(&tx).await;
-
-        // 4. get the committee obect id.
-        let committee_id = response
-            .object_changes
-            .unwrap()
-            .into_iter()
-            .find_map(|d| match d {
-                ObjectChange::Created {
-                    object_type,
-                    object_id,
-                    ..
-                } if object_type.name.as_str() == "Committee" => Some(object_id),
-                _ => None,
-            })
-            .expect("Committee should be created");
+        self.cluster.sign_and_execute_transaction(&tx).await;
 
         // 4. approve the committee with address_0 and address_1.
         let tx = self
@@ -372,28 +369,39 @@ impl SealTestCluster {
             .unwrap();
         let response = self.cluster.sign_and_execute_transaction(&tx).await;
 
-        // 6. get the partial key server field ids.
+        // 6. get the key server object id and partial key server field ids.
+        let mut key_server_id = None;
         let mut partial_key_server_field_ids = Vec::new();
+
         for change in response.object_changes.as_ref().unwrap() {
-            // Collect PartialKeyServer Field object IDs
-            if let ObjectChange::Created {
-                object_type,
-                object_id,
-                ..
-            } = change
-            {
-                if object_type.name.as_str() == "Field" && object_type.type_params.len() == 2 {
-                    // Check if it's a Field<Address, PartialKeyServer>
-                    if let Some(sui_types::TypeTag::Struct(s)) = object_type.type_params.get(1) {
-                        if s.name.as_str() == "PartialKeyServer" {
-                            partial_key_server_field_ids.push(*object_id);
+            match change {
+                ObjectChange::Created {
+                    object_type,
+                    object_id,
+                    ..
+                } => {
+                    if object_type.name.as_str() == "KeyServer" {
+                        key_server_id = Some(*object_id);
+                    } else if object_type.name.as_str() == "Field"
+                        && object_type.type_params.len() == 2
+                    {
+                        // Check if it's a Field<Address, PartialKeyServer>
+                        if let Some(sui_types::TypeTag::Struct(s)) = object_type.type_params.get(1)
+                        {
+                            if s.name.as_str() == "PartialKeyServer" {
+                                partial_key_server_field_ids.push(*object_id);
+                            }
                         }
                     }
                 }
+                _ => {}
             }
         }
 
-        partial_key_server_field_ids
+        (
+            key_server_id.expect("KeyServer should be created"),
+            partial_key_server_field_ids,
+        )
     }
 
     pub fn server(&self) -> &Server {

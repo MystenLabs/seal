@@ -5,6 +5,7 @@ module committee::committee;
 
 use std::string::String;
 use sui::package::UpgradeCap;
+use sui::dynamic_field as df;
 use sui::table::{Self, Table};
 use seal::key_server::{Self, KeyServer};
 use sui::package::UpgradeTicket;
@@ -18,10 +19,9 @@ const ENotCandidate: u64 = 3;
 const EAlreadyApproved: u64 = 4;
 const ENoProposalForDigest: u64 = 5;
 const EInvalidPartialPks: u64 = 6;
-const EInvalidMembers: u64 = 7;
 const EAlreadyRegistered: u64 = 8;
 const EInsufficientVotes: u64 = 9;
-
+const EInvalidState: u64 = 10;
 // ===== Structs =====
 
 /// Candidate data for a member to register before dkg. 
@@ -30,29 +30,31 @@ public struct CandidateData has store, drop {
     signing_pk: vector<u8>,
 }
 
-/// Initial committee before DKG. Anyone can add themselves to it. 
-public struct InitCommittee has key {
-    id: UID,
-    candidates: Table<address, CandidateData>,
-    members: vector<address>, // party id = the index in members
-    threshold: u16,
+public enum State has store, drop {
+    Init,
+    PreDKG, 
+    PostDKG {
+        approvals: vector<address>,
+        partial_pks: vector<vector<u8>>,
+        pk: vector<u8>,
+    },
+    Finalized
 }
 
-/// Anyone in InitCommittee can propose this. After threshold of approvals,
-/// the committee is finalized and the committee owned KeyServer is created.
+/// MPC committee with defined threshold and members. The state is an enum 
+/// in different stages.
 public struct Committee has key {
     id: UID,
     threshold: u16,
     members: vector<address>, // party id is the index of this vector
-    partial_pks: vector<vector<u8>>, // pks corresponding to members
-    approvals: vector<address>,
+    state: State
 }
 
 /// Upgrade manager that holds the upgrade cap. 
 public struct UpgradeManager has key {
     id: UID,
     cap: UpgradeCap,
-    upgrade_proposals: Table<vector<u8>, UpgradeProposal>,
+    upgrade_proposals: Table<vector<u8>, UpgradeProposal>
 }
 
 /// Upgrade proposal that contains the digest and voters. 
@@ -63,68 +65,83 @@ public struct UpgradeProposal has store, drop {
 
 // ===== Functions =====
 
-/// Create an init committee with threshold. 
-public fun new_init_committee(
+/// Anyone can create a committee in init state with defined members list and threhold.
+public fun init_committee(
     threshold: u16,
+    members: vector<address>,
     ctx: &mut TxContext,
 ) {
-    transfer::share_object(InitCommittee { id: object::new(ctx), candidates: table::new(ctx), threshold, members: vector::empty() });
+    assert!(threshold > 0, EInvalidThreshold);
+    assert!(members.length() >= threshold as u64, EInvalidThreshold);
+    transfer::share_object(Committee { 
+        id: object::new(ctx), 
+        threshold, 
+        members, 
+        state: State::Init
+    });
 }
 
-/// Register as a candidate for a InitCommittee with ecies pk and signing pk. 
+/// Register as a candidate with ecies pk and signing pk. Transition state to PreDKG if not already.
 public fun register(
-    candidate_enc_pk: vector<u8>,
-    candidate_signing_pk: vector<u8>,
-    init_committee: &mut InitCommittee,
+    enc_pk: vector<u8>,
+    signing_pk: vector<u8>,
+    committee: &mut Committee,
     ctx: &mut TxContext,
 ) {
+    assert!(committee.members.contains(&ctx.sender()), ENotMember);
     let sender = ctx.sender();
-    assert!(!init_committee.candidates.contains(sender), EAlreadyRegistered);
-    init_committee.candidates.add(sender, CandidateData { enc_pk: candidate_enc_pk, signing_pk: candidate_signing_pk });
-    init_committee.members.push_back(sender);
+    match (&committee.state) {
+        State::Init => {
+            // Transition from Init to PreDKG
+            committee.state = State::PreDKG;
+            // Store candidate data as dynamic field
+            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk });
+        },
+        State::PreDKG => {
+            // Already in PreDKG, just add the candidate
+            assert!(!df::exists_(&committee.id, sender), EAlreadyRegistered);
+            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk });
+        },
+        _ => abort EInvalidState
+    }
 }
 
 /// Propose a committee with a list of member address and their partial pks 
 /// after dkg. These are known to all parties that participated at dkg 
 /// finalization step. 
 public fun propose_committee(
-    init_committee: &InitCommittee,
-    members: vector<address>, // todo: check this, can be a subset
+    committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
+    pk: vector<u8>,
     ctx: &mut TxContext,
 ) { 
-    assert!(init_committee.members.length() >= init_committee.threshold as u64, EInvalidThreshold);
-    assert!(init_committee.candidates.contains(ctx.sender()), ENotCandidate);
-    assert!(members.length() == partial_pks.length(), EInvalidPartialPks);
-    
-    let mut i = 0;
-    while (i < members.length()) {
-        assert!(init_committee.candidates.contains(members[i]), EInvalidMembers);
-        i = i + 1;
-    };
+    assert!(match (&committee.state) {
+        State::PreDKG => true,
+        _ => false,
+    }, EInvalidState);
 
-    let committee = Committee {
-        id: object::new(ctx),
-        threshold: init_committee.threshold,
-        members,
-        partial_pks,
-        approvals: vector::empty(),
-    };
-    transfer::share_object(committee);
+    assert!(committee.members.contains(&ctx.sender()), ENotCandidate);
+    assert!(partial_pks.length() == committee.members.length(), EInvalidPartialPks);
+    committee.state = State::PostDKG { approvals: vector::empty(), partial_pks, pk };
 }
 
-/// Approve the proposed committee after checking all partial pks 
-/// in the committee object matches with the member's dkg finalization 
-/// locally. This can be called by any members of committee.
+/// Approve the proposed committee after checking all partial pks and key server pk
+/// matches with the member's dkg finalization locally. This can be called by any 
+/// members of committee.
 public fun approve_committee(
     committee: &mut Committee,
     ctx: &mut TxContext,
 ) {
-    let sender = ctx.sender();
-    assert!(committee.members.contains(&sender), ENotMember);
-    assert!(!committee.approvals.contains(&sender), EAlreadyApproved);
-    
-    committee.approvals.push_back(sender);
+    assert!(committee.members.contains(&ctx.sender()), ENotMember);
+    match (&mut committee.state) {
+        State::PostDKG { approvals, .. } => {
+            assert!(!approvals.contains(&ctx.sender()), EAlreadyApproved);
+            approvals.push_back(ctx.sender());
+        },
+        _ => {
+            assert!(false, EInvalidState);
+        }
+    }
 }
 
 /// Finalize the committee and create the key server object and all partial 
@@ -134,26 +151,33 @@ public fun finalize_committee(
     committee: &mut Committee,
     ctx: &mut TxContext,
 ) {
-    assert!(committee.approvals.length() >= committee.threshold as u64, EInvalidThreshold);
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
-
-    let mut key_server = key_server::create_v2(
-        committee.id.to_address().to_string(),
-        0,
-        committee.threshold,
-        ctx,
-    );
+    match (&committee.state) {
+        State::PostDKG { approvals, partial_pks, pk } => {
+            assert!(approvals.length() >= committee.threshold as u64, EInvalidThreshold);
+            let mut key_server = key_server::create_committee_v2(
+                committee.id.to_address().to_string(),
+                committee.threshold,
+                *pk,
+                ctx,
+            );
     
-    key_server::add_all_partial_key_servers(
-        &mut key_server,
-        committee,
-        &committee.members,
-        &committee.partial_pks,
-        ctx,
-    );
+            key_server::add_all_partial_key_servers(
+                &mut key_server,
+                &committee.members,
+                partial_pks,
+                ctx,
+            );
 
-    // transfer the key server object to the Committee object via TTO
-    transfer::public_transfer(key_server, committee.id.to_address());
+            // transfer the key server object to the Committee object via TTO
+            transfer::public_transfer(key_server, committee.id.to_address());
+            
+            committee.state = State::Finalized;
+        },
+        _ => {
+            assert!(false, EInvalidState);
+        }
+    }
 }
 
 /// Update the url of the key server object. Only 
@@ -165,7 +189,7 @@ public fun update_url(
 ) {
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
     let mut key_server = transfer::public_receive(&mut committee.id, ks);
-    key_server::update_url(&mut key_server, committee, url, ctx);
+    key_server::update_url(&mut key_server, url, ctx);
     transfer::public_transfer(key_server, committee.id.to_address());
 }
 
@@ -223,24 +247,28 @@ fun test_committee() {
     let mut scenario = test_scenario::begin(@0x1);
     let ctx = scenario.ctx();
     
-    // Create init committee with threshold 3
-    new_init_committee(3, ctx);
+    // Create committee with threshold 3 and 3 members
+    init_committee(3, vector[@0x1, @0x2, @0x3], ctx);
     scenario.next_tx(@0x1);
     
     // Register 3 members
-    let mut init_committee = scenario.take_shared<InitCommittee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    test_scenario::return_shared(committee);
     scenario.next_tx(@0x2);
-    register(b"enc_pk_2", b"signing_pk_2", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    test_scenario::return_shared(committee);
     scenario.next_tx(@0x3);
-    register(b"enc_pk_3", b"signing_pk_3", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_3", b"signing_pk_3", &mut committee, scenario.ctx());
     
-    // Propose committee with members and partial keys
+    // Propose committee with partial keys and full pk
     scenario.next_tx(@0x1);
-    let addresses = vector[@0x1, @0x2, @0x3];
     let partial_pks = vector[b"partial_pk_1", b"partial_pk_2", b"partial_pk_3"];
-    propose_committee(&init_committee, addresses, partial_pks, scenario.ctx());
-    test_scenario::return_shared(init_committee);
+    let pk = b"full_public_key";
+    propose_committee(&mut committee, partial_pks, pk, scenario.ctx());
+    test_scenario::return_shared(committee);
     
     // Approve committee by threshold members
     scenario.next_tx(@0x1);
@@ -285,16 +313,16 @@ fun test_register_fails_when_already_registered() {
     
     let mut scenario = test_scenario::begin(@0x1);
     
-    new_init_committee(2, scenario.ctx());
+    init_committee(2, vector[@0x1, @0x2], scenario.ctx());
     scenario.next_tx(@0x1);
     
-    let mut init_committee = scenario.take_shared<InitCommittee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
     
     // Try to register again - should fail with EAlreadyRegistered
-    register(b"enc_pk_2", b"signing_pk_2", &mut init_committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
     
-    test_scenario::return_shared(init_committee);
+    test_scenario::return_shared(committee);
     scenario.end();
 }
 
@@ -306,24 +334,28 @@ fun test_finalize_committee_fails_without_threshold() {
     let mut scenario = test_scenario::begin(@0x1);
     let ctx = scenario.ctx();
     
-    // Create init committee with threshold 3
-    new_init_committee(3, ctx);
+    // Create committee with threshold 3 and 3 members
+    init_committee(3, vector[@0x1, @0x2, @0x3], ctx);
     scenario.next_tx(@0x1);
     
     // Register 3 members
-    let mut init_committee = scenario.take_shared<InitCommittee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    test_scenario::return_shared(committee);
     scenario.next_tx(@0x2);
-    register(b"enc_pk_2", b"signing_pk_2", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    test_scenario::return_shared(committee);
     scenario.next_tx(@0x3);
-    register(b"enc_pk_3", b"signing_pk_3", &mut init_committee, scenario.ctx());
+    let mut committee = scenario.take_shared<Committee>();
+    register(b"enc_pk_3", b"signing_pk_3", &mut committee, scenario.ctx());
     
-    // Propose committee with members and partial keys
+    // Propose committee with partial keys and full pk
     scenario.next_tx(@0x1);
-    let addresses = vector[@0x1, @0x2, @0x3];
     let partial_pks = vector[b"partial_pk_1", b"partial_pk_2", b"partial_pk_3"];
-    propose_committee(&init_committee, addresses, partial_pks, scenario.ctx());
-    test_scenario::return_shared(init_committee);
+    let pk = b"full_public_key";
+    propose_committee(&mut committee, partial_pks, pk, scenario.ctx());
+    test_scenario::return_shared(committee);
     
     // Approve committee by only 2 members (less than threshold of 3)
     scenario.next_tx(@0x1);

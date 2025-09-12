@@ -397,7 +397,7 @@ async fn test_e2e_mpc() {
 
     // two servers with valid master keys from dkg
     let msk1 = MasterKey::from_byte_array(
-        &Hex::decode("0x0a224ba7b6ca5ecfe9e288c98466d9c25d8786720a28d0260d56a5099c741118")
+        &Hex::decode("0x14aad9ceaaff36716f83e46373d5596ff45efb132bc0e539c93d3ceb0da9f417")
             .unwrap()
             .try_into()
             .unwrap(),
@@ -405,20 +405,24 @@ async fn test_e2e_mpc() {
     .unwrap();
 
     let msk2 = MasterKey::from_byte_array(
-        &Hex::decode("0x1ddf0fdcd547d8c0527d88e031cb07c9b7be52821930576e63b0b119af3eff34")
+        &Hex::decode("0x1cb443d59c0c10cf5439a596189c2b6eb83225b38406f462ebd663ad74f4a38f")
             .unwrap()
             .try_into()
             .unwrap(),
     )
     .unwrap();
-
+    use fastcrypto::groups::bls12381::G2Element;
+    let agg_pk_bytes = Hex::decode("0x87878d91624465268254e979d94b5eba904d5a1c5383c77d06d1b01fe3d895241d8bf289ac1d1ff707fdf94f3eac1324036c5399d3cabebb78481ed2692c12af0d492a3c620c94c37e6d642f26fc8def63429f5a3b4630e785931a985ca1371f").unwrap();
+    let agg_pk_array: [u8; 96] = agg_pk_bytes.try_into().unwrap();
+    let agg_pk = G2Element::from_byte_array(&agg_pk_array).unwrap();
     // set up the committee, key server, partial key server objects
     let member1_addr = tc.cluster.get_address_0();
     let member2_addr = tc.cluster.get_address_1();
     let mut partial_pks = HashMap::new();
     partial_pks.insert(member1_addr, public_key_from_master_key(&msk1));
     partial_pks.insert(member2_addr, public_key_from_master_key(&msk2));
-    let partial_key_server_field_ids = tc.set_up_committee_server(partial_pks.clone()).await;
+    let (key_server_id, partial_key_server_field_ids) =
+        tc.set_up_committee_server(partial_pks.clone()).await;
 
     // add servers to the test cluster.
     tc.add_server(MPC(msk1), "Server 1", Some(partial_key_server_field_ids[0]))
@@ -440,21 +444,14 @@ async fn test_e2e_mpc() {
     )
     .await;
 
-    let ordered_pks = vec![partial_pks[&member1_addr], partial_pks[&member2_addr]];
-    let pks = IBEPublicKeys::BonehFranklinBLS12381(ordered_pks);
-
     // encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
-    let services_ids = partial_key_server_field_ids
-        .iter()
-        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
-        .collect::<Vec<_>>();
-    let encryption = seal_encrypt(
+    let service_id = sui_sdk_types::ObjectId::new(key_server_id.into_bytes());
+    let encryption = crypto::seal_encrypt_mpc(
         sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        services_ids.clone(), // should be one ks obj 
-        &pks, // should be one aggregated pk
-        2,
+        service_id,
+        &agg_pk,
         EncryptionInput::Aes256Gcm {
             data: message.to_vec(),
             aad: None,
@@ -463,13 +460,13 @@ async fn test_e2e_mpc() {
     .unwrap()
     .0;
 
-    // fetch keys from two key servers
-    // todo: here should aggreagte the secret keys first then pass to seal decrypt
-
+    // fetch partial keys from both committee member servers
     let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
-    let mut user_secret_keys = HashMap::new();
-    for (field_id, server) in tc.servers[..2].iter() {
-        let usk = get_key(
+    let mut partial_user_keys = Vec::new();
+
+    // Fetch partial user secret keys from both committee member servers
+    for (_field_id, server) in tc.servers[..2].iter() {
+        let partial_key_g1 = get_key(
             server,
             &examples_package_id,
             ptb.clone(),
@@ -477,18 +474,33 @@ async fn test_e2e_mpc() {
         )
         .await
         .unwrap();
-        user_secret_keys.insert(sui_sdk_types::ObjectId::new(field_id.into_bytes()), usk);
+        
+        // Convert G1Element to IBE UserSecretKey
+        let partial_user_key = ibe::UserSecretKey::from_byte_array(&partial_key_g1.to_byte_array()).unwrap();
+        partial_user_keys.push(partial_user_key);
     }
 
-    // decrypt the message
-    let decryption = seal_decrypt(
+    // decrypt the message using MPC decryption with partial keys
+    let decryption_result = crypto::seal_decrypt_mpc(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
-        Some(&pks),
-    )
-    .unwrap();
+        &partial_user_keys,
+        Some(&agg_pk),
+    );
+    
+    let decryption = match decryption_result {
+        Ok(data) => {
+            println!("MPC decryption successful!");
+            data
+        },
+        Err(e) => {
+            println!("MPC decryption failed: {:?}", e);
+            println!("Number of partial keys: {}", partial_user_keys.len());
+            println!("Encryption threshold: {}", encryption.threshold);
+            panic!("Decryption failed: {:?}", e);
+        }
+    };
 
-    assert_eq!(decryption, message);
+    assert_eq!(&decryption, message);
 }
 
 async fn create_server(

@@ -433,8 +433,10 @@ fn main() -> Result<()> {
             state.output = Some(output.clone());
 
             println!("========================================");
+            println!("KEY SERVER PUBLIC KEY:");
+            println!("  0x{}", Hex::encode(bcs::to_bytes(output.vss_pk.c0())?));
+            println!("========================================");
             println!("ALL PARTIES' PARTIAL PUBLIC KEYS:");
-            // vss_pk.c0 is the aggregated ks pk
             for (party_id, _) in state.received_messages {
                 // party id is 0 index and share index is party id + 1
                 let share_index = NonZeroU16::new(party_id + 1).unwrap();
