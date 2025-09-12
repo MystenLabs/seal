@@ -299,12 +299,10 @@ pub fn create_full_id(package_id: &[u8; 32], id: &[u8]) -> Vec<u8> {
 }
 
 /// MPC-specific seal encrypt function.
-/// Encrypts data using an aggregated public key from a DKG committee.
-/// The threshold is already determined by the DKG setup.
 pub fn seal_encrypt_mpc(
     package_id: ObjectID,
     id: Vec<u8>,
-    service_id: ObjectID,
+    key_server: ObjectID,
     aggregated_public_key: &ibe::PublicKey,
     encryption_input: EncryptionInput,
 ) -> FastCryptoResult<(EncryptedObject, [u8; KEY_SIZE])> {
@@ -314,14 +312,14 @@ pub fn seal_encrypt_mpc(
     // Generate a random base key
     let base_key = generate_random_bytes(&mut rng);
     let randomness = ibe::Randomness::rand(&mut rng);
-    
+
     // Encrypt the base key using IBE with the aggregated public key
     let (nonce, encrypted_shares) = encrypt_batched_deterministic(
         &randomness,
         &[base_key],
         &[*aggregated_public_key],
         &full_id,
-        &[(service_id, 1)],
+        &[(key_server, 1)],
     )?;
 
     // Derive keys and encrypt randomness
@@ -329,15 +327,15 @@ pub fn seal_encrypt_mpc(
         KeyPurpose::DEM,
         &base_key,
         &encrypted_shares,
-        1, // threshold 1 since we have one aggregated service
-        &[service_id],
+        1,
+        &[key_server],
     );
     let randomness_key = derive_key(
         KeyPurpose::EncryptedRandomness,
         &base_key,
         &encrypted_shares,
         1,
-        &[service_id],
+        &[key_server],
     );
     let encrypted_randomness = ibe::encrypt_randomness(&randomness, &randomness_key);
 
@@ -352,8 +350,8 @@ pub fn seal_encrypt_mpc(
             encrypted_shares,
             encrypted_randomness,
         },
-        services: vec![(service_id, 1)], // index 1 for single service
-        threshold: 1, // threshold 1 since we present as single service
+        services: vec![(key_server, 1)], // index 1 for single service
+        threshold: 1,
         ciphertext,
     };
 
@@ -361,11 +359,9 @@ pub fn seal_encrypt_mpc(
 }
 
 /// MPC-specific seal decrypt function.
-/// Decrypts data using partial secret keys from DKG committee members.
-/// The partial keys are aggregated to reconstruct the full user secret key.
 pub fn seal_decrypt_mpc(
     encrypted_object: &EncryptedObject,
-    partial_user_secret_keys: &[ibe::UserSecretKey],
+    aggregated_user_key: &ibe::UserSecretKey,
     aggregated_public_key: Option<&ibe::PublicKey>,
 ) -> FastCryptoResult<Vec<u8>> {
     let EncryptedObject {
@@ -384,30 +380,7 @@ pub fn seal_decrypt_mpc(
         return Err(InvalidInput);
     }
 
-    if partial_user_secret_keys.is_empty() {
-        println!("MPC decrypt error: No partial keys provided");
-        return Err(InvalidInput);
-    }
-
-    println!("MPC decrypt: version OK, {} partial keys, {} services", 
-             partial_user_secret_keys.len(), services.len());
-
     let full_id = create_full_id(package_id.inner(), id);
-
-    // For MPC setup, aggregate the partial user secret keys from committee members
-    // Since DKG has already handled the threshold setup, we can aggregate directly
-    use fastcrypto::groups::bls12381::G1Element;
-    use fastcrypto::groups::GroupElement;
-    use fastcrypto::serde_helpers::ToFromByteArray;
-    
-    // Convert to G1Elements and aggregate
-    let mut aggregated_g1 = G1Element::zero();
-    for partial_key in partial_user_secret_keys {
-        let g1_element = G1Element::from_byte_array(&partial_key.to_byte_array())?;
-        aggregated_g1 = aggregated_g1 + g1_element;
-    }
-    
-    let aggregated_user_key = ibe::UserSecretKey::from_byte_array(&aggregated_g1.to_byte_array())?;
 
     // Decrypt using the aggregated key
     match encrypted_shares {
@@ -420,7 +393,7 @@ pub fn seal_decrypt_mpc(
             let base_key = ibe::decrypt(
                 nonce,
                 &encrypted_shares[0],
-                &aggregated_user_key,
+                aggregated_user_key,
                 &full_id,
                 &(services[0].0, services[0].1),
             );
@@ -431,7 +404,7 @@ pub fn seal_decrypt_mpc(
                     KeyPurpose::EncryptedRandomness,
                     &base_key,
                     encrypted_shares,
-                    *threshold as u8,
+                    *threshold,
                     &services.iter().map(|(id, _)| *id).collect_vec(),
                 );
                 let randomness = decrypt_randomness(encrypted_randomness, &randomness_key)?;
@@ -443,7 +416,7 @@ pub fn seal_decrypt_mpc(
                 KeyPurpose::DEM,
                 &base_key,
                 encrypted_shares,
-                *threshold as u8,
+                *threshold,
                 &services.iter().map(|(id, _)| *id).collect_vec(),
             );
 
