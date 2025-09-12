@@ -117,6 +117,27 @@ Note that the encryption does **not** conceal the size of the message. If messag
 !!! tip
     The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an `EncryptedObject` instance that includes metadata such as the ID and other associated fields.
 
+### Store encrypted data
+
+After you encrypt your data with Seal, store the ciphertext in your preferred storage. You can use **Walrus** via the [SDK](https://sdk.mystenlabs.com/walrus) (see [other SDKs](https://docs.wal.app/usage/sdks.html)) or the [Web API](https://docs.wal.app/usage/web-api.html).
+
+If you use Walrus, attach a few metadata tags to each encrypted blob. These tags can help you:
+
+- Reconcile at any point whether you have encrypted all your required data.
+- Demonstrate encryption to your customers or auditors when needed.
+
+You can automate both tasks with the **Sui custom indexing framework** by indexing Walrus blob metadata and querying on the tags below. See the guide: [Index Walrus objects with a custom indexer](https://docs.sui.io/guides/developer/advanced/custom-indexer/indexer-walrus).
+
+Recommended tags when using Walrus:
+
+- `seal.encrypted` — Set to `true` to indicate a Seal-encrypted blob.
+- `seal.policy_package_id` — The access policy package ID that governs access (e.g., `0x...`).
+- `seal.keyserver_fingerprint` (optional) — Hash of the object ids of your key-server set and related threshold.
+- `seal.envelope_encrypted` (optional) - Set to `true` when you use envelope encryption (encrypt the blob with a symmetric key, then encrypt that key with Seal).
+- `seal.envelope_encryption_key` (optional) - When using envelope encryption, the Sui object ID of the symmetric key (encrypted with Seal) if you store it as a Sui object.
+
+Keep the returned Walrus **Blob ID** with your application records so you can fetch and decrypt the data when needed.
+
 ### Decryption
 
 Decryption involves a few additional steps:
