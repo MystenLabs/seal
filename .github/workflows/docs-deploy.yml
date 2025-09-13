@@ -1,0 +1,125 @@
+name: Docs Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'overrides/**'
+      - 'theme/**'
+      - 'ws-resources.json'
+
+concurrency:
+  group: docs-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy MkDocs to Walrus
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@49933ea5288caeca8642d1e84afbd3f7d6820020 # pin@v4.4.0
+        with:
+          python-version: '3.11'
+
+      - name: Install MkDocs and Material theme
+        run: |
+          python -m pip install --upgrade pip
+          pip install mkdocs mkdocs-material
+
+      - name: Clean site directory
+        run: |
+          rm -rf site
+
+      - name: Build MkDocs site
+        run: |
+          mkdocs build --strict
+
+      - name: Copy ws-resources.json into built site
+        run: |
+          if [ -f ws-resources.json ]; then
+            cp ws-resources.json site/
+          else
+            echo "ws-resources.json not found at repo root" >&2
+            exit 1
+          fi
+
+      - name: Install Sui CLI (Homebrew)
+        run: |
+          brew update
+          brew install sui
+
+      - name: Configure Sui client for mainnet
+        run: |
+          # Create or update mainnet env and switch to it
+          sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:44 || true
+          sui client switch --env mainnet
+
+      - name: Import Sui private key and select address
+        env:
+          SUI_PRIVATE_KEY: ${{ secrets.SUI_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUI_PRIVATE_KEY:-}" ]; then
+            echo "SUI_PRIVATE_KEY secret is not set. Add it in repository Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
+          # Import the ed25519 key (idempotent)
+          sui keytool import "$SUI_PRIVATE_KEY" ed25519 || true
+
+          # Desired address
+          target_addr="0x7edc2e9108968bc3df2b5543cf9ce9ee7bcdc28b043044e51cc1900510b6f58e"
+
+          # Try to find alias via 'sui client addresses' output
+          alias=$(sui client addresses 2>/dev/null | awk -v addr="$target_addr" '$0 ~ addr {print $1}' | head -n1 || true)
+
+          if [ -n "$alias" ]; then
+            sui client switch --address "$alias"
+          else
+            # Fall back to switching directly by address if supported
+            if sui client switch --address "$target_addr" 2>/dev/null; then
+              echo "Switched using address directly."
+            else
+              echo "Could not determine alias for $target_addr" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Install Walrus CLI
+        run: |
+          curl -sSf https://install.wal.app | sh
+          # Ensure installed bins are on PATH for subsequent steps
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Walrus client
+        run: |
+          mkdir -p "$HOME/.config/walrus"
+          curl -fsSL https://docs.wal.app/setup/client_config.yaml -o "$HOME/.config/walrus/client_config.yaml"
+          curl -fsSL https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o "$HOME/.config/walrus/sites-config.yaml"
+
+      - name: Install site-builder
+        run: |
+          set -euo pipefail
+          arch=$(uname -m)
+          if [ "$arch" = "arm64" ]; then
+            SYSTEM="macos-arm64"
+          else
+            SYSTEM="macos-x86_64"
+          fi
+          curl -fsSL "https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-$SYSTEM" -o site-builder
+          chmod +x site-builder
+
+      - name: Deploy site to Walrus and verify
+        run: |
+          ./site-builder deploy ./site --check-extend --epochs 50
+          ./site-builder sitemap @seal-docs
+
+
