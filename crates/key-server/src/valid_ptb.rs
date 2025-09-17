@@ -18,6 +18,10 @@ pub struct ValidPtb(ProgrammableTransaction);
 // Should only increase this with time.
 const MAX_COMMANDS: usize = 100;
 
+// Size limits to prevent DoS attacks
+const MAX_BASE64_LENGTH: usize = 1024 * 1024; // 1MB
+const MAX_DECODED_SIZE: usize = 512 * 1024;   // 512KB
+
 impl TryFrom<ProgrammableTransaction> for ValidPtb {
     type Error = InternalError;
 
@@ -116,12 +120,27 @@ fn get_key_id(
 
 impl ValidPtb {
     pub fn try_from_base64(s: &str) -> Result<Self, InternalError> {
-        Base64::decode(s)
-            .map_err(|_| InternalError::InvalidPTB("Invalid Base64".to_string()))
-            .and_then(|b| {
-                bcs::from_bytes::<ProgrammableTransaction>(&b)
-                    .map_err(|_| InternalError::InvalidPTB("Invalid BCS".to_string()))
-            })
+        // Prevent DoS attacks by limiting input size
+        if s.len() > MAX_BASE64_LENGTH {
+            return Err(InternalError::InvalidPTB(format!(
+                "Input too large (max {} bytes)",
+                MAX_BASE64_LENGTH
+            )));
+        }
+
+        let decoded = Base64::decode(s)
+            .map_err(|_| InternalError::InvalidPTB("Invalid Base64".to_string()))?;
+
+        // Prevent DoS attacks by limiting decoded size
+        if decoded.len() > MAX_DECODED_SIZE {
+            return Err(InternalError::InvalidPTB(format!(
+                "Decoded data too large (max {} bytes)",
+                MAX_DECODED_SIZE
+            )));
+        }
+
+        bcs::from_bytes::<ProgrammableTransaction>(&decoded)
+            .map_err(|_| InternalError::InvalidPTB("Invalid BCS".to_string()))
             .and_then(ValidPtb::try_from)
     }
 
@@ -278,5 +297,85 @@ mod tests {
                 "Invalid function or package id".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn test_dos_protection_large_base64_input() {
+        // Test that overly large Base64 inputs are rejected
+        let large_input = "A".repeat(MAX_BASE64_LENGTH + 1);
+        let result = ValidPtb::try_from_base64(&large_input);
+        assert!(result.is_err());
+        
+        match result.err().unwrap() {
+            InternalError::InvalidPTB(msg) => {
+                assert!(msg.contains("Input too large"));
+            }
+            _ => panic!("Expected InvalidPTB error"),
+        }
+    }
+
+    #[test]
+    fn test_dos_protection_large_decoded_data() {
+        // Create a valid PTB and then encode it with padding to exceed size limit
+        let mut builder = ProgrammableTransactionBuilder::new();
+        let id = vec![1u8, 2, 3, 4];
+        let id_caller = builder.pure(id.clone()).unwrap();
+        let pkgid = ObjectID::random();
+        builder.programmable_move_call(
+            pkgid,
+            Identifier::new("bla").unwrap(),
+            Identifier::new("seal_approve_test").unwrap(),
+            vec![],
+            vec![id_caller],
+        );
+        let ptb = builder.finish();
+        let valid_ptb = ValidPtb::try_from(ptb).unwrap();
+        
+        // Serialize the PTB
+        let ptb_bytes = bcs::to_bytes(valid_ptb.ptb());
+        
+        // Create malicious input: valid PTB + extra padding to exceed size limit
+        let mut malicious_bytes = ptb_bytes;
+        malicious_bytes.extend(vec![0u8; MAX_DECODED_SIZE + 1]);
+        
+        // Encode as Base64
+        let malicious_base64 = Base64::encode(&malicious_bytes);
+        
+        // This should fail due to size limit
+        let result = ValidPtb::try_from_base64(&malicious_base64);
+        assert!(result.is_err());
+        
+        match result.err().unwrap() {
+            InternalError::InvalidPTB(msg) => {
+                assert!(msg.contains("Decoded data too large"));
+            }
+            _ => panic!("Expected InvalidPTB error"),
+        }
+    }
+
+    #[test]
+    fn test_dos_protection_valid_size_limits() {
+        // Test that inputs within size limits are accepted
+        let mut builder = ProgrammableTransactionBuilder::new();
+        let id = vec![1u8, 2, 3, 4];
+        let id_caller = builder.pure(id.clone()).unwrap();
+        let pkgid = ObjectID::random();
+        builder.programmable_move_call(
+            pkgid,
+            Identifier::new("bla").unwrap(),
+            Identifier::new("seal_approve_test").unwrap(),
+            vec![],
+            vec![id_caller],
+        );
+        let ptb = builder.finish();
+        let valid_ptb = ValidPtb::try_from(ptb).unwrap();
+        
+        // Serialize and encode - should be well within limits
+        let ptb_bytes = bcs::to_bytes(valid_ptb.ptb());
+        let base64_input = Base64::encode(&ptb_bytes);
+        
+        // This should succeed
+        let result = ValidPtb::try_from_base64(&base64_input);
+        assert!(result.is_ok());
     }
 }
