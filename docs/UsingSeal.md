@@ -316,6 +316,7 @@ A Seal key server can operate in one of two modes: `Open` or `Permissioned`:
 - **Open mode**: In open mode, the key server accepts decryption requests for *any* onchain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
 - **Permissioned mode**: In permissioned mode, the key server restricts access to a manually approved list of packages associated with specific clients or applications. Each client is served using a dedicated master key.
     - This mode also supports importing or exporting the client-specific key if needed, for purposes such as disaster recovery or key server rotation.
+    - The approved package IDs in permissioned mode *must* be the package ID of the first version of the package, so if the package is upgraded, the key server will still recognize it.
 
 You can choose the mode that best fits your deployment model and security requirements. The following sections provide more details on both options.
 
