@@ -282,10 +282,10 @@ impl Server {
                         INVALID_PARAMS_CODE => {
                             // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
                             // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                            debug!("Invalid parameter: {}", e.message());
-                            return InternalError::InvalidParameter(e.message().to_string());
+                            // There are other possible reasons, so we return a sanitized error message to avoid information disclosure.
+                            // Log only generic error details to prevent sensitive information leakage.
+                            debug!("Invalid parameter in PTB execution");
+                            return InternalError::InvalidParameter("Invalid parameter in programmable transaction block".to_string());
                         }
                         METHOD_NOT_FOUND_CODE => {
                             // This means that the seal_approve function is not found on the given module.
