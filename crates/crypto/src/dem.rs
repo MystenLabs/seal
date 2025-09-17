@@ -52,7 +52,7 @@ impl Aes256Gcm {
 /// 3. Compute a MAC over the AAD and the ciphertext, <i>mac = <b>hmac</b>("MAC", k, aad, c).
 /// 4. Return <i>mac || c</i>.
 ///
-/// Since there is no IV for this scheme, the same key must never be used to encrypt two different messages.
+/// This is intended to be used as part of a KEM/DEM construction with random keys. Since there is no IV for this scheme, the same key must never be used to encrypt two different messages.
 pub struct Hmac256Ctr;
 
 impl Hmac256Ctr {
