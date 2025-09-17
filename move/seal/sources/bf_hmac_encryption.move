@@ -23,6 +23,9 @@ use sui::{
 
 const DST_DERIVE_KEY: vector<u8> = b"SUI-SEAL-IBE-BLS12381-H3-00";
 
+/// Error code for duplicate indices in encrypted object
+const E_DUPLICATE_INDICES: u64 = 1001;
+
 public struct EncryptedObject has copy, drop, store {
     package_id: address,
     id: vector<u8>,
@@ -324,11 +327,16 @@ fun verify_derived_key(
 }
 
 fun assert_all_unique<T: drop + copy>(items: &vector<T>) {
-    let mut seen = vector::empty();
-    items.do_ref!(|item| {
-        assert!(seen.find_index!(|i| i == item).is_none());
-        seen.push_back(*item);
-    })
+    let i = 0;
+    let n = items.length();
+    while (i < n) {
+        let j = i + 1;
+        while (j < n) {
+            assert!(*items.borrow(i) != *items.borrow(j), E_DUPLICATE_INDICES);
+            j = j + 1;
+        };
+        i = i + 1;
+    }
 }
 
 /// Deserialize a BCS encoded EncryptedObject.
@@ -498,7 +506,7 @@ fun test_parse_encrypted_object() {
 }
 
 #[test]
-#[expected_failure]
+#[expected_failure(abort_code = 1001)]
 fun test_parse_encrypted_object_duplicate_indices_rejected() {
     // a encoded object with duplicate indices [183, 183, 123]
     let encoded =
