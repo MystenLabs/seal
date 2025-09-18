@@ -221,18 +221,18 @@ To decrypt an encrypted object in a Move package, follow these steps:
 
 You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
 
-Assume you have the following (See [Decryption](#decryption)): 
-- `encryptedBytes`: the BCS-serialized encrypted object.
-- `txBytes`: a valid transaction block that satisfies the `seal_approve*` policy function.
-- `client`: the initialized `SealClient`. 
-- `sessionKey`: the initialized `SessionKey`.
+Before you decrypt (see [Decryption](#decryption)), gather the following: 
+- `encryptedBytes`: BCS-serialized encrypted object.
+- `txBytes`: a valid transaction block that calls the relevant `seal_approve*` policy function.
+- `client`: an initialized `SealClient`. 
+- `sessionKey`: an initialized `SessionKey`.
 - `SEAL_PACKAGE_ID`: the Seal package ID for the network. 
 
 ```typescript
-// 1. Parse this encrypted object.
+// 1. Parse the encrypted object.
 const encryptedObject = EncryptedObject.parse(encryptedBytes);
 
-// 2. Get derived keys from key servers for this object ID. 
+// 2. Get derived keys from key servers for the encrypted object's ID. 
 const derivedKeys = await client.getDerivedKeys({
   id: encryptedObject.id,
   txBytes,
