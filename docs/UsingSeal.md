@@ -272,7 +272,7 @@ const verifiedDerivedKeys = tx.moveCall({
   ],
 });
 
-// 6. Construct the encrypted object.
+// 6. Construct the parsed encrypted object onchain.
 const parsedEncryptedObject = tx.moveCall({
   target: `${seal_package_id}::bf_hmac_encryption::parse_encrypted_object`,
   arguments: [tx.pure.vector("u8", encryptedBytes)],
