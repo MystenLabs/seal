@@ -221,79 +221,83 @@ To decrypt an encrypted object in a Move package, follow these steps:
 
 You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
 
-Before you encrypt data, create one or more `PublicKey` Move objects, each with a key server’s object ID and public key. Clients can verify these objects as needed.
-
-```typescript
-const publicKey = tx.moveCall({
-  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::new_public_key`,
-  arguments: [
-    tx.pure.address(keyserverId),
-    tx.pure.vector("u8", Array.from(publicKeyBytes)) // store this in the target key server object's dynamic field `pk`.
-  ],
-});
-const allPublicKeys = [publicKey]; // can be many
-```
-
-First, client can verify the public keys. Then decrypt with the Move functions.
-
-The client must have:
-
+Assume you have the following (See [Decryption](#decryption)): 
 - `encryptedBytes`: the BCS-serialized encrypted object.
-- `txBytes`: a valid transaction block that satisfies the `seal_approve*` policy function (see [Decryption](#decryption)).
-- `sessionKey`: a session key for the target package (see [Decryption](#decryption)).
-- `allPublicKeys`: an array of Move objects for all public keys used in the encryption.
-- `correspondingPublicKeys`: the public keys that correspond to the derived keys.
+- `txBytes`: a valid transaction block that satisfies the `seal_approve*` policy function.
+- `client`: the initialized `SealClient`. 
+- `sessionKey`: the initialized `SessionKey`.
+- `SEAL_PACKAGE_ID`: the Seal package ID for the network. 
 
 ```typescript
-// Parse BCS serialized encrypted object from bytes.
+// 1. Parse this encrypted object.
 const encryptedObject = EncryptedObject.parse(encryptedBytes);
 
-// Alternatively, parse encrypted object as Move object with `parse_encrypted_object`.
-// For some applications, this object should be stored on-chain (e.g., encrypted votes should be stored before the deadline, and decrypted after).
-const tx = new Transaction();
-const encryptedObject = tx.moveCall({
-  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::parse_encrypted_object`,
-  arguments: [tx.pure.vector("u8", Array.from(encryptedBytes))],
-});
-
-// Get derived keys from key servers.
-const derivedKeys = await sealClient.getDerivedKeys({
+// 2. Get derived keys from key servers for this object ID. 
+const derivedKeys = await client.getDerivedKeys({
   id: encryptedObject.id,
   txBytes,
   sessionKey,
   threshold: encryptedObject.threshold,
 });
 
-// Convert the derived keys to G1 elements.
-const derivedKeysAsG1Elements = Array.from(derivedKeys).map(([derivedKey]) => 
-  tx.moveCall({
-    target: `0x2::bls12381::g1_from_bytes`,
-    arguments: [tx.pure.vector("u8", fromHex(derivedKey.toString()))],
-  }),
+// 3. Get the public keys corresponding to the derived keys.
+const publicKeys = await client.getPublicKeys(encryptedObject.services.map(([service, _]) => service));
+const correspondingPublicKeys = derivedKeys.keys().map((objectId) => {
+  const index = encryptedObject.services.findIndex(([s, _]) => s === objectId);
+  return tx.moveCall({
+    target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
+    arguments: [
+      tx.pure.address(objectId),
+      tx.pure.vector("u8", publicKeys[index].toBytes())
+    ],
+  });
+}).toArray();
+
+// 4. Convert the derived keys to G1 elements.
+const derivedKeysAsG1Elements = Array.from(derivedKeys).map(([_, value]) =>
+tx.moveCall({
+  target: `0x2::bls12381::g1_from_bytes`,
+  arguments: [ tx.pure.vector("u8", fromHex(value.toString())) ],
+})
 );
 
-// Call to verify the derived keys. This can be cached if decryption for the same ID is done again. 
+// 5. Call the Move function verify_derived_keys. This should be cached if decryption for the same ID is performed again. 
 const verifiedDerivedKeys = tx.moveCall({
-  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::verify_derived_keys`,
+  target: `${seal_package_id}::bf_hmac_encryption::verify_derived_keys`,
   arguments: [
-    tx.makeMoveVec({ elements: derivedKeysAsG1Elements }),
-    tx.pure.address(encryptedObject.packageId),
-    tx.pure.vector("u8", fromHex(encryptedObject.id)),
-    tx.makeMoveVec({ elements: correspondingPublicKeys }),
+  tx.makeMoveVec({ elements: derivedKeysAsG1Elements, type: '0x2::group_ops::Element<0x2::bls12381::G1>' }),
+  tx.pure.address(encryptedObject.packageId),
+  tx.pure.vector("u8", fromHex(encryptedObject.id)),
+    tx.makeMoveVec({ elements: correspondingPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
   ],
 });
 
-// Call to decrypt. 
-const result = tx.moveCall({
-  target: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::decrypt`,
+// 6. Construct the encrypted object.
+const parsedEncryptedObject = tx.moveCall({
+  target: `${seal_package_id}::bf_hmac_encryption::parse_encrypted_object`,
+  arguments: [tx.pure.vector("u8", encryptedBytes)],
+});
+
+// 7. Construct a list of public key objects. 
+const allPublicKeys = publicKeys.map((publicKey, i) => tx.moveCall({
+  target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
+  arguments: [
+    tx.pure.address(encryptedObject.services[i][0]),
+    tx.pure.vector("u8", publicKey.toBytes())
+  ],
+}));
+
+// 7. Perform decryption with verified derived keys. 
+const decrypted = tx.moveCall({
+  target: `${seal_package_id}::bf_hmac_encryption::decrypt`,
   arguments: [
     parsedEncryptedObject,
     verifiedDerivedKeys,
-    tx.makeMoveVec({ elements: allPublicKeys }),
+    tx.makeMoveVec({ elements: allPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
   ],
 });
 
-// result is in an option to be consumed if decryption is successful, `none` otherwise. 
+// The decryption result is in an option to be consumed if successful, `none` otherwise. 
 ```
 
 ### Optimizing performance
