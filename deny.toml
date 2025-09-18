@@ -9,6 +9,14 @@
 # The values provided in this template are the default values that will be used
 # when any section or field is not specified in your own configuration
 
+# Global configuration to suppress warnings and only show failures
+[graph]
+targets = []
+
+[output]
+# Set feature depth to 0 to reduce output
+feature-depth = 0
+
 # This section is considered when running `cargo deny check advisories`
 # More documentation for the advisories section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
@@ -41,6 +49,8 @@ ignore = [
     "RUSTSEC-2024-0437",
     # AES functions in `ring` may panic when overflow checking is enabled
     "RUSTSEC-2025-0009",
+    # `fxhash` is unmaintained - no safe upgrade available
+    "RUSTSEC-2025-0057"
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
@@ -76,7 +86,8 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     #"Apache-2.0 WITH LLVM-exception",
-    "Zlib"
+    "Zlib",
+    "CDLA-Permissive-2.0"
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
@@ -199,10 +210,10 @@ skip-tree = [
 [sources]
 # Lint level for what to happen when a crate from a crate registry that is not
 # in the allow list is encountered
-unknown-registry = "warn"
+unknown-registry = "allow"
 # Lint level for what to happen when a crate from a git repository that is not
 # in the allow list is encountered
-unknown-git = "warn"
+unknown-git = "allow"
 # List of URLs for allowed crate registries. Defaults to the crates.io index
 # if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

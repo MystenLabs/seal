@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
-use tracing::warn;
 
 /// Default directory for storing DKG state
 const DKG_STATE_DIR: &str = ".dkg-state";
@@ -29,7 +28,7 @@ struct PartyConfig {
     party_id: u16,
     /// ECIES private key for encryption
     enc_sk: PrivateKey<G2Element>,
-    /// ECIES public key for encryption  
+    /// ECIES public key for encryption
     enc_pk: PublicKey<G2Element>,
     /// Signing key (for message authentication, not part of DKG)
     signing_sk: G2Scalar,
@@ -45,6 +44,10 @@ struct PartyConfig {
     old_share: Option<G2Scalar>,
     /// Old partial public key for key rotation verification
     old_pk: Option<G2Element>,
+    /// Old party ID (for continuing members in rotation)
+    old_party_id: Option<u16>,
+    /// Is this party in both committees (for rotation)
+    is_continuing_member: bool,
 }
 
 /// State of the DKG protocol
@@ -67,6 +70,10 @@ struct DkgState {
     )>,
     /// Final output (if completed)
     output: Option<Output<G2Element, G2Element>>,
+    /// Mapping from new party ID to old party ID (for rotation)
+    new_to_old_mapping: HashMap<u16, u16>,
+    /// Expected partial public keys from old committee (for rotation verification)
+    expected_old_partial_pks: HashMap<u16, G2Element>,
 }
 
 #[derive(Parser)]
@@ -82,7 +89,7 @@ enum Commands {
     /// Generate ECIES keypair for registration
     GenerateKeys,
 
-    /// Initialize DKG party by fetching InitCommittee from chain
+    /// Initialize DKG party
     Init {
         /// My address (to determine my party ID from sorted committee)
         #[arg(long)]
@@ -111,15 +118,21 @@ enum Commands {
 
     /// Initialize for key rotation
     InitRotation {
-        /// Party ID (unique identifier)
+        /// Party ID in new committee (unique identifier)
         #[arg(short, long)]
         party_id: u16,
-        /// Committee ID (e.g., new Sui object ID)
+        /// Old party ID (for parties in both committees)
+        #[arg(long)]
+        old_party_id: Option<u16>,
+        /// New committee ID (e.g., new Sui object ID)
         #[arg(short = 'c', long)]
         committee_id: String,
-        /// Candidate object IDs for new committee (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        candidates: Vec<String>,
+        /// ECIES private key (hex encoded)
+        #[arg(long)]
+        ecies_sk: String,
+        /// Signing private key (hex encoded)
+        #[arg(long)]
+        signing_sk: String,
         /// New threshold
         #[arg(short, long)]
         threshold: u16,
@@ -129,9 +142,9 @@ enum Commands {
         /// Old share (hex encoded, for parties in both committees)
         #[arg(long)]
         old_share: Option<String>,
-        /// Old partial public key (hex encoded, for verification)
+        /// New-to-old party mapping (format: "0:1,1:0" meaning new party 0 was old party 1, etc.)
         #[arg(long)]
-        old_pk: Option<String>,
+        party_mapping: String,
         /// State directory (default: .dkg-state)
         #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
         state_dir: PathBuf,
@@ -149,9 +162,6 @@ enum Commands {
         /// Base64 encoded messages (comma-separated for multiple messages)
         #[arg(short, long, value_delimiter = ',')]
         messages: Vec<String>,
-        /// Expected partial public key (hex, for key rotation only)
-        #[arg(long)]
-        expected_pk: Option<String>,
         /// State directory
         #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
         state_dir: PathBuf,
@@ -214,19 +224,23 @@ fn main() -> Result<()> {
             threshold,
             state_dir,
         } => {
-            println!("Initializing DKG party for address {}", my_address);
-            println!("Fetching InitCommittee from chain: {}", committee_id);
+            println!(
+                "Initializing DKG party for address {} and committee {}",
+                my_address, committee_id
+            );
 
-            // TODO: read from members array from the InitCommittee obj
+            // TODO: read from members array from the Committee obj
             let candidate_addresses = [
                 "0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d".to_string(), // Party 0
                 "0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6".to_string(), // Party 1
+                "0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9".to_string(), // Party 2
             ];
 
-            // TODO: read from init committee obj
+            // TODO: read from committee obj
             let candidate_public_keys = [
                 "0x886d98eddd9f4e66e69f620dff66b6ed3c21f3cf5bde3b42d1e18159ad2e7b59ed5eb994b2bdcc491d29a1c5d4d492fc0c549c8d20838c6adaa82945a60908f3a481c78273eadbc51d94906238d6fe2f16494559556b074e7bb6f36807f8462c",
                 "0xab5603f3cfaef06c0994f289bf8f1519222edd6ed48b49d9ebb975312dfbcd513dca31c83f6d1d1f45188f373aff95ae06f81dfd2cfafd69f679ce22d311ad4d34725277b369ece21f98e8f3ac257a589c0075d7533487862170760c69aedf4e",
+                "0xa92323cf59aa3250ce8dc9e9c9062e675be937fe342ec276927c7dc99788957a0e589b7eff49a5de061b72976312d1e80281c37d050d1a68959c7b92c815ecd8283df96578c91a6da9e1b5b1cba73b7d39b77af88d784ce9f51f487d64295560"
             ];
 
             // Find my party ID based on address position in sorted list
@@ -268,6 +282,8 @@ fn main() -> Result<()> {
                 old_threshold: None,
                 old_share: None,
                 old_pk: None,
+                old_party_id: None,
+                is_continuing_member: false,
             };
 
             let state = DkgState {
@@ -278,6 +294,8 @@ fn main() -> Result<()> {
                 processed_messages: vec![],
                 confirmation: None,
                 output: None,
+                new_to_old_mapping: HashMap::new(),
+                expected_old_partial_pks: HashMap::new(),
             };
 
             state.save(&state_dir)?;
@@ -286,20 +304,159 @@ fn main() -> Result<()> {
         }
 
         Commands::InitRotation {
-            party_id: _,
-            committee_id: _,
-            candidates: _,
-            threshold: _,
-            old_threshold: _,
-            old_share: _,
-            old_pk: _,
-            state_dir: _,
+            party_id,
+            old_party_id,
+            committee_id,
+            ecies_sk,
+            signing_sk,
+            threshold,
+            old_threshold,
+            old_share,
+            party_mapping,
+            state_dir,
         } => {
-            // TODO
+            println!("Initializing key rotation for party {}", party_id);
+            println!("New committee: {}", committee_id);
+
+            let is_continuing = old_share.is_some();
+            if is_continuing {
+                println!("Continuing member from old committee");
+            } else {
+                println!("New member joining committee");
+            }
+
+            // Parse old share if provided (for parties in both committees)
+            let parsed_old_share = old_share
+                .as_ref()
+                .map(|s| -> Result<G2Scalar> { Ok(bcs::from_bytes(&Hex::decode(s)?)?) })
+                .transpose()?;
+
+            // todo: read party id -> partial pk from onchain
+            let old_partial_pks = [
+                "0x856fb1a010d474fa1b8dda76dde2147971c926d531edd22c637b24a782efa190341104dc9de98f0d2dfd500dec4ea8af112082c2ac8b5cf42e217c3633b4e57b9bc69bf07cfacc51275e60b92f7e7f21ca764a0c186dc9e8256f2c44f2300427", // Old Party 0
+                "0xae5d3589de5651c18f829b0d4aa8b1b3f644031a3c2bce5e29201e05f091cf7cb2edac09c628c21fce964268f43f903a038f99ad059a422bd3f9803f6e94410da4c2ce367ef8016b23cc32f140547b1a37ba68db35a976ce1f518ccb50ca4397", // Old Party 1
+                "0x98d21682abc4759619ebd6d679617cdacf2083bd746047277ec099e06ca96321dcd793135b82cb4180778a0b551fbb191543913545682f728d9ff4bd907396e9128210863bc15b1fe06bfa98f5909223399aff74630383f38ac99a82b940bc00", // Old Party 2
+            ];
+
+            let mut expected_pks = HashMap::new();
+            for (old_party_id, pk_str) in old_partial_pks.iter().enumerate() {
+                let pk_bytes = Hex::decode(pk_str).map_err(|e| {
+                    anyhow!("Failed to decode old partial PK {}: {}", old_party_id, e)
+                })?;
+                let pk: G2Element = bcs::from_bytes(&pk_bytes).map_err(|e| {
+                    anyhow!(
+                        "Failed to deserialize old partial PK {}: {}",
+                        old_party_id,
+                        e
+                    )
+                })?;
+                expected_pks.insert(old_party_id as u16, pk);
+            }
+
+            // Parse keys
+            let enc_sk: PrivateKey<G2Element> = bcs::from_bytes(&Hex::decode(&ecies_sk)?)?;
+            let enc_pk = PublicKey::<G2Element>::from_private_key(&enc_sk);
+            let signing_sk: G2Scalar = bcs::from_bytes(&Hex::decode(&signing_sk)?)?;
+            let signing_pk = G2Element::generator() * signing_sk;
+
+            // Parse new->old party mapping from CLI parameter
+            // Format: "0:1,1:0" meaning new party 0 was old party 1, etc.
+            let mut new_to_old_map = HashMap::new();
+            for mapping in party_mapping.split(',') {
+                let parts: Vec<&str> = mapping.trim().split(':').collect();
+                if parts.len() != 2 {
+                    return Err(anyhow!(
+                        "Invalid party mapping format. Expected 'new:old,new:old,...'"
+                    ));
+                }
+                let new_party: u16 = parts[0]
+                    .parse()
+                    .map_err(|e| anyhow!("Invalid new party ID '{}': {}", parts[0], e))?;
+                let old_party: u16 = parts[1]
+                    .parse()
+                    .map_err(|e| anyhow!("Invalid old party ID '{}': {}", parts[1], e))?;
+                new_to_old_map.insert(new_party, old_party);
+            }
+
+            // todo: fetch them from the new committee obj ids, party1, 0, 2, 3.
+            let party_id_to_enc_pk = [
+                (0 as u16, "0xab5603f3cfaef06c0994f289bf8f1519222edd6ed48b49d9ebb975312dfbcd513dca31c83f6d1d1f45188f373aff95ae06f81dfd2cfafd69f679ce22d311ad4d34725277b369ece21f98e8f3ac257a589c0075d7533487862170760c69aedf4e"), 
+                (1, "0x886d98eddd9f4e66e69f620dff66b6ed3c21f3cf5bde3b42d1e18159ad2e7b59ed5eb994b2bdcc491d29a1c5d4d492fc0c549c8d20838c6adaa82945a60908f3a481c78273eadbc51d94906238d6fe2f16494559556b074e7bb6f36807f8462c"), 
+                (2, "0xa92323cf59aa3250ce8dc9e9c9062e675be937fe342ec276927c7dc99788957a0e589b7eff49a5de061b72976312d1e80281c37d050d1a68959c7b92c815ecd8283df96578c91a6da9e1b5b1cba73b7d39b77af88d784ce9f51f487d64295560"),
+                (3, "0xb18076b9384941657b6b53e8988b4ba87cebb195546d273d4aa97ecaa54023910d9d07268c55c4349a13b1f0c66a2444034e906f477248969531c05cff6d3ad39694773ee6552e85f871e7b9d66357f3bccc3f75454672ff49ba58772f2150aa"),
+            ];
+
+            let mut nodes = Vec::new();
+            for (i, pk_str) in party_id_to_enc_pk.iter() {
+                // Parse hex (no 0x prefix in the array)
+                let pk_bytes = Hex::decode(pk_str)
+                    .map_err(|e| anyhow!("Failed to decode ECIES PK {}: {}", i, e))?;
+
+                // Deserialize the public key
+                let node_pk: PublicKey<G2Element> = bcs::from_bytes(&pk_bytes)
+                    .map_err(|e| anyhow!("Failed to deserialize ECIES PK {}: {}", i, e))?;
+
+                nodes.push(Node {
+                    id: *i,
+                    pk: node_pk,
+                    weight: 1,
+                });
+            }
+
+            // Get my old PK if continuing member
+            let my_old_pk = if let Some(old_id) = old_party_id {
+                expected_pks.get(&old_id).cloned()
+            } else {
+                None
+            };
+
+            let config = PartyConfig {
+                party_id,
+                enc_sk,
+                enc_pk,
+                signing_sk,
+                signing_pk,
+                committee_id,
+                threshold,
+                old_threshold: Some(old_threshold),
+                old_share: parsed_old_share,
+                old_pk: my_old_pk,
+                old_party_id,
+                is_continuing_member: is_continuing,
+            };
+
+            let state = DkgState {
+                config,
+                nodes: Nodes::new(nodes)?,
+                my_messages: vec![],
+                received_messages: HashMap::new(),
+                processed_messages: vec![],
+                confirmation: None,
+                output: None,
+                new_to_old_mapping: new_to_old_map,
+                expected_old_partial_pks: expected_pks,
+            };
+
+            state.save(&state_dir)?;
+            println!("Key rotation initialized and saved to {:?}", state_dir);
+            println!("Ready for key rotation protocol. Run 'create-message' to start.");
         }
 
         Commands::CreateMessage { state_dir } => {
             let mut state = DkgState::load(&state_dir)?;
+
+            // For rotation, only continuing members create messages
+            if state.config.old_threshold.is_some() && !state.config.is_continuing_member {
+                println!(
+                    "New party {} - skipping message creation for rotation",
+                    state.config.party_id
+                );
+                println!(
+                    "Waiting for messages from {} continuing members",
+                    state.config.old_threshold.unwrap()
+                );
+                return Ok(());
+            }
 
             println!("Creating DKG message for party {}", state.config.party_id);
 
@@ -308,7 +465,7 @@ fn main() -> Result<()> {
 
             // Create party instance
             let party = if let Some(old_share) = state.config.old_share {
-                // Key rotation case
+                // Key rotation case - continuing member
                 Party::<G2Element, G2Element>::new_advanced(
                     state.config.enc_sk.clone(),
                     state.nodes.clone(),
@@ -357,12 +514,26 @@ fn main() -> Result<()> {
 
         Commands::ProcessAllMessages {
             messages,
-            expected_pk: _,
             state_dir,
         } => {
             let mut state = DkgState::load(&state_dir)?;
 
-            println!("Processing {} message(s)...", messages.len());
+            // For rotation, verify we have exactly t' messages
+            if let Some(old_threshold) = state.config.old_threshold {
+                if messages.len() != old_threshold as usize {
+                    return Err(anyhow!(
+                        "Key rotation requires exactly {} messages from old committee members, got {}",
+                        old_threshold, messages.len()
+                    ));
+                }
+                println!(
+                    "Processing {} messages for key rotation (t' = {})",
+                    messages.len(),
+                    old_threshold
+                );
+            } else {
+                println!("Processing {} message(s) for fresh DKG", messages.len());
+            }
 
             let random_oracle = RandomOracle::new(&state.config.committee_id);
             let mut rng = StdRng::from_entropy();
@@ -379,7 +550,6 @@ fn main() -> Result<()> {
             )?;
 
             let mut processed_count = 0;
-            let mut complaints_count = 0;
 
             // Process each message
             for message in messages {
@@ -390,28 +560,64 @@ fn main() -> Result<()> {
                 let msg: Message<G2Element, G2Element> = bcs::from_bytes(&signed_msg.message)?;
                 println!("  Processing message from party {}...", msg.sender);
 
-                // todo: verify signed message using onchain signing pk for each party
+                // TODO: verify signed message using onchain signing pk for each party
 
                 // Store message
                 state.received_messages.insert(msg.sender, msg.clone());
 
-                // Process message
-                let processed = if let (Some(old_pk), Some(_old_threshold)) =
-                    (state.config.old_pk, state.config.old_threshold)
-                {
-                    // Key rotation: verify with old pk
-                    party.process_message_and_check_pk(msg, &old_pk, &mut rng)?
+                // For rotation, find the expected old partial PK for this sender
+                let processed = if state.config.old_threshold.is_some() {
+                    // Find old party ID for this sender
+                    let old_party_id = state.new_to_old_mapping.get(&msg.sender).or_else(|| {
+                        // If not in mapping, sender might be using old party ID directly
+                        // This is a simplification - in production, need proper mapping
+                        Some(&msg.sender)
+                    });
+
+                    if let Some(old_id) = old_party_id {
+                        if let Some(expected_pk) = state.expected_old_partial_pks.get(old_id) {
+                            println!("    Verifying against old partial PK for party {}", old_id);
+                            match party.process_message_and_check_pk(
+                                msg.clone(),
+                                expected_pk,
+                                &mut rng,
+                            ) {
+                                Ok(proc) => proc,
+                                Err(e) => {
+                                    println!(
+                                        "ERROR: Verification failed for party {} (old party {})",
+                                        msg.sender, old_id
+                                    );
+                                    println!("Error: {:?}", e);
+                                    println!("Aborting protocol - all parties should abort");
+                                    return Err(anyhow!(
+                                        "Key rotation verification failed for party {}",
+                                        msg.sender
+                                    ));
+                                }
+                            }
+                        } else {
+                            return Err(anyhow!("No expected partial PK for old party {}", old_id));
+                        }
+                    } else {
+                        return Err(anyhow!("No mapping found for party {}", msg.sender));
+                    }
                 } else {
                     // Fresh DKG
                     party.process_message(msg, &mut rng)?
                 };
 
-                if let Some(_complaint) = &processed.complaint {
-                    warn!(
-                        "Found complaint in processed message from party {}",
+                if let Some(complaint) = &processed.complaint {
+                    println!(
+                        "ERROR: Complaint found from party {}",
                         processed.message.sender
                     );
-                    complaints_count += 1;
+                    println!("Complaint details: {:?}", complaint);
+                    println!("Protocol aborted - do not approve onchain");
+                    return Err(anyhow!(
+                        "DKG protocol failed due to complaint from party {}",
+                        processed.message.sender
+                    ));
                 }
 
                 state.processed_messages.push(processed);
@@ -420,24 +626,51 @@ fn main() -> Result<()> {
 
             println!("\n Successfully processed {} message(s)", processed_count);
 
-            if complaints_count != 0 {
-                return Err(anyhow!("Cannot complete with complaints present"));
+            // Merge processed messages
+            let (confirmation, used_msgs) = party.merge(&state.processed_messages)?;
+
+            // Check for complaints
+            if !confirmation.complaints.is_empty() {
+                println!("ERROR: Complaints found after merge");
+                println!("Complaints: {:?}", confirmation.complaints);
+                println!("Do NOT approve onchain - protocol failed");
+                state.confirmation = Some((confirmation, used_msgs));
+                state.save(&state_dir)?;
+                return Err(anyhow!("DKG protocol failed due to complaints"));
             }
 
-            // merge
-            let (confirmation, used_msgs) = party.merge(&state.processed_messages)?;
-            state.confirmation = Some((confirmation, used_msgs.clone()));
+            state.confirmation = Some((confirmation.clone(), used_msgs.clone()));
 
-            // complete
-            let output = party.complete_optimistic(&used_msgs)?;
+            // Complete the protocol
+            let output = if state.config.old_threshold.is_some() {
+                // Key rotation: use complete_optimistic_key_rotation
+                let sender_to_old_map: HashMap<u16, u16> = state
+                    .new_to_old_mapping
+                    .iter()
+                    .map(|(new_id, old_id)| (*new_id, *old_id))
+                    .collect();
+
+                println!(
+                    "Completing key rotation with mapping: {:?}",
+                    sender_to_old_map
+                );
+                party.complete_optimistic_key_rotation(&used_msgs, &sender_to_old_map)?
+            } else {
+                // Fresh DKG
+                party.complete_optimistic(&used_msgs)?
+            };
+
             state.output = Some(output.clone());
 
             println!("========================================");
+            println!("KEY SERVER PUBLIC KEY:");
+            println!("  0x{}", Hex::encode(bcs::to_bytes(output.vss_pk.c0())?));
+            println!("========================================");
             println!("ALL PARTIES' PARTIAL PUBLIC KEYS:");
-            for (party_id, _) in state.received_messages {
-                // party id is 0 index and share index is + 1?
-                // todo: check if this is correct
-                let share_index = NonZeroU16::new(party_id + 1).unwrap();
+            // Generate partial public keys for ALL parties in the new committee
+            for party_id in 0..state.nodes.num_nodes() {
+                // party id is 0 index and share index is party id + 1
+                let share_index = NonZeroU16::new(party_id as u16 + 1).unwrap();
                 let partial_pk = output.vss_pk.eval(share_index);
                 println!(
                     "   Party {} partial public key: 0x{}",

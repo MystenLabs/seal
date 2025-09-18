@@ -298,6 +298,133 @@ pub fn create_full_id(package_id: &[u8; 32], id: &[u8]) -> Vec<u8> {
     [package_id, id].concat()
 }
 
+/// MPC-specific seal encrypt function.
+pub fn seal_encrypt_mpc(
+    package_id: ObjectID,
+    id: Vec<u8>,
+    key_server: ObjectID,
+    aggregated_public_key: &ibe::PublicKey,
+    encryption_input: EncryptionInput,
+) -> FastCryptoResult<(EncryptedObject, [u8; KEY_SIZE])> {
+    let mut rng = thread_rng();
+    let full_id = create_full_id(&package_id.into_inner(), &id);
+
+    // Generate a random base key
+    let base_key = generate_random_bytes(&mut rng);
+    let randomness = ibe::Randomness::rand(&mut rng);
+
+    // Encrypt the base key using IBE with the aggregated public key
+    let (nonce, encrypted_shares) = encrypt_batched_deterministic(
+        &randomness,
+        &[base_key],
+        &[*aggregated_public_key],
+        &full_id,
+        &[(key_server, 1)],
+    )?;
+
+    // Derive keys and encrypt randomness
+    let dem_key = derive_key(
+        KeyPurpose::DEM,
+        &base_key,
+        &encrypted_shares,
+        1,
+        &[key_server],
+    );
+    let randomness_key = derive_key(
+        KeyPurpose::EncryptedRandomness,
+        &base_key,
+        &encrypted_shares,
+        1,
+        &[key_server],
+    );
+    let encrypted_randomness = ibe::encrypt_randomness(&randomness, &randomness_key);
+
+    // Create the encrypted object
+    let ciphertext = encryption_input.encrypt(&dem_key);
+    let encrypted_object = EncryptedObject {
+        version: 0,
+        package_id,
+        id,
+        encrypted_shares: IBEEncryptions::BonehFranklinBLS12381 {
+            nonce,
+            encrypted_shares,
+            encrypted_randomness,
+        },
+        services: vec![(key_server, 1)], // index 1 for single service
+        threshold: 1,
+        ciphertext,
+    };
+
+    Ok((encrypted_object, base_key))
+}
+
+/// MPC-specific seal decrypt function.
+pub fn seal_decrypt_mpc(
+    encrypted_object: &EncryptedObject,
+    aggregated_user_key: &ibe::UserSecretKey,
+    aggregated_public_key: Option<&ibe::PublicKey>,
+) -> FastCryptoResult<Vec<u8>> {
+    let EncryptedObject {
+        version,
+        package_id,
+        id,
+        encrypted_shares,
+        services,
+        threshold,
+        ciphertext,
+        ..
+    } = encrypted_object;
+
+    if *version != 0 {
+        println!("MPC decrypt error: Invalid version {}", version);
+        return Err(InvalidInput);
+    }
+
+    let full_id = create_full_id(package_id.inner(), id);
+
+    // Decrypt using the aggregated key
+    match encrypted_shares {
+        IBEEncryptions::BonehFranklinBLS12381 {
+            nonce,
+            encrypted_shares,
+            encrypted_randomness,
+        } => {
+            // Decrypt the base key
+            let base_key = ibe::decrypt(
+                nonce,
+                &encrypted_shares[0],
+                aggregated_user_key,
+                &full_id,
+                &(services[0].0, services[0].1),
+            );
+
+            // Verify randomness if public key is provided
+            if let Some(_pub_key) = aggregated_public_key {
+                let randomness_key = derive_key(
+                    KeyPurpose::EncryptedRandomness,
+                    &base_key,
+                    encrypted_shares,
+                    *threshold,
+                    &services.iter().map(|(id, _)| *id).collect_vec(),
+                );
+                let randomness = decrypt_randomness(encrypted_randomness, &randomness_key)?;
+                verify_nonce(&randomness, nonce)?;
+            }
+
+            // Derive symmetric key and decrypt
+            let dem_key = derive_key(
+                KeyPurpose::DEM,
+                &base_key,
+                encrypted_shares,
+                *threshold,
+                &services.iter().map(|(id, _)| *id).collect_vec(),
+            );
+
+            ciphertext.decrypt(&dem_key)
+        }
+    }
+}
+
 /// An enum representing the different purposes of the derived key.
 pub enum KeyPurpose {
     /// The key used to encrypt the encryption randomness.

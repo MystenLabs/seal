@@ -56,7 +56,7 @@ use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
-use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
+use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
@@ -259,19 +259,13 @@ impl Server {
             req_id
         );
         // Evaluate the `seal_approve*` function
-        let tx_data = self
-            .sui_rpc_client
-            .sui_client()
-            .transaction_builder()
-            .tx_data_for_dry_run(
-                sender,
-                TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
-                GAS_BUDGET,
-                gas_price,
-                None,
-                None,
-            )
-            .await;
+        let tx_data = TransactionData::new_with_gas_coins(
+            TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            sender,
+            vec![], // Empty gas payment for dry run
+            GAS_BUDGET,
+            gas_price,
+        );
         let dry_run_res = self
             .sui_rpc_client
             .dry_run_transaction_block(tx_data.clone())
@@ -863,7 +857,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         .allow_headers(Any)
         .expose_headers(Any);
 
-    let app = get_mysten_service(package_name!(), package_version!())
+    let app = get_mysten_service::<MyState>(package_name!(), package_version!())
         .merge(
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
@@ -875,9 +869,9 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 .layer(from_fn_with_state(
                     state.metrics.clone(),
                     metrics_middleware,
-                ))
-                .with_state(state),
+                )),
         )
+        .with_state(state)
         .layer(cors);
     Ok((monitor_handle, app))
 }

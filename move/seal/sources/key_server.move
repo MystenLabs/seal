@@ -38,16 +38,12 @@ public struct KeyServerV1 has store {
 
 public enum ServerType has store, drop, copy {
     Committee,
-    Single,
+    Independent,
 }
 
 /// PartialKeyServer is added as dynamic field to KeyServer
 public struct PartialKeyServer has key, store {
     id: UID,
-    /// Associated KeyServer ID
-    key_server_id: address,
-    /// Party ID in the DKG
-    party_id: u16,
     /// Partial public key (BLS G2 point)
     pk: vector<u8>,
     /// Key server URL
@@ -60,7 +56,7 @@ public struct KeyServerV2 has key, store {
     name: String, // For both types
     url: String,  // For Single type only, leave empty for Committee type
     key_type: u8, // For both types
-    pk: vector<u8>,  // For Single type only, leave empty for Committee type
+    pk: vector<u8>,  // For both types
     server_type: ServerType,
     threshold: u16,  // t for Committee, 0 for Single
 }
@@ -68,14 +64,12 @@ public struct KeyServerV2 has key, store {
 // ===== V2 Functions =====
 
 /// Create a committee-owned KeyServer. todo: check this, can only be called by committee. 
-public fun create_v2(
+public fun create_committee_v2(
     name: String,
-    key_type: u8,
     threshold: u16,
+    pk: vector<u8>,
     ctx: &mut TxContext,
-): KeyServer {
-    assert!(key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
-    
+): KeyServer {    
     let mut key_server = KeyServer {
         id: object::new(ctx),
         first_version: 2,
@@ -86,8 +80,8 @@ public fun create_v2(
         id: object::new(ctx),
         name,
         url: name,
-        key_type,
-        pk: vector::empty(), // not used, todo: check this
+        key_type: KeyTypeBonehFranklinBLS12381,
+        pk,
         server_type: ServerType::Committee,
         threshold,
     };
@@ -107,7 +101,7 @@ public fun upgrade_to_v2(
         url: ks.v1().url,
         key_type: ks.v1().key_type,
         pk: ks.v1().pk,
-        server_type: ServerType::Single,
+        server_type: ServerType::Independent,
         threshold: 0,
     };
     
@@ -116,37 +110,69 @@ public fun upgrade_to_v2(
 }
 
 /// Create and add partial key server objects for a committee-owned key server. 
-public fun add_all_partial_key_servers<T: key>(
+public fun add_all_partial_key_servers(
     key_server: &mut KeyServer,
-    _committee_witness: &T, // only a committee package can call this, todo: check this.
     members: &vector<address>,
     partial_pks: &vector<vector<u8>>,
     ctx: &mut TxContext,
 ) {
     assert!(has_v2(key_server), EInvalidVersion);
-    
-    let key_server_id = key_server.id.to_address();
+        
     let mut i = 0;
     while (i < members.length()) {
         let partial_pk = partial_pks[i];
         let partial_key_server = PartialKeyServer {
             id: object::new(ctx),
-            key_server_id,
-            party_id: i as u16,
             pk: partial_pk,
             url: b"".to_string(), // intialize empty url, member can update this 
         };
         
-        df::add(&mut key_server.id, members[i], partial_key_server);
+    let v2: &mut KeyServerV2 = key_server.v2_mut();
+        df::add(&mut v2.id, members[i], partial_key_server);
         i = i + 1;
     };
 }
 
-/// Update the URL of a partial key server, can only update the caller created server. 
-public fun update_url<T: key>(key_server: &mut KeyServer, _committee_witness: &T, url: String, ctx: &mut TxContext) {
+/// Remove a single partial key server (for members leaving during rotation)
+public fun remove_partial_key_server(
+    key_server: &mut KeyServer,
+    member: address,
+) {
     assert!(has_v2(key_server), EInvalidVersion);
-    assert!(df::exists_(&key_server.id, ctx.sender()), EPartialKeyServerNotFound);
-    let partial_key_server: &mut PartialKeyServer = df::borrow_mut(&mut key_server.id, ctx.sender());
+    let v2: &mut KeyServerV2 = key_server.v2_mut();
+
+    if (df::exists_(&v2.id, member)) {
+        let PartialKeyServer { id, pk: _, url: _ } =
+            df::remove<address, PartialKeyServer>(&mut v2.id, member);
+        object::delete(id);
+    };
+}
+
+/// Add a single partial key server (for new members during rotation)
+public fun add_partial_key_server(
+    key_server: &mut KeyServer,
+    member: address,
+    partial_pk: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    assert!(has_v2(key_server), EInvalidVersion);
+
+    let partial_key_server = PartialKeyServer {
+        id: object::new(ctx),
+        pk: partial_pk,
+        url: b"".to_string(),
+    };
+
+    let v2: &mut KeyServerV2 = key_server.v2_mut();
+    df::add(&mut v2.id, member, partial_key_server);
+}
+
+/// Update the URL of a partial key server, can only update the caller created server. 
+public fun update_url(key_server: &mut KeyServer, url: String, ctx: &mut TxContext) {
+    assert!(has_v2(key_server), EInvalidVersion);
+    let v2: &mut KeyServerV2 = key_server.v2_mut();
+    assert!(df::exists_(&v2.id, ctx.sender()), EPartialKeyServerNotFound);
+    let partial_key_server: &mut PartialKeyServer = df::borrow_mut(&mut v2.id, ctx.sender());
     partial_key_server.url = url;
 }
 
@@ -156,9 +182,39 @@ public fun v2(s: &KeyServer): &KeyServerV2 {
     df::borrow(&s.id, 2)
 }
 
+public fun v2_mut(s: &mut KeyServer): &mut KeyServerV2 {
+    assert!(df::exists_(&s.id, 2), EInvalidVersion);
+    df::borrow_mut(&mut s.id, 2)
+}
+
 /// Check if KeyServer has v2
 public fun has_v2(s: &KeyServer): bool {
     df::exists_(&s.id, 2)
+}
+
+#[test_only]
+/// Check if a member has a partial key server
+public fun has_partial_key_server(s: &KeyServer, member: address): bool {
+    assert!(has_v2(s), EInvalidVersion);
+    let v2 = v2(s);
+    df::exists_(&v2.id, member)
+}
+
+#[test_only]
+/// Get partial key server for a member (for testing)
+public fun get_partial_key_server(s: &KeyServer, member: address): &PartialKeyServer {
+    assert!(has_v2(s), EInvalidVersion);
+    let v2 = v2(s);
+    assert!(df::exists_(&v2.id, member), EPartialKeyServerNotFound);
+    df::borrow(&v2.id, member)
+}
+
+#[test_only]
+
+#[test_only]
+/// Get pk from partial key server
+public fun partial_key_server_pk(pks: &PartialKeyServer): &vector<u8> {
+    &pks.pk
 }
 
 public fun id(s: &KeyServer): address {
@@ -244,9 +300,13 @@ public fun url(s: &KeyServer): String {
     s.v1().url
 }
 
-/// Get public key (supports v1)
+/// Get public key (supports both v1 and v2)
 public fun pk(s: &KeyServer): &vector<u8> {
-    &s.v1().pk
+    if (has_v2(s)) {
+        &s.v2().pk
+    } else {
+        &s.v1().pk
+    }
 }
 
 /// Get public key as BLS12-381 element (supports v1)
