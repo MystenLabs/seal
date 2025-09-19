@@ -221,7 +221,8 @@ To decrypt an encrypted object in a Move package, follow these steps:
 
 You can use the TypeScript SDK to build a transaction that calls Seal’s on-chain decryption functions. 
 
-Before you decrypt (see [Decryption](#decryption)), gather the following: 
+Before you decrypt (see [Decryption](#decryption)), gather the following:
+
 - `encryptedBytes`: BCS-serialized encrypted object.
 - `txBytes`: a valid transaction block that calls the relevant `seal_approve*` policy function.
 - `client`: an initialized `SealClient`. 
