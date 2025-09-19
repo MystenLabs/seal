@@ -6,7 +6,7 @@
 
 ## Verified key servers
 
-Please refer to [this document](UsingSeal.md#for-key-server-operators) for detailed information on `Open` and `Permissioned` modes of key servers. At a high-level:
+Please refer to [this document](./KeyServerOps.md) for detailed information on `Open` and `Permissioned` modes of key servers. At a high-level:
 
 - A key server in `Open` mode lets anyone request keys for any access policy package, using a shared master key. It is ideal for public or trial use. 
 - A key server in `Permissioned` mode restricts access to approved access policy packages per client, each with a dedicated master key, and supports secure key server rotation or switching when needed. It is designed for dedicated or commercial use.
@@ -81,4 +81,3 @@ Please reach out to these verified key server providers:
 - [Triton One](https://triton.one/sui)
 - [Enoki by Mysten Labs](https://enoki.mystenlabs.com/)
     - Sign up for Enoki, create your account, and request Seal key server access using the form in your dashboard.
-

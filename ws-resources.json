@@ -5,7 +5,9 @@
     "/SecurityBestPractices": "/SecurityBestPractices/index.html",
     "/TermsOfService": "/TermsOfService/index.html",
     "/UsingSeal": "/UsingSeal/index.html",
-    "/GettingStarted": "/GettingStarted/index.html"
+    "/GettingStarted": "/GettingStarted/index.html",
+    "/KeyServerOps": "KeyServerOps/index.html",
+    "/SealCLI": "SealCLI/index.html"
   },
   "metadata": {
     "link": "https://seal-docs.wal.app",

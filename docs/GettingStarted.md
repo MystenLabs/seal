@@ -84,4 +84,4 @@ Learn more in [Decryption Guide](./UsingSeal.md#decryption).
 - Explore example apps in the [Examples Directory](https://github.com/MystenLabs/seal/tree/main/examples).
 - Review the [Security Best Practices](./SecurityBestPractices.md) to ensure you’re following recommended guidelines.
 - When deploying to Mainnet, decide whether to run your own key server as part of your threshold committee.
-    - If you operate a secure, hardened Full node and have the necessary DevOps expertise & bandwidth, you can choose to self-run a key server. See the [Key Server Operations Guide](./UsingSeal.md#for-key-server-operators).
+    - If you operate a secure, hardened Full node and have the necessary DevOps expertise & bandwidth, you can choose to self-run a key server. See the [Key Server Operations Guide](./KeyServerOps.md).

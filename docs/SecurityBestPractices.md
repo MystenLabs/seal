@@ -57,4 +57,3 @@ To help detect or respond to such incidents:
 * Store logs in a tamper-evident system such as Walrus, or anchor them to the chain if required.
 
 This can support transparency, internal review, or regulatory compliance in high-trust scenarios.
-

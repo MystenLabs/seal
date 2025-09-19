@@ -25,6 +25,8 @@ nav:
   - Getting Started: GettingStarted.md
   - Seal Design: Design.md
   - Using Seal: UsingSeal.md
+  - Key Server Operations: KeyServerOps.md
+  - Seal CLI: SealCLI.md
   - Security Best Practices: SecurityBestPractices.md
   - Pricing: Pricing.md
   - Terms of Service: TermsOfService.md

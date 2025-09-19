@@ -96,4 +96,3 @@ Seal is designed to support multiple identity-based encryption (IBE) schemes as 
 - DEM: AES-256-GCM, HMAC based CTR mode (to be used when onchain decryption is needed).
 
 Post-quantum primitives are planned to be added in the future.
-
