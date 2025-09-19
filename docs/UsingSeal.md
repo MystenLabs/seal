@@ -683,7 +683,7 @@ Encrypted shares:
   Encapsulation: 841b3a59241e099e8b8d9cec1d531b1e8fe4b4170433e30d9aaa9fc764201f69e589a0b2a0e65bfb279d4b25ee1ce8141812bfb785abdb05134c3958f53c2e81e7bc06e5c1f1ebd7e489b5cf652216b13e6b7c2b13da70a4a7c05c3544a1ddf7
 ```
 
-Encrypt a secret for a hex-encoded unique identifier and a Seal policy package ID. Use the specified key server object IDs and network. The CLI retrieves public keys from a public Full node.
+Encrypt a secret for a hex-encoded unique identifier and a Seal policy package ID. Use the specified key server object IDs and network. The CLI retrieves public keys from a public Full node. The output is an Hex BCS encoded encrypted object. 
 
 ```shell
 $ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
@@ -697,7 +697,7 @@ Encrypted object:
 <ENCODED_ENCRYPTED_OBJECT>
 ```
 
-Fetch keys for the encoded request. Provide the threshold, key server object IDs, and network.
+Fetch keys for the encoded request. Provide the threshold, key server object IDs, and network. The response is a Hex BCS encoded vector of tuples of key server object ID and its corresping `FetchKeyResponse`. 
 
 ```shell
 $ cargo run --bin seal-cli fetch-keys --request <ENCODED_REQUEST> \
