@@ -565,7 +565,7 @@ async fn main() -> FastCryptoResult<()> {
                 ))
             })?;
 
-            // Fetch keys from key server urls and collect seal responses.
+            // Fetch keys from key server urls and collect service id and its seal responses.
             let mut seal_responses = Vec::new();
             let client = reqwest::Client::new();
             for server in &fetch_key_server_urls(&key_server_ids, &network)
@@ -595,7 +595,7 @@ async fn main() -> FastCryptoResult<()> {
                             let response: FetchKeyResponse =
                                 serde_json::from_slice(&response_bytes)
                                     .expect("Failed to deserialize response");
-                            seal_responses.push(response);
+                            seal_responses.push((server.object_id, response));
                             println!("\n Success {}", server.name);
                         } else {
                             let error_text = response
