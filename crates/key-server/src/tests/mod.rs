@@ -6,6 +6,7 @@ use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, Server
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
+use crate::tests::KeyServerType::MPC;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
@@ -48,8 +49,8 @@ pub(crate) struct SealTestCluster {
 }
 
 pub(crate) struct SealUser {
-    address: SuiAddress,
-    keypair: Ed25519KeyPair,
+    pub(crate) address: SuiAddress,
+    pub(crate) keypair: Ed25519KeyPair,
 }
 
 /// Key server types allowed in tests
@@ -59,6 +60,7 @@ pub enum KeyServerType {
         seed: Vec<u8>,
         package_ids: Vec<ObjectID>,
     },
+    MPC(ibe::MasterKey),
 }
 
 impl SealTestCluster {
@@ -94,7 +96,7 @@ impl SealTestCluster {
     pub async fn add_open_server(&mut self) {
         let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
         let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name).await;
+        self.add_server(Open(master_key), &name, None).await;
     }
 
     pub async fn add_open_servers(&mut self, num_servers: usize) {
@@ -103,7 +105,12 @@ impl SealTestCluster {
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+    pub async fn add_server(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        key_server_object_id: Option<ObjectID>,
+    ) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -138,8 +145,283 @@ impl SealTestCluster {
                 };
                 self.servers.push((key_server_object_id, server));
             }
-            _ => panic!(),
+            MPC(master_key) => {
+                // no need to register onchain here since its done in set_up_committee_server.
+                // just use the given key server object id to initialize the key server.
+                let key_server_object_id = key_server_object_id.unwrap();
+                let server = Server {
+                    sui_rpc_client: SuiRpcClient::new(
+                        self.cluster.sui_client().clone(),
+                        RetryConfig::default(),
+                        None,
+                    ),
+                    master_keys: MasterKeys::Open { master_key },
+                    key_server_oid_to_pop: HashMap::new(),
+                    options: KeyServerOptions {
+                        network: Network::TestCluster,
+                        server_mode: ServerMode::Open {
+                            key_server_object_id,
+                        },
+                        metrics_host_port: 0,
+                        checkpoint_update_interval: Duration::from_secs(10),
+                        rgp_update_interval: Duration::from_secs(60),
+                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                        allowed_staleness: Duration::from_secs(120),
+                        session_key_ttl_max: from_mins(30),
+                        rpc_config: RpcConfig::default(),
+                        metrics_push_config: None,
+                    },
+                };
+                self.servers.push((key_server_object_id, server));
+            }
+            _ => panic!("Unhandled server type"),
         };
+    }
+
+    /// set up all onchain artifiacts with the given partial public keys and aggregated pk.
+    /// Returns the key server obj id and an array of the partial key servers obj ids.
+    pub async fn set_up_committee_server(
+        &mut self,
+        partial_pks: HashMap<SuiAddress, ibe::PublicKey>,
+        aggregated_pk: ibe::PublicKey,
+        threshold: u16,
+    ) -> (ObjectID, Vec<ObjectID>) {
+        let (committee_package, _) = self.publish("committee").await;
+
+        // 1. create committee obj with threshold 2 and members
+        let members = vec![
+            self.cluster.get_address_0(),
+            self.cluster.get_address_1(),
+            self.cluster.get_address_2(),
+        ];
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_0(),
+                committee_package,
+                "committee",
+                "init_committee",
+                vec![],
+                vec![
+                    SuiJsonValue::from_str(&threshold.to_string()).unwrap(),
+                    SuiJsonValue::new(json!(members)).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 2. get committee object id
+        let committee_id = response
+            .object_changes
+            .unwrap()
+            .into_iter()
+            .find_map(|d| match d {
+                ObjectChange::Created {
+                    object_type,
+                    object_id,
+                    ..
+                } if object_type.name.as_str() == "Committee" => Some(object_id),
+                _ => None,
+            })
+            .expect("Committee should be created");
+
+        // 3. register members for address_0, address_1, address_2
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_0(),
+                committee_package,
+                "committee",
+                "register",
+                vec![],
+                vec![
+                    SuiJsonValue::new(json!(b"enc_pk_1".to_vec())).unwrap(),
+                    SuiJsonValue::new(json!(b"signing_pk_1".to_vec())).unwrap(),
+                    SuiJsonValue::from_object_id(committee_id),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_1(),
+                committee_package,
+                "committee",
+                "register",
+                vec![],
+                vec![
+                    SuiJsonValue::new(json!(b"enc_pk_2".to_vec())).unwrap(),
+                    SuiJsonValue::new(json!(b"signing_pk_2".to_vec())).unwrap(),
+                    SuiJsonValue::from_object_id(committee_id),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_2(),
+                committee_package,
+                "committee",
+                "register",
+                vec![],
+                vec![
+                    SuiJsonValue::new(json!(b"enc_pk_3".to_vec())).unwrap(),
+                    SuiJsonValue::new(json!(b"signing_pk_3".to_vec())).unwrap(),
+                    SuiJsonValue::from_object_id(committee_id),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 3. propose a committee with partial pks and the daggregate pk. order the partial keys by member addresses
+        let mut partial_pks_bytes = Vec::new();
+        for member in &members {
+            let pk = partial_pks
+                .get(member)
+                .expect("Missing partial pk for member");
+            partial_pks_bytes.push(pk.to_byte_array().to_vec());
+        }
+
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_0(),
+                committee_package,
+                "committee",
+                "propose",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(committee_id),
+                    SuiJsonValue::new(json!(partial_pks_bytes)).unwrap(),
+                    SuiJsonValue::new(json!(aggregated_pk.to_byte_array().to_vec())).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 4. approve the committee as the owner of address_0 and address_1
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_0(),
+                committee_package,
+                "committee",
+                "approve_committee",
+                vec![],
+                vec![SuiJsonValue::from_object_id(committee_id)],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_1(),
+                committee_package,
+                "committee",
+                "approve_committee",
+                vec![],
+                vec![SuiJsonValue::from_object_id(committee_id)],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 5. finalize the committee, this creates the key server obj
+        // and the df including partial key server objects
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                self.cluster.get_address_0(),
+                committee_package,
+                "committee",
+                "finalize_committee",
+                vec![],
+                vec![SuiJsonValue::from_object_id(committee_id)],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 6. get the key server object id and partial key server field ids
+        let mut key_server_id = None;
+        let mut partial_key_server_field_ids = Vec::new();
+
+        for change in response.object_changes.as_ref().unwrap() {
+            if let ObjectChange::Created {
+                object_type,
+                object_id,
+                ..
+            } = change
+            {
+                if object_type.name.as_str() == "KeyServer" {
+                    key_server_id = Some(*object_id);
+                } else if object_type.name.as_str() == "Field" && object_type.type_params.len() == 2
+                {
+                    // Check if it's a Field<Address, PartialKeyServer>
+                    if let Some(sui_types::TypeTag::Struct(s)) = object_type.type_params.get(1) {
+                        if s.name.as_str() == "PartialKeyServer" {
+                            partial_key_server_field_ids.push(*object_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        (
+            key_server_id.expect("KeyServer should be created"),
+            partial_key_server_field_ids,
+        )
     }
 
     pub fn server(&self) -> &Server {

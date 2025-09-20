@@ -24,8 +24,8 @@ shared_crypto.workspace = true
 move-core-types.workspace = true
 mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
 
-tokio = { version = "1.45.1", features = ["full"] }
-axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.46.1", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6.6", features = ["cors"] }
 crypto = { path = "../crypto" }
 tap = "1.0.1"
@@ -34,7 +34,13 @@ anyhow = "1.0.79"
 once_cell = "1.20.2"
 chrono = "0.4.39"
 semver = { version = "1.0.26", features = ["serde"] }
-jsonrpsee = "0.24.0"
+jsonrpsee = { version = "0.24.9", default-features = false, features = [
+  "server",
+  "macros",
+  "ws-client",
+  "http-client",
+  "jsonrpsee-core",
+] }
 serde_yaml = "0.9"
 duration-str = "0.17.0"
 git-version = "0.3.9"
@@ -48,7 +54,7 @@ move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", 
 move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 sui-sdk-types = { workspace = true }
 sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
-prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "prometheus-closure-metric" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "2cdbb8351f68db3970ffde966b0b9c11694a7969", package = "prometheus-closure-metric" }
 hyper-util = "0.1.10"
 http-body-util = "0.1.2"
 futures = "0.3"
@@ -56,6 +62,7 @@ seal-sdk = { path = "../seal-sdk" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"
-test_cluster = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "test-cluster" }
-sui_move_build = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-move-build" }
+test_cluster = { git = "https://github.com/mystenlabs/sui", rev = "2cdbb8351f68db3970ffde966b0b9c11694a7969", package = "test-cluster" }
+sui_move_build = { git = "https://github.com/mystenlabs/sui", rev = "2cdbb8351f68db3970ffde966b0b9c11694a7969", package = "sui-move-build" }
 temp-env = { version = "0.3", features = ["async_closure"] }
+fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "4de96284fd75dcb7757f567602906f0d3366c795" }
