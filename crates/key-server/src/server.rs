@@ -64,6 +64,7 @@ use tap::Tap;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{debug, error, info, warn};
 use valid_ptb::ValidPtb;
 
@@ -88,6 +89,9 @@ mod time;
 
 const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = utils::git_version!();
+
+// Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
+const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
@@ -878,6 +882,8 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 ))
                 .with_state(state),
         )
+        // Global body size limit
+        .layer(RequestBodyLimitLayer::new(MAX_REQUEST_SIZE))
         .layer(cors);
     Ok((monitor_handle, app))
 }
