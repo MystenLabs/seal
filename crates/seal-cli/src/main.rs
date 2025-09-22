@@ -324,7 +324,7 @@ enum Command {
         #[arg(long)]
         key: EncodedByteArray<KEY_LENGTH>,
     },
-    /// Encrypt a secret using Seal. This uses the public fullnode for
+    /// Encrypt a secret's utf-8 bytes using Seal. This uses the public fullnode for
     /// retrieval of key servers' public keys for the given network.
     Encrypt {
         /// The secret to encrypt.
@@ -351,7 +351,7 @@ enum Command {
         #[arg(short = 'n', long, default_value = "testnet")]
         network: String,
     },
-    /// Fetch keys from Seal servers using assembled fetch keys request.
+    /// Fetch keys from Seal servers using encoded fetch keys request.
     FetchKeys {
         /// Hex encoded fetch keys request.
         #[arg(long)]
