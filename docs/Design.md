@@ -46,12 +46,11 @@ entry fun seal_approve(id: vector<u8>, c: &clock::Clock) {
 
 The module above controls all IBE identities that begin with its package ID, `PkgId`. To encrypt data with a time-lock `T`, a user selects a key server and encrypts the data using the identity `[PkgId][bcs::to_bytes(T)]` and the server’s IBE master public key. Once the onchain time on Sui exceeds `T`, *anyone* can request the decryption key for the identity `[PkgId][bcs::to_bytes(T)]` from the Seal key server. Access control is enforced by the `seal_approve` function defined in the module. This function receives the requested identity (excluding the `PkgId` prefix) and a `Clock` as arguments. It returns success only if the current time is greater than or equal to `T`. The key server evaluates `seal_approve` locally to determine whether the derived key can be returned.
 
-Time-lock encryption can be applied to a variety of onchain use cases, including MEV-resistant trading, secure voting, and more. For additional examples and useful implementation patterns, see [move/patterns](https://github.com/MystenLabs/seal/tree/main/move/patterns).
+Time-lock encryption can be applied to a variety of onchain use cases, including MEV-resistant trading, secure voting, and more. For additional examples and useful implementation patterns, see the [Example patterns](./ExamplePatterns.md).
 
 The framework is fully generic. Developers can define custom authorization logic within `seal_approve*` functions and choose which key servers to use based on their application's needs. For example, they may use a fixed set of trusted key servers or allow users to select their preferred servers.
 
-When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see the whitelist and subscription [patterns](https://github.com/MystenLabs/seal/tree/main/move/patterns).
-Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
+When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see the [allowlist and subscription patterns](./ExamplePatterns.md). Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
 
 ## Decentralization and trust model
 

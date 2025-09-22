@@ -25,6 +25,7 @@ nav:
   - Getting Started: GettingStarted.md
   - Seal Design: Design.md
   - Using Seal: UsingSeal.md
+  - Example Patterns: ExamplePatterns.md
   - Key Server Operations: KeyServerOps.md
   - Seal CLI: SealCLI.md
   - Security Best Practices: SecurityBestPractices.md

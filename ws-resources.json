@@ -7,7 +7,8 @@
     "/UsingSeal": "/UsingSeal/index.html",
     "/GettingStarted": "/GettingStarted/index.html",
     "/KeyServerOps": "/KeyServerOps/index.html",
-    "/SealCLI": "/SealCLI/index.html"
+    "/SealCLI": "/SealCLI/index.html",
+    "/ExamplePatterns": "/ExamplePatterns/index.html"
   },
   "metadata": {
     "link": "https://seal-docs.wal.app",
