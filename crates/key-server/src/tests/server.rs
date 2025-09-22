@@ -217,7 +217,6 @@ async fn test_service() {
             .unwrap();
         assert_eq!(response.status(), 400);
 
-
         // Valid request with too large request body should be rejected
         let large_body = vec![0u8; 200 * 1024]; // 200KB body
         let response = client
