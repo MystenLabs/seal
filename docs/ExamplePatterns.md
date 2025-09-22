@@ -1,4 +1,4 @@
-# Example patterns
+# Access policy example patterns
 
 This page summarizes common Seal patterns from the [Move patterns repository](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources). It isn’t exhaustive - for additional patterns and the latest updates, see the repository directly.
 
@@ -34,4 +34,4 @@ Apply similar time-based logic to gate a specific Walrus blob behind a time-limi
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/voting.move)
 
-Use this pattern to run a vote where ballots stay encrypted until the process completes. You define eligible voters; each submits an encrypted choice, and once all votes are in, the system releases the decryption needed to produce a verifiable on-chain tally. Invalid or tampered ballots are ignored. It can be useful for governance, sealed-bid auctions, or time-locked voting.
+Use this pattern to run a vote where ballots stay encrypted until completion. You define eligible voters; each submits an encrypted choice. When all votes are in, anyone can fetch the required threshold keys from Seal and use the [on-chain decryption](https://seal-docs.wal.app/UsingSeal/#on-chain-decryption) to produce a verifiable tally. Invalid or tampered ballots are ignored. Useful for governance, sealed-bid auctions, or time-locked voting.

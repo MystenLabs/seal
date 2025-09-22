@@ -3,6 +3,9 @@ theme:
   name: material
   features:
     - content.code.copy
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
   highlightjs: true
   hljs_languages:
     - rust
@@ -23,11 +26,13 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: GettingStarted.md
-  - Seal Design: Design.md
-  - Using Seal: UsingSeal.md
-  - Example Patterns: ExamplePatterns.md
-  - Key Server Operations: KeyServerOps.md
-  - Seal CLI: SealCLI.md
-  - Security Best Practices: SecurityBestPractices.md
+  - Developer Guide:
+    - Seal Design: Design.md
+    - Using Seal: UsingSeal.md
+    - Access Policy Example Patterns: ExamplePatterns.md
+    - Security Best Practices: SecurityBestPractices.md
+  - Operator Guide:
+    - Key Server Operations: KeyServerOps.md
+    - Seal CLI: SealCLI.md
   - Pricing: Pricing.md
   - Terms of Service: TermsOfService.md
