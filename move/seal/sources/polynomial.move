@@ -32,36 +32,26 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
             x.coefficients[i]
         }
     });
-    let result = Polynomial { coefficients };
-    reduce(result);
-    result
-}
-
-fun degree(x: &Polynomial): u64 {
-    x.coefficients.length() - 1
-}
-
-fun reduce(mut x: Polynomial) {
-    while (x.coefficients.length() > 0 && x.coefficients[x.coefficients.length() - 1] == 0) {
-        x.coefficients.pop_back();
-    };
+    Polynomial { coefficients }
 }
 
 fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
-    let degree = x.degree() + y.degree();
-
-    let coefficients = vector::tabulate!(degree + 1, |i| {
-        let mut sum = 0;
-        i.do_eq!(|j| {
-            if (j <= x.degree() && i - j <= y.degree()) {
-                sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
-            }
-        });
-        sum
-    });
-    let result = Polynomial { coefficients };
-    reduce(result);
-    result
+    if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
+        return Polynomial { coefficients: vector::empty<u8>() }
+    };
+    let coefficients = vector::tabulate!(
+        x.coefficients.length() + y.coefficients.length() -  1,
+        |i| {
+            let mut sum = 0;
+            i.do_eq!(|j| {
+                if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
+                    sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
+                }
+            });
+            sum
+        },
+    );
+    Polynomial { coefficients }
 }
 
 fun div(x: &Polynomial, s: u8): Polynomial {

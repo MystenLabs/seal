@@ -26,7 +26,7 @@ mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b
 
 tokio = { version = "1.45.1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
-tower-http = { version = "0.6.6", features = ["cors"] }
+tower-http = { version = "0.6.6", features = ["cors", "limit"] }
 crypto = { path = "../crypto" }
 tap = "1.0.1"
 prometheus = "0.13.3"

@@ -216,6 +216,23 @@ async fn test_service() {
             .await
             .unwrap();
         assert_eq!(response.status(), 400);
+
+        // Valid request with too large request body should be rejected
+        let large_body = vec![0u8; 200 * 1024]; // 200KB body
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header("Client-Sdk-Version", "0.4.11")
+                    .body(Body::from(large_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 413); // Payload too Large
     })
     .await;
 }

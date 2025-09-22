@@ -51,7 +51,7 @@ Symmetric key: e39651e5aa01949ba5174c67a2c37f58ee8217392ba2275a5789f0ac2c3540d8
     The encryption is randomized, so the output will be different each time you run the command, even with the same input message and keys.
 
 !!! info
-    The output includes the BCS-encoded encrypted object and the symmetric key used to encrypt the message. You can share the encrypted object (for example, on-chain or via Walrus), but keep the symmetric key secret - anyone with access to it can decrypt the message.
+    The output includes the Hex-encoded, BCS serialized encrypted object and the symmetric key used to encrypt the message. You can share the encrypted object (for example, on-chain or via Walrus), but keep the symmetric key secret - anyone with access to it can decrypt the message.
 
 ## 3. (Optional) Decrypt with the symmetric key
 
@@ -134,9 +134,9 @@ Encrypted shares:
 
 ## 7. Encrypt and fetch keys using service providers
 
-Encrypt a secret bound to a hex-encoded ID and a Seal policy package ID. Specify the key server object IDs and the network. The CLI fetches key-server public keys from a public Full node.
+**Encrypt**
 
-**Encrypt:**
+Encrypt the secret’s UTF-8 bytes bound to a hex-encoded ID and a Seal policy package ID. Provide the key-server object IDs and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized encrypted object.
 
 ```shell
 $ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
@@ -150,7 +150,9 @@ Encrypted object:
 <ENCODED_ENCRYPTED_OBJECT>
 ```
 
-**Fetch keys for the encoded request (provide the threshold, key server object IDs, and network):**
+**Fetch keys for the encoded request**
+
+Fetch keys for a hex-encoded request. Provide the threshold, key-server object IDs, and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized vector of `(key server object ID, FetchKeyResponse)` tuples.
 
 ```shell
 $ cargo run --bin seal-cli fetch-keys --request <ENCODED_REQUEST> \

@@ -7,7 +7,8 @@ pub use crypto::elgamal::{decrypt as elgamal_decrypt, genkey};
 pub use crypto::ibe::verify_user_secret_key as ibe_verify_user_secret_key;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
 pub use crypto::{
-    seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys,
+    create_full_id, seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput, IBEPublicKeys,
+    IBEUserSecretKeys,
 };
 pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
 
