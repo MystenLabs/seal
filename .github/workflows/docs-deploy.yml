@@ -1,15 +1,7 @@
 name: Docs Deploy
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'overrides/**'
-      - 'theme/**'
-      - 'ws-resources.json'
+  workflow_dispatch:
 
 concurrency:
   group: docs-deploy-${{ github.ref }}
