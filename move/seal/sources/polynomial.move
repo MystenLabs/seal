@@ -36,6 +36,10 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
 }
 
 fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
+    if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
+        return Polynomial { coefficients: vector::empty<u8>() }
+    };
+
     let length = x.coefficients.length() + y.coefficients.length() -  1;
 
     let coefficients = vector::tabulate!(length, |i| {
