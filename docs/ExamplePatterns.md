@@ -26,14 +26,12 @@ Use this pattern to offer time-limited access to encrypted content or services. 
 
 Use this pattern to publish encrypted content that unlocks automatically at a specific time. You encrypt once with an unlock timestamp; before that moment, no one can open it, and after it passes, anyone (or your intended audience) can. No re-encryption or per-user distribution is needed. Ideal for coordinated reveals (drops, auctions), MEV-resilient trading, and secure voting; an optional variant lets an authorized party extend the unlock time before it expires.
 
+### Variation - Pre-signed URLs
+
+Apply similar time-based logic to gate a specific Walrus blob behind a time-limited, bearer link. Encrypt once (optionally bind the blob ID in the key ID), include an expiry in the link, and let the policy authorize decryptions only before the deadline and not after. This enables limited-time downloads without per-user setup or re-encryption.
+
 ## Secure voting
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/voting.move)
 
 Use this pattern to run a vote where ballots stay encrypted until the process completes. You define eligible voters; each submits an encrypted choice, and once all votes are in, the system releases the decryption needed to produce a verifiable on-chain tally. Invalid or tampered ballots are ignored. It can be useful for governance, sealed-bid auctions, or time-locked voting.
-
-## Pre-signed URL
-
-[Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/presigned_url.move)
-
-Use this pattern to share an encrypted Walrus blob via a time-limited, bearer link. You publish a small “window” object that names the blob and an expiry; anyone with the link can request decryption until the deadline, and no one can after. You encrypt once (key-id includes the blob’s ID), avoid per-user setup, and keep a clean audit trail. It's great for limited-time downloads, drops, press kits, or trial content.
