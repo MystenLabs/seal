@@ -39,18 +39,18 @@ fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
     if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
         return Polynomial { coefficients: vector::empty<u8>() }
     };
-
-    let length = x.coefficients.length() + y.coefficients.length() -  1;
-
-    let coefficients = vector::tabulate!(length, |i| {
-        let mut sum = 0;
-        i.do_eq!(|j| {
-            if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
-                sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
-            }
-        });
-        sum
-    });
+    let coefficients = vector::tabulate!(
+        x.coefficients.length() + y.coefficients.length() -  1,
+        |i| {
+            let mut sum = 0;
+            i.do_eq!(|j| {
+                if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
+                    sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
+                }
+            });
+            sum
+        },
+    );
     Polynomial { coefficients }
 }
 
