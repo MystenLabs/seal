@@ -28,7 +28,9 @@ Use this pattern to publish encrypted content that unlocks automatically at a sp
 
 ### Variation - Pre-signed URLs
 
-Apply similar time-based logic to gate a specific Walrus blob behind a time-limited, bearer link. Encrypt once (optionally bind the blob ID in the key ID), include an expiry in the link, and let the policy authorize decryptions only before the deadline and not after. This enables limited-time downloads without per-user setup or re-encryption.
+Apply the same time-based logic to gate a specific Walrus blob behind a time-limited link that expires. Encrypt once (optionally bind the blob ID in the key ID), include an expiry parameter, and let the policy authorize decrypts only before the deadline, not after. To emulate cloud “signed URLs” more closely, combine the time check with an access rule (for example, a [allowlist](#allowlist) or [subscription](#subscription) check). 
+
+This section covers access control, not link generation. You can generate and distribute the URL off-chain, or add a helper function in the same access policy package to produce/validate link parameters if you prefer to keep it on-chain. This enables limited-time downloads without re-encrypting content or managing per-user copies.
 
 ## Secure voting
 
