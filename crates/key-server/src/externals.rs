@@ -64,7 +64,7 @@ pub(crate) async fn check_mvr_package_id(
 
 pub(crate) async fn fetch_first_pkg_id(
     pkg_id: &ObjectId,
-    sui_rpc_client: &SuiRpcClient,
+    sui_rpc_client: &mut SuiRpcClient,
 ) -> Result<ObjectId, InternalError> {
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
@@ -82,9 +82,7 @@ pub(crate) async fn fetch_first_pkg_id(
                 .ok_or(InternalError::InvalidPackage)?;
 
             // Parse package data from the object
-            let object_data = object
-                .object
-                .ok_or(InternalError::InvalidPackage)?;
+            let object_data = &object;
 
             // Extract original package ID from the response
             // For now, use the package ID itself as the first package ID
@@ -114,7 +112,7 @@ pub(crate) async fn get_latest_checkpoint_timestamp(
     let checkpoint = sui_rpc_client
         .get_checkpoint(latest_checkpoint_sequence_number)
         .await?;
-    Ok(checkpoint.checkpoint.and_then(|c| c.summary).and_then(|s| s.timestamp).map(|t| t.millis as u64).unwrap_or(0))
+    Ok(checkpoint.checkpoint.and_then(|c| c.summary).and_then(|s| s.timestamp).map(|t| (t.seconds as u64 * 1000) + (t.nanos as u64 / 1_000_000)).unwrap_or(0))
 }
 
 pub(crate) async fn get_reference_gas_price(mut sui_rpc_client: SuiRpcClient) -> RpcResult<u64> {

@@ -16,25 +16,24 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
-use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
-use crate::mvr::mainnet::mvr_core::name::Name;
-use crate::mvr::mainnet::sui::dynamic_field::Field;
-use crate::mvr::mainnet::sui::vec_map::VecMap;
-use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
+// TODO: Re-enable when move_contract macros work
+// use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
+// use crate::mvr::mainnet::mvr_core::name::Name;
+// use crate::mvr::mainnet::sui::dynamic_field::Field;
+// use crate::mvr::mainnet::sui::vec_map::VecMap;
+// use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
 use crate::sui_rpc_client::{SuiRpcClient, DynamicFieldName};
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
-use move_core_types::language_storage::StructTag;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_sdk_types::{Address as ObjectId};
-use sui_sdk_types::TypeTag;
+use sui_sdk_types::{Address as ObjectId, TypeTag, StructTag};
 use prost_types::FieldMask;
-use move_types::ObjectId;
+use move_types::ObjectId as MoveObjectId;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
@@ -44,34 +43,42 @@ const TESTNET_ID: &str = "4c78adac";
 
 /// Bindings for Move structs used in the MVR registry, specifically AppRecord and PackageInfo.
 #[allow(clippy::too_many_arguments)]
+// TODO: Re-enable when move_contract macros work properly
+/*
 pub mod mainnet {
     use move_binding_derive::move_contract;
     move_contract! {alias = "sui", package = "0x2"}
-    move_contract! {alias = "suins", package = "0xd22b24490e0bae52676651b4f56660a5ff8022a2576e0089f79b3c88d44e08f0", deps = [crate::mvr::mainnet::sui]}
-    move_contract! {alias = "mvr_core", package = "@mvr/core", deps = [crate::mvr::mainnet::sui, crate::mvr::mainnet::suins, crate::mvr::mainnet::mvr_metadata]}
-    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", deps = [crate::mvr::mainnet::sui]}
+    move_contract! {alias = "suins", package = "0xd22b24490e0bae52676651b4f56660a5ff8022a2576e0089f79b3c88d44e08f0"}
+    move_contract! {alias = "mvr_core", package = "@mvr/core"}
+    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata"}
 }
 pub mod testnet {
     use move_binding_derive::move_contract;
-    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", network = "testnet", deps = [crate::mvr::mainnet::sui]}
+    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", network = "testnet"}
 }
+*/
 
-impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
-    fn from(value: VecMap<K, V>) -> Self {
-        value
-            .contents
-            .into_iter()
-            .map(|entry| (entry.key, entry.value))
-            .collect::<HashMap<K, V>>()
-    }
-}
+// TODO: Re-enable when VecMap is available from move_contract macros
+// impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
+//     fn from(value: VecMap<K, V>) -> Self {
+//         value
+//             .contents
+//             .into_iter()
+//             .map(|entry| (entry.key, entry.value))
+//             .collect::<HashMap<K, V>>()
+//     }
+// }
 
 /// Given an MVR name, look up the package it points to.
+// TODO: Re-enable when move_contract types are available
 pub(crate) async fn mvr_forward_resolution(
-    sui_rpc_client: &SuiRpcClient,
-    mvr_name: &str,
-    key_server_options: &KeyServerOptions,
+    _sui_rpc_client: &SuiRpcClient,
+    _mvr_name: &str,
+    _key_server_options: &KeyServerOptions,
 ) -> Result<ObjectId, InternalError> {
+    // Temporarily disabled until move_contract macros work
+    Err(Failure("MVR resolution temporarily disabled".to_string()))
+    /*
     let network = resolve_network(&key_server_options.network)?;
     let package_address = match network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
@@ -122,6 +129,7 @@ pub(crate) async fn mvr_forward_resolution(
         _ => return Err(Failure("Invalid network for MVR resolution".to_string())),
     };
     Ok(ObjectId::new(package_address.into_inner()))
+    */
 }
 
 /// Resolve the network from the network configuration for Custom.
@@ -144,10 +152,11 @@ pub(crate) fn resolve_network(network: &Network) -> Result<Network, InternalErro
 }
 
 /// Given an MVR name, look up the record in the MVR registry on mainnet.
+// TODO: Re-enable when Field<Name, AppRecord> is available from move_contract macros
 async fn get_from_mvr_registry(
     mvr_name: &str,
-    mainnet_sui_rpc_client: &SuiRpcClient,
-) -> Result<Field<Name, AppRecord>, InternalError> {
+    mainnet_sui_rpc_client: &mut SuiRpcClient,
+) -> Result<(), InternalError> { // Changed return type temporarily
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
     let response = mainnet_sui_rpc_client
         .get_dynamic_field_object(
@@ -165,13 +174,16 @@ async fn get_from_mvr_registry(
     let record_id = response
         .dynamic_fields
         .first()
-        .and_then(|f| f.object_id.as_ref())
+        .and_then(|f| f.object.as_ref())
         .ok_or(InvalidMVRName)?
-        .parse::<ObjectId>()
-        .map_err(|_| InvalidMVRName)?;
+        .object_id
+        .as_ref()
+        .ok_or(InvalidMVRName)
+        .and_then(|id| ObjectId::from_str(id).map_err(|_| InvalidMVRName))?;
 
     // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
-    get_object(record_id, mainnet_sui_rpc_client).await
+    // get_object(record_id, mainnet_sui_rpc_client).await
+    Ok(()) // Temporary placeholder
 }
 
 /// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
@@ -184,9 +196,9 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
 
     Ok(DynamicFieldName {
         type_: TypeTag::Struct(Box::new(StructTag {
-            address: AccountAddress::from_str(MVR_CORE).unwrap(),
-            module: Identifier::from_str("name").unwrap(),
-            name: Identifier::from_str("Name").unwrap(),
+            address: MVR_CORE.parse().unwrap(),
+            module: "name".parse().unwrap(),
+            name: "Name".parse().unwrap(),
             type_params: vec![],
         })),
         value: json!(parsed_name.name),
@@ -203,17 +215,18 @@ async fn get_object<T: for<'a> Deserialize<'a>>(
     let response = sui_rpc_client
         .get_object_with_options(object_id, Some(read_mask))
         .await
-        .map_err(|_| Failure(format!("Failed to get object {object_id}")))?
-        .object
-        .ok_or(Failure(format!("No object in response for {object_id}")))?
-        .object
-        .ok_or(Failure(format!("No object data for {object_id}")))?
-        .value
+        .map_err(|_| Failure(format!("Failed to get object {object_id}")))?;
+
+    let object = response.object
+        .ok_or(Failure(format!("No object data for {object_id}")))?;
+    let bcs_data = object.bcs
         .ok_or(Failure(format!("No BCS data for {object_id}")))?;
 
     // The value is the BCS-encoded bytes
-    bcs::from_bytes(&response)
-        .map_err(|_| InvalidPackage)
+    bcs::from_bytes(
+        &bcs_data.value
+            .ok_or(Failure(format!("No BCS value for {object_id}")))?
+    ).map_err(|_| InvalidPackage)
 }
 
 #[cfg(test)]

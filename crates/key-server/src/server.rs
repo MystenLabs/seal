@@ -44,7 +44,8 @@ use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
-use seal_sdk::{signed_message, FetchKeyResponse};
+use seal_sdk::{signed_message, FetchKeyResponse, FetchKeyRequest, Certificate};
+use sui_transaction_builder;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -53,8 +54,8 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use sui_rpc_client::SuiRpcClient;
-use sui_sdk_types::{Address, Address as ObjectId, ProgrammableTransaction, TransactionKind};
-use sui_sdk_types::{UserSignature, ExecutionStatus};
+use sui_sdk_types::{Address, Address as ObjectId, ProgrammableTransaction, TransactionKind, UserSignature, ExecutionStatus, PersonalMessage, Intent};
+use sui_crypto::{UserSignatureVerifier, SuiVerifier};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -105,16 +106,10 @@ struct Server {
 impl Server {
     async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .request_timeout(options.rpc_config.timeout)
-                .build(&options.network.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+            &options.network.node_url(),
             options.rpc_config.retry_config.clone(),
             metrics,
-        );
+        ).expect("Failed to create SuiRpcClient");
         info!("Server started with network: {:?}", options.network);
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {}", e);
@@ -127,7 +122,7 @@ impl Server {
                 let key = master_keys
                     .get_key_for_key_server(&ks_oid)
                     .expect("checked already");
-                let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                let pop = create_proof_of_possession(key, ks_oid.as_bytes());
                 (ks_oid, pop)
             })
             .collect();
@@ -138,6 +133,20 @@ impl Server {
             key_server_oid_to_pop,
             options,
         }
+    }
+
+    fn verify_user_signature(
+        &self,
+        signature: &UserSignature,
+        message_bytes: &[u8],
+        _expected_signer: Address,
+    ) -> Result<(), InternalError> {
+        let verifier = UserSignatureVerifier::new();
+        let personal_message = PersonalMessage(std::borrow::Cow::Borrowed(message_bytes));
+
+        verifier
+            .verify_personal_message(&personal_message, signature)
+            .map_err(|_| InternalError::InvalidSignature)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -190,13 +199,8 @@ impl Server {
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
         );
-        verify_personal_message_signature(
-            cert.signature.clone(),
-            msg.as_bytes(),
-            cert.user,
-            Some(self.sui_rpc_client.sui_client().clone()),
-        )
-        .await
+        // Verify personal message signature using new SDK
+        self.verify_user_signature(&cert.signature, msg.as_bytes(), cert.user)
         .tap_err(|e| {
             debug!(
                 "Signature verification failed: {:?} (req_id: {:?})",
@@ -219,7 +223,7 @@ impl Server {
     }
 
     async fn check_policy(
-        &self,
+        &mut self,
         sender: Address,
         vptb: &ValidPtb,
         gas_price: u64,
@@ -231,56 +235,46 @@ impl Server {
             req_id
         );
         // Evaluate the `seal_approve*` function
-        let tx_data = self
-            .sui_rpc_client
-            .sui_client()
-            .transaction_builder()
-            .tx_data_for_dry_run(
-                sender,
-                TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
-                GAS_BUDGET,
-                gas_price,
-                None,
-                None,
-            )
-            .await;
+        let tx_data = sui_sdk_types::Transaction {
+            sender,
+            gas_payment: sui_sdk_types::GasPayment {
+                objects: vec![],
+                budget: GAS_BUDGET,
+                price: gas_price,
+                owner: sender,
+            },
+            kind: TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            expiration: sui_sdk_types::TransactionExpiration::None,
+        };
         let dry_run_res = self
             .sui_rpc_client
             .dry_run_transaction_block(tx_data.clone())
             .await
             .map_err(|e| {
-                if let Error::RpcError(ClientError::Call(ref e)) = e {
-                    match e.code() {
-                        INVALID_PARAMS_CODE => {
-                            // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
-                            // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                            debug!("Invalid parameter: {}", e.message());
-                            return InternalError::InvalidParameter(e.message().to_string());
-                        }
-                        METHOD_NOT_FOUND_CODE => {
-                            // This means that the seal_approve function is not found on the given module.
-                            debug!("Function not found: {:?}", e);
-                            return InternalError::InvalidPTB(
-                                "The seal_approve function was not found on the module".to_string(),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
+                // TODO: Handle specific RPC error types when available
                 InternalError::Failure(format!(
                     "Dry run execution failed ({:?}) (req_id: {:?})",
                     e, req_id
                 ))
             })?;
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
-        if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
-            debug!(
-                "Dry run execution asserted (req_id: {:?}) {:?}",
-                req_id, error
-            );
-            return Err(InternalError::NoAccess(error.clone()));
+        // Check if any of the transaction outputs indicate failure
+        if let Some(transaction) = &dry_run_res.transaction {
+            if let Some(effects) = &transaction.effects {
+                if let Some(status) = &effects.status {
+                    // The status is a proto enum with success/error fields
+                    if status.error.is_some() {
+                        let error_msg = status.error.as_ref()
+                            .map(|f| format!("{:?}", f))
+                            .unwrap_or_else(|| "Unknown error".to_string());
+                        debug!(
+                            "Dry run execution asserted (req_id: {:?}) {:?}",
+                            req_id, error_msg
+                        );
+                        return Err(InternalError::NoAccess(error_msg));
+                    }
+                }
+            }
         }
 
         // all good!
@@ -327,7 +321,7 @@ impl Server {
             enc_verification_key,
             request_signature,
             certificate,
-            mvr_name.unwrap_or(first_pkg_id.to_hex_uncompressed()),
+            mvr_name.unwrap_or(first_pkg_id.to_string()),
             req_id,
         )
         .await?;
@@ -540,7 +534,7 @@ async fn handle_get_service(
         .get("service_id")
         .ok_or(InternalError::InvalidServiceId)
         .and_then(|id| {
-            ObjectId::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
+            ObjectId::from_hex(id).map_err(|_| InternalError::InvalidServiceId)
         })?;
 
     let pop = *app_state

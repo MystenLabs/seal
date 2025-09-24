@@ -22,7 +22,7 @@ use crate::{key_server_options::RetryConfig, metrics::Metrics};
 #[derive(Debug, thiserror::Error)]
 pub enum RpcError {
     #[error("RPC error: {0}")]
-    Status(#[from] tonic::Status),
+    Status(String),
     #[error("Other error: {0}")]
     Other(String),
 }
@@ -38,15 +38,12 @@ pub trait RetriableError {
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
         match self {
-            RpcError::Status(status) => {
-                // Retry on network/timeout errors
-                matches!(
-                    status.code(),
-                    tonic::Code::Unavailable
-                        | tonic::Code::DeadlineExceeded
-                        | tonic::Code::Internal
-                        | tonic::Code::Unknown
-                )
+            RpcError::Status(status_msg) => {
+                // Simple heuristic: retry on common network/timeout error messages
+                status_msg.contains("Unavailable")
+                    || status_msg.contains("DeadlineExceeded")
+                    || status_msg.contains("Internal")
+                    || status_msg.contains("Unknown")
             }
             _ => false,
         }
@@ -170,19 +167,21 @@ impl SuiRpcClient {
                 let transaction_bytes = bcs::to_bytes(&tx_data)
                     .map_err(|e| RpcError::Other(format!("Failed to serialize transaction: {}", e)))?;
 
-                let request = SimulateTransactionRequest {
-                    transaction: Some(sui_rpc::proto::sui::rpc::v2beta2::Transaction {
-                        bytes: transaction_bytes,
-                    }),
-                    read_mask: None,
-                };
+                let mut request = SimulateTransactionRequest::default();
+                let mut transaction = sui_rpc::proto::sui::rpc::v2beta2::Transaction::default();
+                let mut bcs = sui_rpc::proto::sui::rpc::v2beta2::Bcs::default();
+                bcs.name = Some("Transaction".to_string());
+                bcs.value = Some(transaction_bytes.into());
+                transaction.bcs = Some(bcs);
+                request.transaction = Some(transaction);
+                request.do_gas_selection = Some(false);
 
                 self.client
                     .live_data_client()
                     .simulate_transaction(request)
                     .await
                     .map(|r| r.into_inner())
-                    .map_err(RpcError::from)
+                    .map_err(|e| RpcError::Status(e.to_string()))
             },
         )
         .await
@@ -199,18 +198,16 @@ impl SuiRpcClient {
             "get_object_with_options",
             self.metrics.clone(),
             || async {
-                let request = GetObjectRequest {
-                    object_id: Some(object_id.to_string()),
-                    version: None,
-                    read_mask: read_mask.clone(),
-                };
+                let mut request = GetObjectRequest::default();
+                request.object_id = Some(object_id.to_string());
+                request.read_mask = read_mask.clone();
 
                 self.client
                     .ledger_client()
                     .get_object(request)
                     .await
                     .map(|r| r.into_inner())
-                    .map_err(RpcError::from)
+                    .map_err(|e| RpcError::Status(e.to_string()))
             },
         )
         .await
@@ -224,19 +221,14 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 // Get the latest checkpoint
-                let request = GetCheckpointRequest {
-                    sequence_number: None, // None means latest
-                    digest: None,
-                    read_mask: Some(FieldMask {
-                        paths: vec!["sequence_number".to_string()],
-                    }),
-                };
+                let mut request = GetCheckpointRequest::default();
+                request.checkpoint_id = None; // None means latest
 
                 let response = self.client
                     .ledger_client()
                     .get_checkpoint(request)
                     .await
-                    .map_err(RpcError::from)?
+                    .map_err(|e| RpcError::Status(e.to_string()))?
                     .into_inner();
 
                 response
@@ -255,18 +247,15 @@ impl SuiRpcClient {
             "get_checkpoint",
             self.metrics.clone(),
             || async {
-                let request = GetCheckpointRequest {
-                    sequence_number: Some(sequence_number),
-                    digest: None,
-                    read_mask: None,
-                };
+                let mut request = GetCheckpointRequest::default();
+                request.checkpoint_id = Some(sequence_number.to_string());
 
                 self.client
                     .ledger_client()
                     .get_checkpoint(request)
                     .await
                     .map(|r| r.into_inner())
-                    .map_err(RpcError::from)
+                    .map_err(|e| RpcError::Status(e.to_string()))
             },
         )
         .await
@@ -280,17 +269,14 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 // Get latest epoch info which contains gas price
-                let epoch_request = sui_rpc::proto::sui::rpc::v2beta2::GetEpochRequest {
-                    cursor: None,
-                    descendant_first: Some(true),
-                    limit: Some(1),
-                };
+                let mut epoch_request = sui_rpc::proto::sui::rpc::v2beta2::GetEpochRequest::default();
+                epoch_request.epoch = None; // None means latest
 
                 let response = self.client
                     .ledger_client()
                     .get_epoch(epoch_request)
                     .await
-                    .map_err(RpcError::from)?
+                    .map_err(|e| RpcError::Status(e.to_string()))?
                     .into_inner();
 
                 response
@@ -313,19 +299,16 @@ impl SuiRpcClient {
             "get_dynamic_field_object",
             self.metrics.clone(),
             || async {
-                let request = ListDynamicFieldsRequest {
-                    parent_id: object_id.to_string(),
-                    cursor: None,
-                    limit: Some(1),
-                    read_mask: None,
-                };
+                let mut request = ListDynamicFieldsRequest::default();
+                request.parent = Some(object_id.to_string());
+                request.page_size = Some(1);
 
                 self.client
                     .live_data_client()
                     .list_dynamic_fields(request)
                     .await
                     .map(|r| r.into_inner())
-                    .map_err(RpcError::from)
+                    .map_err(|e| RpcError::Status(e.to_string()))
             },
         )
         .await

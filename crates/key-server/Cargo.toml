@@ -41,11 +41,12 @@ reqwest = { version = "0.12", features = ["json"] }
 serde_with = { workspace = true, features = ["base64"] }
 hostname = "0.4"
 
-move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
-move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
+move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "cfc244d8751b9e4f553bf127008f9cff44c89506" }
+move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "cfc244d8751b9e4f553bf127008f9cff44c89506" }
 sui-sdk-types = { workspace = true }
 sui-transaction-builder = { workspace = true }
 sui-rpc = { workspace = true }
+sui-crypto = { workspace = true }
 thiserror = "1.0"
 prost-types = "0.13"
 tonic = "0.12"

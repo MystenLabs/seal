@@ -157,7 +157,7 @@ fn test_master_keys_open_mode() {
 
     let options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x2").unwrap(),
+        ObjectID::from_hex("0x2").unwrap(),
     );
 
     with_vars([("MASTER_KEY", None::<&str>)], || {
@@ -170,7 +170,7 @@ fn test_master_keys_open_mode() {
         let mk = MasterKeys::load(&options);
         assert_eq!(
             mk.unwrap()
-                .get_key_for_package(&ObjectID::from_hex_literal("0x1").unwrap())
+                .get_key_for_package(&ObjectID::from_hex("0x1").unwrap())
                 .unwrap(),
             &sk
         );
@@ -187,30 +187,30 @@ fn test_master_keys_permissioned_mode() {
 
     let mut options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x2").unwrap(),
+        ObjectID::from_hex("0x2").unwrap(),
     );
     options.server_mode = ServerMode::Permissioned {
         client_configs: vec![
             ClientConfig {
                 name: "alice".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x1").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x2").unwrap(),
+                package_ids: vec![ObjectID::from_hex("0x1").unwrap()],
+                key_server_object_id: ObjectID::from_hex("0x2").unwrap(),
                 client_master_key: ClientKeyType::Imported {
                     env_var: "ALICE_KEY".to_string(),
                 },
             },
             ClientConfig {
                 name: "bob".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x3").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x4").unwrap(),
+                package_ids: vec![ObjectID::from_hex("0x3").unwrap()],
+                key_server_object_id: ObjectID::from_hex("0x4").unwrap(),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 100,
                 },
             },
             ClientConfig {
                 name: "dan".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x5").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x6").unwrap(),
+                package_ids: vec![ObjectID::from_hex("0x5").unwrap()],
+                key_server_object_id: ObjectID::from_hex("0x6").unwrap(),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 200,
                 },
@@ -227,8 +227,8 @@ fn test_master_keys_permissioned_mode() {
         ],
         || {
             let mk = MasterKeys::load(&options).unwrap();
-            let k1 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x4").unwrap());
-            let k2 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x6").unwrap());
+            let k1 = mk.get_key_for_key_server(&ObjectID::from_hex("0x4").unwrap());
+            let k2 = mk.get_key_for_key_server(&ObjectID::from_hex("0x6").unwrap());
             assert!(k1.is_ok());
             assert_ne!(k1, k2);
         },

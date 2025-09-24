@@ -148,7 +148,7 @@ impl ValidPtb {
     pub fn full_ids(&self, first_pkg_id: &ObjectId) -> Vec<KeyId> {
         self.inner_ids()
             .iter()
-            .map(|inner_id| create_full_id(&first_pkg_id.into_bytes(), inner_id))
+            .map(|inner_id| create_full_id(first_pkg_id.as_bytes().try_into().unwrap(), inner_id))
             .collect()
     }
 

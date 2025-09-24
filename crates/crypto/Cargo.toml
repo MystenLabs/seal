@@ -18,4 +18,3 @@ sui-sdk-types.workspace = true
 typenum = "1.18.0"
 
 [dev-dependencies]
-sui_types = { workspace = true }

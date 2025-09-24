@@ -59,6 +59,6 @@ pub fn decode_master_key<E: Encoding>(env_name: &str) -> anyhow::Result<IbeMaste
 pub fn decode_object_id(env_name: &str) -> anyhow::Result<ObjectID> {
     let hex_string =
         env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    ObjectID::from_hex_literal(&hex_string)
+    ObjectID::from_hex(&hex_string)
         .map_err(|_| anyhow!("Invalid ObjectID for environment variable {env_name}"))
 }
