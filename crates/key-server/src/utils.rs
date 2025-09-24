@@ -33,7 +33,7 @@ use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 pub use git_version;
 use std::env;
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::Address as ObjectID;
 
 /// Read a byte array from an environment variable and decode it using the specified encoding.
 pub fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> anyhow::Result<[u8; N]> {

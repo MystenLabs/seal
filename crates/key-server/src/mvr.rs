@@ -21,7 +21,7 @@ use crate::mvr::mainnet::mvr_core::name::Name;
 use crate::mvr::mainnet::sui::dynamic_field::Field;
 use crate::mvr::mainnet::sui::vec_map::VecMap;
 use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
-use crate::sui_rpc_client::SuiRpcClient;
+use crate::sui_rpc_client::{SuiRpcClient, DynamicFieldName};
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -31,11 +31,10 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_sdk::rpc_types::SuiObjectDataOptions;
-use sui_sdk::SuiClientBuilder;
-use sui_types::base_types::ObjectID;
-use sui_types::dynamic_field::DynamicFieldName;
-use sui_types::TypeTag;
+use sui_sdk_types::{Address as ObjectId};
+use sui_sdk_types::TypeTag;
+use prost_types::FieldMask;
+use move_types::ObjectId;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
@@ -72,7 +71,7 @@ pub(crate) async fn mvr_forward_resolution(
     sui_rpc_client: &SuiRpcClient,
     mvr_name: &str,
     key_server_options: &KeyServerOptions,
-) -> Result<ObjectID, InternalError> {
+) -> Result<ObjectId, InternalError> {
     let network = resolve_network(&key_server_options.network)?;
     let package_address = match network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
@@ -88,14 +87,10 @@ pub(crate) async fn mvr_forward_resolution(
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default()
-                        .request_timeout(key_server_options.rpc_config.timeout)
-                        .build_mainnet()
-                        .await
-                        .map_err(|_| Failure("Failed to build sui client".to_string()))?,
+                    sui_rpc::Client::MAINNET_FULLNODE,
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.get_metrics(),
-                ),
+                ).map_err(|_| Failure("Failed to build sui client".to_string()))?,
             )
             .await?
             .value
@@ -126,7 +121,7 @@ pub(crate) async fn mvr_forward_resolution(
         }
         _ => return Err(Failure("Invalid network for MVR resolution".to_string())),
     };
-    Ok(ObjectID::new(package_address.into_inner()))
+    Ok(ObjectId::new(package_address.into_inner()))
 }
 
 /// Resolve the network from the network configuration for Custom.
@@ -154,18 +149,25 @@ async fn get_from_mvr_registry(
     mainnet_sui_rpc_client: &SuiRpcClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
-    let record_id = mainnet_sui_rpc_client
+    let response = mainnet_sui_rpc_client
         .get_dynamic_field_object(
-            ObjectID::from_str(MVR_REGISTRY).unwrap(),
+            ObjectId::from_str(MVR_REGISTRY).unwrap(),
             dynamic_field_name.clone(),
         )
         .await
         .map_err(|_| {
             Failure(format!(
-                "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
+                "Failed to get dynamic field object from MVR registry"
             ))
-        })?
-        .object_id()
+        })?;
+
+    // Extract the object ID from the response
+    let record_id = response
+        .dynamic_fields
+        .first()
+        .and_then(|f| f.object_id.as_ref())
+        .ok_or(InvalidMVRName)?
+        .parse::<ObjectId>()
         .map_err(|_| InvalidMVRName)?;
 
     // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
@@ -192,18 +194,26 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
 }
 
 async fn get_object<T: for<'a> Deserialize<'a>>(
-    object_id: ObjectID,
-    sui_rpc_client: &SuiRpcClient,
+    object_id: ObjectId,
+    sui_rpc_client: &mut SuiRpcClient,
 ) -> Result<T, InternalError> {
-    bcs::from_bytes(
-        sui_rpc_client
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())
-            .await
-            .map_err(|_| Failure(format!("Failed to get object {object_id}")))?
-            .move_object_bcs()
-            .ok_or(Failure(format!("No BCS on response of object {object_id}")))?,
-    )
-    .map_err(|_| InvalidPackage)
+    let read_mask = FieldMask {
+        paths: vec!["object".to_string()],
+    };
+    let response = sui_rpc_client
+        .get_object_with_options(object_id, Some(read_mask))
+        .await
+        .map_err(|_| Failure(format!("Failed to get object {object_id}")))?
+        .object
+        .ok_or(Failure(format!("No object in response for {object_id}")))?
+        .object
+        .ok_or(Failure(format!("No object data for {object_id}")))?
+        .value
+        .ok_or(Failure(format!("No BCS data for {object_id}")))?;
+
+    // The value is the BCS-encoded bytes
+    bcs::from_bytes(&response)
+        .map_err(|_| InvalidPackage)
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::Address as ObjectID;
 use tracing::info;
 
 /// ClientKeyType for a permissioned client.

@@ -21,11 +21,8 @@ use seal_sdk::IBEPublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use sui_sdk::rpc_types::SuiParsedData;
-use sui_sdk::SuiClientBuilder;
-use sui_sdk_types::ObjectId as NewObjectID;
-use sui_types::dynamic_field::DynamicFieldName;
-use sui_types::TypeTag;
+use sui_sdk_types::Address as NewObjectID;
+// use sui_sdk_types::TypeTag;  // TODO: uncomment when reimplementing fetch_key_server_urls
 
 const KEY_LENGTH: usize = 32;
 
@@ -41,9 +38,14 @@ pub struct KeyServerInfo {
 /// Fetch and parse key server object from fullnode.
 /// TODO: rewrite with sui-rust-sdk
 pub async fn fetch_key_server_urls(
-    key_server_ids: &[ObjectID],
-    network: &str,
+    _key_server_ids: &[ObjectID],
+    _network: &str,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
+    // TODO: Implement with new sui-rpc client
+    Err(FastCryptoError::GeneralError(
+        "fetch_key_server_urls needs to be reimplemented with sui-rpc client".to_string(),
+    ))
+    /*
     let sui_rpc = match network {
         "mainnet" => "https://fullnode.mainnet.sui.io:443",
         "testnet" => "https://fullnode.testnet.sui.io:443",
@@ -168,6 +170,7 @@ pub async fn fetch_key_server_urls(
     }
 
     Ok(key_servers)
+    */
 }
 
 /// Default encoding for serializing and deserializing values.

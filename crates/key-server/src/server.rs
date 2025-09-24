@@ -8,7 +8,7 @@ use crate::metrics::{call_with_duration, observation_callback, status_callback, 
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
-use crate::signed_message::signed_request;
+use seal_sdk::signed_request;
 use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
@@ -31,8 +31,9 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use jsonrpsee::core::ClientError;
-use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
+// JSON-RPC error codes
+const INVALID_PARAMS_CODE: i32 = -32602;
+const METHOD_NOT_FOUND_CODE: i32 = -32601;
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
@@ -52,13 +53,8 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use sui_rpc_client::SuiRpcClient;
-use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
-use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use sui_sdk::types::signature::GenericSignature;
-use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
-use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-use sui_sdk::SuiClientBuilder;
+use sui_sdk_types::{Address, Address as ObjectId, ProgrammableTransaction, TransactionKind};
+use sui_sdk_types::{UserSignature, ExecutionStatus};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -71,7 +67,6 @@ use valid_ptb::ValidPtb;
 mod cache;
 mod errors;
 mod externals;
-mod signed_message;
 mod sui_rpc_client;
 mod types;
 mod utils;
@@ -96,33 +91,6 @@ const MAX_REQUEST_SIZE: usize = 180 * 1024;
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct Certificate {
-    pub user: SuiAddress,
-    pub session_vk: Ed25519PublicKey,
-    pub creation_time: u64,
-    pub ttl_min: u16,
-    pub signature: GenericSignature,
-    pub mvr_name: Option<String>,
-}
-
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
-#[derive(Serialize, Deserialize)]
-struct FetchKeyRequest {
-    // Next fields must be signed to prevent others from sending requests on behalf of the user and
-    // being able to fetch the key
-    ptb: String, // must adhere specific structure, see ValidPtb
-    // We don't want to rely on https only for restricting the response to this user, since in the
-    // case of multiple services, one service can do a replay attack to get the key from other
-    // services.
-    enc_key: ElGamalPublicKey,
-    enc_verification_key: ElgamalVerificationKey,
-    request_signature: Ed25519Signature,
-
-    certificate: Certificate,
-}
-
 /// UNIX timestamp in milliseconds.
 type Timestamp = u64;
 
@@ -130,7 +98,7 @@ type Timestamp = u64;
 struct Server {
     sui_rpc_client: SuiRpcClient,
     master_keys: MasterKeys,
-    key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
+    key_server_oid_to_pop: HashMap<ObjectId, MasterKeyPOP>,
     options: KeyServerOptions,
 }
 
@@ -252,7 +220,7 @@ impl Server {
 
     async fn check_policy(
         &self,
-        sender: SuiAddress,
+        sender: Address,
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
@@ -331,7 +299,7 @@ impl Server {
         metrics: Option<&Metrics>,
         req_id: Option<&str>,
         mvr_name: Option<String>,
-    ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
+    ) -> Result<(ObjectId, Vec<KeyId>), InternalError> {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
@@ -376,7 +344,7 @@ impl Server {
 
     fn create_response(
         &self,
-        first_pkg_id: ObjectID,
+        first_pkg_id: ObjectId,
         ids: &[KeyId],
         enc_key: &ElGamalPublicKey,
     ) -> FetchKeyResponse {
@@ -489,7 +457,7 @@ async fn handle_fetch_key_internal(
     payload: &FetchKeyRequest,
     req_id: Option<&str>,
     sdk_version: &str,
-) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
+) -> Result<(ObjectId, Vec<KeyId>), InternalError> {
     app_state.check_full_node_is_fresh()?;
 
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
@@ -558,7 +526,7 @@ async fn handle_fetch_key(
 
 #[derive(Serialize, Deserialize)]
 struct GetServiceResponse {
-    service_id: ObjectID,
+    service_id: ObjectId,
     pop: MasterKeyPOP,
 }
 
@@ -572,7 +540,7 @@ async fn handle_get_service(
         .get("service_id")
         .ok_or(InternalError::InvalidServiceId)
         .and_then(|id| {
-            ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
+            ObjectId::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
         })?;
 
     let pop = *app_state

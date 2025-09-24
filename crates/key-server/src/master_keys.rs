@@ -12,7 +12,7 @@ use crypto::ibe::SEED_LENGTH;
 use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use std::collections::HashMap;
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::Address as ObjectID;
 use tracing::info;
 
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
@@ -152,7 +152,7 @@ fn test_master_keys_open_mode() {
     use crate::DefaultEncoding;
     use fastcrypto::encoding::Encoding;
     use fastcrypto::groups::GroupElement;
-    use sui_types::base_types::ObjectID;
+    use sui_sdk_types::Address as ObjectID;
     use temp_env::with_vars;
 
     let options = KeyServerOptions::new_open_server_with_default_values(

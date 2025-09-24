@@ -17,12 +17,9 @@ serde_json.workspace = true
 hex.workspace = true
 bcs.workspace = true
 tracing.workspace = true
-sui_types.workspace = true
 mysten-service.workspace = true
-sui_sdk.workspace = true
-shared_crypto.workspace = true
 move-core-types.workspace = true
-mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
+mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "f2bdba1d215fea666465e05ce234d0a11736d4ce", package = "mvr-types" }
 
 tokio = { version = "1.45.1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
@@ -47,7 +44,11 @@ hostname = "0.4"
 move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
 sui-sdk-types = { workspace = true }
-sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
+sui-transaction-builder = { workspace = true }
+sui-rpc = { workspace = true }
+thiserror = "1.0"
+prost-types = "0.13"
+tonic = "0.12"
 prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "prometheus-closure-metric" }
 hyper-util = "0.1.10"
 http-body-util = "0.1.2"

@@ -5,9 +5,8 @@ use crate::return_err;
 use crate::KeyId;
 use crypto::create_full_id;
 use fastcrypto::encoding::{Base64, Encoding};
-use sui_sdk::types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};
-use sui_types::base_types::ObjectID;
-use sui_types::transaction::ProgrammableMoveCall;
+use sui_sdk_types::{Address as ObjectId, ProgrammableTransaction};
+use sui_sdk_types::{Argument, Command, Input, MoveCall};
 use tracing::debug;
 
 ///
@@ -58,7 +57,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
 
         for cmd in &ptb.commands {
             // Restriction: All commands must be a MoveCall.
-            let Command::MoveCall(cmd) = &cmd else {
+            let Command::MoveCall(cmd) = cmd else {
                 return_err!(
                     InternalError::InvalidPTB("Non MoveCall command".to_string()),
                     "Non MoveCall command {:?}",
@@ -86,7 +85,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
 
 fn get_key_id(
     ptb: &ProgrammableTransaction,
-    cmd: &ProgrammableMoveCall,
+    cmd: &MoveCall,
 ) -> Result<KeyId, InternalError> {
     if cmd.arguments.is_empty() {
         return_err!(
@@ -95,14 +94,14 @@ fn get_key_id(
             cmd
         );
     }
-    let Argument::Input(arg_idx) = cmd.arguments[0] else {
+    let Argument::Input(arg_idx) = &cmd.arguments[0] else {
         return_err!(
             InternalError::InvalidPTB("Invalid index for first argument".to_string()),
             "Invalid PTB command {:?}",
             cmd
         );
     };
-    let Some(CallArg::Pure(id)) = &ptb.inputs.get(arg_idx as usize) else {
+    let Some(Input::Pure { value: id }) = ptb.inputs.get(*arg_idx as usize) else {
         return_err!(
             InternalError::InvalidPTB("Invalid first parameter for seal_approve".to_string()),
             "Invalid PTB command {:?}",
@@ -139,14 +138,14 @@ impl ValidPtb {
             .collect()
     }
 
-    pub fn pkg_id(&self) -> ObjectID {
+    pub fn pkg_id(&self) -> ObjectId {
         let Command::MoveCall(cmd) = &self.0.commands[0] else {
             unreachable!()
         };
         cmd.package
     }
 
-    pub fn full_ids(&self, first_pkg_id: &ObjectID) -> Vec<KeyId> {
+    pub fn full_ids(&self, first_pkg_id: &ObjectId) -> Vec<KeyId> {
         self.inner_ids()
             .iter()
             .map(|inner_id| create_full_id(&first_pkg_id.into_bytes(), inner_id))

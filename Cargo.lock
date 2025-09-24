@@ -1275,6 +1275,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytestring"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "113b4343b5f6617e7ad401ced8de3cc8b012e73a594347c307b90db3e9271289"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "bzip2-sys"
 version = "0.1.11+1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1837,7 +1846,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
+ "sui-sdk-types 0.0.7",
  "sui-types",
  "typenum",
 ]
@@ -4180,6 +4189,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prometheus-closure-metric",
+ "prost-types 0.13.4",
  "rand 0.8.5",
  "reqwest 0.12.15",
  "seal-sdk",
@@ -4188,17 +4198,17 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serde_yaml 0.9.34+deprecated",
- "shared-crypto",
  "snap",
  "sui-move-build",
- "sui-sdk",
- "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
- "sui-transaction-builder 0.1.0 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
- "sui-types",
+ "sui-rpc",
+ "sui-sdk-types 0.0.7",
+ "sui-transaction-builder 0.0.7",
  "tap",
  "temp-env",
  "test-cluster",
+ "thiserror 1.0.69",
  "tokio",
+ "tonic 0.12.3",
  "tower-http 0.6.6",
  "tracing",
  "tracing-test",
@@ -4258,7 +4268,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -5337,13 +5347,13 @@ checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
 [[package]]
 name = "mvr-types"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/mvr?rev=1993d7188f62564b05f0ccab46bbfb24b0eea326#1993d7188f62564b05f0ccab46bbfb24b0eea326"
+source = "git+https://github.com/MystenLabs/mvr?rev=f2bdba1d215fea666465e05ce234d0a11736d4ce#f2bdba1d215fea666465e05ce234d0a11736d4ce"
 dependencies = [
  "anyhow",
  "once_cell",
  "regex",
  "serde",
- "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
+ "sui-sdk-types 0.0.7",
  "thiserror 2.0.12",
 ]
 
@@ -6589,7 +6599,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0f3e5beed80eb580c68e2c600937ac2c4eedabdfd5ef1e5b7ea4f3fba84497b"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -6622,7 +6632,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -7528,9 +7538,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
- "sui-sdk",
- "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
- "sui-types",
+ "sui-sdk-types 0.0.7",
  "tokio",
 ]
 
@@ -7580,7 +7588,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sui-sdk-types 0.0.2 (git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06)",
+ "sui-sdk-types 0.0.7",
  "sui-types",
  "tracing",
 ]
@@ -9345,6 +9353,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-rpc"
+version = "0.0.7"
+source = "git+https://github.com/mystenlabs/sui-rust-sdk?rev=b3a5178b#b3a5178b8653dbf9bad9bf6f6c71210867143eed"
+dependencies = [
+ "base64 0.22.1",
+ "bcs",
+ "bytes",
+ "futures",
+ "http 1.3.1",
+ "prost 0.13.4",
+ "prost-types 0.13.4",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.7",
+ "tap",
+ "tokio",
+ "tonic 0.13.1",
+]
+
+[[package]]
 name = "sui-rpc-api"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=42ba6c0#42ba6c03128233cdeb3fc6e0a22dabd0bfc55385"
@@ -9456,6 +9484,27 @@ dependencies = [
  "serde_json",
  "serde_with",
  "winnow 0.6.20",
+]
+
+[[package]]
+name = "sui-sdk-types"
+version = "0.0.7"
+source = "git+https://github.com/mystenlabs/sui-rust-sdk?rev=b3a5178b#b3a5178b8653dbf9bad9bf6f6c71210867143eed"
+dependencies = [
+ "base64ct",
+ "bcs",
+ "blake2",
+ "bnum",
+ "bs58 0.5.1",
+ "bytes",
+ "bytestring",
+ "itertools 0.13.0",
+ "roaring",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "winnow 0.7.10",
 ]
 
 [[package]]
@@ -9687,6 +9736,20 @@ dependencies = [
  "sui-json-rpc-types",
  "sui-protocol-config",
  "sui-types",
+]
+
+[[package]]
+name = "sui-transaction-builder"
+version = "0.0.7"
+source = "git+https://github.com/mystenlabs/sui-rust-sdk?rev=b3a5178b#b3a5178b8653dbf9bad9bf6f6c71210867143eed"
+dependencies = [
+ "base64ct",
+ "bcs",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sui-sdk-types 0.0.7",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -10535,6 +10598,35 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tower 0.4.13",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+ "webpki-roots",
+ "zstd 0.13.2",
+]
+
+[[package]]
+name = "tonic"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.6.0",
+ "hyper-timeout 0.5.2",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.13.4",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
  "tracing",
