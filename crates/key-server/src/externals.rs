@@ -28,7 +28,7 @@ pub(crate) fn add_upgraded_package(pkg_id: ObjectId, new_pkg_id: ObjectId) {
 
 pub(crate) async fn check_mvr_package_id(
     mvr_name: &Option<String>,
-    sui_rpc_client: &SuiRpcClient,
+    sui_rpc_client: &mut SuiRpcClient,
     key_server_options: &KeyServerOptions,
     first_pkg_id: ObjectId,
     req_id: Option<&str>,
@@ -82,7 +82,7 @@ pub(crate) async fn fetch_first_pkg_id(
                 .ok_or(InternalError::InvalidPackage)?;
 
             // Parse package data from the object
-            let object_data = &object;
+            let _object_data = &object;
 
             // Extract original package ID from the response
             // For now, use the package ID itself as the first package ID

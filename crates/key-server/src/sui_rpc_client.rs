@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use sui_rpc::Client;
 use sui_rpc::proto::sui::rpc::v2beta2::{
     GetCheckpointRequest, GetCheckpointResponse,
     GetObjectRequest, GetObjectResponse,
     ListDynamicFieldsRequest, ListDynamicFieldsResponse,
-    ExecuteTransactionRequest, ExecuteTransactionResponse,
     SimulateTransactionRequest, SimulateTransactionResponse,
 };
 use sui_sdk_types::Address as ObjectId;
@@ -158,33 +156,25 @@ impl SuiRpcClient {
         &mut self,
         tx_data: Transaction,
     ) -> RpcResult<SimulateTransactionResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "simulate_transaction",
-            self.metrics.clone(),
-            || async {
-                // Convert Transaction to proto format
-                let transaction_bytes = bcs::to_bytes(&tx_data)
-                    .map_err(|e| RpcError::Other(format!("Failed to serialize transaction: {}", e)))?;
+        // Convert Transaction to proto format
+        let transaction_bytes = bcs::to_bytes(&tx_data)
+            .map_err(|e| RpcError::Other(format!("Failed to serialize transaction: {}", e)))?;
 
-                let mut request = SimulateTransactionRequest::default();
-                let mut transaction = sui_rpc::proto::sui::rpc::v2beta2::Transaction::default();
-                let mut bcs = sui_rpc::proto::sui::rpc::v2beta2::Bcs::default();
-                bcs.name = Some("Transaction".to_string());
-                bcs.value = Some(transaction_bytes.into());
-                transaction.bcs = Some(bcs);
-                request.transaction = Some(transaction);
-                request.do_gas_selection = Some(false);
+        let mut request = SimulateTransactionRequest::default();
+        let mut transaction = sui_rpc::proto::sui::rpc::v2beta2::Transaction::default();
+        let mut bcs = sui_rpc::proto::sui::rpc::v2beta2::Bcs::default();
+        bcs.name = Some("Transaction".to_string());
+        bcs.value = Some(transaction_bytes.into());
+        transaction.bcs = Some(bcs);
+        request.transaction = Some(transaction);
+        request.do_gas_selection = Some(false);
 
-                self.client
-                    .live_data_client()
-                    .simulate_transaction(request)
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(|e| RpcError::Status(e.to_string()))
-            },
-        )
-        .await
+        self.client
+            .live_data_client()
+            .simulate_transaction(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| RpcError::Status(e.to_string()))
     }
 
     /// Returns an object with the given options.
@@ -193,125 +183,85 @@ impl SuiRpcClient {
         object_id: ObjectId,
         read_mask: Option<FieldMask>,
     ) -> RpcResult<GetObjectResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_object_with_options",
-            self.metrics.clone(),
-            || async {
-                let mut request = GetObjectRequest::default();
-                request.object_id = Some(object_id.to_string());
-                request.read_mask = read_mask.clone();
+        let mut request = GetObjectRequest::default();
+        request.object_id = Some(object_id.to_string());
+        request.read_mask = read_mask.clone();
 
-                self.client
-                    .ledger_client()
-                    .get_object(request)
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(|e| RpcError::Status(e.to_string()))
-            },
-        )
-        .await
+        self.client
+            .ledger_client()
+            .get_object(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| RpcError::Status(e.to_string()))
     }
 
     /// Returns the latest checkpoint sequence number.
     pub async fn get_latest_checkpoint_sequence_number(&mut self) -> RpcResult<u64> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_latest_checkpoint_sequence_number",
-            self.metrics.clone(),
-            || async {
-                // Get the latest checkpoint
-                let mut request = GetCheckpointRequest::default();
-                request.checkpoint_id = None; // None means latest
+        // Get the latest checkpoint
+        let mut request = GetCheckpointRequest::default();
+        request.checkpoint_id = None; // None means latest
 
-                let response = self.client
-                    .ledger_client()
-                    .get_checkpoint(request)
-                    .await
-                    .map_err(|e| RpcError::Status(e.to_string()))?
-                    .into_inner();
+        let response = self.client
+            .ledger_client()
+            .get_checkpoint(request)
+            .await
+            .map_err(|e| RpcError::Status(e.to_string()))?
+            .into_inner();
 
-                response
-                    .checkpoint
-                    .and_then(|c| c.sequence_number)
-                    .ok_or_else(|| RpcError::Other("No sequence number in response".to_string()))
-            },
-        )
-        .await
+        response
+            .checkpoint
+            .and_then(|c| c.sequence_number)
+            .ok_or_else(|| RpcError::Other("No sequence number in response".to_string()))
     }
 
     /// Returns a checkpoint by its sequence number.
     pub async fn get_checkpoint(&mut self, sequence_number: u64) -> RpcResult<GetCheckpointResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_checkpoint",
-            self.metrics.clone(),
-            || async {
-                let mut request = GetCheckpointRequest::default();
-                request.checkpoint_id = Some(sequence_number.to_string());
+        let mut request = GetCheckpointRequest::default();
+        request.checkpoint_id = Some(sui_rpc::proto::sui::rpc::v2beta2::get_checkpoint_request::CheckpointId::SequenceNumber(sequence_number));
 
-                self.client
-                    .ledger_client()
-                    .get_checkpoint(request)
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(|e| RpcError::Status(e.to_string()))
-            },
-        )
-        .await
+        self.client
+            .ledger_client()
+            .get_checkpoint(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| RpcError::Status(e.to_string()))
     }
 
     /// Returns the current reference gas price.
     pub async fn get_reference_gas_price(&mut self) -> RpcResult<u64> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_reference_gas_price",
-            self.metrics.clone(),
-            || async {
-                // Get latest epoch info which contains gas price
-                let mut epoch_request = sui_rpc::proto::sui::rpc::v2beta2::GetEpochRequest::default();
-                epoch_request.epoch = None; // None means latest
+        // Get latest epoch info which contains gas price
+        let mut epoch_request = sui_rpc::proto::sui::rpc::v2beta2::GetEpochRequest::default();
+        epoch_request.epoch = None; // None means latest
 
-                let response = self.client
-                    .ledger_client()
-                    .get_epoch(epoch_request)
-                    .await
-                    .map_err(|e| RpcError::Status(e.to_string()))?
-                    .into_inner();
+        let response = self.client
+            .ledger_client()
+            .get_epoch(epoch_request)
+            .await
+            .map_err(|e| RpcError::Status(e.to_string()))?
+            .into_inner();
 
-                response
-                    .epoch
-                    .and_then(|e| e.reference_gas_price)
-                    .ok_or_else(|| RpcError::Other("No reference gas price in response".to_string()))
-            },
-        )
-        .await
+        response
+            .epoch
+            .and_then(|e| e.reference_gas_price)
+            .ok_or_else(|| RpcError::Other("No reference gas price in response".to_string()))
     }
 
     /// Returns an object with the given dynamic field name.
     pub async fn get_dynamic_field_object(
         &mut self,
         object_id: ObjectId,
-        dynamic_field_name: DynamicFieldName,
+        _dynamic_field_name: DynamicFieldName,
     ) -> RpcResult<ListDynamicFieldsResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_dynamic_field_object",
-            self.metrics.clone(),
-            || async {
-                let mut request = ListDynamicFieldsRequest::default();
-                request.parent = Some(object_id.to_string());
-                request.page_size = Some(1);
+        let mut request = ListDynamicFieldsRequest::default();
+        request.parent = Some(object_id.to_string());
+        request.page_size = Some(1);
 
-                self.client
-                    .live_data_client()
-                    .list_dynamic_fields(request)
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(|e| RpcError::Status(e.to_string()))
-            },
-        )
-        .await
+        self.client
+            .live_data_client()
+            .list_dynamic_fields(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| RpcError::Status(e.to_string()))
     }
 }
 

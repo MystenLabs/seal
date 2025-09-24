@@ -27,7 +27,7 @@ use crypto::ibe::create_proof_of_possession;
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use externals::get_latest_checkpoint_timestamp;
-use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
+use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
@@ -37,24 +37,23 @@ const METHOD_NOT_FOUND_CODE: i32 = -32601;
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
-use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
+use mysten_service::get_mysten_service;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse, FetchKeyRequest, Certificate};
-use sui_transaction_builder;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use sui_rpc_client::SuiRpcClient;
-use sui_sdk_types::{Address, Address as ObjectId, ProgrammableTransaction, TransactionKind, UserSignature, ExecutionStatus, PersonalMessage, Intent};
+use sui_sdk_types::{Address, Address as ObjectId, ProgrammableTransaction, TransactionKind, UserSignature, PersonalMessage};
 use sui_crypto::{UserSignatureVerifier, SuiVerifier};
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -97,7 +96,7 @@ type Timestamp = u64;
 
 #[derive(Clone)]
 struct Server {
-    sui_rpc_client: SuiRpcClient,
+    sui_rpc_client: Arc<Mutex<SuiRpcClient>>,
     master_keys: MasterKeys,
     key_server_oid_to_pop: HashMap<ObjectId, MasterKeyPOP>,
     options: KeyServerOptions,
@@ -105,11 +104,11 @@ struct Server {
 
 impl Server {
     async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
-        let sui_rpc_client = SuiRpcClient::new(
+        let sui_rpc_client = Arc::new(Mutex::new(SuiRpcClient::new(
             &options.network.node_url(),
             options.rpc_config.retry_config.clone(),
             metrics,
-        ).expect("Failed to create SuiRpcClient");
+        ).expect("Failed to create SuiRpcClient")));
         info!("Server started with network: {:?}", options.network);
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {}", e);
@@ -223,7 +222,7 @@ impl Server {
     }
 
     async fn check_policy(
-        &mut self,
+        &self,
         sender: Address,
         vptb: &ValidPtb,
         gas_price: u64,
@@ -248,6 +247,8 @@ impl Server {
         };
         let dry_run_res = self
             .sui_rpc_client
+            .lock()
+            .unwrap()
             .dry_run_transaction_block(tx_data.clone())
             .await
             .map_err(|e| {
@@ -297,7 +298,7 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &self.sui_rpc_client).await
+                externals::fetch_first_pkg_id(&valid_ptb.pkg_id(), &mut *self.sui_rpc_client.lock().unwrap()).await
             })
             .await?;
 
@@ -307,7 +308,7 @@ impl Server {
         // Check if the package id that MVR name points matches the first package ID, if provided.
         externals::check_mvr_package_id(
             &mvr_name,
-            &self.sui_rpc_client,
+            &mut *self.sui_rpc_client.lock().unwrap(),
             &self.options,
             first_pkg_id,
             req_id,
@@ -373,7 +374,7 @@ impl Server {
         metrics: Option<&Metrics>,
     ) -> (Receiver<Timestamp>, JoinHandle<()>) {
         spawn_periodic_updater(
-            &self.sui_rpc_client,
+            &self.sui_rpc_client.lock().unwrap().clone(),
             self.options.checkpoint_update_interval,
             get_latest_checkpoint_timestamp,
             "latest checkpoint timestamp",
@@ -401,7 +402,7 @@ impl Server {
         metrics: Option<&Metrics>,
     ) -> (Receiver<u64>, JoinHandle<()>) {
         spawn_periodic_updater(
-            &self.sui_rpc_client,
+            &self.sui_rpc_client.lock().unwrap().clone(),
             self.options.rgp_update_interval,
             get_reference_gas_price,
             "RGP",

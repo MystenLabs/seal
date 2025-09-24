@@ -24,16 +24,11 @@ use crate::key_server_options::KeyServerOptions;
 // use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
 use crate::sui_rpc_client::{SuiRpcClient, DynamicFieldName};
 use crate::types::Network;
-use move_core_types::account_address::AccountAddress;
-use move_core_types::identifier::Identifier;
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::HashMap;
-use std::hash::Hash;
 use std::str::FromStr;
 use sui_sdk_types::{Address as ObjectId, TypeTag, StructTag};
 use prost_types::FieldMask;
-use move_types::ObjectId as MoveObjectId;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
 const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
@@ -171,7 +166,7 @@ async fn get_from_mvr_registry(
         })?;
 
     // Extract the object ID from the response
-    let record_id = response
+    let _record_id = response
         .dynamic_fields
         .first()
         .and_then(|f| f.object.as_ref())
