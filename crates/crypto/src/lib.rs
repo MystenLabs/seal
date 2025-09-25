@@ -14,7 +14,7 @@ use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
-pub use sui_sdk_types::Address as ObjectId;
+pub use sui_sdk_types::Address as ObjectID;
 use tss::split;
 use utils::generate_random_bytes;
 
@@ -47,10 +47,10 @@ pub const KEY_SIZE: usize = 32;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EncryptedObject {
     pub version: u8,
-    pub package_id: ObjectId,
+    pub package_id: ObjectID,
     pub id: Vec<u8>,
     // The address for a key server + the index of the share held by this server
-    pub services: Vec<(ObjectId, u8)>,
+    pub services: Vec<(ObjectID, u8)>,
     pub threshold: u8,
     pub encrypted_shares: IBEEncryptions,
     pub ciphertext: Ciphertext,
@@ -85,7 +85,7 @@ pub enum IBEPublicKeys {
 }
 
 pub enum IBEUserSecretKeys {
-    BonehFranklinBLS12381(HashMap<ObjectId, ibe::UserSecretKey>),
+    BonehFranklinBLS12381(HashMap<ObjectID, ibe::UserSecretKey>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -109,9 +109,9 @@ pub enum EncryptionInput {
 /// @param encryption_input The encryption input.
 /// @return The encrypted object and the derived symmetric key used for the encryption.
 pub fn seal_encrypt(
-    package_id: ObjectId,
+    package_id: ObjectID,
     id: Vec<u8>,
-    key_servers: Vec<ObjectId>,
+    key_servers: Vec<ObjectID>,
     public_keys: &IBEPublicKeys,
     threshold: u8,
     encryption_input: EncryptionInput,
@@ -324,7 +324,7 @@ fn derive_key(
     base_key: &[u8; KEY_SIZE],
     encrypted_shares: &[impl AsRef<[u8]>],
     threshold: u8,
-    key_servers: &[ObjectId],
+    key_servers: &[ObjectID],
 ) -> [u8; KEY_SIZE] {
     assert_eq!(encrypted_shares.len(), key_servers.len());
     let mut hash = Sha3_256::new();
@@ -349,7 +349,7 @@ impl IBEEncryptions {
         &self,
         shares: &[(u8, [u8; KEY_SIZE])],
         full_id: &[u8],
-        services: &[(ObjectId, u8)],
+        services: &[(ObjectID, u8)],
         threshold: u8,
         public_keys: &IBEPublicKeys,
     ) -> FastCryptoResult<[u8; KEY_SIZE]> {
@@ -382,7 +382,7 @@ impl IBEEncryptions {
     fn combine_and_verify_nonce(
         &self,
         shares: &[(u8, [u8; KEY_SIZE])],
-        services: &[(ObjectId, u8)],
+        services: &[(ObjectID, u8)],
         threshold: u8,
     ) -> FastCryptoResult<[u8; KEY_SIZE]> {
         let base_key = combine(shares)?;
@@ -410,7 +410,7 @@ impl IBEEncryptions {
     fn decrypt_all_shares_and_verify_nonce(
         &self,
         full_id: &[u8],
-        services: &[(ObjectId, u8)],
+        services: &[(ObjectID, u8)],
         public_keys: &IBEPublicKeys,
         base_key: &[u8; KEY_SIZE],
         threshold: u8,
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn test_hash_with_prefix_regression() {
         let hash = hash_to_g1(&create_full_id(
-            &ObjectId::from_bytes([0u8; 32]).unwrap(),
+            &ObjectID::from_bytes([0u8; 32]).unwrap(),
             &[1, 2, 3, 4],
         ));
         assert_eq!(hex::encode(hash.to_byte_array()), "a2f2624fda29c88ccacd286b560572d8c1261a5687e0c0cdbdcbef93bf0ec5c373563fac64a2cb5bb326cc6181ee65d7");
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn test_encryption_round_trip_aes() {
         let data = b"Hello, World!";
-        let package_id = ObjectId::random();
+        let package_id = ObjectID::random();
         let id = vec![1, 2, 3, 4];
 
         let full_id = create_full_id(&package_id, &id);
@@ -502,17 +502,17 @@ mod tests {
             .map(|_| ibe::generate_key_pair(&mut rng))
             .collect_vec();
 
-        let services = keypairs.iter().map(|_| ObjectId::random()).collect_vec();
+        let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
         let services_ids = services
             .into_iter()
-            .map(|id| ObjectId::new(id.into_bytes()))
+            .map(|id| ObjectID::new(id.into_bytes()))
             .collect_vec();
         let threshold = 2;
         let public_keys =
             IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
 
         let encrypted = seal_encrypt(
-            ObjectId::new(package_id.into_bytes()),
+            ObjectID::new(package_id.into_bytes()),
             id,
             services_ids.clone(),
             &public_keys,

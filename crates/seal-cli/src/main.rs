@@ -8,7 +8,7 @@ use crypto::prefixed_hex::PrefixedHex;
 use crypto::EncryptionInput::Plain;
 use crypto::{
     create_full_id, ibe, seal_decrypt, seal_encrypt, Ciphertext, EncryptedObject, EncryptionInput,
-    IBEEncryptions, IBEPublicKeys, IBEUserSecretKeys, ObjectId,
+    IBEEncryptions, IBEPublicKeys, IBEUserSecretKeys, ObjectID,
 };
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::{FastCryptoError, FastCryptoResult};
@@ -23,7 +23,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClientBuilder;
-// ObjectId is imported from crypto module
+use sui_sdk_types::Address as NewObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 
@@ -32,7 +32,7 @@ const KEY_LENGTH: usize = 32;
 /// Key server object layout containing object id, name, url, and public key.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyServerInfo {
-    pub object_id: ObjectId,
+    pub object_id: ObjectID,
     pub name: String,
     pub url: String,
     pub public_key: String,
@@ -41,7 +41,7 @@ pub struct KeyServerInfo {
 /// Fetch and parse key server object from fullnode.
 /// TODO: rewrite with sui-rust-sdk
 pub async fn fetch_key_server_urls(
-    key_server_ids: &[ObjectId],
+    key_server_ids: &[ObjectID],
     network: &str,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
     let sui_rpc = match network {
@@ -200,7 +200,7 @@ enum Command {
     Extract {
         /// The Sui address of the Move package that handles the KMS for this key
         #[arg(long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
         /// The ID of the key that should be derived.
         #[arg(long)]
         id: EncodedBytes,
@@ -212,7 +212,7 @@ enum Command {
     Verify {
         /// The Sui address of the Move package that handles the KMS for this key
         #[arg(long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
         /// The ID of the key that should be derived.
         #[arg(long)]
         id: EncodedBytes,
@@ -229,7 +229,7 @@ enum Command {
     Plain {
         /// The Sui address of the Move package that handles the KMS for this key
         #[arg(long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
         /// The ID of the key that should be derived.
         #[arg(long)]
         id: EncodedBytes,
@@ -241,7 +241,7 @@ enum Command {
         public_keys: Vec<G2Element>,
         /// The address for the Move objects representing the key servers
         #[arg(num_args = 1.., last = true)]
-        object_ids: Vec<ObjectId>,
+        object_ids: Vec<ObjectID>,
     },
     /// Encrypt a message using Seal.
     /// The key is derived from the ID using an IBKEM, Boneh-Franklin over BLS12381, and the message is encrypted using AES-256-GCM.
@@ -255,7 +255,7 @@ enum Command {
         aad: Option<EncodedBytes>,
         /// The Sui address of the Move package that handles the KMS for this encryption
         #[arg(long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
         /// The ID of the key that should be used for this encryption
         #[arg(long)]
         id: EncodedBytes,
@@ -267,7 +267,7 @@ enum Command {
         public_keys: Vec<G2Element>,
         /// The address for the Move objects representing the key servers
         #[arg(num_args = 1.., last = true)]
-        object_ids: Vec<ObjectId>,
+        object_ids: Vec<ObjectID>,
     },
     /// Encrypt a message using Seal.
     /// The key is derived from the ID using an IBKEM, Boneh-Franklin over BLS12381, and the message is encrypted using counter-mode with hmac-sha3-256 as a PRF.
@@ -281,7 +281,7 @@ enum Command {
         aad: Option<EncodedBytes>,
         /// The Sui address of the Move package that handles the KMS for this encryption
         #[arg(long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
         /// The ID of the key that should be used for this encryption
         #[arg(long)]
         id: EncodedBytes,
@@ -293,7 +293,7 @@ enum Command {
         public_keys: Vec<G2Element>,
         /// The address for the Move objects representing the key servers
         #[arg(num_args = 1.., last = true)]
-        object_ids: Vec<ObjectId>,
+        object_ids: Vec<ObjectID>,
     },
     /// Decrypt a Seal encrypted object.
     /// In case the encrypted object holds a message, this is returned.
@@ -307,7 +307,7 @@ enum Command {
         secret_keys: Vec<G1Element>,
         /// The address for the Move objects representing the key servers used for this decryption.
         #[arg(num_args = 1.., last = true)]
-        object_ids: Vec<ObjectId>,
+        object_ids: Vec<ObjectID>,
     },
     /// Parse a Seal encrypted object.
     /// This outputs the parts of the parsed encrypted object as a hex-encoded BCS serialization.
@@ -337,11 +337,11 @@ enum Command {
 
         /// Package ID that defines seal policy.
         #[arg(short = 'p', long)]
-        package_id: ObjectId,
+        package_id: ObjectID,
 
         /// Comma-separated key server object IDs (e.g., 0x123,0x456)
         #[arg(short = 'k', long, value_delimiter = ',')]
-        key_server_ids: Vec<ObjectId>,
+        key_server_ids: Vec<ObjectID>,
 
         /// Threshold
         #[arg(short = 't', long)]
@@ -359,7 +359,7 @@ enum Command {
 
         /// Comma-separated key server object IDs (e.g., 0x123,0x456)
         #[arg(short = 'k', long, value_delimiter = ',')]
-        key_server_ids: Vec<ObjectId>,
+        key_server_ids: Vec<ObjectID>,
 
         /// Threshold
         #[arg(short = 't', long)]
@@ -532,7 +532,7 @@ async fn main() -> FastCryptoResult<()> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Encrypt the secret
-            let package_id = ObjectId::new(package_id.as_bytes().try_into().map_err(|e| {
+            let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
                 FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
             })?);
             let (encrypted_object, _) = seal_encrypt(
@@ -803,7 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_key_server_urls() {
-        let key_server_ids = vec![ObjectId::from_str(
+        let key_server_ids = vec![ObjectID::from_str(
             "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
         )
         .unwrap()];

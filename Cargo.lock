@@ -4339,7 +4339,7 @@ dependencies = [
  "test-cluster",
  "thiserror 1.0.69",
  "tokio",
- "tower-http 0.5.2",
+ "tower-http 0.6.6",
  "tracing",
  "tracing-test",
 ]
@@ -10956,6 +10956,7 @@ dependencies = [
  "futures-util",
  "http 1.3.1",
  "http-body 1.0.1",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
  "tokio",

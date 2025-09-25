@@ -21,9 +21,9 @@ mysten-service.workspace = true
 move-core-types.workspace = true
 mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "f2bdba1d215fea666465e05ce234d0a11736d4ce", package = "mvr-types" }
 
-tokio = { version = "1.46.1", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
-tower-http = { version = "0.5", features = ["cors", "limit"] }
+tower-http = { version = "0.6.6", features = ["cors", "limit"] }
 crypto = { path = "../crypto" }
 tap = "1.0.1"
 prometheus = "0.13.3"
