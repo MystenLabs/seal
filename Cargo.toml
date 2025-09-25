@@ -22,11 +22,11 @@ tracing = "0.1.37"
 serde_with = "3.13.0"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "807bdd7", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "807bdd7" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "807bdd7", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "807bdd7", package = "shared-crypto" }
-move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "807bdd7" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "shared-crypto" }
+move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "42ba6c0" }
 
 # this matches the sdk version used by mvr-types dep: https://github.com/MystenLabs/mvr
 sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", features = ["serde"], rev = "b3a5178b" }
