@@ -40,8 +40,7 @@ jobs:
             sui move test --warnings-are-errors --path $dir
           done
 
-  check-formatting:
-    name: Formatting
+  formatting:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
