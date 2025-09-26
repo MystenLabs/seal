@@ -5,6 +5,9 @@
 /// This is the field used in AES.
 module seal::gf256;
 
+const ELogOfZero: u64 = 1;
+const EDivideByZero: u64 = 2;
+
 /// Table of Eᵢ = gⁱ where g = 0x03 generates the multiplicative group of the field.
 const EXP: vector<u8> = vector[
     0x01, 0x03, 0x05, 0x0f, 0x11, 0x33, 0x55, 0xff, 0x1a, 0x2e, 0x72, 0x96, 0xa1, 0xf8, 0x13, 0x35,
@@ -47,7 +50,7 @@ const LOG: vector<u8> = vector[
 
 #[allow(implicit_const_copy)]
 fun log(x: u8): u16 {
-    assert!(x != 0);
+    assert!(x != 0, ELogOfZero);
     *LOG.borrow((x - 1) as u64) as u16
 }
 
@@ -72,6 +75,7 @@ public(package) fun mul(x: u8, y: u8): u8 {
 }
 
 public(package) fun div(x: u8, y: u8): u8 {
+    assert!(y != 0, EDivideByZero);
     mul(x, exp(255 - log(y)))
 }
 

@@ -5,6 +5,8 @@ module seal::polynomial;
 
 use seal::gf256;
 
+const EIncomatibleInputLengths: u64 = 1;
+
 /// This represents a polynomial over GF(2^8).
 /// The first coefficient is the constant term.
 public struct Polynomial has copy, drop, store {
@@ -30,7 +32,7 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
 /// Panics if the lengths of x and y are not the same.
 /// Panics if x contains duplicate values.
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
-    assert!(x.length() == y.length());
+    assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
@@ -53,9 +55,9 @@ public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
 /// The length of the input vectors must be the same.
 /// The length of each vector in y must be the same (equal to the l above).
 public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
-    assert!(x.length() == y.length());
+    assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let l = y[0].length();
-    assert!(y.all!(|yi| yi.length() == l));
+    assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
         interpolate(x, &yi)
