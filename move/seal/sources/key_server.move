@@ -13,7 +13,8 @@ use sui::{bls12381::{G2, g2_from_bytes}, dynamic_field as df, group_ops::Element
 
 const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
-const KeyTypeBonehFranklinBLS12381: u8 = 0;
+
+const KEY_TYPE_BONEH_FRANKLIN_BLS12381: u8 = 0;
 
 /// KeyServer should always be guarded as it's a capability
 /// on its own. It should either be an owned object, wrapped object,
@@ -70,7 +71,7 @@ public fun id(s: &KeyServer): address {
 
 public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
     let v1 = s.v1();
-    assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
+    assert!(v1.key_type == KEY_TYPE_BONEH_FRANKLIN_BLS12381, EInvalidKeyType);
     g2_from_bytes(&v1.pk)
 }
 
@@ -88,7 +89,7 @@ fun create_v1(
     ctx: &mut TxContext,
 ): KeyServer {
     // Currently only BLS12-381 is supported.
-    assert!(key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
+    assert!(key_type == KEY_TYPE_BONEH_FRANKLIN_BLS12381, EInvalidKeyType);
     let _ = g2_from_bytes(&pk);
 
     let mut key_server = KeyServer {
@@ -117,6 +118,7 @@ public fun destroy_for_testing(v: KeyServer) {
 fun test_flow() {
     use sui::test_scenario::{Self, next_tx, ctx};
     use sui::bls12381::{g2_generator};
+    use std::unit_test::assert_eq;
 
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
@@ -133,12 +135,13 @@ fun test_flow() {
     scenario.next_tx(addr1);
 
     let mut s: KeyServer = scenario.take_from_sender();
-    assert!(name(&s) == b"mysten".to_string(), 0);
-    assert!(url(&s) == b"https::/mysten-labs.com".to_string(), 0);
-    assert!(pk(&s) == pk.bytes(), 0);
+    assert_eq!(s.name(), b"mysten".to_string());
+    assert_eq!(s.url(), b"https::/mysten-labs.com".to_string());
+    assert_eq!(*s.pk(), *pk.bytes());
+
     s.update(b"https::/mysten-labs2.com".to_string());
-    assert!(url(&s) == b"https::/mysten-labs2.com".to_string(), 0);
+    assert_eq!(s.url(), b"https::/mysten-labs2.com".to_string());
 
     destroy_for_testing(s);
-    test_scenario::end(scenario);
+    scenario.end();
 }

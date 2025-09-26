@@ -11,60 +11,19 @@ public struct Polynomial has copy, drop, store {
     coefficients: vector<u8>,
 }
 
-public(package) fun get_constant_term(p: &Polynomial): u8 {
-    if (p.coefficients.is_empty()) {
-        return 0
-    };
-    p.coefficients[0]
-}
-
-fun add(x: &Polynomial, y: &Polynomial): Polynomial {
-    let x_length: u64 = x.coefficients.length();
-    let y_length: u64 = y.coefficients.length();
-    if (x_length < y_length) {
-        // We assume that x is the longer vector
-        return add(y, x)
-    };
-    let coefficients = vector::tabulate!(x_length, |i| {
-        if (i < y_length) {
-            gf256::add(x.coefficients[i], y.coefficients[i])
-        } else {
-            x.coefficients[i]
-        }
+/// Evaluate a polynomial at a given point.
+public fun evaluate(p: &Polynomial, x: u8): u8 {
+    let mut result = 0;
+    let n = p.coefficients.length();
+    n.do!(|i| {
+        result = gf256::add(gf256::mul(result, x), p.coefficients[n - i - 1]);
     });
-    Polynomial { coefficients }
+    result
 }
 
-fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
-    if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
-        return Polynomial { coefficients: vector::empty<u8>() }
-    };
-    let coefficients = vector::tabulate!(
-        x.coefficients.length() + y.coefficients.length() -  1,
-        |i| {
-            let mut sum = 0;
-            i.do_eq!(|j| {
-                if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
-                    sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
-                }
-            });
-            sum
-        },
-    );
-    Polynomial { coefficients }
-}
-
-fun div(x: &Polynomial, s: u8): Polynomial {
-    scale(x, gf256::div(1, s))
-}
-
-fun scale(x: &Polynomial, s: u8): Polynomial {
-    Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul(*c, s)) }
-}
-
-/// Return x - c
-fun monic_linear(c: &u8): Polynomial {
-    Polynomial { coefficients: vector[gf256::sub(0, *c), 1] }
+public(package) fun get_constant_term(p: &Polynomial): u8 {
+    if (p.coefficients.is_empty()) 0 // zero polynomial
+    else p.coefficients[0]
 }
 
 /// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
@@ -73,7 +32,7 @@ fun monic_linear(c: &u8): Polynomial {
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     assert!(x.length() == y.length());
     let n = x.length();
-    let mut sum = Polynomial { coefficients: vector::empty<u8>() };
+    let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
         let mut product = Polynomial { coefficients: vector[1] };
         n.do!(|i| {
@@ -103,14 +62,54 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     })
 }
 
-/// Evaluate a polynomial at a given point.
-public fun evaluate(p: &Polynomial, x: u8): u8 {
-    let mut result = 0;
-    let n = p.coefficients.length();
-    n.do!(|i| {
-        result = gf256::add(gf256::mul(result, x), p.coefficients[n - i - 1]);
+fun add(x: &Polynomial, y: &Polynomial): Polynomial {
+    let x_length: u64 = x.coefficients.length();
+    let y_length: u64 = y.coefficients.length();
+    if (x_length < y_length) {
+        // We assume that x is the longer vector
+        return y.add(x)
+    };
+    let coefficients = vector::tabulate!(x_length, |i| {
+        if (i < y_length) {
+            gf256::add(x.coefficients[i], y.coefficients[i])
+        } else {
+            x.coefficients[i]
+        }
     });
-    result
+
+    Polynomial { coefficients }
+}
+
+fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
+    if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
+        return Polynomial { coefficients: vector[] }
+    };
+    let coefficients = vector::tabulate!(
+        x.coefficients.length() + y.coefficients.length() -  1,
+        |i| {
+            let mut sum = 0;
+            i.do_eq!(|j| {
+                if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
+                    sum = gf256::add(sum, gf256::mul(x.coefficients[j], y.coefficients[i - j]));
+                }
+            });
+            sum
+        },
+    );
+    Polynomial { coefficients }
+}
+
+fun div(x: &Polynomial, s: u8): Polynomial {
+    x.scale(gf256::div(1, s))
+}
+
+fun scale(x: &Polynomial, s: u8): Polynomial {
+    Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul(*c, s)) }
+}
+
+/// Return x - c
+fun monic_linear(c: &u8): Polynomial {
+    Polynomial { coefficients: vector[gf256::sub(0, *c), 1] }
 }
 
 #[test]
