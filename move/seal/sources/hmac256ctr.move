@@ -36,7 +36,7 @@ public(package) fun decrypt(
 }
 
 fun mac(key: &vector<u8>, aux: &vector<u8>, ciphertext: &vector<u8>): vector<u8> {
-    let mut mac_input: vector<u8> = MAC_TAG;
+    let mut mac_input = MAC_TAG;
     mac_input.append(bcs::to_bytes(&aux.length()));
     mac_input.append(*aux);
     mac_input.append(*ciphertext);
