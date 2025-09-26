@@ -41,6 +41,8 @@ ignore = [
     "RUSTSEC-2024-0437",
     # AES functions in `ring` may panic when overflow checking is enabled
     "RUSTSEC-2025-0009",
+    # fxhash not maintained
+    "RUSTSEC-2025-0057"
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
@@ -76,7 +78,8 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     #"Apache-2.0 WITH LLVM-exception",
-    "Zlib"
+    "Zlib",
+    "CDLA-Permissive-2.0"
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the

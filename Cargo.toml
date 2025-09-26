@@ -9,7 +9,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9", features = ["aes"] }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b", features = ["aes"] }
+fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b" }
 bcs = "0.1.6"
 serde = "1.0.210"
 serde_json = "1.0.138"
@@ -22,14 +23,18 @@ tracing = "0.1.37"
 serde_with = "3.13.0"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "42ba6c0", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "42ba6c0", package = "shared-crypto" }
-move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "42ba6c0" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "22642cf" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "22642cf", package = "shared-crypto" }
+move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "22642cf" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "22642cf", package = "prometheus-closure-metric" }
+sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-move-build" }
+test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "test-cluster" }
 
 # this matches the sdk version used by mvr-types dep: https://github.com/MystenLabs/mvr
 sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", features = ["serde"], rev = "86a9e06" }
+sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
 
 [profile.release]
 panic = 'abort'
