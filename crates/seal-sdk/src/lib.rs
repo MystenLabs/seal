@@ -3,21 +3,25 @@
 
 pub mod types;
 
-pub use crypto::elgamal::{decrypt as elgamal_decrypt, genkey};
-pub use crypto::ibe::verify_user_secret_key as ibe_verify_user_secret_key;
-pub use crypto::ibe::PublicKey as IBEPublicKey;
-pub use crypto::{
-    create_full_id, seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput, IBEPublicKeys,
-    IBEUserSecretKeys,
-};
-pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
-
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
+use crypto::elgamal::decrypt as elgamal_decrypt;
+use crypto::ibe::verify_user_secret_key;
+use crypto::ibe::UserSecretKey;
+use crypto::{create_full_id, seal_decrypt, IBEPublicKeys, IBEUserSecretKeys, ObjectID};
 use fastcrypto::ed25519::Ed25519PublicKey;
+use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::error::FastCryptoError;
+use fastcrypto::error::FastCryptoResult;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use sui_sdk_types::ProgrammableTransaction;
 use tracing::debug;
+// Re-exported for seal_sdk
+pub use crypto::elgamal::genkey;
+pub use crypto::ibe::PublicKey as IBEPublicKey;
+pub use crypto::{seal_encrypt, EncryptedObject};
+pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
 
 pub fn signed_message(
     package_name: String,
@@ -57,6 +61,104 @@ pub fn signed_request(
     bcs::to_bytes(&req).expect("should serialize")
 }
 
+/// Given the ElGamalSecretKey, elgamal decrypt and verify all usks from each seal responses,
+/// then decrypt all encrypted objects using the decrypted usks.
+pub fn seal_decrypt_all_objects(
+    enc_secret: &ElGamalSecretKey,
+    seal_responses: &[(ObjectID, FetchKeyResponse)],
+    encrypted_objects: &[EncryptedObject],
+    server_pk_map: &HashMap<ObjectID, IBEPublicKey>,
+) -> FastCryptoResult<Vec<Vec<u8>>> {
+    if encrypted_objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    if seal_responses.is_empty() {
+        return Err(FastCryptoError::GeneralError(
+            "No seal responses provided".to_string(),
+        ));
+    }
+
+    let mut cached_keys: HashMap<Vec<u8>, HashMap<ObjectID, UserSecretKey>> = HashMap::new();
+    let mut processed_servers: HashSet<ObjectID> = HashSet::new();
+
+    for (server_id, seal_response) in seal_responses.iter() {
+        if !processed_servers.insert(*server_id) {
+            return Err(FastCryptoError::GeneralError(format!(
+                "Duplicate server_id {} in seal_responses",
+                server_id
+            )));
+        }
+
+        let public_key = server_pk_map.get(server_id).ok_or_else(|| {
+            FastCryptoError::GeneralError(format!(
+                "No public key configured for server {}",
+                server_id
+            ))
+        })?;
+
+        for decryption_key in seal_response.decryption_keys.iter() {
+            let user_secret_key = elgamal_decrypt(enc_secret, &decryption_key.encrypted_key);
+            verify_user_secret_key(&user_secret_key, &decryption_key.id, public_key)?;
+
+            cached_keys
+                .entry(decryption_key.id.clone())
+                .or_default()
+                .insert(*server_id, user_secret_key);
+        }
+    }
+
+    let mut decrypted_results = Vec::with_capacity(encrypted_objects.len());
+    for encrypted_object in encrypted_objects.iter() {
+        let full_id = create_full_id(
+            &encrypted_object.package_id.into_inner(),
+            &encrypted_object.id,
+        );
+        let keys_for_id = cached_keys.get(&full_id).ok_or_else(|| {
+            FastCryptoError::GeneralError(format!(
+                "No keys available for object with full_id {:?}",
+                Hex::encode(&full_id)
+            ))
+        })?;
+
+        let mut usks = HashMap::new();
+        let mut pks = Vec::with_capacity(encrypted_object.services.len());
+        for (server_id, _index) in encrypted_object.services.iter() {
+            let user_secret_key = keys_for_id.get(server_id).ok_or_else(|| {
+                FastCryptoError::GeneralError(format!(
+                    "Object requires key from server {} but no response was provided from that server",
+                    server_id
+                ))
+            })?;
+            usks.insert(*server_id, *user_secret_key);
+
+            let pk = server_pk_map.get(server_id).ok_or_else(|| {
+                FastCryptoError::GeneralError(format!(
+                    "No public key configured for server {}",
+                    server_id
+                ))
+            })?;
+            pks.push(*pk);
+        }
+
+        if usks.len() < encrypted_object.threshold as usize {
+            return Err(FastCryptoError::GeneralError(format!(
+                "Insufficient keys for object: have {}, threshold requires {}",
+                usks.len(),
+                encrypted_object.threshold
+            )));
+        }
+
+        let secret = seal_decrypt(
+            encrypted_object,
+            &IBEUserSecretKeys::BonehFranklinBLS12381(usks),
+            Some(&IBEPublicKeys::BonehFranklinBLS12381(pks)),
+        )?;
+
+        decrypted_results.push(secret);
+    }
+
+    Ok(decrypted_results)
+}
 #[cfg(test)]
 mod tests {
     use crate::{signed_message, signed_request};

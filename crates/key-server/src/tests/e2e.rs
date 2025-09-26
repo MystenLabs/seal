@@ -13,12 +13,18 @@ use crate::tests::SealTestCluster;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
-use crypto::ibe::{generate_seed, public_key_from_master_key};
-use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
+use crypto::elgamal::encrypt;
+use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
+use crypto::{
+    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys,
+    IBEUserSecretKeys,
+};
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
+use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
+use seal_sdk::{genkey, seal_decrypt_all_objects};
 use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -99,6 +105,119 @@ async fn test_e2e() {
     .unwrap();
 
     assert_eq!(decryption, message);
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_decrypt_all_objects() {
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_open_servers(3).await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+
+    let (whitelist, cap, _initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .collect::<Vec<_>>();
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
+
+    let message1 = b"First message";
+    let message2 = b"Second message";
+
+    let id1 = vec![1, 2, 3, 4];
+    let id2 = vec![5, 6, 7, 8];
+
+    let encryption1 = seal_encrypt(
+        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        id1.clone(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message1.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    let encryption2 = seal_encrypt(
+        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        id2.clone(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message2.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    let eg_keys = genkey::<UserSecretKey, crypto::ibe::PublicKey, _>(&mut thread_rng());
+    let (eg_sk, eg_pk, _) = eg_keys;
+
+    let full_id1 = create_full_id(&examples_package_id.into_bytes(), &id1);
+    let full_id2 = create_full_id(&examples_package_id.into_bytes(), &id2);
+
+    let mut seal_responses = Vec::new();
+    let mut server_pk_map = HashMap::new();
+
+    for (service_id, server) in tc.servers.iter() {
+        let master_keys = &server.master_keys;
+        let master_key = master_keys.get_key_for_key_server(service_id).unwrap();
+
+        let usk1 = extract(master_key, &full_id1);
+        let usk2 = extract(master_key, &full_id2);
+
+        let enc_usk1 = encrypt(&mut thread_rng(), &usk1, &eg_pk);
+        let enc_usk2 = encrypt(&mut thread_rng(), &usk2, &eg_pk);
+
+        let response = FetchKeyResponse {
+            decryption_keys: vec![
+                DecryptionKey {
+                    id: full_id1.clone(),
+                    encrypted_key: enc_usk1,
+                },
+                DecryptionKey {
+                    id: full_id2.clone(),
+                    encrypted_key: enc_usk2,
+                },
+            ],
+        };
+
+        let service_id_sdk = sui_sdk_types::ObjectId::new(service_id.into_bytes());
+        seal_responses.push((service_id_sdk, response));
+
+        let public_key = public_key_from_master_key(master_key);
+        server_pk_map.insert(service_id_sdk, public_key);
+    }
+
+    let encrypted_objects = vec![encryption1, encryption2];
+
+    let decrypted =
+        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
+            .unwrap();
+
+    assert_eq!(decrypted.len(), 2);
+    assert_eq!(decrypted[0], message1);
+    assert_eq!(decrypted[1], message2);
 }
 
 #[traced_test]
