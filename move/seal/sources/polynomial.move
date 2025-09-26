@@ -123,10 +123,33 @@ fun test_arithmetic() {
 }
 
 #[test]
+fun test_evaluate() {
+    let p = Polynomial { coefficients: vector[1, 2, 3] }; // 3x^2 + 2x + 1
+
+    // Test vector computed externally using https://github.com/jonas-lj/Ruffini/
+    assert!(p.evaluate(0) == 1);
+    assert!(p.evaluate(1) == 0);
+    assert!(p.evaluate(2) == 9);
+    assert!(p.evaluate(3) == 8);
+}
+
+#[test]
 fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
     let p = interpolate(&x, &y);
     assert!(p.coefficients == x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
+}
+
+#[test]
+fun test_interpolate_all() {
+    let x = vector[1, 2, 3];
+    let y = vector[vector[7, 8], vector[11, 12], vector[17, 18]];
+    let ps = interpolate_all(&x, &y);
+    assert!(ps.length() == 2);
+    x.zip_do!(y, |x, y| {
+        assert!(ps[0].evaluate(x) == y[0]);
+        assert!(ps[1].evaluate(x) == y[1]);
+    });
 }
