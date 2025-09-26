@@ -34,11 +34,13 @@ public(package) fun hash_to_g1_with_dst(id: &vector<u8>): Element<G1> {
 #[test]
 fun test_kdf() {
     use sui::bls12381::{scalar_from_u64, g2_generator, gt_generator, g2_mul, gt_mul};
+    use std::unit_test::assert_eq;
+
     let r = scalar_from_u64(12345u64);
     let x = gt_mul(&r, &gt_generator());
     let nonce = g2_mul(&r, &g2_generator());
     let gid = hash_to_g1_with_dst(&vector[0]);
     let derived_key = kdf(&x, &nonce, &gid, @0x0, 42);
     let expected = x"89befdfd6aecdce1305ddbca891d1c29f0507cfd5225cd6b11e52e60f088ea87";
-    assert!(derived_key == expected);
+    assert_eq!(derived_key, expected);
 }
