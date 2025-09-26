@@ -348,7 +348,7 @@ fun verify_derived_key(
     pairing(derived_key, &g2_generator()) == pairing(gid, public_key)
 }
 
-fun assert_all_unique<T: drop + copy>(items: &vector<T>, error_code: u64) {
+fun assert_all_unique<T>(items: &vector<T>, error_code: u64) {
     items.length().do!(|i| {
         let (_, j) = items.index_of(&items[i]);
         assert!(i == j, error_code);
