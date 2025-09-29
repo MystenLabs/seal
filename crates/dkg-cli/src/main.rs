@@ -327,11 +327,11 @@ fn main() -> Result<()> {
                 .map(|s| -> Result<G2Scalar> { Ok(bcs::from_bytes(&Hex::decode(s)?)?) })
                 .transpose()?;
 
-            // todo: read party id -> partial pk from onchain
+            // todo: read party id -> partial pk from the key server onchain.
             let old_partial_pks = [
-                "0x856fb1a010d474fa1b8dda76dde2147971c926d531edd22c637b24a782efa190341104dc9de98f0d2dfd500dec4ea8af112082c2ac8b5cf42e217c3633b4e57b9bc69bf07cfacc51275e60b92f7e7f21ca764a0c186dc9e8256f2c44f2300427", // Old Party 0
-                "0xae5d3589de5651c18f829b0d4aa8b1b3f644031a3c2bce5e29201e05f091cf7cb2edac09c628c21fce964268f43f903a038f99ad059a422bd3f9803f6e94410da4c2ce367ef8016b23cc32f140547b1a37ba68db35a976ce1f518ccb50ca4397", // Old Party 1
-                "0x98d21682abc4759619ebd6d679617cdacf2083bd746047277ec099e06ca96321dcd793135b82cb4180778a0b551fbb191543913545682f728d9ff4bd907396e9128210863bc15b1fe06bfa98f5909223399aff74630383f38ac99a82b940bc00", // Old Party 2
+                "0x84086404b1198649e62c3575e99e727d987e11d11b2905478441cac2fb740fa69d5da249300597d45d54574e6b4aff32111c98720974abd83268d44d35691016f371003f0f5bcc10628edc95e5df52caf58ffbb6846e4abff4ad81a533c09488", // Old Party 0
+                "0xb4972fe57609945bc6c03fe920cfdeea42bd26a88051449c81a2987b261d3e08c7326862e3688efa7a147bab8ad7dc4c0a773c251e620410be991b4224c2630a3ba1a5180858a02fa78a0e48f14e14966e1f227a574fa277b88391697e9be49c", // Old Party 1
+                "0x89392ff99800e940243afd550d91c89bb74e690ee64c94a3d77ca4eb1d8bc17483ce70e0d54aa4cbb3f2a14f7f62b0ae129c68b997c42bd93e947e4e6dae23194280a387d239525f40ccbc1f41f77fe54add85ef2f9d6d84324f398684bc11cb", // Old Party 2
             ];
 
             let mut expected_pks = HashMap::new();
