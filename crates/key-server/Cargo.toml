@@ -29,16 +29,16 @@ axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6.6", features = ["cors", "limit"] }
 crypto = { path = "../crypto" }
 tap = "1.0.1"
-prometheus = "0.13.3"
-anyhow = "1.0.79"
+prometheus = "0.14.0"
+anyhow = "1.0.100"
 once_cell = "1.20.2"
-chrono = "0.4.39"
-semver = { version = "1.0.26", features = ["serde"] }
-jsonrpsee = "0.24.0"
+chrono = "0.4.42"
+semver = { version = "1.0.27", features = ["serde"] }
+jsonrpsee = "0.26.0"
 serde_yaml = "0.9"
 duration-str = "0.17.0"
 git-version = "0.3.9"
-moka = { version = "0.12.10", features = ["sync"] }
+moka = { version = "0.12.11", features = ["sync"] }
 snap = "1.1.0"
 reqwest = { version = "0.12", features = ["json"] }
 serde_with = { workspace = true, features = ["base64"] }
@@ -49,8 +49,8 @@ move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99
 sui-sdk-types = { workspace = true }
 sui-transaction-builder = { workspace = true }
 prometheus_closure_metric = { workspace = true }
-hyper-util = "0.1.10"
-http-body-util = "0.1.2"
+hyper-util = "0.1.17"
+http-body-util = "0.1.3"
 futures = "0.3"
 seal-sdk = { path = "../seal-sdk" }
 
