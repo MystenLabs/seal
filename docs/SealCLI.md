@@ -136,10 +136,10 @@ Encrypted shares:
 
 **Encrypt**
 
-Encrypt the secret’s UTF-8 bytes bound to a hex-encoded ID and a Seal policy package ID. Provide the key-server object IDs and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized encrypted object.
+Encrypt the secret in hex-encoded bytes bound to a hex-encoded ID and a Seal policy package ID. Provide the key-server object IDs and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized encrypted object.
 
 ```shell
-$ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
+$ cargo run --bin seal-cli encrypt --secret 0000 \
     --id 0000 \
     -p 0xfaeabd7f317dd7ae40d83b73cfa68b92795f48540d03f1232b33207e22d0a62f \
     -t 2 \

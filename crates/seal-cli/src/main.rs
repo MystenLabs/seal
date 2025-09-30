@@ -324,12 +324,12 @@ enum Command {
         #[arg(long)]
         key: EncodedByteArray<KEY_LENGTH>,
     },
-    /// Encrypt a secret's utf-8 bytes using Seal. This uses the public fullnode for
+    /// Encrypt a secret's Hex encoded bytes using Seal. This uses the public fullnode for
     /// retrieval of key servers' public keys for the given network.
     Encrypt {
         /// The secret to encrypt.
         #[arg(long)]
-        secret: String,
+        secret: EncodedBytes,
 
         /// Unique per package identifier of the secret.
         #[arg(long)]
@@ -542,7 +542,7 @@ async fn main() -> FastCryptoResult<()> {
                 &IBEPublicKeys::BonehFranklinBLS12381(pks),
                 threshold,
                 EncryptionInput::Aes256Gcm {
-                    data: secret.as_bytes().to_vec(),
+                    data: secret.0,
                     aad: None,
                 },
             )
