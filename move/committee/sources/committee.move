@@ -28,6 +28,7 @@ const EInsufficientOldMembers: u64 = 10;
 public struct CandidateData has drop, store {
     enc_pk: vector<u8>,
     signing_pk: vector<u8>,
+    url: String,
 }
 
 public enum State has drop, store {
@@ -71,7 +72,7 @@ public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut Tx
     });
 }
 
-/// Create a committee for rotation from an existing finalized old committee
+/// Create a committee for rotation from an existing finalized old committee.
 public fun init_committee_for_rotation(
     threshold: u16,
     members: vector<address>,
@@ -84,7 +85,7 @@ public fun init_committee_for_rotation(
     let member_set = vec_set::from_keys(members);
     assert!(vec_set::length(&member_set) == members.length(), EDuplicateMember);
 
-    // Verify old committee is finalized for rotation
+    // Verify old committee is finalized for rotation.
     assert!(
         match (&old_committee.state) {
             State::Finalized => true,
@@ -92,6 +93,17 @@ public fun init_committee_for_rotation(
         },
         ENotFinalized,
     );
+
+    // Check that new committee has at least threshold of old committee members
+    let mut old_members_count: u64 = 0;
+    let mut i = 0;
+    while (i < members.length()) {
+        if (old_committee.members.contains(&members[i])) {
+            old_members_count = old_members_count + 1;
+        };
+        i = i + 1;
+    };
+    assert!(old_members_count >= (old_committee.threshold as u64), EInsufficientOldMembers);
 
     transfer::share_object(Committee {
         id: object::new(ctx),
@@ -107,6 +119,7 @@ public fun init_committee_for_rotation(
 public fun register(
     enc_pk: vector<u8>,
     signing_pk: vector<u8>,
+    url: String,
     committee: &mut Committee,
     ctx: &mut TxContext,
 ) {
@@ -118,12 +131,12 @@ public fun register(
             // Transition from Init to PreDKG
             committee.state = State::PreDKG;
             // Store candidate data as dynamic field
-            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk });
+            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk, url });
         },
         State::PreDKG => {
             // Already in PreDKG, just add the candidate
             assert!(!df::exists_(&committee.id, sender), EAlreadyRegistered);
-            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk });
+            df::add(&mut committee.id, sender, CandidateData { enc_pk, signing_pk, url });
         },
         _ => abort EInvalidState,
     }
@@ -193,17 +206,6 @@ public fun propose_for_rotation(
         },
         ENotFinalized,
     );
-
-    // Check that new committee has at least threshold of old committee members
-    let mut old_members_count: u64 = 0;
-    let mut i = 0;
-    while (i < committee.members.length()) {
-        if (old_committee.members.contains(&committee.members[i])) {
-            old_members_count = old_members_count + 1;
-        };
-        i = i + 1;
-    };
-    assert!(old_members_count >= (old_committee.threshold as u64), EInsufficientOldMembers);
 
     match (&mut committee.state) {
         State::PreDKG => {
@@ -306,15 +308,19 @@ public fun finalize_committee_for_rotation(
                 key_server::remove_partial_key_server(&mut key_server, old_committee.members[i]);
                 i = i + 1;
             };
-
             // Add partial key servers with new pks
             let mut j = 0;
             while (j < committee.members.length()) {
+                let candidate_data: &CandidateData = df::borrow(
+                    &committee.id,
+                    committee.members[j],
+                );
                 key_server::add_partial_key_server(
                     &mut key_server,
                     committee.members[j],
                     partial_pks[j],
                     j as u16,
+                    candidate_data.url,
                     ctx,
                 );
                 j = j + 1;
@@ -369,17 +375,35 @@ fun test_committee_rotation_2of3_to_3of4() {
     // Register all 3 members
     scenario.next_tx(@0x0);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_0", b"signing_pk_0", &mut committee, scenario.ctx());
+    register(
+        b"enc_pk_0",
+        b"signing_pk_0",
+        b"https://url0.com".to_string(),
+        &mut committee,
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x1);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(
+        b"enc_pk_1",
+        b"signing_pk_1",
+        b"https://url1.com".to_string(),
+        &mut committee,
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(
+        b"enc_pk_2",
+        b"signing_pk_2",
+        b"https://url2.com".to_string(),
+        &mut committee,
+        scenario.ctx(),
+    );
 
     // DKG is done offline, member @0x03 proposes a committee with partial keys and master pk.
     let partial_pks = vector[b"partial_pk_0", b"partial_pk_1", b"partial_pk_2"];
@@ -449,22 +473,46 @@ fun test_committee_rotation_2of3_to_3of4() {
 
     // Register all 4 members.
     scenario.next_tx(@0x0);
-    register(b"enc_pk_0", b"signing_pk_0", &mut new_committee, scenario.ctx());
+    register(
+        b"enc_pk_0",
+        b"signing_pk_0",
+        b"https://new_url0.com".to_string(),
+        &mut new_committee,
+        scenario.ctx(),
+    );
     test_scenario::return_shared(new_committee);
 
     scenario.next_tx(@0x1);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-    register(b"enc_pk_1", b"signing_pk_1", &mut new_committee, scenario.ctx());
+    register(
+        b"enc_pk_1",
+        b"signing_pk_1",
+        b"https://new_url1.com".to_string(),
+        &mut new_committee,
+        scenario.ctx(),
+    );
     test_scenario::return_shared(new_committee);
 
     scenario.next_tx(@0x3);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-    register(b"enc_pk_3", b"signing_pk_3", &mut new_committee, scenario.ctx());
+    register(
+        b"enc_pk_3",
+        b"signing_pk_3",
+        b"https://new_url3.com".to_string(),
+        &mut new_committee,
+        scenario.ctx(),
+    );
     test_scenario::return_shared(new_committee);
 
     scenario.next_tx(@0x4);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-    register(b"enc_pk_4", b"signing_pk_4", &mut new_committee, scenario.ctx());
+    register(
+        b"enc_pk_4",
+        b"signing_pk_4",
+        b"https://new_url4.com".to_string(),
+        &mut new_committee,
+        scenario.ctx(),
+    );
 
     // Verify committee PreDKG state
     assert!(
@@ -570,14 +618,16 @@ fun test_committee_rotation_2of3_to_3of4() {
     // Verify master public key is preserved during rotation
     assert!(key_server::pk(&key_server) == &master_pk, 31);
 
-    // Verify all partial key servers have correct PKs
+    // Verify all partial key servers have correct PKs and URLs
     // @0x1 (continuing member, at index 0 in new committee)
     let pks1 = key_server::get_partial_key_server(&key_server, @0x1);
     assert!(key_server::partial_key_server_pk(pks1) == b"new_partial_pk_1", 22);
+    assert!(key_server::partial_key_server_url(pks1) == b"https://new_url1.com".to_string(), 24);
 
     // @0x0 (continuing member, at index 1 in new committee)
     let pks0 = key_server::get_partial_key_server(&key_server, @0x0);
     assert!(key_server::partial_key_server_pk(pks0) == b"new_partial_pk_0", 23);
+    assert!(key_server::partial_key_server_url(pks0) == b"https://new_url0.com".to_string(), 25);
 
     // @0x2 (removed member, should NOT have partial key server)
     assert!(!key_server::has_partial_key_server(&key_server, @0x2), 15);
@@ -585,10 +635,12 @@ fun test_committee_rotation_2of3_to_3of4() {
     // @0x3 (new member, at index 2 in new committee)
     let pks3 = key_server::get_partial_key_server(&key_server, @0x3);
     assert!(key_server::partial_key_server_pk(pks3) == b"new_partial_pk_3", 20);
+    assert!(key_server::partial_key_server_url(pks3) == b"https://new_url3.com".to_string(), 26);
 
     // @0x4 (new member, at index 3 in new committee)
     let pks4 = key_server::get_partial_key_server(&key_server, @0x4);
     assert!(key_server::partial_key_server_pk(pks4) == b"new_partial_pk_4", 21);
+    assert!(key_server::partial_key_server_url(pks4) == b"https://new_url4.com".to_string(), 27);
 
     // Return the KeyServer back to the committee
     transfer::public_transfer(key_server, new_committee.id.to_address());
@@ -610,6 +662,69 @@ fun test_committee_rotation_2of3_to_3of4() {
 }
 
 #[test]
+#[expected_failure(abort_code = ENotMember)]
+fun test_update_partial_ks_url_fails_for_non_member() {
+    use sui::test_scenario;
+
+    let mut scenario = test_scenario::begin(@0x1);
+    let ctx = scenario.ctx();
+
+    // Create initial 2-of-2 committee with @0x1 and @0x2
+    init_committee(2, vector[@0x1, @0x2], ctx);
+
+    // Register all members
+    scenario.next_tx(@0x1);
+    let mut committee = scenario.take_shared<Committee>();
+    register(
+        b"enc_pk_1",
+        b"signing_pk_1",
+        b"https://url1.com".to_string(),
+        &mut committee,
+        scenario.ctx(),
+    );
+    test_scenario::return_shared(committee);
+
+    scenario.next_tx(@0x2);
+    let mut committee = scenario.take_shared<Committee>();
+    register(
+        b"enc_pk_2",
+        b"signing_pk_2",
+        b"https://url2.com".to_string(),
+        &mut committee,
+        scenario.ctx(),
+    );
+
+    // Propose and finalize
+    let partial_pks = vector[b"partial_pk_1", b"partial_pk_2"];
+    let master_pk = b"master_pk";
+    propose(&mut committee, partial_pks, master_pk, scenario.ctx());
+    test_scenario::return_shared(committee);
+
+    scenario.next_tx(@0x1);
+    let mut committee = scenario.take_shared<Committee>();
+    propose(&mut committee, partial_pks, master_pk, scenario.ctx());
+    finalize_committee(&mut committee, scenario.ctx());
+    let committee_id = object::id(&committee);
+    test_scenario::return_shared(committee);
+
+    // @0x3 (non-member) tries to update a partial key server URL - should fail with ENotMember
+    scenario.next_tx(@0x3);
+    let mut committee = scenario.take_shared_by_id<Committee>(committee_id);
+    let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&committee_id);
+
+    // This should fail because @0x3 is not a committee member
+    update_partial_ks_url(
+        ks_ticket,
+        &mut committee,
+        b"https://malicious.com".to_string(),
+        scenario.ctx(),
+    );
+
+    test_scenario::return_shared(committee);
+    scenario.end();
+}
+
+#[test]
 #[expected_failure(abort_code = EAlreadyRegistered)]
 fun test_register_fails_when_already_registered() {
     use sui::test_scenario;
@@ -620,10 +735,10 @@ fun test_register_fails_when_already_registered() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
 
     // Try to register again - should fail with EAlreadyRegistered
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
 
     test_scenario::return_shared(committee);
     scenario.end();
@@ -643,15 +758,15 @@ fun test_finalize_committee_fails_without_all_approvals() {
 
     // Register 3 members
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
     scenario.next_tx(@0x3);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_3", b"signing_pk_3", &mut committee, scenario.ctx());
+    register(b"enc_pk_3", b"signing_pk_3", b"url3".to_string(), &mut committee, scenario.ctx());
 
     // Propose committee with partial keys and full pk
     scenario.next_tx(@0x1);
@@ -685,7 +800,7 @@ fun test_rotation_fails_from_non_finalized_committee() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
 
     // Try to rotate from non-finalized committee - should fail
     init_committee_for_rotation(
@@ -711,7 +826,7 @@ fun test_rotation_fails_with_invalid_threshold() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     propose(&mut committee, vector[b"pk_1"], b"master", scenario.ctx());
     finalize_committee(&mut committee, scenario.ctx());
 
@@ -738,12 +853,12 @@ fun test_propose_fails_with_wrong_partial_pks_count() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
 
     // Propose with only 1 partial_pk instead of 2
     let partial_pks = vector[b"partial_pk_1"];
@@ -765,7 +880,7 @@ fun test_register_fails_for_non_member() {
     scenario.next_tx(@0x3); // @0x3 is not a member
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_3", b"signing_pk_3", &mut committee, scenario.ctx());
+    register(b"enc_pk_3", b"signing_pk_3", b"url3".to_string(), &mut committee, scenario.ctx());
 
     test_scenario::return_shared(committee);
     scenario.end();
@@ -782,7 +897,7 @@ fun test_propose_fails_when_not_all_registered() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
 
     // Try to propose when @0x2 hasn't registered yet
     let partial_pks = vector[b"partial_pk_1", b"partial_pk_2"];
@@ -804,12 +919,12 @@ fun test_propose_fails_on_duplicate_approval() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
 
     // First proposal from @0x2
     let partial_pks = vector[b"partial_pk_1", b"partial_pk_2"];
@@ -834,7 +949,7 @@ fun test_finalize_fails_from_predkg_state() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
 
     // Try to finalize while still in PreDKG state
     finalize_committee(&mut committee, scenario.ctx());
@@ -855,7 +970,7 @@ fun test_finalize_committee_fails_on_rotation_committee() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     propose(&mut committee, vector[b"pk_1"], b"master", scenario.ctx());
     finalize_committee(&mut committee, scenario.ctx());
     let old_committee_id = object::id(&committee);
@@ -876,7 +991,7 @@ fun test_finalize_committee_fails_on_rotation_committee() {
         new_committee = scenario.take_shared<Committee>();
     };
 
-    register(b"enc_pk_1", b"signing_pk_1", &mut new_committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut new_committee, scenario.ctx());
 
     scenario.next_tx(@0x1);
     let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
@@ -892,7 +1007,7 @@ fun test_finalize_committee_fails_on_rotation_committee() {
 
 #[test]
 #[expected_failure(abort_code = EInsufficientOldMembers)]
-fun test_rotation_fails_without_threshold_old_members() {
+fun test_init_rotation_fails_without_threshold_old_members() {
     use sui::test_scenario;
 
     let mut scenario = test_scenario::begin(@0x1);
@@ -902,17 +1017,17 @@ fun test_rotation_fails_without_threshold_old_members() {
     scenario.next_tx(@0x1);
 
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x3);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_3", b"signing_pk_3", &mut committee, scenario.ctx());
+    register(b"enc_pk_3", b"signing_pk_3", b"url3".to_string(), &mut committee, scenario.ctx());
 
     // Propose and finalize the committee
     let partial_pks = vector[b"partial_pk_1", b"partial_pk_2", b"partial_pk_3"];
@@ -944,41 +1059,6 @@ fun test_rotation_fails_without_threshold_old_members() {
         scenario.ctx(),
     );
     test_scenario::return_shared(old_committee);
-
-    // Get the new committee
-    scenario.next_tx(@0x1);
-    let mut new_committee = scenario.take_shared<Committee>();
-    if (new_committee.old_committee_id.is_none()) {
-        test_scenario::return_shared(new_committee);
-        new_committee = scenario.take_shared<Committee>();
-    };
-
-    // Register all members
-    register(b"enc_pk_1", b"signing_pk_1", &mut new_committee, scenario.ctx());
-    test_scenario::return_shared(new_committee);
-
-    scenario.next_tx(@0x4);
-    let mut new_committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_4", b"signing_pk_4", &mut new_committee, scenario.ctx());
-    test_scenario::return_shared(new_committee);
-
-    scenario.next_tx(@0x5);
-    let mut new_committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_5", b"signing_pk_5", &mut new_committee, scenario.ctx());
-
-    // Try to propose rotation - should fail with EInsufficientOldMembers
-    scenario.next_tx(@0x1);
-    let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
-    let new_partial_pks = vector[b"new_pk_1", b"new_pk_4", b"new_pk_5"];
-    propose_for_rotation(
-        &old_committee,
-        &mut new_committee,
-        new_partial_pks,
-        scenario.ctx(),
-    );
-
-    test_scenario::return_shared(old_committee);
-    test_scenario::return_shared(new_committee);
     scenario.end();
 }
 
@@ -1013,12 +1093,12 @@ fun test_non_member_propose_fails() {
     // Register members
     scenario.next_tx(@0x1);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_1", b"signing_pk_1", &mut committee, scenario.ctx());
+    register(b"enc_pk_1", b"signing_pk_1", b"url1".to_string(), &mut committee, scenario.ctx());
     test_scenario::return_shared(committee);
 
     scenario.next_tx(@0x2);
     let mut committee = scenario.take_shared<Committee>();
-    register(b"enc_pk_2", b"signing_pk_2", &mut committee, scenario.ctx());
+    register(b"enc_pk_2", b"signing_pk_2", b"url2".to_string(), &mut committee, scenario.ctx());
 
     // Non-member @0x3 tries to propose
     scenario.next_tx(@0x3);

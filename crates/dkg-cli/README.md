@@ -6,13 +6,13 @@ Command-line tool for Distributed Key Generation (DKG) and key rotation protocol
 
 ### Overview
 
-1. Call `init_committee` to create new Committee object with members and threshold. 
+1. Deploy the `move/committee` contract. Call `init_committee` to create a new Committee object with members and threshold. This should be done once per committee. 
 
-2. Each member runs `dkg-cli generate-keys` in CLI and call `register` to reggister their `CandidateData` containing the ECIES and signing public key. 
+2. Each member runs `dkg-cli generate-keys` in CLI and calls `register` to register their `CandidateData` containing the ECIES and signing public key and server URL. 
 - The ECIES and signing private keys are kept secret for later. 
 - The Committee object is transitioned from `State::Init` to `State::PreDKG` with a list of members and their `CandidateData`. 
 
-4. Each party runs `dkg-cli init` to initialize local state with ECIES and signing private keys. 
+4. Each party runs `dkg-cli init` to initialize local states with ECIES and signing keys. 
 
 5. Each party runs `dkg-cli create-message` and post the message. 
 
@@ -21,11 +21,11 @@ Command-line tool for Distributed Key Generation (DKG) and key rotation protocol
 - All parties partial public keys
 - The aggregated public key of the key server
 
-7. All parties can call `propose_committee` to submit the partial public keys and key server public key and append the approvals. Committee object is transitioned to `State::PostDKG`. 
+7. All parties should call `propose_committee` to submit the partial public keys and key server public key and append the approvals. The Committee object is transitioned to `State::PostDKG`. 
 
-9. Any party can call `finalize_committee`. If all members had approved, the `KeyServer` object and `PartialKeyServer` objects are created. Committee object is transitioned to `State::Finalized`.
+9. Any party can call `finalize_committee`. If all members had approved, the `KeyServer` object and `PartialKeyServer` objects are created. The Committee object is transitioned to `State::Finalized`.
 
-10. Each party can call `update_url` to update their own partial key server object. 
+10. Each party can call `update_partial_ks_url` to update their registered URL if needed. 
 
 ### Steps
 
@@ -61,31 +61,31 @@ This outputs:
 - ECIES Private Key: Keep SECRET, needed for DKG
 - Signing Private Key: Keep SECRET, for signing messages
 
-c. Each party registers themselves to the Committee using their generated ECIES and signing public keys.
+c. Each party registers themselves to the Committee using their generated ECIES and signing public keys and URL.
 
 ```bash
 # party 0 registers
 sui client switch --address $ADDRESS_0
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" $COMMITTEE_ID
+  --args x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" "https://party0.com" $COMMITTEE_ID
 
 # party 1 registers
 sui client switch --address $ADDRESS_1
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" $COMMITTEE_ID
+  --args x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" "https://party1.com" $COMMITTEE_ID
 
 # party 2 registers
 sui client switch --address $ADDRESS_2
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_2_ECIES_PK" x"$PARTY_2_SIGNING_PK" $COMMITTEE_ID
+  --args x"$PARTY_2_ECIES_PK" x"$PARTY_2_SIGNING_PK" "https://party2.com" $COMMITTEE_ID
 ```
 
 3. Offchain DKG
 
-a. Each party initializes by fetching Committee from chain. The CLI fetches the Committee candidates from chain (stored as dynamic fields), then determines your party ID based on sorted address position. Initialize in a local state file with the full node set with all parties' public keys.
+a. Each party initializes by fetching Committee from onchain. The CLI fetches the Committee candidates from chain (stored as dynamic fields), then determines your party ID based on sorted address position. Initialize in a local state file with the full node set with all parties' public keys.
 
 ```bash
 # Party 0
@@ -95,6 +95,7 @@ cargo run --bin dkg-cli init \
   --signing-sk $PARTY_0_SIGNING_SK \
   --ecies-sk $PARTY_0_ECIES_SK \
   --threshold 2
+  --state-dir .dkg-state-0
 
 # Party 1
 cargo run --bin dkg-cli init \
@@ -119,7 +120,7 @@ b. Each party creates their DKG message.
 
 ```bash
 # all parties create message
-cargo run --bin dkg-cli create-message
+cargo run --bin dkg-cli create-message --state-dir .dkg-state-0
 cargo run --bin dkg-cli create-message --state-dir .dkg-state-1  
 cargo run --bin dkg-cli create-message --state-dir .dkg-state-2
 
@@ -127,10 +128,10 @@ MESSAGE_0=<MESSAGE_0>
 MESSAGE_1=<MESSAGE_1>
 MESSAGE_2=<MESSAGE_2>
 
-c. Each party processes all messages. If no complaints found, finalize and output. 
+c. Each party processes all messages. If no complaints are found, finalize and output. 
 
 ```bash
-cargo run --bin dkg-cli process-all-messages --messages $MESSAGE_0,$MESSAGE_1,$MESSAGE_2
+cargo run --bin dkg-cli process-all-messages --messages $MESSAGE_0,$MESSAGE_1,$MESSAGE_2 --state-dir .dkg-state-0
 cargo run --bin dkg-cli process-all-messages --messages $MESSAGE_0,$MESSAGE_1,$MESSAGE_2 --state-dir .dkg-state-1
 cargo run --bin dkg-cli process-all-messages --messages $MESSAGE_0,$MESSAGE_1,$MESSAGE_2 --state-dir .dkg-state-2
 
@@ -148,7 +149,7 @@ PARTY_2_SK=0x2250d2f9fde37886f7982edb131d0fcd5d0c53b0b91794d3c4475b27df603fe5
 
 4. Finalize Onchain
 
-a. Any party proposes committee with partial public keys and aggregated public key from DKG output. A threshold of parties also calls propose to add their approvals. 
+a. Any party proposes a committee with partial public keys and aggregated public key from their local DKG output. A threshold of parties also proposes to add their approvals. 
 
 ```bash
 sui client switch --address $ADDRESS_0 # repeat for ADDRESS_1, ADDRESS_2
@@ -157,7 +158,7 @@ sui client call --package $COMMITTEE_PKG --module committee \
     --args $COMMITTEE_ID "[x\"$PARTY_0_PARTIAL_PK\", x\"$PARTY_1_PARTIAL_PK\", x\"$PARTY_2_PARTIAL_PK\"]" x"$KEY_SERVER_PK"
 ```
 
-c. Any member of the committee can finalize the committee when threshold is met. This creates the key server with all partial key servers (as dynamic fields) and transfers it to the committee object.
+c. Any member of the committee can finalize the committee when the threshold is met. This creates the key server with all partial key servers (as dynamic fields) and transfers it to the committee object.
 
 ```bash
 sui client call --package $COMMITTEE_PKG --module committee \
@@ -168,7 +169,7 @@ sui client call --package $COMMITTEE_PKG --module committee \
 KEY_SERVER_OBJECT_ID=0x08e8fba5681c30a7f8adca5598164fae670da052010736286993efc7bb849b53
 ```
 
-d. Each member can update their partial key server URL. The update_url function receives the KeyServer through the Receiving pattern.
+d. Each member can update their partial key server URL if needed.
 
 ```bash
 sui client switch --address $ADDRESS_0 # repeat for ADDRESS_1, ADDRESS_2
@@ -180,8 +181,8 @@ sui client ptb \
 
 ### Overview
 
-1. Call `init_committee_for_rotation` to create new Committee object with members and threshold. 
-2. All members generate ECIES and signing keys, and `register` with their ECIES and signing public keys. Now Committee in State::PreDKG. 
+1. Call `init_committee_for_rotation` to create a new Committee object with members and threshold. 
+2. All members generate ECIES and signing keys, and `register` with their ECIES and signing public keys and URL. Now the Committee in State::PreDKG. 
 3. Old members run `dkg-cli init-rotation` with their old partial secret key, old partial public key, the old to new party ID mapping. New members run `dkg-cli init-rotation` without old shares.
 4. Old members run `dkg-cli create-message` and post their messages. 
 5. All members run `dkg-cli process-all-messages`. This outputs their new partial secret key. Also outputs the key server public key and all partial public keys. The key server pk should remain the same as the one from the old committee. 
@@ -202,31 +203,31 @@ sui client call --package $COMMITTEE_PKG --module committee \
 NEW_COMMITTEE_ID=0x708e2b34e477f8f0f48697368ace9a7b7f513075501502212618b6458b274f11
 ```
 
-2. All parties register their public keys. 
+2. All parties register their public keys and URL. 
 
 ```shell
 sui client switch --address $ADDRESS_0
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" $NEW_COMMITTEE_ID
+  --args x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" "https://party0.com" $NEW_COMMITTEE_ID
 
 sui client switch --address $ADDRESS_1
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" $NEW_COMMITTEE_ID
+  --args x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" "https://party1.com" $NEW_COMMITTEE_ID
 
 sui client switch --address $ADDRESS_3
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_3_ECIES_PK" x"$PARTY_3_SIGNING_PK" $NEW_COMMITTEE_ID
+  --args x"$PARTY_3_ECIES_PK" x"$PARTY_3_SIGNING_PK" "https://party3.com" $NEW_COMMITTEE_ID
 
 sui client switch --address $ADDRESS_4
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_4_ECIES_PK" x"$PARTY_4_SIGNING_PK" $NEW_COMMITTEE_ID
+  --args x"$PARTY_4_ECIES_PK" x"$PARTY_4_SIGNING_PK" "https://party4.com" $NEW_COMMITTEE_ID
 ```
 
-3. All members run DKG CLI `init-rotation`. The continuing members from old committee needs to pass in their `old-share` and `old-party-id`. 
+3. All members run DKG CLI `init-rotation`. The continuing members from the old committee need to pass in their `old-share` and `old-party-id`. 
 
 ```
 cargo run --bin dkg-cli init-rotation \
@@ -316,14 +317,14 @@ NEW_PARTY_1_PK=0x81a9f6f5c5e8a00bd1b4efa713495a4d2496842f18886cffd39c88f3fd41b18
 NEW_PARTY_2_PK=0x8d9df4759f87b002ba83912a6df3c9626513b80c3ace0d7f663d2e3a59132722cdfdeaa6396215a49f2ba96260946b750f81ad3922f62ad8b3bac2e3d99e47b5fe07fb232aff08d290b28f2e40a1cad1c60a040caf79a75d96f53f12d834e49d
 NEW_PARTY_3_PK=0xa49843746f0cf27bb848f6514140a66c1d288d4a2389ebed93ec661bea3dff27ba1935af022b0c5baeaaf5ca53c2967d187a15c5ebd5a90fbca5d29ac4b43e3e5b6a536f46b271827561b7bb2ea6ac3ae1ee8f810e37c7e924baa1590b5c5971
 
-# Each party should see their own partial secret keys individially. 
+# Each party should see their own partial secret keys individually. 
 NEW_PARTY_0_SK=0x718e3b24eeeec48c4d55d1061b6ad3914d1293ed1b000f3c9eb35e9eaa9afb0c
 NEW_PARTY_1_SK=0x0a6365fbfffd5117aca6b7a800adc2a15044b6573287d375df22edfd35f3bafd
 NEW_PARTY_2_SK=0x4b6dbf7ea7b99a00e9d32e9295e5458453995ba8069b9ead1f78da3223f68432
 NEW_PARTY_3_SK=0x4cd1f90692e8a4b79e6785b5c7cdac2faf953bd9973eb8e45fb5233f74a356a9
 ```
 
-6. All member must propose all partial pks and key server pk for rotation to append their approvals. 
+6. All members must propose all partial pks and key server pk for rotation to append their approvals. 
 
 ```shell
 sui client switch --address $ADDRESS_0 # repeat for $ADDRESS_1, $ADDRESS_3, $ADDRESS_4
@@ -332,7 +333,7 @@ sui client call --package $COMMITTEE_PKG --module committee \
     --args $COMMITTEE_ID $NEW_COMMITTEE_ID "[x\"$NEW_PARTY_0_PK\", x\"$NEW_PARTY_1_PK\", x\"$NEW_PARTY_2_PK\", x\"$NEW_PARTY_3_PK\"]"
 ```
 
-8. Any member can now finalize the committee once all approvals are submitted. 
+7. Any member can now finalize the committee once all approvals are submitted. 
 
 ```shell 
 sui client call --package $COMMITTEE_PKG --module committee \
@@ -340,7 +341,7 @@ sui client call --package $COMMITTEE_PKG --module committee \
   --args $NEW_COMMITTEE_ID $COMMITTEE_ID $KEY_SERVER_OBJECT_ID
 ```
 
-9. All members in new committee can update their corresponding partial key server's URL. 
+8. Members in the new committee can update their corresponding partial key server's URL if needed. 
 
 ```shell
 sui client switch --address $ADDRESS_0

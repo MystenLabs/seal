@@ -15,6 +15,7 @@ const KeyTypeBonehFranklinBLS12381: u8 = 0;
 const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
 const EPartialKeyServerNotFound: u64 = 3;
+const EInvalidServerType: u64 = 4;
 
 /// KeyServer should always be guarded as it's a capability
 /// on its own. It should either be an owned object, wrapped object,
@@ -37,11 +38,11 @@ public struct KeyServerV1 has store {
 // ===== V2 Structs =====
 
 public enum ServerType has copy, drop, store {
-    Committee {
-        threshold: u16,
-    },
     Independent {
         url: String,
+    },
+    Committee {
+        threshold: u16,
     },
 }
 
@@ -113,8 +114,7 @@ public fun add_all_partial_key_servers(
     partial_pks: &vector<vector<u8>>,
     ctx: &mut TxContext,
 ) {
-    assert!(has_v2(key_server), EInvalidVersion);
-
+    assert_committee_server_v2(key_server);
     let mut i = 0;
     while (i < members.length()) {
         let partial_pk = partial_pks[i];
@@ -134,7 +134,7 @@ public fun add_all_partial_key_servers(
 
 /// Remove a single partial key server (for members leaving during rotation)
 public fun remove_partial_key_server(key_server: &mut KeyServer, member: address) {
-    assert!(has_v2(key_server), EInvalidVersion);
+    assert_committee_server_v2(key_server);
     let v2: &mut KeyServerV2 = key_server.v2_mut();
 
     if (df::exists_(&v2.id, member)) {
@@ -152,14 +152,14 @@ public fun add_partial_key_server(
     member: address,
     partial_pk: vector<u8>,
     party_id: u16,
+    url: String,
     ctx: &mut TxContext,
 ) {
-    assert!(has_v2(key_server), EInvalidVersion);
-
+    assert_committee_server_v2(key_server);
     let partial_key_server = PartialKeyServer {
         id: object::new(ctx),
         pk: partial_pk,
-        url: b"".to_string(),
+        url,
         party_id,
         owner: member,
     };
@@ -170,7 +170,7 @@ public fun add_partial_key_server(
 
 /// Update the URL of a partial key server, can only update the caller created server.
 public fun update_partial_ks_url(key_server: &mut KeyServer, url: String, ctx: &mut TxContext) {
-    assert!(has_v2(key_server), EInvalidVersion);
+    assert_committee_server_v2(key_server);
     let v2: &mut KeyServerV2 = key_server.v2_mut();
     assert!(df::exists_(&v2.id, ctx.sender()), EPartialKeyServerNotFound);
     let partial_key_server: &mut PartialKeyServer = df::borrow_mut(&mut v2.id, ctx.sender());
@@ -183,6 +183,7 @@ public fun v2(s: &KeyServer): &KeyServerV2 {
     df::borrow(&s.id, 2)
 }
 
+/// Get the mutable v2 struct of a key server.
 public fun v2_mut(s: &mut KeyServer): &mut KeyServerV2 {
     assert!(df::exists_(&s.id, 2), EInvalidVersion);
     df::borrow_mut(&mut s.id, 2)
@@ -191,6 +192,18 @@ public fun v2_mut(s: &mut KeyServer): &mut KeyServerV2 {
 /// Check if KeyServer has v2
 public fun has_v2(s: &KeyServer): bool {
     df::exists_(&s.id, 2)
+}
+
+/// Check if KeyServer is v2 and is a committee server.
+public fun assert_committee_server_v2(s: &KeyServer) {
+    assert!(has_v2(s), EInvalidVersion);
+    assert!(
+        match (&s.v2().server_type) {
+            ServerType::Committee { threshold: _ } => true,
+            _ => false,
+        },
+        EInvalidServerType,
+    );
 }
 
 #[test_only]
@@ -214,6 +227,12 @@ public fun get_partial_key_server(s: &KeyServer, member: address): &PartialKeySe
 /// Get pk from partial key server
 public fun partial_key_server_pk(pks: &PartialKeyServer): &vector<u8> {
     &pks.pk
+}
+
+#[test_only]
+/// Get url from partial key server
+public fun partial_key_server_url(pks: &PartialKeyServer): String {
+    pks.url
 }
 
 public fun id(s: &KeyServer): address {
@@ -284,11 +303,14 @@ public fun v1(s: &KeyServer): &KeyServerV1 {
     df::borrow(&s.id, 1)
 }
 
-/// Update URL (supports v1)
+/// Update URL for v1 or v2 independent server.
 public fun update(s: &mut KeyServer, url: String) {
     if (df::exists_(&s.id, 1)) {
         let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
         v1.url = url;
+    } else if (df::exists_(&s.id, 2)) {
+        let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
+        v2.server_type = ServerType::Independent { url: url };
     } else {
         abort EInvalidVersion
     }
@@ -346,6 +368,10 @@ fun test_flow() {
     assert!(pk(&s) == pk.bytes(), 0);
     s.update(b"https::/mysten-labs2.com".to_string());
     assert!(url(&s) == b"https::/mysten-labs2.com".to_string(), 0);
+
+    upgrade_to_v2(&mut s, scenario.ctx());
+    update(&mut s, b"https::/mysten-labs3.com".to_string());
+    assert!(url(&s) == b"https::/mysten-labs3.com".to_string(), 0);
 
     destroy_for_testing(s);
     test_scenario::end(scenario);

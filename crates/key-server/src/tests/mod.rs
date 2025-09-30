@@ -252,6 +252,7 @@ impl SealTestCluster {
                 *member,
                 format!("enc_pk_{}", member).into_bytes(),
                 format!("signing_pk_{}", member).into_bytes(),
+                format!("https://{}.com", member),
                 committee_package_id,
                 committee_id,
             )
@@ -355,6 +356,7 @@ impl SealTestCluster {
         address: SuiAddress,
         enc_pk: Vec<u8>,
         signing_pk: Vec<u8>,
+        url: String,
         committee_package: ObjectID,
         committee_id: ObjectID,
     ) {
@@ -371,6 +373,7 @@ impl SealTestCluster {
                 vec![
                     SuiJsonValue::new(json!(enc_pk)).unwrap(),
                     SuiJsonValue::new(json!(signing_pk)).unwrap(),
+                    SuiJsonValue::from_str(url.as_str()).unwrap(),
                     SuiJsonValue::from_object_id(committee_id),
                 ],
                 None,
@@ -509,6 +512,7 @@ impl SealTestCluster {
                 *member,
                 format!("enc_pk_{}", member).into_bytes(),
                 format!("signing_pk_{}", member).into_bytes(),
+                format!("https://{}.com", member),
                 committee_package_id,
                 new_committee_id,
             )

@@ -17,10 +17,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
-
-/// Default directory for storing DKG state
-const DKG_STATE_DIR: &str = ".dkg-state";
-
 /// Configuration for a DKG party
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PartyConfig {
@@ -111,8 +107,8 @@ enum Commands {
         #[arg(short, long)]
         threshold: u16,
 
-        /// State directory (default: .dkg-state)
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
+        /// State directory
+        #[arg(short = 's', long)]
         state_dir: PathBuf,
     },
 
@@ -146,14 +142,14 @@ enum Commands {
         #[arg(long)]
         party_mapping: String,
         /// State directory (default: .dkg-state)
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
+        #[arg(short = 's', long)]
         state_dir: PathBuf,
     },
 
     /// Create and output DKG message
     CreateMessage {
         /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
+        #[arg(short = 's', long)]
         state_dir: PathBuf,
     },
 
@@ -163,7 +159,7 @@ enum Commands {
         #[arg(short, long, value_delimiter = ',')]
         messages: Vec<String>,
         /// State directory
-        #[arg(short = 's', long, default_value = DKG_STATE_DIR)]
+        #[arg(short = 's', long)]
         state_dir: PathBuf,
     },
 }
