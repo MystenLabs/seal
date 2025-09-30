@@ -46,11 +46,10 @@ public enum State has drop, store {
 public struct Committee has key {
     id: UID,
     threshold: u16,
-    members: vector<address>, // party id is the index of this vector
+    members: vector<address>, // 'party id' used in the dkg protocols is the index of this vector
     state: State,
-    // For rotation: reference to old committee and old threshold
+    // For rotation: reference to old committee
     old_committee_id: Option<ID>,
-    old_threshold: Option<u16>,
 }
 
 // ===== Functions =====
@@ -69,7 +68,6 @@ public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut Tx
         members,
         state: State::Init,
         old_committee_id: option::none(),
-        old_threshold: option::none(),
     });
 }
 
@@ -101,7 +99,6 @@ public fun init_committee_for_rotation(
         members,
         state: State::Init,
         old_committee_id: option::some(object::id(old_committee)),
-        old_threshold: option::some(old_committee.threshold),
     });
 }
 
@@ -336,7 +333,6 @@ public fun finalize_committee_for_rotation(
                 members: _,
                 state: _,
                 old_committee_id: _,
-                old_threshold: _,
             } = old_committee;
             object::delete(id);
         },
@@ -441,7 +437,6 @@ fun test_committee_rotation_2of3_to_3of4() {
 
     // Check new committee init state.
     assert!(new_committee.old_committee_id == option::some(old_committee_id), 0);
-    assert!(new_committee.old_threshold == option::some(2), 1);
     assert!(new_committee.threshold == 3, 2);
     assert!(new_committee.members.length() == 4, 3);
     assert!(
