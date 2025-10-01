@@ -54,6 +54,9 @@ pub(crate) struct Metrics {
 
     /// Sui RPC request duration by label
     pub sui_rpc_request_duration_millis: HistogramVec,
+
+    /// Dry run gas cost per package
+    pub dry_run_gas_cost_per_package: HistogramVec,
 }
 
 impl Metrics {
@@ -154,6 +157,14 @@ impl Metrics {
                 "Sui RPC request duration and status in milliseconds",
                 &["method", "status"],
                 default_fast_call_duration_buckets(),
+                registry
+            )
+            .unwrap(),
+            dry_run_gas_cost_per_package: register_histogram_vec_with_registry!(
+                "dry_run_gas_cost_per_package",
+                "Dry run gas cost per package",
+                &["package"],
+                buckets(0.0, 500_000_000.0, 5_000_000.0),
                 registry
             )
             .unwrap(),

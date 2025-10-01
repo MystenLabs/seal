@@ -4,6 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
+use crate::key_server_options::ServerMode;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
@@ -256,6 +257,7 @@ impl Server {
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
+        metrics: Option<&Metrics>,
     ) -> Result<(), InternalError> {
         debug!(
             "Checking policy for ptb: {:?} (req_id: {:?})",
@@ -300,6 +302,20 @@ impl Server {
                     e, req_id
                 ))
             })?;
+
+        // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
+        if let Some(m) = metrics {
+            if matches!(
+                self.options.server_mode,
+                ServerMode::Permissioned { client_configs: _ }
+            ) {
+                let package = vptb.pkg_id().to_hex_uncompressed();
+                m.dry_run_gas_cost_per_package
+                    .with_label_values(&[&package])
+                    .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
+            }
+        }
+
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
         if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
             debug!(
@@ -359,7 +375,7 @@ impl Server {
         .await?;
 
         call_with_duration(metrics.map(|m| &m.check_policy_duration), || async {
-            self.check_policy(certificate.user, valid_ptb, gas_price, req_id)
+            self.check_policy(certificate.user, valid_ptb, gas_price, req_id, metrics)
                 .await
         })
         .await?;
