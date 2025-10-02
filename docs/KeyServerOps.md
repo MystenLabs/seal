@@ -5,9 +5,9 @@ Use this guide to operate a Seal key server in either of the following scenarios
 - **As a service provider:** run a key server as a service for developers.
 - **As a developer:** run a key server for your own development and testing.
 
-Use the relevant package ID `<PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
+Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
 
-| <NETWORK> | <PACKAGE_ID> | 
+| <NETWORK> | <SEAL_PACKAGE_ID> | 
 | -------- | ------- |
 | Testnet | 0x927a54e9ae803f82ebf480136a9bcff45101ccbe28b13f433c89f5181069d682 |
 | Mainnet | 0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d | 
@@ -39,7 +39,7 @@ Call the `create_and_transfer_v1` function from the `seal::key_server` module li
 ```shell
 $ sui client switch --env <NETWORK>
 $ sui client active-address # fund this if necessary
-$ sui client call --function create_and_transfer_v1 --module key_server --package <PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
+$ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID>
 ```
@@ -113,21 +113,29 @@ Each supported client must have a registered on-chain key server object to enabl
 
 ### Register a client
 
-- Register a new key server on-chain by calling the `create_and_transfer_v1` function from the `seal::key_server` module with an unassigned derived public key. 
-    - The derivation index for first client is `0` and its derived public key placeholder is `<PUBKEY_0>`. Similarly, the derivation index for nth client is `n-1` and its derived public key placeholder is `<PUBKEY_n-1>`.
+Follow these steps to add every new client to a `Permissioned` key server:
+
+- The client sends the key server provider a list of Seal policy package IDs to allow on the key server (for example, `<POLICY_PACKAGE_ID_0>`, `<POLICY_PACKAGE_ID_1>`).
+- The key server provider registers a new key server on-chain by calling `seal::key_server::create_and_transfer_v1` with an **unassigned derived public key**.
+    - Copy an unassigned derived public key from the server logs (see above). Use the next available derivation index (for the first client, `0`; for the nth client, `n-1`).
+
+|  Index  |  Derived Public Key  | 
+| -------- | ------- |
+|  0  |  <PUBKEY_0>  | 
+|  1  |  <PUBKEY_1>  | 
+|  <INDEX>  |  <PUBKEY_<INDEX>>  | 
 
 ```shell
--- Replace `0` with the appropriate derivation index and derived public key for the nth client.
+$ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_INDEX>
 
-$ sui client call --function create_and_transfer_v1 --module key_server --package <PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_0>
-
-# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_0>
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>>
 ```
 
 - Add an entry in config file:
-    - Set `client_master_key` to type `Derived` with `derivation_index` as `n-1` for the nth client. 
-    - Set `<KEY_SERVER_OBJECT_ID_0>` from the output above. 
-    - Include the list of packages this client will use.
+    - Set `client_master_key` to type `Derived`.
+    - Set `derivation_index` as `<INDEX>` (use `0` for the first client; for the nth client, use `n-1`).
+    - Set `key_server_object_id` to the value `<KEY_SERVER_OBJECT_ID_<INDEX>>` from the registration output above. 
+    - Include the list of Seal policy packages IDs that the client provided, under `package_ids`. 
 
 !!! info
     You can map multiple different packages from a developer to the same client (e.g., for different features or apps). However, if the developer later decides to [export the client key](#export-and-import-keys), access will be revoked for **all** packages mapped to that client. Confirm whether they prefer separate client per package (allowing for granular revocation) or a single consolidated client (allowing for simpler operations).
@@ -138,15 +146,17 @@ $ sui client call --function create_and_transfer_v1 --module key_server --packag
 For example: 
 
 ```yaml
-    - name: "alice"
+    - name: "alice" # not used in code, identifier for your own information
       client_master_key: !Derived
-        derivation_index: 0
-      key_server_object_id: "<KEY_SERVER_OBJECT_ID_0>"
+        derivation_index: <INDEX>
+      key_server_object_id: "<KEY_SERVER_OBJECT_ID_<INDEX>>"
       package_ids:
-        - "0x1111111111111111111111111111111111111111111111111111111111111111"
+        - "<POLICY_PACKAGE_ID>"
+        - "<POLICY_PACKAGE_ID_1>"
 ```
 
 - Restart the key server to apply the config changes.
+- Share the new key server object ID `<KEY_SERVER_OBJECT_ID_<INDEX>>` with the client. 
 
 ```shell
 $ MASTER_KEY=<MASTER_SEED> CONFIG_PATH=crates/key-server/key-server-config.yaml cargo run --bin key-server 
@@ -162,7 +172,7 @@ $ docker run -p 2024:2024 \
   seal-key-server
 ```
 
-To add more clients, repeat the above steps with unassigned public keys, e.g `<PUBKEY_1>, <PUBKEY_2>`.
+To add another client in the future, repeat the above steps. Register a new unassigned derived public key on-chain, note the returned `key_server_object_id`, add a config entry with the next `derivation_index` and the client’s `package_ids`, then restart the server. The logs will show the next unassigned indices and public keys.
 
 ### Export and Import Keys
 
@@ -202,7 +212,7 @@ $ sui transfer --object-id <KEY_SERVER_OBJECT_ID_0> --to <NEW_OWNER_ADDRESS>
 The owner of `<NEW_OWNER_ADDRESS>` can now run:
 
 ```shell
-$ sui client call --function update --module key_server --package <PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> https://<NEW_URL>
+$ sui client call --function update --module key_server --package <SEAL_PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> https://<NEW_URL>
 ```
 
 - The new key server owner can now add it to their config file:
@@ -219,7 +229,7 @@ For example:
          env_var: "BOB_BLS_KEY"
        key_server_object_id: "<KEY_SERVER_OBJECT_ID_0>"
        package_ids:
-         - "0x2222222222222222222222222222222222222222222222222222222222222222"
+         - "<POLICY_PACKAGE_ID>"
 ```
 
 - Run the key server using the client master key as the configured environment variable. 
