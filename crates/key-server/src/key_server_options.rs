@@ -47,6 +47,9 @@ pub enum ServerMode {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
     },
+    Committee {
+        key_server_object_id: ObjectID,
+    },
 }
 
 /// Configuration for the RPC client.
@@ -260,6 +263,9 @@ impl KeyServerOptions {
         match &self.server_mode {
             ServerMode::Open {
                 key_server_object_id,
+            }
+            | ServerMode::Committee {
+                key_server_object_id,
             } => {
                 vec![*key_server_object_id]
             }
@@ -354,6 +360,21 @@ server_mode: !Open
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
+
+    // test committee mode
+    let valid_configuration_committee = r#"
+network: Mainnet
+server_mode: !Committee
+  key_server_object_id: '0x0'
+"#;
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_committee)
+        .expect("Failed to parse valid configuration");
+    assert_eq!(
+        options.server_mode,
+        ServerMode::Committee {
+            key_server_object_id: ObjectID::from_str("0x0").unwrap(),
+        }
+    );
 }
 
 #[test]

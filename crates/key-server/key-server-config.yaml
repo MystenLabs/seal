@@ -7,7 +7,7 @@
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
 #   use_default_mainnet_for_mvr: true # Optional, default to true if not present, 
-set this to false for mvr to resolve on testnet. 
+# set this to false for mvr to resolve on testnet. 
 #
 # Use Custom for production deployments. You must provide the node URL
 # in exactly one of these ways:
@@ -19,11 +19,14 @@ set this to false for mvr to resolve on testnet.
 network: Testnet
 
 
-# Server mode. The server can either work in Open/permissionless mode that 
-# supports all packages, or in Permissioned mode that only supports
-# whitelisted packages .
+# Server mode: Open, Permissioned or Committee.  
+# Open: supports all policy packages. 
+# Permissioned: supports only allowed policy packages. 
+# Committee: supports all packages. Note that the MASTER_KEY for Committee mode is the
+# output of a DKG ceremony that you participated in. 
 #
-# For the Open mode, set the registered key server object ID to be used, e.g.,:
+# ==== OPEN MODE ====
+# Set the registered key server object ID to be used, e.g.,:
 # server_mode: !Open
 #   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 #
@@ -31,8 +34,8 @@ network: Testnet
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-#
-# For the Permissioned mode, set the allowed clients and their configurations.
+# ==== PERMISSIONED MODE ====
+# Set the allowed clients and their configurations.
 # A client config contains:
 # - Client name - for debugging purposes only, can always be modified.
 # - The associated key server object id. Should never change.
@@ -75,6 +78,10 @@ server_mode: !Open
 #       package_ids:
 #         - "0x3333333333333333333333333333333333333333333333333333333333333333"
 
+# ==== COMMITTEE MODE ====
+# set the registered key server object ID to be used, e.g.,:
+# server_mode: !Committee
+#   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
 #### Optional advanced configurations ####
 #

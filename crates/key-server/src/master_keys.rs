@@ -20,7 +20,7 @@ const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
 pub enum MasterKeys {
-    /// In open mode, the key server has a single master key used for all packages.
+    /// In open or committee mode, the key server has a single master key used for all packages.
     Open { master_key: IbeMasterKey },
     /// In permissioned mode, the key server has a mapping of package IDs to master keys.
     Permissioned {
@@ -33,7 +33,7 @@ impl MasterKeys {
     pub(crate) fn load(options: &KeyServerOptions) -> anyhow::Result<Self> {
         info!("Loading keys from env variables");
         match &options.server_mode {
-            ServerMode::Open { .. } => {
+            ServerMode::Open { .. } | ServerMode::Committee { .. } => {
                 let master_key = match decode_master_key::<DefaultEncoding>(MASTER_KEY_ENV_VAR) {
                     Ok(master_key) => master_key,
 
