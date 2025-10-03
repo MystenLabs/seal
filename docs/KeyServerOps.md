@@ -126,6 +126,8 @@ Follow these steps to add every new client to a `Permissioned` key server:
 |  <INDEX>  |  <PUBKEY_<INDEX>>  | 
 
 ```shell
+# The 0 between the key server URL and public key arguments is a fixed or static value for all client registrations
+
 $ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_INDEX>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>>
