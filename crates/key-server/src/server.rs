@@ -1,5 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::committee_monitor::{fetch_partial_key_server, monitor_committee_transition};
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
@@ -70,6 +71,7 @@ use tracing::{debug, error, info, warn};
 use valid_ptb::ValidPtb;
 
 mod cache;
+mod committee_monitor;
 mod errors;
 mod externals;
 mod signed_message;
@@ -491,6 +493,74 @@ impl Server {
             })
         }
     }
+
+    /// Spawn a background task to monitor the committee transition.
+    /// This task will:
+    /// - Monitor the next_committee until it reaches Finalized state
+    /// - Once Finalized, check if the old committee object has been deleted
+    /// - Exit the server if the old committee is deleted
+    /// Only spawns the monitor if server is in Committee mode with next_committee_id provided.
+    fn spawn_committee_monitor(&self) -> JoinHandle<()> {
+        if let ServerMode::Committee {
+            key_server_object_id,
+            member_address,
+            committee_id,
+            next_committee_id: Some(next_committee_id),
+        } = self.options.server_mode
+        {
+            let sui_rpc_client = self.sui_rpc_client.clone();
+            let check_interval = self.options.checkpoint_update_interval;
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(check_interval);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                info!(
+                    "Starting committee monitor: old committee {}, next committee {}",
+                    committee_id, next_committee_id
+                );
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            match monitor_committee_transition(
+                                sui_rpc_client.clone(),
+                                committee_id,
+                                next_committee_id,
+                            ).await {
+                                Ok(true) => {
+                                    // Continue monitoring
+                                }
+                                Ok(false) => {
+                                    // Next committee is finalized and old committee is still valid
+                                    // Fetch the PartialKeyServer for this member
+                                    info!("Committee {} is finalized. Fetching PartialKeyServer for member {}", next_committee_id, member_address);
+                                    match fetch_partial_key_server(&sui_rpc_client, key_server_object_id, member_address).await {
+                                        Ok(Some(partial_key_server_id)) => {
+                                            info!("Successfully fetched PartialKeyServer: {}", partial_key_server_id);
+                                        }
+                                        Ok(None) => {
+                                            error!("Could not find PartialKeyServer for member {}. Server will exit.", member_address);
+                                            std::process::exit(1);
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to fetch PartialKeyServer: {:?}. Server will exit.", e);
+                                            std::process::exit(1);
+                                        }
+                                    }
+                                    // Stop monitoring
+                                    info!("Stopping committee monitor - next committee {} is finalized", next_committee_id);
+                                    break;
+                                }
+                                Err(e) => {
+                                    error!("Failed to monitor committee transition: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        } else {
+            tokio::spawn(async move { pending().await })
+        }
+    }
 }
 
 #[allow(clippy::single_match)]
@@ -701,6 +771,7 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 ///  - background checkpoint downloader
 ///  - reference gas price updater.
 ///  - optional metrics pusher (if configured).
+///  - optional committee monitor (if in Committee mode).
 ///
 /// The returned JoinHandle can be used to catch any tasks error or panic.
 async fn start_server_background_tasks(
@@ -724,6 +795,9 @@ async fn start_server_background_tasks(
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);
+
+    // Spawn committee monitor task
+    let committee_monitor_handle = server.spawn_committee_monitor();
 
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
@@ -749,6 +823,15 @@ async fn start_server_background_tasks(
             result = metrics_push_handle => {
                 if let Err(e) = result {
                     error!("Metrics push task panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+            result = committee_monitor_handle => {
+                if let Err(e) = result {
+                    error!("Committee monitor task panicked: {:?}", e);
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
                     }
