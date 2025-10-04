@@ -428,9 +428,26 @@ impl IBEEncryptions {
     }
 }
 
+pub fn validate_indices(indices: &[u8]) -> Result<(), &'static str> {
+    for i in 0..indices.len() {
+        for j in (i + 1)..indices.len() {
+            if indices[i] == indices[j] {
+                return Err("Duplicate index detected");
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_encrypted_object_duplicate_indices() {
+        let indices = vec![1u8, 2u8, 2u8]; // duplikat
+        let result = validate_indices(&indices);
+        assert!(result.is_err()); // Must Error!
+    }
     use crate::dem::{Aes256Gcm, Hmac256Ctr};
     use crate::ibe::{hash_to_g1, public_key_from_master_key, PublicKey};
     use fastcrypto::groups::Scalar as ScalarTrait;
