@@ -292,6 +292,18 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
         services.push_back(service.peel_address());
         service.peel_u8()
     });
+
+    // Cek duplikat pada indices
+let len = indices.length();
+let mut i = 0;
+while (i < len) {
+  let mut j = i + 1;
+  while (j < len) {
+    assert!(indices[i] != indices[j], 1234); // 1234 kode error baru (EDuplicateIndex)
+    j = j + 1;
+  }
+  i = i + 1;
+}
     assert!(services.length() == indices.length());
     let threshold = bcs.peel_u8();
 
