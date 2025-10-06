@@ -33,8 +33,8 @@ sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", p
 test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "test-cluster" }
 
 # this matches the sdk version used by mvr-types dep: https://github.com/MystenLabs/mvr
-sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", features = ["serde"], rev = "86a9e06" }
-sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "86a9e06" }
+sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", features = ["serde"], rev = "048124e484f14b9bf2a402227c9bc255c7621bc1" }
+sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "048124e484f14b9bf2a402227c9bc255c7621bc1" }
 
 [profile.release]
 panic = 'abort'

@@ -14,7 +14,7 @@ use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
-pub use sui_sdk_types::ObjectId as ObjectID;
+pub use sui_sdk_types::Address as ObjectID;
 use tss::split;
 use utils::generate_random_bytes;
 

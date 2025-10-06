@@ -16,7 +16,7 @@ use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::{AllowedRng, ToFromBytes};
-use sui_sdk_types::ObjectId as ObjectID;
+use sui_sdk_types::Address as ObjectID;
 
 pub type MasterKey = Scalar;
 pub type PublicKey = G2Element;

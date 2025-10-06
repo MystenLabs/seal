@@ -22,7 +22,7 @@ mysten-service.workspace = true
 sui_sdk.workspace = true
 shared_crypto.workspace = true
 move-core-types.workspace = true
-mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
+mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "96e2a571fae6238163e3e03940e5fd8a894bcc83", package = "mvr-types" }
 
 tokio = { version = "1.46.1", features = ["full"] }
 axum = { version = "0.8", features = ["macros"] }
@@ -44,8 +44,8 @@ reqwest = { version = "0.12", features = ["json"] }
 serde_with = { workspace = true, features = ["base64"] }
 hostname = "0.4"
 
-move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
-move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "99f68a28c2f19be40a09e5f1281af748df9a8d3e" }
+move-binding-derive = { git = "https://github.com/MystenLabs/move-binding.git", rev = "7f75c427ef0f4d5d0dfaca75c93c35365200fe33" }
+move-types = { git = "https://github.com/MystenLabs/move-binding.git", rev = "7f75c427ef0f4d5d0dfaca75c93c35365200fe33" }
 sui-sdk-types = { workspace = true }
 sui-transaction-builder = { workspace = true }
 prometheus_closure_metric = { workspace = true }
