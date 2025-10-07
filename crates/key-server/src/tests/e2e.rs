@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_sdk::SuiClient;
+use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
 use test_cluster::TestClusterBuilder;
@@ -62,14 +63,14 @@ async fn test_e2e() {
     let services_ids = services
         .clone()
         .into_iter()
-        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        NewObjectID::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
         services_ids.clone(),
         &pks,
@@ -132,7 +133,7 @@ async fn test_e2e_decrypt_all_objects() {
     let services_ids = services
         .clone()
         .into_iter()
-        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
@@ -143,7 +144,7 @@ async fn test_e2e_decrypt_all_objects() {
     let id2 = vec![5, 6, 7, 8];
 
     let encryption1 = seal_encrypt(
-        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        NewObjectID::new(examples_package_id.into_bytes()),
         id1.clone(),
         services_ids.clone(),
         &pks,
@@ -157,7 +158,7 @@ async fn test_e2e_decrypt_all_objects() {
     .0;
 
     let encryption2 = seal_encrypt(
-        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        NewObjectID::new(examples_package_id.into_bytes()),
         id2.clone(),
         services_ids.clone(),
         &pks,
@@ -202,7 +203,7 @@ async fn test_e2e_decrypt_all_objects() {
             ],
         };
 
-        let service_id_sdk = sui_sdk_types::ObjectId::new(service_id.into_bytes());
+        let service_id_sdk = NewObjectID::new(service_id.into_bytes());
         seal_responses.push((service_id_sdk, response));
 
         let public_key = public_key_from_master_key(master_key);
@@ -302,12 +303,12 @@ async fn test_e2e_permissioned() {
     let services_ids = services
         .clone()
         .into_iter()
-        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        sui_sdk_types::ObjectId::new(package_id.into_bytes()),
+        NewObjectID::new(package_id.into_bytes()),
         whitelist.to_vec(),
         services_ids.to_vec(),
         &pks,
@@ -401,12 +402,12 @@ async fn test_e2e_imported_key() {
     let services_ids = services
         .clone()
         .into_iter()
-        .map(|id| sui_sdk_types::ObjectId::new(id.into_bytes()))
+        .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        sui_sdk_types::ObjectId::new(package_id.into_bytes()),
+        NewObjectID::new(package_id.into_bytes()),
         whitelist.to_vec(),
         services_ids.clone().to_vec(),
         &pks,

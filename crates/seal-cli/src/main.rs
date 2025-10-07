@@ -23,7 +23,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClientBuilder;
-use sui_sdk_types::ObjectId as NewObjectID;
+use sui_sdk_types::Address as NewObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 

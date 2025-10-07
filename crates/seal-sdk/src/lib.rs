@@ -168,14 +168,14 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::str::FromStr;
+    use sui_sdk_types::Address as NewObjectID;
     use sui_sdk_types::ProgrammableTransaction as NewProgrammableTransaction;
     use sui_types::crypto::deterministic_random_account_key;
     #[test]
     fn test_signed_message_regression() {
-        let pkg_id = sui_sdk_types::ObjectId::from_str(
-            "0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
-        )
-        .unwrap();
+        let pkg_id =
+            NewObjectID::from_str("0xc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5")
+                .unwrap();
         let (_, kp): (_, Ed25519KeyPair) = deterministic_random_account_key();
         let creation_time = 1622548800;
         let ttl_min = 30;
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_signed_request_regression() {
-        let pkg_id = sui_sdk_types::ObjectId::from_str(
+        let pkg_id = NewObjectID::from_str(
             "0xd92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d5",
         )
         .unwrap();

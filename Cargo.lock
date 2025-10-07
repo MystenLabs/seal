@@ -1957,7 +1957,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "sui-sdk-types 0.0.2",
+ "sui-sdk-types 0.0.8",
  "sui-types",
  "typenum",
 ]
@@ -4465,7 +4465,7 @@ dependencies = [
  "snap",
  "sui-move-build",
  "sui-sdk",
- "sui-sdk-types 0.0.2",
+ "sui-sdk-types 0.0.8",
  "sui-types",
  "tap",
  "temp-env",
@@ -8012,7 +8012,7 @@ dependencies = [
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "sui-sdk",
- "sui-sdk-types 0.0.2",
+ "sui-sdk-types 0.0.8",
  "sui-types",
  "tokio",
 ]
@@ -8063,7 +8063,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sui-sdk-types 0.0.2",
+ "sui-sdk-types 0.0.8",
  "sui-types",
  "tracing",
 ]
@@ -10151,15 +10151,10 @@ version = "0.0.2"
 source = "git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06#86a9e06cde84671e96e776d926a85fc1f229314d"
 dependencies = [
  "base64ct",
- "bcs",
  "bnum",
  "bs58 0.5.1",
  "hex",
  "roaring",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_with",
  "winnow 0.6.20",
 ]
 
@@ -10171,6 +10166,27 @@ dependencies = [
  "base64ct",
  "bcs",
  "blake2",
+ "bnum",
+ "bs58 0.5.1",
+ "bytes",
+ "bytestring",
+ "itertools 0.13.0",
+ "roaring",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "winnow 0.7.10",
+]
+
+[[package]]
+name = "sui-sdk-types"
+version = "0.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b43c85a0d7f0e349f79a32a620d82648997f1681107389b178f34c4e460a23a2"
+dependencies = [
+ "base64ct",
+ "bcs",
  "bnum",
  "bs58 0.5.1",
  "bytes",
