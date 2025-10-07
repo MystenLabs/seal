@@ -18,24 +18,17 @@ use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::types::Network;
-use move_core_types::account_address::AccountAddress;
-use move_core_types::identifier::Identifier;
-use move_core_types::language_storage::StructTag;
 use mvr_types::name::Name;
 use serde::Deserialize;
-use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_sdk::rpc_types::SuiObjectDataOptions;
-use sui_sdk::SuiClientBuilder;
+use sui_rpc::Client;
 use sui_types::base_types::ObjectID;
 use sui_types::collection_types::Table;
-use sui_types::dynamic_field::{DynamicFieldName, Field};
-use sui_types::TypeTag;
+use sui_types::dynamic_field::Field;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
-const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6cdeca6db4b";
 
 /// Testnet records are stored on mainnet on the registry defined above, but under the 'networks' section using the following ID as key
 const TESTNET_ID: &str = "4c78adac";
@@ -100,7 +93,6 @@ pub(crate) async fn mvr_forward_resolution(
     let package_address = match network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
             .await?
-            .value
             .app_info
             .ok_or(InvalidMVRName)?
             .package_address
@@ -108,20 +100,16 @@ pub(crate) async fn mvr_forward_resolution(
                 "No package_address field on app_info for {mvr_name} on mainnet"
             )))?,
         Network::Testnet => {
+            // For testnet MVR lookups, we need to query the mainnet MVR registry
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default()
-                        .request_timeout(key_server_options.rpc_config.timeout)
-                        .build_mainnet()
-                        .await
-                        .map_err(|_| Failure("Failed to build sui client".to_string()))?,
+                    Client::new(Network::Mainnet.node_url()).expect("Failed to create gRPC client"),
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.get_metrics(),
                 ),
             )
             .await?
-            .value
             .networks
             .into();
 
@@ -174,58 +162,74 @@ pub(crate) fn resolve_network(network: &Network) -> Result<Network, InternalErro
 async fn get_from_mvr_registry(
     mvr_name: &str,
     mainnet_sui_rpc_client: &SuiRpcClient,
-) -> Result<Field<Name, AppRecord>, InternalError> {
-    let dynamic_field_name = dynamic_field_name(mvr_name)?;
+) -> Result<AppRecord, InternalError> {
+    let dynamic_field_name_bcs = dynamic_field_name_bcs(mvr_name)?;
     let record_id = mainnet_sui_rpc_client
         .get_dynamic_field_object(
             ObjectID::from_str(MVR_REGISTRY).unwrap(),
-            dynamic_field_name.clone(),
+            dynamic_field_name_bcs,
         )
         .await
-        .map_err(|_| {
-            Failure(format!(
-                "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
-            ))
+        .map_err(|e| {
+            // NotFound indicates the MVR name doesn't exist in the registry
+            if matches!(e.code(), Some(tonic::Code::NotFound)) {
+                InvalidMVRName
+            } else {
+                Failure(format!(
+                    "Failed to get dynamic field object '{}' from MVR registry: {}",
+                    mvr_name,
+                    e.message()
+                ))
+            }
         })?
         .object_id()
         .map_err(|_| InvalidMVRName)?;
 
-    // TODO: Is there a way to get the BCS data in the above call instead of making a second call?
-    get_object(record_id, mainnet_sui_rpc_client).await
+    // Get the Field<Name, AppRecord> and extract the value
+    let field: Field<Name, AppRecord> = get_object(record_id, mainnet_sui_rpc_client).await?;
+    Ok(field.value)
 }
 
-/// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
-fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
+/// Get the BCS-serialized bytes of an MVR name for dynamic field lookup.
+fn dynamic_field_name_bcs(mvr_name: &str) -> Result<Vec<u8>, InternalError> {
     let parsed_name =
         mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
     if parsed_name.version.is_some() {
         return Err(InvalidMVRName);
     }
 
-    Ok(DynamicFieldName {
-        type_: TypeTag::Struct(Box::new(StructTag {
-            address: AccountAddress::from_str(MVR_CORE).unwrap(),
-            module: Identifier::from_str("name").unwrap(),
-            name: Identifier::from_str("Name").unwrap(),
-            type_params: vec![],
-        })),
-        value: json!(parsed_name.name),
-    })
+    // BCS-serialize the Name struct directly - this is what's stored in the registry
+    let bcs_bytes = bcs::to_bytes(&parsed_name.name).map_err(|_| InvalidMVRName)?;
+
+    Ok(bcs_bytes)
 }
 
 async fn get_object<T: for<'a> Deserialize<'a>>(
     object_id: ObjectID,
     sui_rpc_client: &SuiRpcClient,
 ) -> Result<T, InternalError> {
-    bcs::from_bytes(
-        sui_rpc_client
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())
-            .await
-            .map_err(|_| Failure(format!("Failed to get object {object_id}")))?
-            .move_object_bcs()
-            .ok_or(Failure(format!("No BCS on response of object {object_id}")))?,
-    )
-    .map_err(|_| InvalidPackage)
+    // Fetch object with BCS to get the raw object bytes
+    let response = sui_rpc_client
+        .get_object_with_options(object_id, true)
+        .await
+        .map_err(|e| Failure(format!("Failed to get object {object_id}: {}", e.message())))?;
+
+    let bcs_bytes = response.move_object_bcs().map_err(|e| {
+        Failure(format!(
+            "Failed to get BCS bytes for object {object_id}: {}",
+            e.message()
+        ))
+    })?;
+
+    // The BCS bytes from gRPC contain the full Object structure
+    let object: sui_types::object::Object =
+        bcs::from_bytes(&bcs_bytes).map_err(|_| InvalidPackage)?;
+
+    // Extract the MoveObject data from the Object
+    let move_object = object.data.try_as_move().ok_or(InvalidPackage)?;
+
+    // Now deserialize the contents of the MoveObject as our type T
+    bcs::from_bytes(move_object.contents()).map_err(|_| InvalidPackage)
 }
 
 #[cfg(test)]
@@ -237,7 +241,7 @@ mod tests {
     use crate::types::Network;
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
-    use sui_sdk::SuiClientBuilder;
+    use sui_rpc::Client;
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
@@ -245,16 +249,16 @@ mod tests {
         assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
             &SuiRpcClient::new(
-                SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                Client::new(Network::Mainnet.node_url()).unwrap(),
                 RetryConfig::default(),
                 None,
             ),
             &KeyServerOptions::new_for_testing(Network::Mainnet),
             ObjectID::from_str(
-                "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
+                "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3",
             )
             .unwrap(),
-            None
+            None,
         )
         .await
         .is_ok());
@@ -272,7 +276,7 @@ mod tests {
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    Client::new(Network::Testnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),
@@ -291,7 +295,7 @@ mod tests {
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    Client::new(Network::Mainnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),
@@ -308,7 +312,7 @@ mod tests {
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    Client::new(Network::Testnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),
@@ -329,7 +333,7 @@ mod tests {
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    Client::new(Network::Mainnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),
@@ -345,7 +349,7 @@ mod tests {
         assert_eq!(
             mvr_forward_resolution(
                 &SuiRpcClient::new(
-                    SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    Client::new(Network::Mainnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),

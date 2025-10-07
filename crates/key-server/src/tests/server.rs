@@ -10,10 +10,11 @@ use crate::externals::get_latest_checkpoint_timestamp;
 use crate::key_server_options::RetryConfig;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
+use sui_rpc::Client as GrpcClient;
 
 use crate::signed_message::signed_request;
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
@@ -49,7 +50,8 @@ async fn test_get_latest_checkpoint_timestamp() {
 
     let tolerance = 20000;
     let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
-        tc.cluster.sui_client().clone(),
+        GrpcClient::new(tc.cluster.fullnode_handle.rpc_url.clone())
+            .expect("Failed to create gRPC client"),
         RetryConfig::default(),
         None,
     ))

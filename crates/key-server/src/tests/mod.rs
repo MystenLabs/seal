@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_move_build::BuildConfig;
+use sui_rpc::Client;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -66,8 +67,11 @@ impl SealTestCluster {
     pub async fn new(users: usize) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
+            .with_epoch_duration_ms(15000)
+            .with_default_jwks()
             .build()
             .await;
+        cluster.wait_for_authenticator_state_update().await;
         let registry = Self::publish_internal(&cluster, "seal").await;
         Self {
             cluster,
@@ -115,7 +119,8 @@ impl SealTestCluster {
                     .await;
                 let server = Server {
                     sui_rpc_client: SuiRpcClient::new(
-                        self.cluster.sui_client().clone(),
+                        Client::new(self.cluster.fullnode_handle.rpc_url.clone())
+                            .expect("Failed to create gRPC client"),
                         RetryConfig::default(),
                         None,
                     ),

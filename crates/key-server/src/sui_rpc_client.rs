@@ -3,18 +3,166 @@
 
 use std::sync::Arc;
 
-use sui_sdk::{
-    error::SuiRpcResult,
-    rpc_types::{
-        Checkpoint, CheckpointId, DryRunTransactionBlockResponse, SuiObjectDataOptions,
-        SuiObjectResponse,
-    },
-    SuiClient,
-};
+use sui_rpc::client::Client;
+use sui_rpc::field::FieldMaskUtil;
 use sui_types::base_types::ObjectID;
-use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
 
 use crate::{key_server_options::RetryConfig, metrics::Metrics};
+
+/// Maximum page size for paginated requests
+const MAX_PAGE_SIZE: u32 = 1000;
+
+/// Conversion factor from seconds to milliseconds
+const SECONDS_TO_MILLIS: u64 = 1000;
+
+/// Conversion factor from nanoseconds to milliseconds
+const NANOS_TO_MILLIS: u64 = 1_000_000;
+
+/// Maximum BCS data size (10MB) to prevent excessive memory usage
+const MAX_BCS_SIZE: usize = 10 * 1024 * 1024;
+
+/// Result type for RPC operations
+pub type RpcResult<T> = Result<T, RpcError>;
+
+/// Error type for RPC operations
+#[derive(Debug)]
+pub struct RpcError {
+    message: String,
+    code: Option<tonic::Code>,
+}
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
+
+impl RpcError {
+    /// Create a new RpcError from a message
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: None,
+        }
+    }
+
+    /// Create a new RpcError with a specific gRPC status code
+    pub fn with_code(message: impl Into<String>, code: tonic::Code) -> Self {
+        Self {
+            message: message.into(),
+            code: Some(code),
+        }
+    }
+
+    /// Get the error message
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Get the gRPC status code if available
+    pub fn code(&self) -> Option<tonic::Code> {
+        self.code
+    }
+}
+
+/// Response type for object queries
+pub struct SuiObjectResponse {
+    inner: sui_rpc::proto::sui::rpc::v2beta2::GetObjectResponse,
+}
+
+impl SuiObjectResponse {
+    /// Get object ID from the response
+    pub fn object_id(&self) -> Result<ObjectID, RpcError> {
+        self.inner
+            .object
+            .as_ref()
+            .and_then(|o| o.object_id.as_ref())
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| RpcError::new("No object ID in response"))
+    }
+
+    /// Get the BCS bytes from a Move object
+    pub fn move_object_bcs(&self) -> Result<Vec<u8>, RpcError> {
+        let bytes = self
+            .inner
+            .object
+            .as_ref()
+            .and_then(|o| o.bcs.as_ref())
+            .and_then(|bcs| bcs.value.as_ref())
+            .ok_or_else(|| RpcError::new("No BCS data in object"))?;
+
+        if bytes.len() > MAX_BCS_SIZE {
+            return Err(RpcError::new(format!(
+                "BCS data too large: {} bytes (max: {})",
+                bytes.len(),
+                MAX_BCS_SIZE
+            )));
+        }
+
+        Ok(bytes.to_vec())
+    }
+}
+
+/// Transaction simulation response (replaces DryRunTransactionBlockResponse)
+#[derive(Debug)]
+pub struct DryRunTransactionBlockResponse {
+    pub effects: TransactionEffects,
+}
+
+/// Transaction effects
+#[derive(Debug)]
+pub struct TransactionEffects {
+    inner: sui_rpc::proto::sui::rpc::v2beta2::TransactionEffects,
+}
+
+impl TransactionEffects {
+    /// Get gas cost summary
+    pub fn gas_cost_summary(&self) -> GasCostSummary {
+        GasCostSummary {
+            computation_cost: self
+                .inner
+                .gas_used
+                .as_ref()
+                .and_then(|g| g.computation_cost)
+                .unwrap_or(0),
+        }
+    }
+
+    /// Get execution status
+    pub fn status(&self) -> SuiExecutionStatus {
+        if let Some(ref status) = self.inner.status {
+            if status.success.unwrap_or(false) {
+                SuiExecutionStatus::Success
+            } else {
+                SuiExecutionStatus::Failure {
+                    error: status
+                        .error
+                        .as_ref()
+                        .map(|e| format!("{:?}", e))
+                        .unwrap_or_default(),
+                }
+            }
+        } else {
+            // Missing status should be treated as an error, not success
+            SuiExecutionStatus::Failure {
+                error: "Missing execution status in response".to_string(),
+            }
+        }
+    }
+}
+
+/// Gas cost summary
+pub struct GasCostSummary {
+    pub computation_cost: u64,
+}
+
+/// Execution status
+pub enum SuiExecutionStatus {
+    Success,
+    Failure { error: String },
+}
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -22,19 +170,27 @@ pub trait RetriableError {
     fn is_retriable_error(&self) -> bool;
 }
 
-impl RetriableError for sui_sdk::error::Error {
+impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
-        match self {
-            // Low level networking errors are retriable.
-            // TODO: Add more retriable errors here
-            sui_sdk::error::Error::RpcError(rpc_error) => {
-                matches!(
-                    rpc_error,
-                    jsonrpsee::core::ClientError::Transport(_)
-                        | jsonrpsee::core::ClientError::RequestTimeout
-                )
-            }
-            _ => false,
+        // Only gRPC errors with specific status codes should be retried
+        self.code.is_some_and(|code| {
+            matches!(
+                code,
+                tonic::Code::Unavailable
+                    | tonic::Code::DeadlineExceeded
+                    | tonic::Code::ResourceExhausted
+                    | tonic::Code::Aborted
+            )
+        })
+    }
+}
+
+impl RpcError {
+    /// Helper to convert gRPC errors to RpcError
+    fn from_grpc(e: tonic::Status) -> Self {
+        Self {
+            message: format!("gRPC error: {}", e),
+            code: Some(e.code()),
         }
     }
 }
@@ -115,30 +271,25 @@ where
     }
 }
 
-/// Client for interacting with the Sui RPC API.
+/// Client for interacting with the Sui gRPC API.
 #[derive(Clone)]
 pub struct SuiRpcClient {
-    sui_client: SuiClient,
+    grpc_client: Client,
     rpc_retry_config: RetryConfig,
     metrics: Option<Arc<Metrics>>,
 }
 
 impl SuiRpcClient {
     pub fn new(
-        sui_client: SuiClient,
+        grpc_client: Client,
         rpc_retry_config: RetryConfig,
         metrics: Option<Arc<Metrics>>,
     ) -> Self {
         Self {
-            sui_client,
+            grpc_client,
             rpc_retry_config,
             metrics,
         }
-    }
-
-    /// Returns a reference to the underlying SuiClient.
-    pub fn sui_client(&self) -> &SuiClient {
-        &self.sui_client
     }
 
     /// Returns a clone of the metrics object.
@@ -146,106 +297,395 @@ impl SuiRpcClient {
         self.metrics.clone()
     }
 
-    /// Dry runs a transaction block.
-    pub async fn dry_run_transaction_block(
-        &self,
-        tx_data: TransactionData,
-    ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "dry_run_transaction_block",
-            self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .dry_run_transaction_block(tx_data.clone())
-                    .await
-            },
-        )
-        .await
-    }
-
     /// Returns an object with the given options.
     pub async fn get_object_with_options(
         &self,
         object_id: ObjectID,
-        options: SuiObjectDataOptions,
-    ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(
+        show_bcs: bool,
+    ) -> RpcResult<SuiObjectResponse> {
+        // Build read mask - always include object_id, optionally include bcs
+        let mut read_mask_paths = vec!["object_id".to_string()];
+        if show_bcs {
+            read_mask_paths.push("bcs".to_string());
+        }
+
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_object_with_options",
+            "get_object",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_object_with_options(object_id, options.clone())
-                    .await
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                let read_mask_paths = read_mask_paths.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::GetObjectRequest::default();
+                    request.object_id = Some(object_id.to_hex_literal());
+                    let mask = prost_types::FieldMask::from_paths(
+                        read_mask_paths.iter().map(|s| s.as_str()),
+                    );
+                    request.read_mask = Some(mask);
+                    client
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
-        .await
+        .await?;
+
+        Ok(SuiObjectResponse { inner: response })
     }
 
     /// Returns the latest checkpoint sequence number.
-    pub async fn get_latest_checkpoint_sequence_number(&self) -> SuiRpcResult<u64> {
-        sui_rpc_with_retries(
+    pub async fn get_latest_checkpoint_sequence_number(&self) -> RpcResult<u64> {
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_latest_checkpoint_sequence_number",
+            "get_latest_checkpoint",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_latest_checkpoint_sequence_number()
-                    .await
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::GetCheckpointRequest::default();
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["sequence_number".to_string()],
+                    });
+                    client
+                        .get_checkpoint(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
-        .await
+        .await?;
+
+        response
+            .checkpoint
+            .and_then(|c| c.sequence_number)
+            .ok_or_else(|| RpcError::new("No checkpoint sequence number in response"))
     }
 
-    /// Returns a checkpoint by its sequence number.
-    pub async fn get_checkpoint(&self, checkpoint_id: CheckpointId) -> SuiRpcResult<Checkpoint> {
-        sui_rpc_with_retries(
+    /// Returns a checkpoint timestamp in milliseconds by its sequence number.
+    pub async fn get_checkpoint(&self, checkpoint_seq: u64) -> RpcResult<u64> {
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
             "get_checkpoint",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_checkpoint(checkpoint_id)
-                    .await
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request = sui_rpc::proto::sui::rpc::v2beta2::GetCheckpointRequest::default();
+                    request.checkpoint_id = Some(
+                        sui_rpc::proto::sui::rpc::v2beta2::get_checkpoint_request::CheckpointId::SequenceNumber(
+                            checkpoint_seq,
+                        ),
+                    );
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["summary.timestamp".to_string()],
+                    });
+                    client.get_checkpoint(request).await.map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
-        .await
+        .await?;
+
+        let checkpoint = response
+            .checkpoint
+            .ok_or_else(|| RpcError::new("No checkpoint in response"))?;
+
+        let timestamp = checkpoint
+            .summary
+            .and_then(|s| s.timestamp)
+            .ok_or_else(|| RpcError::new("No timestamp in checkpoint"))?;
+
+        (timestamp.seconds as u64)
+            .checked_mul(SECONDS_TO_MILLIS)
+            .and_then(|ms| ms.checked_add((timestamp.nanos as u64) / NANOS_TO_MILLIS))
+            .ok_or_else(|| RpcError::new("Timestamp overflow"))
     }
 
     /// Returns the current reference gas price.
-    pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
-        sui_rpc_with_retries(
+    pub async fn get_reference_gas_price(&self) -> RpcResult<u64> {
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_reference_gas_price",
+            "get_epoch",
             self.metrics.clone(),
-            || async { self.sui_client.read_api().get_reference_gas_price().await },
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request = sui_rpc::proto::sui::rpc::v2beta2::GetEpochRequest::default();
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["reference_gas_price".to_string()],
+                    });
+                    client
+                        .get_epoch(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
+            },
         )
-        .await
+        .await?;
+
+        response
+            .epoch
+            .and_then(|e| e.reference_gas_price)
+            .ok_or_else(|| RpcError::new("No reference gas price in response"))
     }
 
-    /// Returns an object with the given dynamic field name.
+    /// Verify a user signature using the gRPC signature verification service.
+    /// This is used primarily for zkLogin signatures which require JWK verification.
+    pub async fn verify_signature(
+        &self,
+        message: &[u8],
+        signature: &sui_sdk_types::UserSignature,
+    ) -> RpcResult<()> {
+        // Convert signature to BCS
+        let sig_bcs = bcs::to_bytes(signature)
+            .map_err(|e| RpcError::new(format!("Failed to serialize signature: {}", e)))?;
+
+        let response = sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "verify_signature",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                let message = message.to_vec();
+                let sig_bcs = sig_bcs.clone();
+                async move {
+                    let mut client = grpc_client.signature_verification_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::VerifySignatureRequest::default();
+
+                    // Set the message with name for PersonalMessage
+                    // PersonalMessage is a newtype around Vec<u8>, so we need to BCS-serialize the Vec<u8>
+                    let message_vec = message.to_vec();
+                    let message_bcs = bcs::to_bytes(&message_vec).map_err(|e| {
+                        RpcError::new(format!("Failed to serialize message: {}", e))
+                    })?;
+
+                    let mut msg = sui_rpc::proto::sui::rpc::v2beta2::Bcs::default();
+                    msg.value = Some(message_bcs.into());
+                    msg.name = Some("PersonalMessage".to_string());
+                    request.message = Some(msg);
+
+                    // Set the signature
+                    let mut sig = sui_rpc::proto::sui::rpc::v2beta2::UserSignature::default();
+                    sig.bcs = Some(sig_bcs.into());
+                    request.signature = Some(sig);
+
+                    client
+                        .verify_signature(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
+            },
+        )
+        .await?;
+
+        // Check if verification was successful
+        if response.is_valid.unwrap_or(false) {
+            Ok(())
+        } else {
+            let reason = response
+                .reason
+                .unwrap_or_else(|| "Unknown reason".to_string());
+            Err(RpcError::new(format!(
+                "Signature verification failed: {}",
+                reason
+            )))
+        }
+    }
+
+    /// Simulate a transaction (dry run)
+    pub async fn dry_run_transaction_block(
+        &self,
+        tx_data: sui_types::transaction::TransactionData,
+    ) -> RpcResult<DryRunTransactionBlockResponse> {
+        // Convert TransactionData to BCS bytes
+        let tx_bytes = bcs::to_bytes(&tx_data)
+            .map_err(|e| RpcError::new(format!("Failed to serialize transaction: {}", e)))?;
+
+        let response = sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "simulate_transaction",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                let tx_bytes = tx_bytes.clone();
+                async move {
+                    let mut client = grpc_client.live_data_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::SimulateTransactionRequest::default();
+                    // Create transaction with BCS bytes
+                    let mut transaction = sui_rpc::proto::sui::rpc::v2beta2::Transaction::default();
+                    transaction.bcs = Some(tx_bytes.into());
+                    request.transaction = Some(transaction);
+                    client
+                        .simulate_transaction(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
+            },
+        )
+        .await?;
+
+        let executed_tx = response
+            .transaction
+            .ok_or_else(|| RpcError::new("No transaction in simulation response"))?;
+
+        let effects = executed_tx
+            .effects
+            .ok_or_else(|| RpcError::new("No effects in executed transaction"))?;
+
+        Ok(DryRunTransactionBlockResponse {
+            effects: TransactionEffects { inner: effects },
+        })
+    }
+
+    /// Returns a package using the MovePackageService.GetPackage method.
+    pub async fn get_package(
+        &self,
+        package_id: ObjectID,
+    ) -> RpcResult<sui_rpc::proto::sui::rpc::v2beta2::Package> {
+        let response = sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_package",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.package_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::GetPackageRequest::default();
+                    request.package_id = Some(package_id.to_hex_literal());
+                    client
+                        .get_package(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
+            },
+        )
+        .await?;
+
+        response
+            .package
+            .ok_or_else(|| RpcError::new("No package in response"))
+    }
+
+    /// Returns an object with the given dynamic field name BCS bytes.
+    /// The dynamic_field_name_bcs should be the BCS-serialized name value.
     pub async fn get_dynamic_field_object(
         &self,
         object_id: ObjectID,
-        dynamic_field_name: DynamicFieldName,
-    ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(
+        dynamic_field_name_bcs: Vec<u8>,
+    ) -> RpcResult<SuiObjectResponse> {
+        // List all dynamic fields with pagination
+        let mut page_token: Option<Vec<u8>> = None;
+        let mut matching_field = None;
+
+        loop {
+            let list_response = sui_rpc_with_retries(
+                &self.rpc_retry_config,
+                "list_dynamic_fields",
+                self.metrics.clone(),
+                || {
+                    let mut grpc_client = self.grpc_client.clone();
+                    let page_token = page_token.clone();
+                    async move {
+                        let mut client = grpc_client.live_data_client();
+                        let mut request =
+                            sui_rpc::proto::sui::rpc::v2beta2::ListDynamicFieldsRequest::default();
+                        request.parent = Some(object_id.to_hex_literal());
+                        request.read_mask = Some(prost_types::FieldMask {
+                            paths: vec![
+                                "parent".to_string(),
+                                "field_id".to_string(),
+                                "name_value".to_string(),
+                            ],
+                        });
+                        request.page_size = Some(MAX_PAGE_SIZE);
+                        if let Some(token) = &page_token {
+                            request.page_token = Some(token.clone().into());
+                        }
+                        client
+                            .list_dynamic_fields(request)
+                            .await
+                            .map(|r| r.into_inner())
+                            .map_err(RpcError::from_grpc)
+                    }
+                },
+            )
+            .await?;
+
+            // Search for matching field in this page
+            for field in list_response.dynamic_fields {
+                if let Some(ref name_value) = field.name_value {
+                    if name_value.as_ref() == dynamic_field_name_bcs.as_slice() {
+                        matching_field = Some(field);
+                        break;
+                    }
+                }
+            }
+
+            // If we found the field, stop searching
+            if matching_field.is_some() {
+                break;
+            }
+
+            // If there's a next page, continue
+            if let Some(next_token) = list_response.next_page_token {
+                if !next_token.is_empty() {
+                    page_token = Some(next_token.to_vec());
+                    continue;
+                }
+            }
+
+            // No more pages and field not found
+            break;
+        }
+
+        let matching_field = matching_field
+            .ok_or_else(|| RpcError::with_code("Dynamic field not found", tonic::Code::NotFound))?;
+
+        // Get the field object ID
+        let field_object_id_str = matching_field
+            .field_id
+            .ok_or_else(|| RpcError::new("Field has no object ID"))?;
+
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_dynamic_field_object",
+            "get_object",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_dynamic_field_object(object_id, dynamic_field_name.clone())
-                    .await
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                let field_object_id_str = field_object_id_str.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::GetObjectRequest::default();
+                    request.object_id = Some(field_object_id_str);
+                    client
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
-        .await
+        .await?;
+
+        Ok(SuiObjectResponse { inner: response })
     }
 }
 

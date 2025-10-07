@@ -29,7 +29,7 @@ use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
-use sui_sdk::SuiClient;
+use sui_rpc::Client;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
@@ -248,7 +248,7 @@ async fn test_e2e_permissioned() {
 
     // The client handles two package ids, one per client
     let server1 = create_server(
-        cluster.sui_client().clone(),
+        &cluster.fullnode_handle.rpc_url,
         vec![
             ClientConfig {
                 name: "Client 1 on server 1".to_string(),
@@ -273,7 +273,7 @@ async fn test_e2e_permissioned() {
 
     // The client on the second server has a single (random) package id
     let server2 = create_server(
-        cluster.sui_client().clone(),
+        &cluster.fullnode_handle.rpc_url,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -372,7 +372,7 @@ async fn test_e2e_imported_key() {
 
     // Server has a single client with a single package id (the one published above)
     let server1 = create_server(
-        cluster.sui_client().clone(),
+        &cluster.fullnode_handle.rpc_url,
         vec![ClientConfig {
             name: "Key server client 1".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -442,7 +442,7 @@ async fn test_e2e_imported_key() {
 
     // Import the master key for a client into a second server
     let server2 = create_server(
-        cluster.sui_client().clone(),
+        &cluster.fullnode_handle.rpc_url,
         vec![ClientConfig {
             name: "Key server client 2".to_string(),
             client_master_key: ClientKeyType::Imported {
@@ -478,7 +478,7 @@ async fn test_e2e_imported_key() {
 
     // Create a new key server where the derived key is marked as exported
     let server3 = create_server(
-        cluster.sui_client().clone(),
+        &cluster.fullnode_handle.rpc_url,
         vec![
             ClientConfig {
                 name: "Key server client 3.0".to_string(),
@@ -507,7 +507,7 @@ async fn test_e2e_imported_key() {
 }
 
 async fn create_server(
-    sui_client: SuiClient,
+    rpc_url: &str,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
@@ -531,9 +531,180 @@ async fn create_server(
         .collect::<Vec<_>>();
 
     Server {
-        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
+        sui_rpc_client: SuiRpcClient::new(
+            Client::new(rpc_url).expect("Failed to create gRPC client"),
+            RetryConfig::default(),
+            None,
+        ),
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,
     }
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_zklogin_signature() {
+    use crate::signed_message::signed_request;
+    use crate::time::current_epoch_time;
+    use crate::valid_ptb::ValidPtb;
+    use crate::Certificate;
+    use crypto::elgamal;
+    use fastcrypto::ed25519::Ed25519KeyPair;
+    use fastcrypto::traits::{KeyPair, Signer};
+    use fastcrypto_zkp::bn254::zk_login::ZkLoginInputs;
+    use seal_sdk::signed_message;
+    use serde::Deserialize;
+    use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
+    use sui_types::crypto::SuiKeyPair;
+    use sui_types::signature::GenericSignature;
+
+    #[derive(Deserialize)]
+    struct TestVector {
+        zklogin_inputs: String,
+        kp: String,
+        address_seed: String,
+    }
+
+    // Use test vector from sui
+    let test_vector_json = r#"{
+        "zklogin_inputs": "{\"proofPoints\":{\"a\":[\"2557188010312611627171871816260238532309920510408732193456156090279866747728\",\"19071990941441318350711693802255556881405833839657840819058116822481115301678\",\"1\"],\"b\":[[\"135230770152349711361478655152288995176559604356405117885164129359471890574\",\"7216898009175721143474942227108999120632545700438440510233575843810308715248\"],[\"13253503214497870514695718691991905909426624538921072690977377011920360793667\",\"9020530007799152621750172565457249844990381864119377955672172301732296026267\"],[\"1\",\"0\"]],\"c\":[\"873909373264079078688783673576894039693316815418733093168579354008866728804\",\"17533051555163888509441575111667473521314561492884091535743445342304799397998\",\"1\"]},\"issBase64Details\":{\"value\":\"wiaXNzIjoiaHR0cHM6Ly9pZC50d2l0Y2gudHYvb2F1dGgyIiw\",\"indexMod4\":2},\"headerBase64\":\"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjEifQ\"}",
+        "kp": "suiprivkey1qzdlfxn2qa2lj5uprl8pyhexs02sg2wrhdy7qaq50cqgnffw4c2477kg9h3",
+        "address_seed": "2455937816256448139232531453880118833510874847675649348355284726183344259587"
+    }"#;
+
+    let test_vector: TestVector = serde_json::from_str(test_vector_json).unwrap();
+
+    // Parse ephemeral keypair
+    let eph_kp = SuiKeyPair::decode(&test_vector.kp).unwrap();
+
+    // Parse zklogin inputs
+    let zklogin_inputs =
+        ZkLoginInputs::from_json(&test_vector.zklogin_inputs, &test_vector.address_seed).unwrap();
+
+    // Get zklogin address from inputs
+    let zklogin_pk = sui_types::crypto::PublicKey::from_zklogin_inputs(&zklogin_inputs).unwrap();
+    let zklogin_sui_addr = sui_types::base_types::SuiAddress::from(&zklogin_pk);
+
+    // Setup test cluster
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_open_servers(3).await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        zklogin_sui_addr,
+    )
+    .await;
+
+    // Get public keys from services
+    let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| NewObjectID::new(id.into_bytes()))
+        .collect::<Vec<_>>();
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
+
+    // Encrypt a message
+    let message = b"Test message for zklogin";
+    let encryption = seal_encrypt(
+        NewObjectID::new(examples_package_id.into_bytes()),
+        whitelist.to_vec(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Get keys from two key servers using zklogin signature
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+    let usks = join_all(tc.servers[..2].iter().map(|(_, server)| {
+        let ptb = ptb.clone();
+        let eph_kp = &eph_kp;
+        let zklogin_inputs = &zklogin_inputs;
+        async move {
+            let (sk, pk, vk) = elgamal::genkey(&mut thread_rng());
+
+            // Create session keypair for signing the request
+            let session_kp = Ed25519KeyPair::generate(&mut thread_rng());
+
+            // Create certificate with zklogin signature
+            let cert_msg = signed_message(
+                examples_package_id.to_hex_uncompressed(),
+                session_kp.public(),
+                current_epoch_time(),
+                1,
+            );
+            let cert_personal_msg = PersonalMessage {
+                message: cert_msg.as_bytes().to_vec(),
+            };
+            let cert_msg_with_intent =
+                IntentMessage::new(Intent::personal_message(), cert_personal_msg);
+            let eph_sig = sui_types::crypto::Signature::new_secure(&cert_msg_with_intent, eph_kp);
+
+            let zklogin_sig = sui_types::zk_login_authenticator::ZkLoginAuthenticator::new(
+                zklogin_inputs.clone(),
+                2, // max_epoch - test vector [1] is designed for max_epoch = 2
+                eph_sig,
+            );
+            let generic_sig = GenericSignature::ZkLoginAuthenticator(zklogin_sig);
+
+            let cert = Certificate {
+                user: zklogin_sui_addr,
+                session_vk: session_kp.public().clone(),
+                creation_time: current_epoch_time(),
+                ttl_min: 1,
+                signature: generic_sig,
+                mvr_name: None,
+            };
+
+            // Sign the request with session key
+            let signed_msg = signed_request(&ptb, &pk, &vk);
+            let request_sig = session_kp.sign(&signed_msg);
+
+            server
+                .check_request(
+                    &ValidPtb::try_from(ptb).unwrap(),
+                    &pk,
+                    &vk,
+                    &request_sig,
+                    &cert,
+                    1000,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .map(|(pkg_id, ids)| {
+                    elgamal::decrypt(
+                        &sk,
+                        &server.create_response(pkg_id, &ids, &pk).decryption_keys[0].encrypted_key,
+                    )
+                })
+                .unwrap()
+        }
+    }))
+    .await;
+
+    // Decrypt the message
+    let decryption = seal_decrypt(
+        &encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip(usks).collect()),
+        Some(&pks),
+    )
+    .unwrap();
+
+    assert_eq!(decryption, message);
 }
