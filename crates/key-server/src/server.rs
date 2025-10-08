@@ -4,6 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
+use crate::key_server_options::ServerMode;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
@@ -56,7 +57,7 @@ use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
-use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionKind};
+use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
@@ -256,6 +257,7 @@ impl Server {
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
+        metrics: Option<&Metrics>,
     ) -> Result<(), InternalError> {
         debug!(
             "Checking policy for ptb: {:?} (req_id: {:?})",
@@ -263,19 +265,13 @@ impl Server {
             req_id
         );
         // Evaluate the `seal_approve*` function
-        let tx_data = self
-            .sui_rpc_client
-            .sui_client()
-            .transaction_builder()
-            .tx_data_for_dry_run(
-                sender,
-                TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
-                GAS_BUDGET,
-                gas_price,
-                None,
-                None,
-            )
-            .await;
+        let tx_data = TransactionData::new_with_gas_coins(
+            TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            sender,
+            vec![], // Empty gas payment for dry run
+            GAS_BUDGET,
+            gas_price,
+        );
         let dry_run_res = self
             .sui_rpc_client
             .dry_run_transaction_block(tx_data.clone())
@@ -306,6 +302,20 @@ impl Server {
                     e, req_id
                 ))
             })?;
+
+        // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
+        if let Some(m) = metrics {
+            if matches!(
+                self.options.server_mode,
+                ServerMode::Permissioned { client_configs: _ }
+            ) {
+                let package = vptb.pkg_id().to_hex_uncompressed();
+                m.dry_run_gas_cost_per_package
+                    .with_label_values(&[&package])
+                    .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
+            }
+        }
+
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
         if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
             debug!(
@@ -365,7 +375,7 @@ impl Server {
         .await?;
 
         call_with_duration(metrics.map(|m| &m.check_policy_duration), || async {
-            self.check_policy(certificate.user, valid_ptb, gas_price, req_id)
+            self.check_policy(certificate.user, valid_ptb, gas_price, req_id, metrics)
                 .await
         })
         .await?;
@@ -867,7 +877,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         .allow_headers(Any)
         .expose_headers(Any);
 
-    let app = get_mysten_service(package_name!(), package_version!())
+    let app = get_mysten_service::<MyState>(package_name!(), package_version!())
         .merge(
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
@@ -879,9 +889,9 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 .layer(from_fn_with_state(
                     state.metrics.clone(),
                     metrics_middleware,
-                ))
-                .with_state(state),
+                )),
         )
+        .with_state(state)
         // Global body size limit
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_SIZE))
         .layer(cors);

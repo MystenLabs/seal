@@ -22,6 +22,13 @@ use sui::{
     group_ops::Element
 };
 
+const EWrongVerifiedKeys: u64 = 0;
+const EWrongPublicKeys: u64 = 1;
+const EIncompatibleInputLengths: u64 = 2;
+const EInvalidEncryptedObject: u64 = 3;
+const EInsufficientDerivedKeys: u64 = 4;
+const EInvalidVerifiedKey: u64 = 5;
+
 const DST_DERIVE_KEY: vector<u8> = b"SUI-SEAL-IBE-BLS12381-H3-00";
 
 public struct EncryptedObject has copy, drop, store {
@@ -98,9 +105,12 @@ public fun decrypt(
         encrypted_randomness,
         services,
     } = encrypted_object;
-    assert!(verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id));
-    assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server));
-    assert_all_unique(&public_keys.map_ref!(|pk| pk.key_server));
+    assert!(
+        verified_derived_keys.all!(|vdk| vdk.package_id == *package_id && vdk.id == *id),
+        EWrongVerifiedKeys,
+    );
+    assert_all_unique(&verified_derived_keys.map_ref!(|vdk| vdk.key_server), EWrongVerifiedKeys);
+    assert_all_unique(&public_keys.map_ref!(|pk| pk.key_server), EWrongPublicKeys);
 
     // Find the indices of the public keys corresponding to the key servers in the encrypted object.
     // This aborts if there is no public key for one of the key servers in the encrypted object.
@@ -109,19 +119,19 @@ public fun decrypt(
     );
 
     // Assert that all the given public keys are used.
-    public_keys.length().do!(|i| assert!(public_keys_indices.contains(&i)));
+    public_keys.length().do!(|i| assert!(public_keys_indices.contains(&i), EWrongPublicKeys));
 
     // Find the indices of the key servers corresponding to the derived keys.
     // This aborts if one of the given derived keys is not from a key server in the encrypted object.
     let indices_per_vdk = verified_derived_keys.map_ref!(|vdk| {
         let indices = services.find_indices!(|service| vdk.key_server.to_address() == service);
-        assert!(!indices.is_empty());
+        assert!(!indices.is_empty(), EWrongVerifiedKeys);
         indices
     });
 
     // Flatten the indices per derived key to get all the indices.
     let given_indices = indices_per_vdk.flatten();
-    assert!(given_indices.length() >= *threshold as u64);
+    assert!(given_indices.length() >= *threshold as u64, EInsufficientDerivedKeys);
 
     // Decrypt shares.
     let decrypted_shares = decrypt_shares_with_derived_keys(
@@ -252,7 +262,7 @@ fun decrypt_all_shares_with_randomness(
     public_keys: &vector<Element<G2>>,
 ): (vector<vector<u8>>) {
     let n = encrypted_object.indices.length();
-    assert!(n == public_keys.length());
+    assert!(n == public_keys.length(), EIncompatibleInputLengths);
     let gid = hash_to_g1_with_dst(
         &create_full_id(encrypted_object.package_id, encrypted_object.id),
     );
@@ -304,7 +314,7 @@ fun derive_key(
 }
 
 fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
-    assert!(a.length() == b.length());
+    assert!(a.length() == b.length(), EIncompatibleInputLengths);
     a.zip_map_ref!(b, |a, b| *a ^ *b)
 }
 
@@ -317,10 +327,10 @@ public fun verify_derived_keys(
     id: vector<u8>,
     public_keys: &vector<PublicKey>,
 ): vector<VerifiedDerivedKey> {
-    assert!(public_keys.length() == derived_keys.length());
+    assert!(public_keys.length() == derived_keys.length(), EIncompatibleInputLengths);
     let gid = hash_to_g1_with_dst(&create_full_id(package_id, id));
     public_keys.zip_map_ref!(derived_keys, |pk, derived_key| {
-        assert!(verify_derived_key(derived_key, &gid, &pk.pk));
+        assert!(verify_derived_key(derived_key, &gid, &pk.pk), EInvalidVerifiedKey);
         VerifiedDerivedKey {
             derived_key: *derived_key,
             key_server: pk.key_server,
@@ -338,10 +348,10 @@ fun verify_derived_key(
     pairing(derived_key, &g2_generator()) == pairing(gid, public_key)
 }
 
-fun assert_all_unique<T: drop + copy>(items: &vector<T>) {
+fun assert_all_unique<T>(items: &vector<T>, error_code: u64) {
     items.length().do!(|i| {
         let (_, j) = items.index_of(&items[i]);
-        assert!(i == j);
+        assert!(i == j, error_code);
     });
 }
 
@@ -354,7 +364,7 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
     let mut bcs = sui::bcs::new(object);
 
     let version = bcs.peel_u8();
-    assert!(version == 0);
+    assert!(version == 0, EInvalidEncryptedObject);
 
     let package_id = bcs.peel_address();
     let id = bcs.peel_vec_u8();
@@ -365,13 +375,13 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
         services.push_back(service.peel_address());
         service.peel_u8()
     });
-    assert!(services.length() == indices.length());
-    assert_all_unique(&indices);
+    assert!(services.length() == indices.length(), EInvalidEncryptedObject);
+    assert_all_unique(&indices, EInvalidEncryptedObject);
     let threshold = bcs.peel_u8();
-    assert!(threshold > 0 && threshold <= indices.length() as u8);
+    assert!(threshold > 0 && threshold <= indices.length() as u8, EInvalidEncryptedObject);
 
     let ibe_type = bcs.peel_enum_tag();
-    assert!(ibe_type == 0);
+    assert!(ibe_type == 0, EInvalidEncryptedObject);
 
     // nonce is an G2 element, which is 96 bytes.
     let nonce_bytes = peel_tuple_u8(&mut bcs, 96);
@@ -379,14 +389,14 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
 
     // Shares are 32 bytes.
     let encrypted_shares = bcs.peel_vec!(|share_bcs| peel_tuple_u8(share_bcs, 32));
-    assert!(encrypted_shares.length() == indices.length());
+    assert!(encrypted_shares.length() == indices.length(), EInvalidEncryptedObject);
 
     // Encrypted randomness is 32 bytes.
     let encrypted_randomness = peel_tuple_u8(&mut bcs, 32);
 
     // Move only supports Hmac256Ctr mode.
     let encryption_type = bcs.peel_enum_tag();
-    assert!(encryption_type == 1);
+    assert!(encryption_type == 1, EInvalidEncryptedObject);
 
     let blob = bcs.peel_vec_u8();
     let aad = bcs.peel_option!(|aad_bcs| aad_bcs.peel_vec_u8());
@@ -511,8 +521,7 @@ fun test_parse_encrypted_object() {
     assert!(object.mac == x"184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9");
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_parse_encrypted_object_duplicate_indices_rejected() {
     // a encoded object with duplicate indices [183, 183, 123]
     let encoded =
@@ -587,8 +596,7 @@ fun test_verify_derived_keys() {
     assert!(verfied_derived_keys.length() == 3);
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_verify_invalid_derived_keys() {
     let public_key_1 = new_public_key(
         @0x0.to_id(),
@@ -753,8 +761,7 @@ fun test_decryption_one_server() {
     assert!(decrypted.borrow() == b"Hello, world!");
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_decryption_too_few_shares() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -860,8 +867,7 @@ fun test_decryption_invalid_usk() {
     assert!(decrypt(&parsed_encrypted_object, &vdks, &all_pks).is_none());
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_zero_threshold() {
     parse_encrypted_object(
         x"00571ce2217b77605970898d1ddb29e235ed46d0768c6d32e28509ed0678f678080401020304000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010d48656c6c6f2c20576f726c64210109736f6d657468696e670000000000000000000000000000000000000000000000000000000000000000",
@@ -906,17 +912,16 @@ fun test_decryption_from_sdk() {
     assert!(decrypted.borrow() == x"010203");
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_all_unique_failure() {
-    assert_all_unique(&vector[1, 2, 3, 1]);
+    assert_all_unique(&vector[1, 2, 3, 1], 0);
 }
 
 #[test]
 fun test_all_unique_success() {
-    assert_all_unique(&vector[4, 1, 2, 3]);
-    assert_all_unique(&vector[1]);
-    assert_all_unique(&vector<u8>[]);
+    assert_all_unique(&vector[4, 1, 2, 3], 0);
+    assert_all_unique(&vector[1], 1);
+    assert_all_unique(&vector<u8>[], 2);
 }
 
 #[test]
@@ -995,8 +1000,7 @@ fun test_decryption_weighted() {
     assert!(decrypted.borrow() == b"Hello, world!");
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_decryption_weighted_to_few_keys() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1106,8 +1110,7 @@ fun test_decryption_weighted_different_keys() {
     assert!(decrypted_2.destroy_some() == b"Hello, World!");
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_decryption_duplicate_pks() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1150,8 +1153,7 @@ fun test_decryption_duplicate_pks() {
     decrypt(&parsed_encrypted_object, &vdks, &all_pks_with_duplicate);
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_decryption_invalid_vdk() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1208,8 +1210,7 @@ fun test_decryption_invalid_vdk() {
     decrypt(&parsed_encrypted_object, &vdks, &all_pks);
 }
 
-#[test]
-#[expected_failure]
+#[test, expected_failure]
 fun test_decryption_invalid_pk() {
     use sui::bls12381::{g1_from_bytes};
 

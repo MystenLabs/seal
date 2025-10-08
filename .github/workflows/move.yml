@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  MOVE_PACKAGES_PATH: move
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -36,3 +39,12 @@ jobs:
             echo "Running sui move test in $dir"
             sui move test --warnings-are-errors --path $dir
           done
+
+  formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: MystenLabs/move-formatter-action@v1
+        with:
+          prettier-plugin-move-version: "latest"
+          working-directory: ${{ env.MOVE_PACKAGES_PATH }}

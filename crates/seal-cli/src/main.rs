@@ -23,7 +23,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use sui_sdk::rpc_types::SuiParsedData;
 use sui_sdk::SuiClientBuilder;
-use sui_sdk_types::ObjectId as NewObjectID;
+use sui_sdk_types::Address as NewObjectID;
 use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::TypeTag;
 
@@ -324,16 +324,16 @@ enum Command {
         #[arg(long)]
         key: EncodedByteArray<KEY_LENGTH>,
     },
-    /// Encrypt a secret's utf-8 bytes using Seal. This uses the public fullnode for
+    /// Encrypt a secret's Hex encoded bytes using Seal. This uses the public fullnode for
     /// retrieval of key servers' public keys for the given network.
     Encrypt {
-        /// The secret to encrypt.
-        #[arg(long)]
-        secret: String,
+        /// The secrets to encrypt.
+        #[arg(long, value_delimiter = ',')]
+        secrets: Vec<EncodedBytes>,
 
-        /// Unique per package identifier of the secret.
-        #[arg(long)]
-        id: EncodedBytes,
+        /// Unique per package identifier for all secrets.
+        #[arg(long, value_delimiter = ',')]
+        ids: Vec<EncodedBytes>,
 
         /// Package ID that defines seal policy.
         #[arg(short = 'p', long)]
@@ -503,13 +503,19 @@ async fn main() -> FastCryptoResult<()> {
         .map(SymmetricDecryptOutput)?
         .to_string(),
         Command::Encrypt {
-            secret,
-            id,
+            secrets,
+            ids,
             package_id,
             key_server_ids,
             threshold,
             network,
         } => {
+            if secrets.len() != ids.len() || secrets.is_empty() {
+                return Err(FastCryptoError::GeneralError(
+                    "Number of secrets and ids must be the same and must be greater than 0"
+                        .to_string(),
+                ));
+            }
             // Fetch key server info including public keys from blockchain
             let key_server_infos = fetch_key_server_urls(&key_server_ids, &network)
                 .await
@@ -535,21 +541,26 @@ async fn main() -> FastCryptoResult<()> {
             let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
                 FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
             })?);
-            let (encrypted_object, _) = seal_encrypt(
-                package_id,
-                id.0,
-                key_server_ids,
-                &IBEPublicKeys::BonehFranklinBLS12381(pks),
-                threshold,
-                EncryptionInput::Aes256Gcm {
-                    data: secret.as_bytes().to_vec(),
-                    aad: None,
-                },
+            let mut encrypted_objects = Vec::new();
+            for (id, secret) in ids.into_iter().zip(secrets.into_iter()) {
+                let (encrypted_object, _) = seal_encrypt(
+                    package_id,
+                    id.0,
+                    key_server_ids.clone(),
+                    &IBEPublicKeys::BonehFranklinBLS12381(pks.clone()),
+                    threshold,
+                    EncryptionInput::Aes256Gcm {
+                        data: secret.0,
+                        aad: None,
+                    },
+                )
+                .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {}", e)))?;
+                encrypted_objects.push(encrypted_object);
+            }
+            format!(
+                "Encoded encrypted object:\n{}",
+                Hex::encode(bcs::to_bytes(&encrypted_objects).expect("serialization failed"))
             )
-            .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {}", e)))?;
-
-            let bcs_bytes = bcs::to_bytes(&encrypted_object).expect("serialization failed");
-            format!("Encoded encrypted object:\n{}", Hex::encode(&bcs_bytes))
         }
         Command::FetchKeys {
             request,

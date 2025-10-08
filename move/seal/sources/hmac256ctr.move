@@ -3,7 +3,7 @@
 
 module seal::hmac256ctr;
 
-use std::{bcs, option::{none, some}};
+use std::bcs;
 use sui::hmac::hmac_sha3_256;
 
 const ENC_TAG: vector<u8> = b"HMAC-CTR-ENC";
@@ -17,13 +17,13 @@ public(package) fun decrypt(
     key: &vector<u8>,
 ): Option<vector<u8>> {
     if (mac(key, aad, ciphertext) != mac) {
-        return none()
+        return option::none()
     };
 
     let mut next_block = 0;
     let mut i = 0;
     let mut current_mask = vector[];
-    some(ciphertext.map_ref!(|b| {
+    option::some(ciphertext.map_ref!(|b| {
         if (i == 0) {
             current_mask =
                 hmac_sha3_256(key, &vector[ENC_TAG, bcs::to_bytes(&(next_block as u64))].flatten());
@@ -36,7 +36,7 @@ public(package) fun decrypt(
 }
 
 fun mac(key: &vector<u8>, aux: &vector<u8>, ciphertext: &vector<u8>): vector<u8> {
-    let mut mac_input: vector<u8> = MAC_TAG;
+    let mut mac_input = MAC_TAG;
     mac_input.append(bcs::to_bytes(&aux.length()));
     mac_input.append(*aux);
     mac_input.append(*ciphertext);
@@ -59,7 +59,7 @@ fun test_decrypt_fail() {
     let ciphertext = x"98bf8da0ccbb35b6cf41effc83";
     let mac = x"6c3d7fdb9b3a16a552b43a3300d6493f328e97aebf0697645cd35348ac926ec2";
     let aux = b"something else";
-    assert!(decrypt(&ciphertext, &mac, &aux, &key) == none());
+    assert!(decrypt(&ciphertext, &mac, &aux, &key) == option::none());
 }
 
 #[test]

@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct SecretKey<G: GroupElement>(G::ScalarType);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PublicKey<G: GroupElement>(G);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct VerificationKey<G: GroupElement>(G);
 
 #[derive(Serialize, Deserialize)]

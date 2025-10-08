@@ -136,11 +136,11 @@ Encrypted shares:
 
 **Encrypt**
 
-Encrypt the secret’s UTF-8 bytes bound to a hex-encoded ID and a Seal policy package ID. Provide the key-server object IDs and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized encrypted object.
+Encrypt the secret in hex-encoded bytes bound to a hex-encoded ID and a Seal policy package ID. Provide the key-server object IDs and the network. The CLI retrieves key-server's public keys from a public full node and returns a hex-encoded, BCS-serialized encrypted object.
 
 ```shell
-$ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
-    --id 0000 \
+$ cargo run --bin seal-cli encrypt --secrets 68656c6c6f,776f726c64 \
+    --ids 0000,0001 \
     -p 0xfaeabd7f317dd7ae40d83b73cfa68b92795f48540d03f1232b33207e22d0a62f \
     -t 2 \
     -k 0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75,0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8 \
@@ -149,6 +149,8 @@ $ cargo run --bin seal-cli encrypt --secret 045a27812dbe456392913223221306 \
 Encrypted object:
 <ENCODED_ENCRYPTED_OBJECT>
 ```
+
+Note: `68656c6c6f` is the Hex encoding for UTF-8 string "hello". `776f726c64` is for `world`.
 
 **Fetch keys for the encoded request**
 

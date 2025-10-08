@@ -16,16 +16,12 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
-use crate::mvr::mainnet::mvr_core::app_record::AppRecord;
-use crate::mvr::mainnet::mvr_core::name::Name;
-use crate::mvr::mainnet::sui::dynamic_field::Field;
-use crate::mvr::mainnet::sui::vec_map::VecMap;
-use crate::mvr::testnet::mvr_metadata::package_info::PackageInfo;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
+use mvr_types::name::Name;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -34,7 +30,8 @@ use std::str::FromStr;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_sdk::SuiClientBuilder;
 use sui_types::base_types::ObjectID;
-use sui_types::dynamic_field::DynamicFieldName;
+use sui_types::collection_types::Table;
+use sui_types::dynamic_field::{DynamicFieldName, Field};
 use sui_types::TypeTag;
 
 const MVR_REGISTRY: &str = "0xe8417c530cde59eddf6dfb760e8a0e3e2c6f17c69ddaab5a73dd6a6e65fc463b";
@@ -43,23 +40,49 @@ const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6
 /// Testnet records are stored on mainnet on the registry defined above, but under the 'networks' section using the following ID as key
 const TESTNET_ID: &str = "4c78adac";
 
-/// Bindings for Move structs used in the MVR registry, specifically AppRecord and PackageInfo.
-#[allow(clippy::too_many_arguments)]
-pub mod mainnet {
-    use move_binding_derive::move_contract;
-    move_contract! {alias = "sui", package = "0x2"}
-    move_contract! {alias = "suins", package = "0xd22b24490e0bae52676651b4f56660a5ff8022a2576e0089f79b3c88d44e08f0", deps = [crate::mvr::mainnet::sui]}
-    move_contract! {alias = "mvr_core", package = "@mvr/core", deps = [crate::mvr::mainnet::sui, crate::mvr::mainnet::suins, crate::mvr::mainnet::mvr_metadata]}
-    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", deps = [crate::mvr::mainnet::sui]}
+#[derive(Deserialize, Clone, Debug)]
+pub struct VecMap<K, V>(sui_types::collection_types::VecMap<K, V>);
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct AppRecord {
+    _app_cap_id: ObjectID,
+    _ns_nft_id: ObjectID,
+    app_info: Option<AppInfo>,
+    networks: VecMap<String, AppInfo>,
+    _metadata: VecMap<String, String>,
+    _storage: ObjectID,
 }
-pub mod testnet {
-    use move_binding_derive::move_contract;
-    move_contract! {alias = "mvr_metadata", package = "@mvr/metadata", network = "testnet", deps = [crate::mvr::mainnet::sui]}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct AppInfo {
+    package_info_id: Option<ObjectID>,
+    package_address: Option<ObjectID>,
+    _upgrade_cap_id: Option<ObjectID>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct PackageInfo {
+    _id: ObjectID,
+    _display: PackageDisplay,
+    _upgrade_cap_id: ObjectID,
+    package_address: ObjectID,
+    metadata: VecMap<String, String>,
+    _git_versioning: Table,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct PackageDisplay {
+    _gradient_from: String,
+    _gradient_to: String,
+    _text_color: String,
+    _name: String,
+    _uri_encoded_name: String,
 }
 
 impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
     fn from(value: VecMap<K, V>) -> Self {
         value
+            .0
             .contents
             .into_iter()
             .map(|entry| (entry.key, entry.value))
@@ -109,8 +132,7 @@ pub(crate) async fn mvr_forward_resolution(
                 .package_info_id
                 .ok_or(Failure(format!(
                     "No package info ID for MVR name {mvr_name} on testnet"
-                )))
-                .map(|id| ObjectID::new(id.into_inner()))?;
+                )))?;
             let package_info: PackageInfo = get_object(package_info_id, sui_rpc_client).await?;
 
             // Check that the name in the package info matches the MVR name.
@@ -126,7 +148,7 @@ pub(crate) async fn mvr_forward_resolution(
         }
         _ => return Err(Failure("Invalid network for MVR resolution".to_string())),
     };
-    Ok(ObjectID::new(package_address.into_inner()))
+    Ok(package_address)
 }
 
 /// Resolve the network from the network configuration for Custom.
