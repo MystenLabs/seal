@@ -121,14 +121,14 @@ Follow these steps to add every new client to a `Permissioned` key server:
 
 |  Index  |  Derived Public Key  | 
 | -------- | ------- |
-|  0  |  <PUBKEY_0>  | 
-|  1  |  <PUBKEY_1>  | 
-|  <INDEX>  |  <PUBKEY_<INDEX>>  | 
+|  0  |  `<PUBKEY_0>`  | 
+|  1  |  `<PUBKEY_1>`  | 
+|  `<INDEX>`  |  `<PUBKEY_<INDEX>>`  | 
 
 ```shell
 # The 0 between the key server URL and public key arguments is a fixed or static value for all client registrations
 
-$ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_INDEX>
+$ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_<INDEX>>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>>
 ```
@@ -153,8 +153,8 @@ For example:
         derivation_index: <INDEX>
       key_server_object_id: "<KEY_SERVER_OBJECT_ID_<INDEX>>"
       package_ids:
-        - "<POLICY_PACKAGE_ID>"
         - "<POLICY_PACKAGE_ID_1>"
+        - "<POLICY_PACKAGE_ID_2>"
 ```
 
 - Restart the key server to apply the config changes.

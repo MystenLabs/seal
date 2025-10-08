@@ -62,6 +62,20 @@ Please refer to [this document](./KeyServerOps.md) for detailed information on `
     - `Permissioned` mode
         - URL: https://seal.testnet.sui.rpcpool.com/private
         - Contact the provider to configure your client and generate a unique key server object id
+- [Natsai](https://www.natsai.xyz/seal)
+    - `Open` mode
+        - URL: https://seal-open-test.natsai.xyz
+        - Object Id: `0x3c93ec1474454e1b47cf485a4e5361a5878d722b9492daf10ef626a76adc3dad`
+    - `Permissioned` mode
+        - URL: https://seal-perm-test.natsai.xyz
+        - Contact the provider to configure your client and generate a unique key server object id
+- [Mhax.io](https://mhax.io/)
+    - `Open` mode
+        - URL: https://seal-testnet-open.suiftly.io
+        - Object Id: `0x6a0726a1ea3d62ba2f2ae51104f2c3633c003fb75621d06fde47f04dc930ba06`
+    - `Permissioned` mode
+        - URL: https://seal-testnet.suiftly.io
+        - Contact the provider to configure your client and generate a unique key server object id
 
 !!! note
     Testnet key servers are provided for developer testing only and do not come with availability guarantees, SLAs, or assurances regarding long-term key persistence. Please avoid using them to encrypt data you expect to access reliably in the future.
@@ -79,5 +93,6 @@ Please reach out to these verified key server providers:
 - [Studio Mirai](https://mirai.cloud/)
 - [H2O Nodes](https://www.h2o-nodes.com/devs)
 - [Triton One](https://triton.one/sui)
+- [Natsai](https://www.natsai.xyz/seal)
 - [Enoki by Mysten Labs](https://enoki.mystenlabs.com/)
     - Sign up for Enoki, create your account, and request Seal key server access using the form in your dashboard.
