@@ -18,7 +18,7 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_whitelist() {
-    let mut tc = SealTestCluster::new(2).await;
+    let mut tc = SealTestCluster::new(2, "seal").await;
     tc.add_open_server().await;
     tc.add_open_server().await;
 
@@ -49,7 +49,7 @@ async fn test_whitelist() {
 #[traced_test]
 #[tokio::test]
 async fn test_whitelist_with_upgrade() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_server().await;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
