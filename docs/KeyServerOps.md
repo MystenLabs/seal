@@ -239,6 +239,52 @@ $ docker run -p 2024:2024 \
   seal-key-server
 ```
 
+## Committee Mode
+
+In `Committee` mode, each operators' partial key server provides decryption keys as part of a committee. It supports secure key rotation when members in the committee and threshold changes, while the aggregated master public key remains unchanged.
+
+### Initialization 
+
+1. Complete the DKG protocol locally and get your own partial key share `<PARTIAL_MASTER_KEY>`. The onchain steps are done with the operator's address `<MEMBER_ADDRESS>`.
+
+2. When the committee is finalized onchain, `<COMMITTEE_OBJECT_ID>` and your partial key server ID `<PARTIAL_KEY_SERVER_OBJECT_ID>` will be shared with you by the admin. Update them in your config file with server mode set to Committee. 
+
+```yaml
+network: Mainnet  # or Testnet, or !Custom
+server_mode: !Committee
+  key_server_object_id: '<PARTIAL_KEY_SERVER_OBJECT_ID>'
+  member_address: '<MEMBER_ADDRESS>'
+  committee_id: '<COMMITTEE_OBJECT_ID>'
+```
+
+3. Start your server with your master key share `<PARTIAL_MASTER_KEY>`:
+
+```bash
+CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<PARTIAL_MASTER_KEY> cargo run --bin key-server
+```
+
+### Key Rotation
+
+1. `<NEXT_COMMITTEE_OBJECT_ID>` is shared with you by the admin when the committee is initialized for rotation. 
+
+2. Complete the DKG protocol locally. This produces your share of the next master key for this committee: `<NEXT_PARTIAL_MASTER_KEY>`. `<KEY_SERVER_OBJECT_ID>` and `<MEMBER_ADDRESS>` is unchanged from initialization.
+
+```yaml
+server_mode: !Committee
+  key_server_object_id: '<KEY_SERVER_OBJECT_ID>'
+  member_address: '<MEMBER_ADDRESS>'
+  committee_id: '<CURRENT_COMMITTEE_OBJECT_ID>'
+  next_committee_id: '<NEXT_COMMITTEE_OBJECT_ID>'
+```
+
+3. Restart your server with the last partial master key and the new one. 
+
+```bash
+CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<PARTIAL_MASTER_KEY> NEXT_MASTER_KEY=<NEXT_PARTIAL_MASTER_KEY> cargo run --bin key-server
+```
+
+For the next key rotation, copy the `<NEXT_COMMITTEE_OBJECT_ID>` into `committee_id` and add next_committee to the new one shared with you by the admin. 
+
 ## Infrastructure requirements
 
 The Seal key server is a lightweight, stateless service designed for easy horizontal scaling. Because it doesn’t require persistent storage, you can run multiple instances behind a load balancer to increase availability and resilience. Each instance must have access to a trusted [Sui Full node](https://docs.sui.io/guides/operator/sui-full-node) — ideally one that’s geographically close to reduce latency during policy checks and key operations.

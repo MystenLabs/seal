@@ -1,5 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::committee_monitor::{
+    fetch_partial_key_server, monitor_committee_transition, validate_committee_at_startup,
+    validate_committee_with_next_at_startup,
+};
 use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
@@ -66,6 +70,7 @@ use tracing::{debug, error, info, warn};
 use valid_ptb::ValidPtb;
 
 mod cache;
+mod committee_monitor;
 mod errors;
 mod externals;
 mod signed_message;
@@ -147,7 +152,7 @@ impl Server {
             panic!("Failed to load master keys: {}", e);
         });
 
-        let key_server_oid_to_pop = options
+        let mut key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP> = options
             .get_supported_key_server_object_ids()
             .into_iter()
             .map(|ks_oid| {
@@ -158,6 +163,165 @@ impl Server {
                 (ks_oid, pop)
             })
             .collect();
+
+        // Validate committee at startup based on mode
+        match options.server_mode {
+            // Case 1: Committee mode without next_committee_id
+            ServerMode::Committee {
+                key_server_object_id,
+                member_address,
+                committee_id,
+                next_committee_id: None,
+            } => {
+                info!("Committee mode without next_committee_id - validating committee at startup");
+                let partial_key_server_id = validate_committee_at_startup(
+                    &sui_rpc_client,
+                    committee_id,
+                    key_server_object_id,
+                    member_address,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("Committee validation failed: {:?}", e);
+                });
+
+                // Use the PartialKeyServer object ID to create POP with MASTER_KEY
+                let key = master_keys
+                    .get_key_for_key_server(&key_server_object_id)
+                    .expect("checked already");
+                let pop = create_proof_of_possession(key, &partial_key_server_id.into_bytes());
+
+                info!(
+                    "Using PartialKeyServer {} for POP with MASTER_KEY (main KeyServer: {})",
+                    partial_key_server_id, key_server_object_id
+                );
+
+                key_server_oid_to_pop.insert(partial_key_server_id, pop);
+            }
+
+            // Case 2: Committee mode with next_committee_id
+            ServerMode::Committee {
+                key_server_object_id,
+                member_address,
+                committee_id,
+                next_committee_id: Some(next_committee_id),
+            } => {
+                info!("Committee mode with next_committee_id - validating committee transition at startup");
+                let next_partial_key_server_id = validate_committee_with_next_at_startup(
+                    &sui_rpc_client,
+                    committee_id,
+                    next_committee_id,
+                    key_server_object_id,
+                    member_address,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("Committee transition validation failed: {:?}", e);
+                });
+
+                if let Some(new_partial_key_server_id) = next_partial_key_server_id {
+                    // Rotation complete: old committee deleted, next committee finalized
+                    info!("Rotation complete: using NEXT_MASTER_KEY for new PartialKeyServer");
+
+                    // Load NEXT_MASTER_KEY and create POP for new PartialKeyServer
+                    let next_master_key =
+                        crate::utils::decode_master_key::<DefaultEncoding>("NEXT_MASTER_KEY")
+                            .unwrap_or_else(|e| {
+                                panic!("Failed to load NEXT_MASTER_KEY: {:?}", e);
+                            });
+
+                    let new_pop = create_proof_of_possession(
+                        &next_master_key,
+                        &new_partial_key_server_id.into_bytes(),
+                    );
+
+                    info!(
+                        "Stored POP for new PartialKeyServer {} with NEXT_MASTER_KEY",
+                        new_partial_key_server_id
+                    );
+
+                    key_server_oid_to_pop.insert(new_partial_key_server_id, new_pop);
+                } else {
+                    // Rotation in progress: store POPs for both old and new PartialKeyServers
+                    info!("Committee rotation in progress - storing POPs for both old and new PartialKeyServers");
+
+                    // Get old PartialKeyServer ID and create POP with MASTER_KEY
+                    let old_partial_key_server_id = fetch_partial_key_server(
+                        &sui_rpc_client,
+                        key_server_object_id,
+                        member_address,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("Failed to fetch old PartialKeyServer: {:?}", e);
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "No old PartialKeyServer found for member {}",
+                            member_address
+                        );
+                    });
+
+                    let old_key = master_keys
+                        .get_key_for_key_server(&key_server_object_id)
+                        .expect("checked already");
+                    let old_pop = create_proof_of_possession(
+                        old_key,
+                        &old_partial_key_server_id.into_bytes(),
+                    );
+
+                    info!(
+                        "Stored POP for old PartialKeyServer {} with MASTER_KEY",
+                        old_partial_key_server_id
+                    );
+
+                    key_server_oid_to_pop.insert(old_partial_key_server_id, old_pop);
+
+                    // If NEXT_MASTER_KEY is available, also create POP for new PartialKeyServer
+                    if std::env::var("NEXT_MASTER_KEY").is_ok() {
+                        // Try to fetch the new PartialKeyServer (it may not exist yet if next committee isn't finalized)
+                        // This is best-effort - if it fails, we'll only have the old POP
+                        if let Ok(Some(new_partial_key_server_id)) = fetch_partial_key_server(
+                            &sui_rpc_client,
+                            key_server_object_id,
+                            member_address,
+                        )
+                        .await
+                        {
+                            // Check if this is different from the old one
+                            if new_partial_key_server_id != old_partial_key_server_id {
+                                // Load NEXT_MASTER_KEY
+                                match crate::utils::decode_master_key::<DefaultEncoding>(
+                                    "NEXT_MASTER_KEY",
+                                ) {
+                                    Ok(next_master_key) => {
+                                        let new_pop = create_proof_of_possession(
+                                            &next_master_key,
+                                            &new_partial_key_server_id.into_bytes(),
+                                        );
+
+                                        info!(
+                                            "Also stored POP for new PartialKeyServer {} with NEXT_MASTER_KEY",
+                                            new_partial_key_server_id
+                                        );
+
+                                        key_server_oid_to_pop
+                                            .insert(new_partial_key_server_id, new_pop);
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to load NEXT_MASTER_KEY, skipping new POP: {:?}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            _ => {
+                // Open or Permissioned mode - no additional validation needed
+            }
+        }
 
         Server {
             sui_rpc_client,
@@ -499,6 +663,76 @@ impl Server {
             })
         }
     }
+
+    /// Spawn a background task to monitor the committee transition.
+    ///
+    /// This task will:
+    /// - Monitor the next_committee until it reaches Finalized state
+    /// - Once Finalized, check if the old committee object has been deleted
+    /// - Exit the server if the old committee is deleted
+    ///
+    /// Only spawns the monitor if server is in Committee mode with next_committee_id provided.
+    fn spawn_committee_monitor(&self) -> JoinHandle<()> {
+        if let ServerMode::Committee {
+            key_server_object_id,
+            member_address,
+            committee_id,
+            next_committee_id: Some(next_committee_id),
+        } = self.options.server_mode
+        {
+            let sui_rpc_client = self.sui_rpc_client.clone();
+            let check_interval = self.options.checkpoint_update_interval;
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(check_interval);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                info!(
+                    "Starting committee monitor: old committee {}, next committee {}",
+                    committee_id, next_committee_id
+                );
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            match monitor_committee_transition(
+                                sui_rpc_client.clone(),
+                                committee_id,
+                                next_committee_id,
+                            ).await {
+                                Ok(true) => {
+                                    // Continue monitoring
+                                }
+                                Ok(false) => {
+                                    // Next committee is finalized and old committee is still valid
+                                    // Fetch the PartialKeyServer for this member
+                                    info!("Committee {} is finalized. Fetching PartialKeyServer for member {}", next_committee_id, member_address);
+                                    match fetch_partial_key_server(&sui_rpc_client, key_server_object_id, member_address).await {
+                                        Ok(Some(partial_key_server_id)) => {
+                                            info!("Successfully fetched PartialKeyServer: {}", partial_key_server_id);
+                                        }
+                                        Ok(None) => {
+                                            error!("Could not find PartialKeyServer for member {}. Server will exit.", member_address);
+                                            std::process::exit(1);
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to fetch PartialKeyServer: {:?}. Server will exit.", e);
+                                            std::process::exit(1);
+                                        }
+                                    }
+                                    // Stop monitoring
+                                    info!("Stopping committee monitor - next committee {} is finalized", next_committee_id);
+                                    break;
+                                }
+                                Err(e) => {
+                                    error!("Failed to monitor committee transition: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        } else {
+            tokio::spawn(async move { pending().await })
+        }
+    }
 }
 
 #[allow(clippy::single_match)]
@@ -709,6 +943,7 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 ///  - background checkpoint downloader
 ///  - reference gas price updater.
 ///  - optional metrics pusher (if configured).
+///  - optional committee monitor (if in Committee mode).
 ///
 /// The returned JoinHandle can be used to catch any tasks error or panic.
 async fn start_server_background_tasks(
@@ -732,6 +967,9 @@ async fn start_server_background_tasks(
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);
+
+    // Spawn committee monitor task
+    let committee_monitor_handle = server.spawn_committee_monitor();
 
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
@@ -757,6 +995,15 @@ async fn start_server_background_tasks(
             result = metrics_push_handle => {
                 if let Err(e) = result {
                     error!("Metrics push task panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+            result = committee_monitor_handle => {
+                if let Err(e) = result {
+                    error!("Committee monitor task panicked: {:?}", e);
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
                     }

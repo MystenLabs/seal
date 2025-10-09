@@ -687,6 +687,68 @@ impl SuiRpcClient {
 
         Ok(SuiObjectResponse { inner: response })
     }
+
+    /// List all dynamic fields for an object.
+    /// Returns a vector of dynamic field information including field_id and name_value.
+    pub async fn list_dynamic_fields(
+        &self,
+        object_id: ObjectID,
+    ) -> RpcResult<Vec<sui_rpc::proto::sui::rpc::v2beta2::DynamicField>> {
+        let mut all_fields = Vec::new();
+        let mut page_token: Option<Vec<u8>> = None;
+
+        loop {
+            let list_response = sui_rpc_with_retries(
+                &self.rpc_retry_config,
+                "list_dynamic_fields",
+                self.metrics.clone(),
+                || {
+                    let mut grpc_client = self.grpc_client.clone();
+                    let page_token = page_token.clone();
+                    async move {
+                        let mut client = grpc_client.live_data_client();
+                        let mut request =
+                            sui_rpc::proto::sui::rpc::v2beta2::ListDynamicFieldsRequest::default();
+                        request.parent = Some(object_id.to_hex_literal());
+                        request.read_mask = Some(prost_types::FieldMask {
+                            paths: vec![
+                                "parent".to_string(),
+                                "field_id".to_string(),
+                                "name_value".to_string(),
+                                "name_type".to_string(),
+                            ],
+                        });
+                        request.page_size = Some(MAX_PAGE_SIZE);
+                        if let Some(token) = &page_token {
+                            request.page_token = Some(token.clone().into());
+                        }
+                        client
+                            .list_dynamic_fields(request)
+                            .await
+                            .map(|r| r.into_inner())
+                            .map_err(RpcError::from_grpc)
+                    }
+                },
+            )
+            .await?;
+
+            // Add all fields from this page
+            all_fields.extend(list_response.dynamic_fields);
+
+            // If there's a next page, continue
+            if let Some(next_token) = list_response.next_page_token {
+                if !next_token.is_empty() {
+                    page_token = Some(next_token.to_vec());
+                    continue;
+                }
+            }
+
+            // No more pages
+            break;
+        }
+
+        Ok(all_fields)
+    }
 }
 
 #[cfg(test)]

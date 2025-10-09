@@ -7,7 +7,7 @@
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
 #   use_default_mainnet_for_mvr: true # Optional, default to true if not present, 
-set this to false for mvr to resolve on testnet. 
+# set this to false for mvr to resolve on testnet. 
 #
 # Use Custom for production deployments. You must provide the node URL
 # in exactly one of these ways:
@@ -19,20 +19,24 @@ set this to false for mvr to resolve on testnet.
 network: Testnet
 
 
-# Server mode. The server can either work in Open/permissionless mode that 
-# supports all packages, or in Permissioned mode that only supports
-# whitelisted packages .
+# Server mode: Open, Permissioned or Committee.  
+# Open: Supports all policy packages. 
+# Permissioned: Supports only allowed policy packages. 
+# Committee: Supports all packages. Contains committee ID and next 
+# committee ID. Note that the MASTER_KEY for Committee mode is the 
+# output of a DKG ceremony that you participated in. 
 #
-# For the Open mode, set the registered key server object ID to be used, e.g.,:
+# ==== OPEN MODE ====
+# Set the registered key server object ID to be used, e.g.,:
 # server_mode: !Open
 #   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 #
 # Example:
-server_mode: !Open
-  key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+# server_mode: !Open
+#   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-#
-# For the Permissioned mode, set the allowed clients and their configurations.
+# ==== PERMISSIONED MODE ====
+# Set the allowed clients and their configurations.
 # A client config contains:
 # - Client name - for debugging purposes only, can always be modified.
 # - The associated key server object id. Should never change.
@@ -75,8 +79,25 @@ server_mode: !Open
 #       package_ids:
 #         - "0x3333333333333333333333333333333333333333333333333333333333333333"
 
+# ==== COMMITTEE MODE ====
+# Set the registered key server object ID to be used. It contains the committee ID,
+# member address, and during key rotation, it also contains the next committee ID.
+# The server will look for the committee ID and use the key provided in MASTER_KEY
+# and listening to onchain object for next committee ID. When it becomes finalized,
+# the server will fetch the PartialKeyServer from the KeyServerV2 dynamic field using
+# the member_address and use the key provided in NEXT_MASTER_KEY for decryption.
+# server_mode: !Committee
+#   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#   member_address: '0x0000000000000000000000000000000000000000000000000000000000000000'
+#   committee_id: '0x0000000000000000000000000000000000000000000000000000000000000001'
+#   next_committee_id: '0x0000000000000000000000000000000000000000000000000000000000000002'
+#
+server_mode: !Committee
+  key_server_object_id: '0x08e8fba5681c30a7f8adca5598164fae670da052010736286993efc7bb849b53'
+  member_address: '0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d'
+  committee_id: '0x708e2b34e477f8f0f48697368ace9a7b7f513075501502212618b6458b274f11'
 
-#### Optional advanced configurations ####
+## Optional advanced configurations ####
 #
 # The port that the prometheus agent can use to poll for the metrics.
 # metrics_host_port: 9184
