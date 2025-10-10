@@ -4,12 +4,10 @@
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
-use crate::sui_rpc_client::SuiRpcClient;
+use crate::sui_rpc_client::{RpcResult, SuiRpcClient};
 use crate::{mvr_forward_resolution, Timestamp};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
-use sui_sdk::error::SuiRpcResult;
-use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
 use tracing::{debug, warn};
@@ -70,24 +68,16 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let object = sui_rpc_client
-                .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
+            let package = sui_rpc_client
+                .get_package(*pkg_id)
                 .await
-                .map_err(|_| InternalError::Failure("FN failed to respond".to_string()))? // internal error that fullnode fails to respond, check fullnode.
-                .into_object()
-                .map_err(|_| InternalError::InvalidPackage)?; // user error that object does not exist or deleted.
-
-            let package = object
-                .bcs
-                .ok_or(InternalError::Failure(
-                    "No BCS object in response".to_string(),
-                ))? // internal error that fullnode does not respond with bcs even though request includes the bcs option.
-                .try_as_package()
+                .map_err(|_| InternalError::InvalidPackage)?;
+            let first = package
+                .original_id
                 .ok_or(InternalError::InvalidPackage)?
-                .to_move_package(u64::MAX)
-                .map_err(|_| InternalError::InvalidPackage)?; // user error if the provided package throw MovePackageTooBig.
+                .parse()
+                .map_err(|_| InternalError::InvalidPackage)?;
 
-            let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
             Ok(first)
         }
@@ -105,19 +95,16 @@ pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
 /// Returns the timestamp for the latest checkpoint.
 pub(crate) async fn get_latest_checkpoint_timestamp(
     sui_rpc_client: SuiRpcClient,
-) -> SuiRpcResult<Timestamp> {
+) -> RpcResult<Timestamp> {
     let latest_checkpoint_sequence_number = sui_rpc_client
         .get_latest_checkpoint_sequence_number()
         .await?;
-    let checkpoint = sui_rpc_client
-        .get_checkpoint(CheckpointId::SequenceNumber(
-            latest_checkpoint_sequence_number,
-        ))
-        .await?;
-    Ok(checkpoint.timestamp_ms)
+    sui_rpc_client
+        .get_checkpoint(latest_checkpoint_sequence_number)
+        .await
 }
 
-pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> SuiRpcResult<u64> {
+pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> RpcResult<u64> {
     let rgp = sui_rpc_client
         .get_reference_gas_price()
         .await
@@ -134,15 +121,8 @@ mod tests {
     use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use crate::InternalError;
-    use fastcrypto::ed25519::Ed25519KeyPair;
-    use fastcrypto::secp256k1::Secp256k1KeyPair;
-    use fastcrypto::secp256r1::Secp256r1KeyPair;
-    use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
-    use sui_sdk::types::crypto::{get_key_pair, Signature};
-    use sui_sdk::types::signature::GenericSignature;
-    use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-    use sui_sdk::SuiClientBuilder;
+    use sui_rpc::Client;
     use sui_types::base_types::ObjectID;
 
     #[tokio::test]
@@ -152,12 +132,7 @@ mod tests {
         )
         .unwrap();
         let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .build(&Network::Testnet.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+            Client::new(Network::Testnet.node_url()).unwrap(),
             RetryConfig::default(),
             None,
         );
@@ -178,116 +153,11 @@ mod tests {
     async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
         let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .build(&Network::Mainnet.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+            Client::new(Network::Mainnet.node_url()).unwrap(),
             RetryConfig::default(),
             None,
         );
         let result = fetch_first_pkg_id(&invalid_address, &sui_rpc_client).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
-    }
-
-    #[tokio::test]
-    async fn test_simple_sigs() {
-        let personal_msg = PersonalMessage {
-            message: "hello".as_bytes().to_vec(),
-        };
-        let msg_with_intent = IntentMessage::new(Intent::personal_message(), personal_msg.clone());
-
-        // simple sigs
-        {
-            let (addr, sk): (_, Ed25519KeyPair) = get_key_pair();
-            let sig = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, &sk));
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                addr,
-                None
-            )
-            .await
-            .is_ok());
-
-            let (wrong_addr, _): (_, Ed25519KeyPair) = get_key_pair();
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                wrong_addr,
-                None
-            )
-            .await
-            .is_err());
-
-            let wrong_msg = PersonalMessage {
-                message: "wrong".as_bytes().to_vec(),
-            };
-            assert!(
-                verify_personal_message_signature(sig.clone(), &wrong_msg.message, addr, None)
-                    .await
-                    .is_err()
-            );
-        }
-        {
-            let (addr, sk): (_, Secp256k1KeyPair) = get_key_pair();
-            let sig = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, &sk));
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                addr,
-                None
-            )
-            .await
-            .is_ok());
-            let (wrong_addr, _): (_, Secp256k1KeyPair) = get_key_pair();
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                wrong_addr,
-                None
-            )
-            .await
-            .is_err());
-            let wrong_msg = PersonalMessage {
-                message: "wrong".as_bytes().to_vec(),
-            };
-            assert!(
-                verify_personal_message_signature(sig.clone(), &wrong_msg.message, addr, None)
-                    .await
-                    .is_err()
-            );
-        }
-        {
-            let (addr, sk): (_, Secp256r1KeyPair) = get_key_pair();
-            let sig = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, &sk));
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                addr,
-                None
-            )
-            .await
-            .is_ok());
-
-            let (wrong_addr, _): (_, Secp256r1KeyPair) = get_key_pair();
-            assert!(verify_personal_message_signature(
-                sig.clone(),
-                &personal_msg.message,
-                wrong_addr,
-                None
-            )
-            .await
-            .is_err());
-            let wrong_msg = PersonalMessage {
-                message: "wrong".as_bytes().to_vec(),
-            };
-            assert!(
-                verify_personal_message_signature(sig.clone(), &wrong_msg.message, addr, None)
-                    .await
-                    .is_err()
-            );
-        }
     }
 }

@@ -26,9 +26,9 @@ pub enum Network {
 impl Network {
     pub fn node_url(&self) -> String {
         match self {
-            Network::Devnet => "https://fullnode.devnet.sui.io:443".into(),
-            Network::Testnet => "https://fullnode.testnet.sui.io:443".into(),
-            Network::Mainnet => "https://fullnode.mainnet.sui.io:443".into(),
+            Network::Devnet => sui_rpc::client::Client::DEVNET_FULLNODE.into(),
+            Network::Testnet => sui_rpc::client::Client::TESTNET_FULLNODE.into(),
+            Network::Mainnet => sui_rpc::client::Client::MAINNET_FULLNODE.into(),
             Network::Custom { node_url, .. } => node_url
                 .as_ref()
                 .expect("Custom network must have node_url set")

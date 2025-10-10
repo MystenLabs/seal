@@ -32,8 +32,6 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use jsonrpsee::core::ClientError;
-use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
@@ -52,14 +50,12 @@ use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use sui_rpc_client::SuiRpcClient;
-use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_crypto::{SuiVerifier, UserSignatureVerifier};
+use sui_rpc::Client;
+use sui_rpc_client::{SuiExecutionStatus, SuiRpcClient};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
-use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-use sui_sdk::SuiClientBuilder;
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -137,17 +133,15 @@ struct Server {
 
 impl Server {
     async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
+        let grpc_url = &options.network.node_url();
+
         let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .request_timeout(options.rpc_config.timeout)
-                .build(&options.network.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+            Client::new(grpc_url)
+                .expect("Grpc server should not failed unless provided with invalid network url"),
             options.rpc_config.retry_config.clone(),
             metrics,
         );
+
         info!("Server started with network: {:?}", options.network);
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {}", e);
@@ -223,20 +217,42 @@ impl Server {
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
         );
-        verify_personal_message_signature(
-            cert.signature.clone(),
-            msg.as_bytes(),
-            cert.user,
-            Some(self.sui_rpc_client.sui_client().clone()),
-        )
-        .await
-        .tap_err(|e| {
-            debug!(
-                "Signature verification failed: {:?} (req_id: {:?})",
-                e, req_id
-            );
-        })
-        .map_err(|_| InternalError::InvalidSignature)?;
+
+        // Convert GenericSignature to UserSignature via BCS
+        let sig_bytes =
+            bcs::to_bytes(&cert.signature).map_err(|_| InternalError::InvalidSignature)?;
+        let user_signature: sui_sdk_types::UserSignature =
+            bcs::from_bytes(&sig_bytes).map_err(|_| InternalError::InvalidSignature)?;
+
+        let personal_message =
+            sui_sdk_types::PersonalMessage(std::borrow::Cow::Borrowed(msg.as_bytes()));
+
+        // Check if this is a zklogin signature - use gRPC verification for zklogin
+        if matches!(user_signature, sui_sdk_types::UserSignature::ZkLogin(_)) {
+            // Use gRPC signature verification for zkLogin (which handles JWKs)
+            // Send the raw message bytes
+            self.sui_rpc_client
+                .verify_signature(msg.as_bytes(), &user_signature)
+                .await
+                .tap_err(|e| {
+                    debug!(
+                        "zkLogin signature verification failed: {:?} (req_id: {:?})",
+                        e, req_id
+                    );
+                })
+                .map_err(|_| InternalError::InvalidSignature)?;
+        } else {
+            // For non-zkLogin signatures, use local verification
+            UserSignatureVerifier::new()
+                .verify_personal_message(&personal_message, &user_signature)
+                .tap_err(|e| {
+                    debug!(
+                        "Signature verification failed: {:?} (req_id: {:?})",
+                        e, req_id
+                    );
+                })
+                .map_err(|_| InternalError::InvalidSignature)?;
+        }
 
         // Check session signature
         let signed_msg = signed_request(ptb, enc_key, enc_verification_key);
@@ -277,25 +293,17 @@ impl Server {
             .dry_run_transaction_block(tx_data.clone())
             .await
             .map_err(|e| {
-                if let Error::RpcError(ClientError::Call(ref e)) = e {
-                    match e.code() {
-                        INVALID_PARAMS_CODE => {
-                            // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
-                            // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                            debug!("Invalid parameter: {}", e.message());
-                            return InternalError::InvalidParameter(e.message().to_string());
-                        }
-                        METHOD_NOT_FOUND_CODE => {
-                            // This means that the seal_approve function is not found on the given module.
-                            debug!("Function not found: {:?}", e);
-                            return InternalError::InvalidPTB(
-                                "The seal_approve function was not found on the module".to_string(),
-                            );
-                        }
-                        _ => {}
-                    }
+                let error_msg = e.message().to_string();
+                // Check for common error patterns in gRPC responses
+                if error_msg.contains("Invalid") || error_msg.contains("parameter") {
+                    debug!("Invalid parameter: {}", error_msg);
+                    return InternalError::InvalidParameter(error_msg);
+                }
+                if error_msg.contains("not found") || error_msg.contains("Function") {
+                    debug!("Function not found: {:?}", error_msg);
+                    return InternalError::InvalidPTB(
+                        "The seal_approve function was not found on the module".to_string(),
+                    );
                 }
                 InternalError::Failure(format!(
                     "Dry run execution failed ({:?}) (req_id: {:?})",
