@@ -43,7 +43,7 @@ jobs:
   formatting:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: MystenLabs/move-formatter-action@v1
         with:
           prettier-plugin-move-version: "latest"
