@@ -9,10 +9,11 @@ use tracing_test::traced_test;
 use crate::externals::get_latest_checkpoint_timestamp;
 use crate::key_server_options::RetryConfig;
 use crate::metrics::Metrics;
-use crate::start_server_background_tasks;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
+use crate::{get_server_options_from_env, start_server_background_tasks};
 
+use crate::master_keys::MasterKeys;
 use crate::signed_message::signed_request;
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
@@ -38,6 +39,7 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
+use sui_sdk::SuiClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
@@ -156,7 +158,9 @@ async fn test_service() {
         ),
     ];
     temp_env::async_with_vars(vars, async {
-        let (_, app) = app().await.unwrap();
+        let options = get_server_options_from_env().unwrap();
+        let master_keys = MasterKeys::load_from_env(&options.server_mode).unwrap();
+        let (_, app) = app::<SuiClient>(options, master_keys).await.unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -318,7 +322,9 @@ async fn test_fetch_key() {
 
     // Run test
     temp_env::async_with_vars(vars, async {
-        let (_, app) = app().await.unwrap();
+        let options = get_server_options_from_env().unwrap();
+        let master_keys = MasterKeys::load_from_env(&options.server_mode).unwrap();
+        let (_, app) = app::<SuiClient>(options, master_keys).await.unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();

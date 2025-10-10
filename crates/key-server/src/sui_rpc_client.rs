@@ -1,8 +1,14 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::{key_server_options::RetryConfig, metrics::Metrics};
+use async_trait::async_trait;
+use fastcrypto::encoding::{Base64, Encoding};
+use fastcrypto::traits::ToFromBytes;
+use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
 use std::sync::Arc;
-
+use sui_sdk::error::Error;
+use sui_sdk::rpc_types::{ZkLoginIntentScope, ZkLoginVerifyResult};
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{
@@ -11,10 +17,12 @@ use sui_sdk::{
     },
     SuiClient,
 };
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::messages_checkpoint::CheckpointSequenceNumber;
+use sui_types::signature::AuthenticatorTrait;
+use sui_types::signature::{GenericSignature, VerifyParams};
+use sui_types::signature_verification::VerifiedDigestCache;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
-
-use crate::{key_server_options::RetryConfig, metrics::Metrics};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -115,17 +123,121 @@ where
     }
 }
 
+#[async_trait]
+pub trait RpcClient: Clone + Send + Sync + 'static {
+    async fn new_from_builder<Fut>(build: Fut) -> SuiRpcResult<Self>
+    where
+        Fut: Future<Output = SuiRpcResult<SuiClient>> + Send;
+
+    async fn dry_run_transaction_block(
+        &self,
+        tx: TransactionData,
+    ) -> SuiRpcResult<DryRunTransactionBlockResponse>;
+
+    async fn get_object_with_options(
+        &self,
+        object_id: ObjectID,
+        options: SuiObjectDataOptions,
+    ) -> SuiRpcResult<SuiObjectResponse>;
+
+    async fn get_latest_checkpoint_sequence_number(&self)
+        -> SuiRpcResult<CheckpointSequenceNumber>;
+
+    async fn get_checkpoint(&self, id: CheckpointId) -> SuiRpcResult<Checkpoint>;
+
+    async fn get_dynamic_field_object(
+        &self,
+        parent_object_id: ObjectID,
+        name: DynamicFieldName,
+    ) -> SuiRpcResult<SuiObjectResponse>;
+
+    async fn get_reference_gas_price(&self) -> SuiRpcResult<u64>;
+
+    async fn verify_zklogin_signature(
+        &self,
+        bytes: String,
+        signature: String,
+        intent_scope: ZkLoginIntentScope,
+        address: SuiAddress,
+    ) -> SuiRpcResult<ZkLoginVerifyResult>;
+}
+
+#[async_trait]
+impl RpcClient for SuiClient {
+    async fn new_from_builder<Fut>(build: Fut) -> SuiRpcResult<Self>
+    where
+        Fut: Future<Output = SuiRpcResult<SuiClient>> + Send,
+    {
+        build.await
+    }
+
+    async fn dry_run_transaction_block(
+        &self,
+        tx: TransactionData,
+    ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
+        self.read_api().dry_run_transaction_block(tx).await
+    }
+
+    async fn get_object_with_options(
+        &self,
+        object_id: ObjectID,
+        options: SuiObjectDataOptions,
+    ) -> SuiRpcResult<SuiObjectResponse> {
+        self.read_api()
+            .get_object_with_options(object_id, options)
+            .await
+    }
+
+    async fn get_latest_checkpoint_sequence_number(
+        &self,
+    ) -> SuiRpcResult<CheckpointSequenceNumber> {
+        self.read_api()
+            .get_latest_checkpoint_sequence_number()
+            .await
+    }
+
+    async fn get_checkpoint(&self, id: CheckpointId) -> SuiRpcResult<Checkpoint> {
+        self.read_api().get_checkpoint(id).await
+    }
+
+    async fn get_dynamic_field_object(
+        &self,
+        parent_object_id: ObjectID,
+        name: DynamicFieldName,
+    ) -> SuiRpcResult<SuiObjectResponse> {
+        self.read_api()
+            .get_dynamic_field_object(parent_object_id, name)
+            .await
+    }
+
+    async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
+        self.read_api().get_reference_gas_price().await
+    }
+
+    async fn verify_zklogin_signature(
+        &self,
+        bytes: String,
+        signature: String,
+        intent_scope: ZkLoginIntentScope,
+        address: SuiAddress,
+    ) -> SuiRpcResult<ZkLoginVerifyResult> {
+        self.read_api()
+            .verify_zklogin_signature(bytes, signature, intent_scope, address)
+            .await
+    }
+}
+
 /// Client for interacting with the Sui RPC API.
 #[derive(Clone)]
-pub struct SuiRpcClient {
-    sui_client: SuiClient,
+pub struct SuiRpcClient<T: RpcClient> {
+    sui_client: T,
     rpc_retry_config: RetryConfig,
     metrics: Option<Arc<Metrics>>,
 }
 
-impl SuiRpcClient {
+impl<T: RpcClient> SuiRpcClient<T> {
     pub fn new(
-        sui_client: SuiClient,
+        sui_client: T,
         rpc_retry_config: RetryConfig,
         metrics: Option<Arc<Metrics>>,
     ) -> Self {
@@ -137,7 +249,7 @@ impl SuiRpcClient {
     }
 
     /// Returns a reference to the underlying SuiClient.
-    pub fn sui_client(&self) -> &SuiClient {
+    pub fn sui_client(&self) -> &T {
         &self.sui_client
     }
 
@@ -157,7 +269,6 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 self.sui_client
-                    .read_api()
                     .dry_run_transaction_block(tx_data.clone())
                     .await
             },
@@ -177,7 +288,6 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 self.sui_client
-                    .read_api()
                     .get_object_with_options(object_id, options.clone())
                     .await
             },
@@ -193,7 +303,6 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 self.sui_client
-                    .read_api()
                     .get_latest_checkpoint_sequence_number()
                     .await
             },
@@ -207,12 +316,7 @@ impl SuiRpcClient {
             &self.rpc_retry_config,
             "get_checkpoint",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_checkpoint(checkpoint_id)
-                    .await
-            },
+            || async { self.sui_client.get_checkpoint(checkpoint_id).await },
         )
         .await
     }
@@ -223,7 +327,7 @@ impl SuiRpcClient {
             &self.rpc_retry_config,
             "get_reference_gas_price",
             self.metrics.clone(),
-            || async { self.sui_client.read_api().get_reference_gas_price().await },
+            || async { self.sui_client.get_reference_gas_price().await },
         )
         .await
     }
@@ -240,12 +344,56 @@ impl SuiRpcClient {
             self.metrics.clone(),
             || async {
                 self.sui_client
-                    .read_api()
                     .get_dynamic_field_object(object_id, dynamic_field_name.clone())
                     .await
             },
         )
         .await
+    }
+}
+
+pub(crate) async fn verify_personal_message_signature<Client: RpcClient>(
+    signature: GenericSignature,
+    message: &[u8],
+    address: SuiAddress,
+    client: Option<Client>,
+) -> Result<(), Error> {
+    let intent_msg = IntentMessage::new(
+        Intent::personal_message(),
+        PersonalMessage {
+            message: message.to_vec(),
+        },
+    );
+    match signature {
+        GenericSignature::ZkLoginAuthenticator(ref _sig) => {
+            if let Some(client) = client {
+                let bytes = Base64::encode(message);
+                let sig_string = Base64::encode(signature.as_bytes());
+                let res = client
+                    .verify_zklogin_signature(
+                        bytes,
+                        sig_string,
+                        ZkLoginIntentScope::PersonalMessage,
+                        address,
+                    )
+                    .await?;
+                if res.success {
+                    Ok(())
+                } else {
+                    Err(Error::InvalidSignature)
+                }
+            } else {
+                Err(Error::InvalidSignature)
+            }
+        }
+        _ => signature
+            .verify_claims::<PersonalMessage>(
+                &intent_msg,
+                address,
+                &VerifyParams::default(),
+                Arc::new(VerifiedDigestCache::new_empty()),
+            )
+            .map_err(|_| Error::InvalidSignature),
     }
 }
 

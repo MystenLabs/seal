@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug)]
-pub(crate) struct Metrics {
+pub struct Metrics {
     /// Total number of requests received
     pub requests: IntCounter,
 

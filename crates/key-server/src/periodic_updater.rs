@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::sui_rpc_client::SuiRpcClient;
+use crate::sui_rpc_client::{RpcClient, SuiRpcClient};
 use std::time::{Duration, Instant};
 use sui_sdk::error::SuiRpcResult;
 use tokio::sync::watch::{channel, Receiver};
@@ -12,8 +12,8 @@ use tracing::debug;
 /// If a subscriber is provided, it will be called when the value is updated.
 /// If a duration_callback is provided, it will be called with the duration of each fetch operation.
 /// Returns the [Receiver].
-pub async fn spawn_periodic_updater<F, Fut, G, H, I>(
-    client: &SuiRpcClient,
+pub async fn spawn_periodic_updater<Client, F, Fut, G, H, I>(
+    client: &SuiRpcClient<Client>,
     update_interval: Duration,
     fetch_fn: F,
     value_name: &'static str,
@@ -22,7 +22,8 @@ pub async fn spawn_periodic_updater<F, Fut, G, H, I>(
     success_callback: Option<I>,
 ) -> (Receiver<u64>, JoinHandle<()>)
 where
-    F: Fn(SuiRpcClient) -> Fut + Send + 'static,
+    Client: RpcClient,
+    F: Fn(SuiRpcClient<Client>) -> Fut + Send + 'static,
     Fut: Future<Output = SuiRpcResult<u64>> + Send,
     G: Fn(u64) + Send + 'static,
     H: Fn(Duration) + Send + 'static,

@@ -38,7 +38,7 @@ impl Network {
         }
     }
 
-    pub fn from_str(str: &str) -> Self {
+    pub fn from_str_unchecked(str: &str) -> Self {
         match str.to_ascii_lowercase().as_str() {
             "devnet" => Network::Devnet,
             "testnet" => Network::Testnet,

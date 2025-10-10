@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
+use crate::key_server_options::{ClientConfig, ClientKeyType, ServerMode};
 use crate::types::IbeMasterKey;
 use crate::utils::{decode_byte_array, decode_master_key};
 use crate::DefaultEncoding;
@@ -12,6 +12,7 @@ use crypto::ibe::SEED_LENGTH;
 use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use std::collections::HashMap;
+use std::env;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -30,29 +31,40 @@ pub enum MasterKeys {
 }
 
 impl MasterKeys {
-    pub(crate) fn load(options: &KeyServerOptions) -> anyhow::Result<Self> {
+    pub fn load_from_env(server_mode: &ServerMode) -> anyhow::Result<Self> {
+        let master_keys_hex_string = env::var(MASTER_KEY_ENV_VAR)
+            .map_err(|_| anyhow!("Environment variable {} must be set", MASTER_KEY_ENV_VAR))?;
+
+        Self::load(server_mode, &master_keys_hex_string)
+    }
+    pub fn load(server_mode: &ServerMode, master_key_hex_string: &str) -> anyhow::Result<Self> {
         info!("Loading keys from env variables");
-        match &options.server_mode {
+        match &server_mode {
             ServerMode::Open { .. } => {
-                let master_key = match decode_master_key::<DefaultEncoding>(MASTER_KEY_ENV_VAR) {
+                let master_key = match decode_master_key::<DefaultEncoding>(master_key_hex_string) {
                     Ok(master_key) => master_key,
 
                     // TODO: Fallback to Base64 encoding for backward compatibility.
-                    Err(_) => crate::utils::decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
+                    Err(_) => crate::utils::decode_master_key::<Base64>(master_key_hex_string)?,
                 };
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
-                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_KEY_ENV_VAR)?;
+                let seed =
+                    decode_byte_array::<DefaultEncoding, SEED_LENGTH>(master_key_hex_string)?;
                 for config in client_configs {
                     let master_key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
                             ibe::derive_master_key(&seed, *derivation_index)
                         }
                         ClientKeyType::Imported { env_var } => {
-                            decode_master_key::<DefaultEncoding>(env_var)?
+                            let env = env::var(env_var).map_err(|_| {
+                                anyhow!("Environment variable {} must be set", env_var)
+                            })?;
+
+                            decode_master_key::<DefaultEncoding>(&env)?
                         }
                         ClientKeyType::Exported { .. } => continue,
                     };
@@ -161,13 +173,13 @@ fn test_master_keys_open_mode() {
     );
 
     with_vars([("MASTER_KEY", None::<&str>)], || {
-        assert!(MasterKeys::load(&options).is_err());
+        assert!(MasterKeys::load_from_env(&options.server_mode).is_err());
     });
 
     let sk = IbeMasterKey::generator();
     let sk_as_bytes = DefaultEncoding::encode(bcs::to_bytes(&sk).unwrap());
     with_vars([("MASTER_KEY", Some(sk_as_bytes))], || {
-        let mk = MasterKeys::load(&options);
+        let mk = MasterKeys::load_from_env(&options.server_mode);
         assert_eq!(
             mk.unwrap()
                 .get_key_for_package(&ObjectID::from_hex_literal("0x1").unwrap())
@@ -179,7 +191,7 @@ fn test_master_keys_open_mode() {
 
 #[test]
 fn test_master_keys_permissioned_mode() {
-    use crate::key_server_options::ClientConfig;
+    use crate::key_server_options::{ClientConfig, KeyServerOptions};
     use crate::types::Network;
     use fastcrypto::encoding::Encoding;
     use fastcrypto::groups::GroupElement;
@@ -226,7 +238,7 @@ fn test_master_keys_permissioned_mode() {
             ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
         ],
         || {
-            let mk = MasterKeys::load(&options).unwrap();
+            let mk = MasterKeys::load_from_env(&options.server_mode).unwrap();
             let k1 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x4").unwrap());
             let k2 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x6").unwrap());
             assert!(k1.is_ok());
@@ -239,7 +251,7 @@ fn test_master_keys_permissioned_mode() {
             ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
         ],
         || {
-            assert!(MasterKeys::load(&options).is_err());
+            assert!(MasterKeys::load_from_env(&options.server_mode).is_err());
         },
     );
     with_vars(
@@ -248,7 +260,7 @@ fn test_master_keys_permissioned_mode() {
             ("ALICE_KEY", None::<&String>),
         ],
         || {
-            assert!(MasterKeys::load(&options).is_err());
+            assert!(MasterKeys::load_from_env(&options.server_mode).is_err());
         },
     );
 }

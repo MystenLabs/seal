@@ -4,7 +4,7 @@
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
-use crate::sui_rpc_client::SuiRpcClient;
+use crate::sui_rpc_client::{RpcClient, SuiRpcClient};
 use crate::{mvr_forward_resolution, Timestamp};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
@@ -27,9 +27,9 @@ pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
     CACHE.insert(new_pkg_id, pkg_id);
 }
 
-pub(crate) async fn check_mvr_package_id(
+pub(crate) async fn check_mvr_package_id<Client: RpcClient>(
     mvr_name: &Option<String>,
-    sui_rpc_client: &SuiRpcClient,
+    sui_rpc_client: &SuiRpcClient<Client>,
     key_server_options: &KeyServerOptions,
     first_pkg_id: ObjectID,
     req_id: Option<&str>,
@@ -63,9 +63,9 @@ pub(crate) async fn check_mvr_package_id(
     Ok(())
 }
 
-pub(crate) async fn fetch_first_pkg_id(
+pub(crate) async fn fetch_first_pkg_id<Client: RpcClient>(
     pkg_id: &ObjectID,
-    sui_rpc_client: &SuiRpcClient,
+    sui_rpc_client: &SuiRpcClient<Client>,
 ) -> Result<ObjectID, InternalError> {
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
@@ -103,8 +103,8 @@ pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
 }
 
 /// Returns the timestamp for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(
-    sui_rpc_client: SuiRpcClient,
+pub(crate) async fn get_latest_checkpoint_timestamp<Client: RpcClient>(
+    sui_rpc_client: SuiRpcClient<Client>,
 ) -> SuiRpcResult<Timestamp> {
     let latest_checkpoint_sequence_number = sui_rpc_client
         .get_latest_checkpoint_sequence_number()
@@ -117,7 +117,9 @@ pub(crate) async fn get_latest_checkpoint_timestamp(
     Ok(checkpoint.timestamp_ms)
 }
 
-pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> SuiRpcResult<u64> {
+pub(crate) async fn get_reference_gas_price<Client: RpcClient>(
+    sui_rpc_client: SuiRpcClient<Client>,
+) -> SuiRpcResult<u64> {
     let rgp = sui_rpc_client
         .get_reference_gas_price()
         .await
