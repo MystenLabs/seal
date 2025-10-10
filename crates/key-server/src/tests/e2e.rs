@@ -9,24 +9,30 @@ use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
-use crate::tests::SealTestCluster;
+use crate::tests::{SealCommittee, SealTestCluster};
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
 use crypto::elgamal::encrypt;
-use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
+use crypto::ibe::{extract, generate_seed, public_key_from_master_key, MasterKey, UserSecretKey};
 use crypto::{
-    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys,
-    IBEUserSecretKeys,
+    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput,
+    IBEPublicKeys, IBEUserSecretKeys,
 };
 use fastcrypto::encoding::Encoding;
+use fastcrypto::groups::bls12381::{G1Element, G2Element};
+use fastcrypto::groups::GroupElement;
 use fastcrypto::serde_helpers::ToFromByteArray;
+use fastcrypto_tbls::tbls::PartialSignature;
+use fastcrypto_tbls::tbls::ThresholdBls;
+use fastcrypto_tbls::types::ThresholdBls12381MinSig;
 use futures::future::join_all;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{genkey, seal_decrypt_all_objects};
 use semver::VersionReq;
 use std::collections::HashMap;
+use std::num::NonZeroU16;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_sdk::SuiClient;
@@ -39,7 +45,7 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_e2e() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
@@ -111,7 +117,7 @@ async fn test_e2e() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
@@ -504,6 +510,277 @@ async fn test_e2e_imported_key() {
     assert!(get_key(&server3, &package_id, ptb.clone(), &user_keypair)
         .await
         .is_err_and(|e| e == UnsupportedPackageId));
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_mpc() {
+    use crate::tests::KeyServerType::MPC;
+    use fastcrypto::encoding::Hex;
+
+    // create a test cluster with 2 funded user addresses
+    let mut tc = SealTestCluster::new(2, "seal_testnet").await;
+
+    // run 2 out of 3 servers with valid partial master keys and aggregated pk from dkg finalization
+    let agg_pk = G2Element::from_byte_array(&Hex::decode("0x875ada4cb0a7b0ecf3b589412088bc280ba08b5dee837fc134ed40b657217e574093d04e56b07aced06cf2f336f2c18f18be9fe65652f13a21cef7fc5a21088197b9c774686eddeca250fdf354a63502fd8a9bada477da05f2aa29cae6ae3c7b").unwrap().try_into().unwrap()).unwrap();
+    let msks = vec![
+        "0x2433cc534f1a25dbc954b156e1d8fac7538acc26130e059ed5893bc8f66842df",
+        "0x23424fa6a67ecf3160767018fa7b054a584b8feb6612cd394ce84b786ae44162",
+        "0x2250d2f9fde37886f7982edb131d0fcd5d0c53b0b91794d3c4475b27df603fe5",
+    ]
+    .into_iter()
+    .map(|msk| MasterKey::from_byte_array(&Hex::decode(msk).unwrap().try_into().unwrap()).unwrap())
+    .collect::<Vec<_>>();
+
+    // 1. Set up the 2 out of 3 committee and its key server and partial key server objects
+    // Initial committee uses parties 0, 1, 2
+    let ordered_members = vec![
+        tc.cluster.get_addresses()[0],
+        tc.cluster.get_addresses()[1],
+        tc.cluster.get_addresses()[2],
+    ];
+    let ordered_partial_pks = msks
+        .iter()
+        .map(|msk| public_key_from_master_key(msk).to_byte_array().to_vec())
+        .collect::<Vec<_>>();
+    let SealCommittee {
+        key_server_id,
+        partial_key_server_field_ids,
+        committee_id,
+        committee_package_id,
+    } = tc
+        .set_up_committee_server(
+            ordered_members.clone(),
+            ordered_partial_pks.clone(),
+            agg_pk,
+            2,
+        )
+        .await;
+
+    // 2. Add servers to the test cluster
+    for (i, msk) in msks.iter().enumerate() {
+        tc.add_server(
+            MPC(*msk),
+            &format!("Server {}", i + 1),
+            Some(partial_key_server_field_ids[i]),
+        )
+        .await;
+    }
+
+    // 3. Publish the package and set up the whitelist user
+    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    // 4. Encrypt a message
+    let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    let encryption = crypto::seal_encrypt(
+        NewObjectID::new(examples_package_id.into_bytes()),
+        whitelist.to_vec(),
+        vec![NewObjectID::new(key_server_id.into_bytes())],
+        &IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk]),
+        1,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Do a bad encryption with a zero aggregated pk
+    let bad_encryption = crypto::seal_encrypt(
+        NewObjectID::new(examples_package_id.into_bytes()),
+        whitelist.to_vec(),
+        vec![NewObjectID::new(key_server_id.into_bytes())],
+        &IBEPublicKeys::BonehFranklinBLS12381(vec![G2Element::zero()]),
+        1,
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // 5. Fetch partial keys from 2 out of 3 committee member servers
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+    let mut partial_user_keys = Vec::new();
+
+    for i in [0, 1] {
+        let partial_user_key = get_key(
+            &tc.servers[i].1,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap();
+        partial_user_keys.push(PartialSignature::<G1Element> {
+            index: NonZeroU16::new(i as u16 + 1).unwrap(),
+            value: partial_user_key,
+        });
+    }
+    // 6. Aggregate the the keys with threshold 2
+    let aggregated_sk = ThresholdBls12381MinSig::aggregate(2, partial_user_keys.iter()).unwrap();
+    let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
+        NewObjectID::new(key_server_id.into_bytes()),
+        aggregated_sk,
+    )]));
+
+    // decrypt the message using MPC decryption with aggregated sk
+    let decryption = crypto::seal_decrypt(
+        &encryption,
+        &usks,
+        Some(&IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk])),
+    );
+    assert_eq!(&decryption.unwrap(), message);
+
+    // wrong threshold fails decryption
+    let bad_aggregated_sk =
+        ThresholdBls12381MinSig::aggregate(1, partial_user_keys.iter()).unwrap();
+    let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
+        NewObjectID::new(key_server_id.into_bytes()),
+        bad_aggregated_sk,
+    )]));
+
+    // decrypt the message using MPC decryption with aggregated sk
+    let decryption = crypto::seal_decrypt(
+        &encryption,
+        &usks,
+        Some(&IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk])),
+    );
+    assert!(decryption.is_err());
+
+    // wrong aggregated pk fails decryption
+    let decryption = crypto::seal_decrypt(
+        &bad_encryption,
+        &usks,
+        Some(&IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk])),
+    );
+    assert!(decryption.is_err());
+
+    // key rotation: new commitee 3 out of 4, new_msks derived from dkg cli for key rotation
+    let new_msks = vec![
+        "0x718e3b24eeeec48c4d55d1061b6ad3914d1293ed1b000f3c9eb35e9eaa9afb0c",
+        "0x0a6365fbfffd5117aca6b7a800adc2a15044b6573287d375df22edfd35f3bafd",
+        "0x4b6dbf7ea7b99a00e9d32e9295e5458453995ba8069b9ead1f78da3223f68432",
+        "0x4cd1f90692e8a4b79e6785b5c7cdac2faf953bd9973eb8e45fb5233f74a356a9",
+    ]
+    .into_iter()
+    .map(|msk| MasterKey::from_byte_array(&Hex::decode(msk).unwrap().try_into().unwrap()).unwrap())
+    .collect::<Vec<_>>();
+
+    // new committee members: [ADDRESS_1, ADDRESS_0, ADDRESS_3, ADDRESS_4]
+    let new_ordered_members = vec![
+        tc.cluster.get_addresses()[1],
+        tc.cluster.get_addresses()[0],
+        tc.cluster.get_addresses()[3],
+        tc.cluster.get_addresses()[4],
+    ];
+    let new_ordered_partial_pks = new_msks
+        .iter()
+        .map(|msk| {
+            public_key_from_master_key(
+                &MasterKey::from_byte_array(&msk.to_byte_array().to_vec().try_into().unwrap())
+                    .unwrap(),
+            )
+            .to_byte_array()
+            .to_vec()
+        })
+        .collect();
+    // run rotate committee onchain steps: init for rotation, register, propose and approve.
+    let rotated_partial_key_server_ids = tc
+        .rotate_committee(
+            new_ordered_members.clone(),
+            new_ordered_partial_pks,
+            3,
+            committee_id,
+            committee_package_id,
+            key_server_id,
+        )
+        .await;
+
+    // add servers to the test cluster
+    for (party_id, msk) in new_msks.iter().enumerate() {
+        tc.add_server(
+            MPC(*msk),
+            &format!("Rotated Server {}", party_id),
+            Some(rotated_partial_key_server_ids[party_id]),
+        )
+        .await;
+    }
+
+    // fetch partial keys from first 3 out of 4 servers, decrypt works
+    let mut partial_user_keys = Vec::new();
+    for i in 0..3 {
+        let partial_user_key = get_key(
+            &tc.servers[i as usize].1,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap();
+
+        partial_user_keys.push(PartialSignature::<G1Element> {
+            index: NonZeroU16::new(i as u16 + 1).unwrap(),
+            value: partial_user_key,
+        });
+    }
+
+    let decryption = decrypt_message(&encryption, 3, key_server_id, partial_user_keys, agg_pk);
+    assert_eq!(&decryption, message);
+
+    // fetch from the last 3 servers, decrypt works
+    let mut partial_user_keys = Vec::new();
+    for i in 1..4 {
+        let partial_user_key = get_key(
+            &tc.servers[i as usize].1,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await
+        .unwrap();
+
+        partial_user_keys.push(PartialSignature::<G1Element> {
+            index: NonZeroU16::new(i + 1).unwrap(),
+            value: partial_user_key,
+        });
+    }
+
+    let decryption_alt = decrypt_message(&encryption, 3, key_server_id, partial_user_keys, agg_pk);
+    assert_eq!(&decryption_alt, message);
+}
+
+fn decrypt_message(
+    encryption: &EncryptedObject,
+    threshold: u16,
+    key_server_id: ObjectID,
+    partial_user_keys: Vec<PartialSignature<G1Element>>,
+    agg_pk: G2Element,
+) -> Vec<u8> {
+    let aggregated_sk =
+        ThresholdBls12381MinSig::aggregate(threshold, partial_user_keys.iter()).unwrap();
+    crypto::seal_decrypt(
+        encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
+            NewObjectID::new(key_server_id.into_bytes()),
+            aggregated_sk,
+        )])),
+        Some(&IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk])),
+    )
+    .unwrap()
 }
 
 async fn create_server(
