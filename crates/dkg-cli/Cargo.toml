@@ -16,6 +16,10 @@ rand.workspace = true
 hex.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+sui_types.workspace = true
+sui-rpc = { workspace = true }
+prost-types = "0.13"
+tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
 
 [[bin]]
 name = "dkg-cli"

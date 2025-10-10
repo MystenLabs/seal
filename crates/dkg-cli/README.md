@@ -197,10 +197,10 @@ sui client ptb \
 Example: 2 out 3 committee rotates to 3 out of 4. The old party 0 and old party 1 are now party 1 and party 0 in the new committee. 
 ```shell
 sui client call --package $COMMITTEE_PKG --module committee \
-  --function init_committee_for_rotation \
-  --args 3 "[\"$ADDRESS_1\", \"$ADDRESS_0\", \"$ADDRESS_3\", \"$ADDRESS_4\"]" $COMMITTEE_ID 
+  --function init_rotation \
+  --args $COMMITTEE_ID 3 "[\"$ADDRESS_1\", \"$ADDRESS_0\", \"$ADDRESS_3\", \"$ADDRESS_4\"]"
 
-NEW_COMMITTEE_ID=0x708e2b34e477f8f0f48697368ace9a7b7f513075501502212618b6458b274f11
+NEW_COMMITTEE_ID=0x0cfe8e0d69cd071de06eb2a7880c4adb01c1fb33b8835bec8d3a63e97b225ea4
 ```
 
 2. All parties register their public keys and URL. 
@@ -209,25 +209,25 @@ NEW_COMMITTEE_ID=0x708e2b34e477f8f0f48697368ace9a7b7f513075501502212618b6458b274
 sui client switch --address $ADDRESS_0
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" "https://party0.com" $NEW_COMMITTEE_ID
+  --args $NEW_COMMITTEE_ID x"$PARTY_0_ECIES_PK" x"$PARTY_0_SIGNING_PK" "https://party0.com"
 
 sui client switch --address $ADDRESS_1
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" "https://party1.com" $NEW_COMMITTEE_ID
+  --args $NEW_COMMITTEE_ID x"$PARTY_1_ECIES_PK" x"$PARTY_1_SIGNING_PK" "https://party1.com"
 
 sui client switch --address $ADDRESS_3
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_3_ECIES_PK" x"$PARTY_3_SIGNING_PK" "https://party3.com" $NEW_COMMITTEE_ID
+  --args $NEW_COMMITTEE_ID x"$PARTY_3_ECIES_PK" x"$PARTY_3_SIGNING_PK" "https://party3.com"
 
 sui client switch --address $ADDRESS_4
 sui client call --package $COMMITTEE_PKG --module committee \
   --function register \
-  --args x"$PARTY_4_ECIES_PK" x"$PARTY_4_SIGNING_PK" "https://party4.com" $NEW_COMMITTEE_ID
+  --args $NEW_COMMITTEE_ID x"$PARTY_4_ECIES_PK" x"$PARTY_4_SIGNING_PK" "https://party4.com"
 ```
 
-3. All members run DKG CLI `init-rotation`. The continuing members from the old committee need to pass in their `old-share` and `old-party-id`. 
+3. All members run DKG CLI `init-rotation`. The continuing members from the old committee need to pass in their `old-share`, `old-party-id`, and the old `key-server-id` to fetch the old partial public keys from the blockchain. 
 
 ```
 cargo run --bin dkg-cli init-rotation \
@@ -240,7 +240,9 @@ cargo run --bin dkg-cli init-rotation \
   --old-threshold 2 \
   --old-share $PARTY_1_SK \
   --state-dir ./rotation-state-party-0 \
-  --party-mapping 0:1,1:0
+  --party-mapping 0:1,1:0 \
+  --key-server-id $KEY_SERVER_OBJECT_ID \
+  --network testnet
 
 cargo run --bin dkg-cli init-rotation \
   --party-id 1 \
@@ -252,7 +254,9 @@ cargo run --bin dkg-cli init-rotation \
   --old-threshold 2 \
   --old-share $PARTY_0_SK \
   --state-dir ./rotation-state-party-1 \
-  --party-mapping 0:1,1:0
+  --party-mapping 0:1,1:0 \
+  --key-server-id $KEY_SERVER_OBJECT_ID \
+  --network testnet
 ```
 
 New members run without `old-share` and `old-party-id`. 
@@ -266,7 +270,9 @@ cargo run --bin dkg-cli init-rotation \
   --threshold 3 \
   --old-threshold 2 \
   --state-dir ./rotation-state-party-2 \
-  --party-mapping 0:1,1:0
+  --party-mapping 0:1,1:0 \
+  --key-server-id $KEY_SERVER_OBJECT_ID \
+  --network testnet
 
 cargo run --bin dkg-cli init-rotation \
   --party-id 3 \
@@ -276,7 +282,9 @@ cargo run --bin dkg-cli init-rotation \
   --threshold 3 \
   --old-threshold 2 \
   --state-dir ./rotation-state-party-3 \
-  --party-mapping 0:1,1:0
+  --party-mapping 0:1,1:0 \
+  --key-server-id $KEY_SERVER_OBJECT_ID \
+  --network testnet
 ```
 
 4. The two continuing parties run `create-message`. 
@@ -311,17 +319,17 @@ cargo run --bin dkg-cli process-all-messages \
 
 ```shell
 # Each party should see the key server public key (unchanged from the last committee). The new set of partial public keys from all parties. 
-KEY_SERVER_PK=0x875ada4cb0a7b0ecf3b589412088bc280ba08b5dee837fc134ed40b657217e574093d04e56b07aced06cf2f336f2c18f18be9fe65652f13a21cef7fc5a21088197b9c774686eddeca250fdf354a63502fd8a9bada477da05f2aa29cae6ae3c7b
-NEW_PARTY_0_PK=0x8fbd7dcfa3a83de1fe9687e4e0062f58d454163ffe5bd60b30be83316dbe7beb3d4099edf8d77bfbbf077df2efc42ab70d86581077f2656ae58f9c84e339e7de91ad48c9a689c7991232f3e69e03db1fb3fcb322d910c9b2b6282d92f3d399bc
-NEW_PARTY_1_PK=0x81a9f6f5c5e8a00bd1b4efa713495a4d2496842f18886cffd39c88f3fd41b182c64515b8a1cd6036eadf5d02a2aa08d60b71ab58a70d722f4628a4a7260d0581b35f2af89dc6609686bf6006c6d3b719146b215abd9d58b9d7770aa9e2ce4f66
-NEW_PARTY_2_PK=0x8d9df4759f87b002ba83912a6df3c9626513b80c3ace0d7f663d2e3a59132722cdfdeaa6396215a49f2ba96260946b750f81ad3922f62ad8b3bac2e3d99e47b5fe07fb232aff08d290b28f2e40a1cad1c60a040caf79a75d96f53f12d834e49d
-NEW_PARTY_3_PK=0xa49843746f0cf27bb848f6514140a66c1d288d4a2389ebed93ec661bea3dff27ba1935af022b0c5baeaaf5ca53c2967d187a15c5ebd5a90fbca5d29ac4b43e3e5b6a536f46b271827561b7bb2ea6ac3ae1ee8f810e37c7e924baa1590b5c5971
+KEY_SERVER_PK=0x89afbc467fa40b71a19fd7c5fdc8cc1ded090fadc53d0e9e60ffa78e99e8181b233af3bd1f39406242729a22a73deb861644986946c5b9538f087b50832f454b0bdcf252fe3b81b9c33912398aa9774bdcec446da4e158ece7bb1b37baf49588
+NEW_PARTY_0_PK=0xa902797f71d15e5410686b29019cdfd09fa641f8069815f0f122a5a564b60ddf6f8c408c30c95b30967e13f10c96f8271423ddb64efe3527e171d5057501b78c70bc2f37d538f851b2f01fd67d018d233ec90fbe12762e2ba3e353dfcf935880
+NEW_PARTY_1_PK=0xa3359770d9c57203a06f94cb87b4556498f7a8d192d5996283b3b0bfb90412fadfe957ef248952c637b8fd29fe556bd20d1d9778fb1b956efb4d0749be4fd49e15881648ec9d558a88e4a2f3949c2147db53c611c2ef5e0fc6f897a7b8a692eb
+NEW_PARTY_2_PK=0x94dc2adcf38b2c41e84094696181536b957f039cd491cc9816e278658c07d745a4b235185198e4e2448af43ba2403447154f7d55769c94dd0a456bf30ca34718a567cbed94998dd4d459957a5425393face7a02e78e58deca9a8df2cd3b132e7
+NEW_PARTY_3_PK=0x88bd931e9308b4f2e5dce359b1180da67e81ee40f0b607929d78c4403f0a3c1c5fbc78117d4cd5b17d38d78a3b49bf94101090bba00327f6962f6e977e07d90f8098de133f9e6344b34e2c5f291a482cb92abc5eeb5f00247a782d523a3b97ba
 
 # Each party should see their own partial secret keys individually. 
-NEW_PARTY_0_SK=0x718e3b24eeeec48c4d55d1061b6ad3914d1293ed1b000f3c9eb35e9eaa9afb0c
-NEW_PARTY_1_SK=0x0a6365fbfffd5117aca6b7a800adc2a15044b6573287d375df22edfd35f3bafd
-NEW_PARTY_2_SK=0x4b6dbf7ea7b99a00e9d32e9295e5458453995ba8069b9ead1f78da3223f68432
-NEW_PARTY_3_SK=0x4cd1f90692e8a4b79e6785b5c7cdac2faf953bd9973eb8e45fb5233f74a356a9
+NEW_PARTY_0_SK=0x6c1f3b906facd41526185722eb2fd875e82f7a20cfc91c45f13d47223a93274f
+NEW_PARTY_1_SK=0x3afaf1cbc552b3306d03c3b1dfa423101825be8af1195e6b30f946a6f8a4d08a
+NEW_PARTY_2_SK=0x07622f48f2da771802d540094f04a974c592f566d66cc13cc5eb0e710922ab93
+NEW_PARTY_3_SK=0x45429b5b21e19d141ac6a43142f343a94434c2b77fc1a0b9b0129e7f6c0cb86b
 ```
 
 6. All members must propose all partial pks and key server pk for rotation to append their approvals. 
@@ -330,14 +338,14 @@ NEW_PARTY_3_SK=0x4cd1f90692e8a4b79e6785b5c7cdac2faf953bd9973eb8e45fb5233f74a356a
 sui client switch --address $ADDRESS_0 # repeat for $ADDRESS_1, $ADDRESS_3, $ADDRESS_4
 sui client call --package $COMMITTEE_PKG --module committee \
     --function propose_for_rotation \
-    --args $COMMITTEE_ID $NEW_COMMITTEE_ID "[x\"$NEW_PARTY_0_PK\", x\"$NEW_PARTY_1_PK\", x\"$NEW_PARTY_2_PK\", x\"$NEW_PARTY_3_PK\"]"
+    --args $NEW_COMMITTEE_ID $COMMITTEE_ID "[x\"$NEW_PARTY_0_PK\", x\"$NEW_PARTY_1_PK\", x\"$NEW_PARTY_2_PK\", x\"$NEW_PARTY_3_PK\"]"
 ```
 
 7. Any member can now finalize the committee once all approvals are submitted. 
 
 ```shell 
 sui client call --package $COMMITTEE_PKG --module committee \
-  --function finalize_committee_for_rotation \
+  --function finalize_for_rotation \
   --args $NEW_COMMITTEE_ID $COMMITTEE_ID $KEY_SERVER_OBJECT_ID
 ```
 

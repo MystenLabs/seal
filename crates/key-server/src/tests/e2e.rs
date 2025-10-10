@@ -584,9 +584,9 @@ async fn test_e2e_mpc() {
     // 4. Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = crypto::seal_encrypt(
-        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        NewObjectID::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        vec![sui_sdk_types::ObjectId::new(key_server_id.into_bytes())],
+        vec![NewObjectID::new(key_server_id.into_bytes())],
         &IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk]),
         1,
         EncryptionInput::Aes256Gcm {
@@ -599,9 +599,9 @@ async fn test_e2e_mpc() {
 
     // Do a bad encryption with a zero aggregated pk
     let bad_encryption = crypto::seal_encrypt(
-        sui_sdk_types::ObjectId::new(examples_package_id.into_bytes()),
+        NewObjectID::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        vec![sui_sdk_types::ObjectId::new(key_server_id.into_bytes())],
+        vec![NewObjectID::new(key_server_id.into_bytes())],
         &IBEPublicKeys::BonehFranklinBLS12381(vec![G2Element::zero()]),
         1,
         EncryptionInput::Aes256Gcm {
@@ -633,7 +633,7 @@ async fn test_e2e_mpc() {
     // 6. Aggregate the the keys with threshold 2
     let aggregated_sk = ThresholdBls12381MinSig::aggregate(2, partial_user_keys.iter()).unwrap();
     let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
-        sui_sdk_types::ObjectId::new(key_server_id.into_bytes()),
+        NewObjectID::new(key_server_id.into_bytes()),
         aggregated_sk,
     )]));
 
@@ -649,7 +649,7 @@ async fn test_e2e_mpc() {
     let bad_aggregated_sk =
         ThresholdBls12381MinSig::aggregate(1, partial_user_keys.iter()).unwrap();
     let usks = IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
-        sui_sdk_types::ObjectId::new(key_server_id.into_bytes()),
+        NewObjectID::new(key_server_id.into_bytes()),
         bad_aggregated_sk,
     )]));
 
@@ -775,7 +775,7 @@ fn decrypt_message(
     crypto::seal_decrypt(
         encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::from([(
-            sui_sdk_types::ObjectId::new(key_server_id.into_bytes()),
+            NewObjectID::new(key_server_id.into_bytes()),
             aggregated_sk,
         )])),
         Some(&IBEPublicKeys::BonehFranklinBLS12381(vec![agg_pk])),

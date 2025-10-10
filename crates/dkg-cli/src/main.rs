@@ -1,6 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+mod grpc_helpers;
+
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use fastcrypto::encoding::{Base64, Encoding, Hex};
@@ -10,6 +12,7 @@ use fastcrypto_tbls::dkg_v1::{Message, Output, Party, ProcessedMessage, UsedProc
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
+use grpc_helpers::{fetch_committee_candidate_data, fetch_old_partial_pks_from_keyserver};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
@@ -17,6 +20,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
+use sui_rpc::client::Client;
+
 /// Configuration for a DKG party
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PartyConfig {
@@ -107,6 +112,10 @@ enum Commands {
         #[arg(short, long)]
         threshold: u16,
 
+        /// Network (mainnet or testnet)
+        #[arg(long, default_value = "testnet")]
+        network: String,
+
         /// State directory
         #[arg(short = 's', long)]
         state_dir: PathBuf,
@@ -141,6 +150,12 @@ enum Commands {
         /// New-to-old party mapping (format: "0:1,1:0" meaning new party 0 was old party 1, etc.)
         #[arg(long)]
         party_mapping: String,
+        /// KeyServer object ID (to fetch old partial public keys)
+        #[arg(long)]
+        key_server_id: String,
+        /// Network (mainnet or testnet)
+        #[arg(long, default_value = "testnet")]
+        network: String,
         /// State directory (default: .dkg-state)
         #[arg(short = 's', long)]
         state_dir: PathBuf,
@@ -180,7 +195,8 @@ impl DkgState {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -214,6 +230,7 @@ fn main() -> Result<()> {
             ecies_sk,
             signing_sk,
             threshold,
+            network,
             state_dir,
         } => {
             println!(
@@ -221,19 +238,29 @@ fn main() -> Result<()> {
                 my_address, committee_id
             );
 
-            // TODO: read from members array from the Committee obj
-            let candidate_addresses = [
-                "0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d".to_string(), // Party 0
-                "0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6".to_string(), // Party 1
-                "0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9".to_string(), // Party 2
-            ];
+            // Determine RPC URL from network
+            let rpc_url = match network.to_lowercase().as_str() {
+                "mainnet" => Client::MAINNET_FULLNODE,
+                "testnet" => Client::TESTNET_FULLNODE,
+                _ => {
+                    return Err(anyhow!(
+                        "Invalid network: {}. Use 'mainnet' or 'testnet'",
+                        network
+                    ))
+                }
+            };
 
-            // TODO: read from committee obj
-            let candidate_public_keys = [
-                "0x886d98eddd9f4e66e69f620dff66b6ed3c21f3cf5bde3b42d1e18159ad2e7b59ed5eb994b2bdcc491d29a1c5d4d492fc0c549c8d20838c6adaa82945a60908f3a481c78273eadbc51d94906238d6fe2f16494559556b074e7bb6f36807f8462c",
-                "0xab5603f3cfaef06c0994f289bf8f1519222edd6ed48b49d9ebb975312dfbcd513dca31c83f6d1d1f45188f373aff95ae06f81dfd2cfafd69f679ce22d311ad4d34725277b369ece21f98e8f3ac257a589c0075d7533487862170760c69aedf4e",
-                "0xa92323cf59aa3250ce8dc9e9c9062e675be937fe342ec276927c7dc99788957a0e589b7eff49a5de061b72976312d1e80281c37d050d1a68959c7b92c815ecd8283df96578c91a6da9e1b5b1cba73b7d39b77af88d784ce9f51f487d64295560"
-            ];
+            // Fetch committee candidate data from onchain
+            println!(
+                "Fetching committee data from {} on {}...",
+                committee_id, network
+            );
+            let (_members, candidate_addresses, candidate_public_keys) =
+                fetch_committee_candidate_data(&committee_id, rpc_url).await?;
+            println!(
+                "Successfully fetched {} candidates",
+                candidate_addresses.len()
+            );
 
             // Find my party ID based on address position in sorted list
             let my_party_id = candidate_addresses
@@ -254,7 +281,7 @@ fn main() -> Result<()> {
             // Create nodes for all parties using real public keys
             let mut nodes = Vec::new();
             for (i, _addr) in candidate_addresses.iter().enumerate() {
-                let public_key_bytes = Hex::decode(candidate_public_keys[i])?;
+                let public_key_bytes = Hex::decode(&candidate_public_keys[i])?;
                 let node_pk: PublicKey<G2Element> = bcs::from_bytes(&public_key_bytes)?;
                 nodes.push(Node {
                     id: i as u16,
@@ -305,6 +332,8 @@ fn main() -> Result<()> {
             old_threshold,
             old_share,
             party_mapping,
+            key_server_id,
+            network,
             state_dir,
         } => {
             println!("Initializing key rotation for party {}", party_id);
@@ -323,27 +352,29 @@ fn main() -> Result<()> {
                 .map(|s| -> Result<G2Scalar> { Ok(bcs::from_bytes(&Hex::decode(s)?)?) })
                 .transpose()?;
 
-            // todo: read party id -> partial pk from the key server onchain.
-            let old_partial_pks = [
-                "0x84086404b1198649e62c3575e99e727d987e11d11b2905478441cac2fb740fa69d5da249300597d45d54574e6b4aff32111c98720974abd83268d44d35691016f371003f0f5bcc10628edc95e5df52caf58ffbb6846e4abff4ad81a533c09488", // Old Party 0
-                "0xb4972fe57609945bc6c03fe920cfdeea42bd26a88051449c81a2987b261d3e08c7326862e3688efa7a147bab8ad7dc4c0a773c251e620410be991b4224c2630a3ba1a5180858a02fa78a0e48f14e14966e1f227a574fa277b88391697e9be49c", // Old Party 1
-                "0x89392ff99800e940243afd550d91c89bb74e690ee64c94a3d77ca4eb1d8bc17483ce70e0d54aa4cbb3f2a14f7f62b0ae129c68b997c42bd93e947e4e6dae23194280a387d239525f40ccbc1f41f77fe54add85ef2f9d6d84324f398684bc11cb", // Old Party 2
-            ];
+            // Determine RPC URL from network
+            let rpc_url = match network.to_lowercase().as_str() {
+                "mainnet" => Client::MAINNET_FULLNODE,
+                "testnet" => Client::TESTNET_FULLNODE,
+                _ => {
+                    return Err(anyhow!(
+                        "Invalid network: {}. Use 'mainnet' or 'testnet'",
+                        network
+                    ))
+                }
+            };
 
-            let mut expected_pks = HashMap::new();
-            for (old_party_id, pk_str) in old_partial_pks.iter().enumerate() {
-                let pk_bytes = Hex::decode(pk_str).map_err(|e| {
-                    anyhow!("Failed to decode old partial PK {}: {}", old_party_id, e)
-                })?;
-                let pk: G2Element = bcs::from_bytes(&pk_bytes).map_err(|e| {
-                    anyhow!(
-                        "Failed to deserialize old partial PK {}: {}",
-                        old_party_id,
-                        e
-                    )
-                })?;
-                expected_pks.insert(old_party_id as u16, pk);
-            }
+            // Fetch old partial public keys from the KeyServer object onchain
+            println!(
+                "Fetching old partial public keys from KeyServer {} on {}...",
+                key_server_id, network
+            );
+            let expected_pks =
+                fetch_old_partial_pks_from_keyserver(&key_server_id, rpc_url).await?;
+            println!(
+                "Successfully fetched {} old partial public keys",
+                expected_pks.len()
+            );
 
             // Parse keys
             let enc_sk: PrivateKey<G2Element> = bcs::from_bytes(&Hex::decode(&ecies_sk)?)?;
