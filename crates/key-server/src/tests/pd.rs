@@ -17,7 +17,7 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_pd() {
-    let mut tc = SealTestCluster::new(2).await;
+    let mut tc = SealTestCluster::new(2, "seal").await;
     tc.add_open_server().await;
 
     let (package_id, _) = tc.publish("patterns").await;
