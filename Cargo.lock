@@ -2467,6 +2467,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dkg-cli"
+version = "0.5.12"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "hex",
+ "prost-types 0.13.4",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sui-rpc 0.0.8",
+ "sui-types",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4439,6 +4459,7 @@ dependencies = [
  "crypto",
  "duration-str",
  "fastcrypto",
+ "fastcrypto-tbls",
  "futures",
  "git-version",
  "hex",
@@ -10065,6 +10086,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-rpc"
+version = "0.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0619337910d280dc5baa8e7e0dd5a6b01141e453e795f9bdea3c1ef8dc42a14a"
+dependencies = [
+ "base64 0.22.1",
+ "bcs",
+ "bytes",
+ "futures",
+ "http 1.3.1",
+ "prost 0.13.4",
+ "prost-types 0.13.4",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.8",
+ "tap",
+ "tokio",
+ "tonic 0.13.1",
+]
+
+[[package]]
 name = "sui-rpc-api"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=22642cf#22642cfb2c813024ab2b137ae6a01cf038a6a0fd"
@@ -10096,7 +10138,7 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.0.7",
  "sui-sdk-types 0.0.7",
  "sui-types",
  "tap",
@@ -10187,6 +10229,7 @@ checksum = "b43c85a0d7f0e349f79a32a620d82648997f1681107389b178f34c4e460a23a2"
 dependencies = [
  "base64ct",
  "bcs",
+ "blake2",
  "bnum",
  "bs58 0.5.1",
  "bytes",
@@ -10512,7 +10555,7 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.0.7",
  "sui-sdk-types 0.0.7",
  "tap",
  "thiserror 1.0.69",
