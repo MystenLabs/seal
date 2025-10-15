@@ -31,7 +31,10 @@ Command-line tool for Distributed Key Generation (DKG) and key rotation protocol
 
 1. Initization
 
-a. Create a Committee with threshold and members (anyone can call this). This outputs the committee object ID.
+a. Initialize a committee. 
+
+- For a member to participate in the committee, send your wallet address with the admin who initiates the DKG, this is the same wallet you use to complete the rest of the DKG onchain steps for registering and proposing. 
+- An admin can now create a Committee with threshold and members. This outputs the committee object ID. Share this with all members. 
 
 ```bash
 # Create the Committee with threshold 2 and members
@@ -61,7 +64,7 @@ This outputs:
 - ECIES Private Key: Keep SECRET, needed for DKG
 - Signing Private Key: Keep SECRET, for signing messages
 
-c. Each party registers themselves to the Committee using their generated ECIES and signing public keys and URL.
+c. Each member registers themselves to the Committee using their generated ECIES and signing public keys and URL where the key server will be ran. 
 
 ```bash
 # party 0 registers
@@ -94,7 +97,6 @@ cargo run --bin dkg-cli init \
   --committee-id $COMMITTEE_ID \
   --signing-sk $PARTY_0_SIGNING_SK \
   --ecies-sk $PARTY_0_ECIES_SK \
-  --threshold 2 \
   --state-dir .dkg-state-0
 
 # Party 1
@@ -103,7 +105,6 @@ cargo run --bin dkg-cli init \
   --committee-id $COMMITTEE_ID \
   --signing-sk $PARTY_1_SIGNING_SK \
   --ecies-sk $PARTY_1_ECIES_SK \
-  --threshold 2 \
   --state-dir .dkg-state-1
 
 # Party 2
@@ -112,7 +113,6 @@ cargo run --bin dkg-cli init \
   --committee-id $COMMITTEE_ID \
   --signing-sk $PARTY_2_SIGNING_SK \
   --ecies-sk $PARTY_2_ECIES_SK \
-  --threshold 2 \
   --state-dir .dkg-state-2
 ```
 
@@ -234,30 +234,20 @@ sui client call --package $COMMITTEE_PKG --module committee \
 
 ```
 cargo run --bin dkg-cli init-rotation \
-  --party-id 0 \
-  --old-party-id 1 \
   --committee-id $NEW_COMMITTEE_ID \
   --ecies-sk $PARTY_1_ECIES_SK \
   --signing-sk $PARTY_1_SIGNING_SK \
-  --threshold 3 \
-  --old-threshold 2 \
   --old-share $PARTY_1_SK \
   --state-dir ./rotation-state-party-0 \
-  --party-mapping 0:1,1:0 \
   --key-server-id $KEY_SERVER_OBJECT_ID \
   --network testnet
 
 cargo run --bin dkg-cli init-rotation \
-  --party-id 1 \
-  --old-party-id 0 \
   --committee-id $NEW_COMMITTEE_ID \
   --ecies-sk $PARTY_0_ECIES_SK \
   --signing-sk $PARTY_0_SIGNING_SK \
-  --threshold 3 \
-  --old-threshold 2 \
   --old-share $PARTY_0_SK \
   --state-dir ./rotation-state-party-1 \
-  --party-mapping 0:1,1:0 \
   --key-server-id $KEY_SERVER_OBJECT_ID \
   --network testnet
 ```

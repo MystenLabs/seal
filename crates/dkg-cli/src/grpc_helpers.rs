@@ -4,22 +4,25 @@
 use anyhow::{anyhow, Result};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::G2Element;
+use fastcrypto_tbls::ecies_v1::PublicKey;
 use serde::Deserialize;
 use std::collections::HashMap;
 use sui_rpc::client::Client;
 use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::collection_types::VecSet;
 use sui_types::dynamic_field::Field;
 
-/// Get RPC URL for a given network name
-pub fn get_rpc_url(network: &str) -> Result<&'static str> {
-    match network.to_lowercase().as_str() {
+/// Create gRPC client for a given network
+pub fn create_grpc_client(network: &str) -> Result<Client> {
+    let rpc_url = match network.to_lowercase().as_str() {
         "mainnet" => Ok(Client::MAINNET_FULLNODE),
         "testnet" => Ok(Client::TESTNET_FULLNODE),
         _ => Err(anyhow!(
             "Invalid network: {}. Use 'mainnet' or 'testnet'",
             network
         )),
-    }
+    }?;
+    Ok(Client::new(rpc_url)?)
 }
 
 // Move struct definitions for BCS deserialization (matching deployed contract on testnet)
@@ -43,7 +46,7 @@ pub enum ServerType {
     },
     Committee {
         threshold: u16,
-        partial_key_servers: VecMap<sui_types::base_types::SuiAddress, PartialKeyServer>,
+        partial_key_servers: VecMap<SuiAddress, PartialKeyServer>,
     },
 }
 
@@ -53,7 +56,7 @@ pub struct PartialKeyServer {
     partial_pk: Vec<u8>,
     url: String,
     party_id: u16,
-    owner: sui_types::base_types::SuiAddress,
+    owner: SuiAddress,
 }
 
 // Committee-related structs for fetching init state (matching onchain structs)
@@ -69,13 +72,13 @@ pub struct CandidateData {
 #[allow(dead_code)]
 pub enum CommitteeState {
     Init {
-        candidate_data: VecMap<sui_types::base_types::SuiAddress, CandidateData>,
+        candidate_data: VecMap<SuiAddress, CandidateData>,
     },
     PostDKG {
-        candidate_data: VecMap<sui_types::base_types::SuiAddress, CandidateData>,
+        candidate_data: VecMap<SuiAddress, CandidateData>,
         partial_pks: Vec<Vec<u8>>,
         pk: Vec<u8>,
-        approvals: sui_types::collection_types::VecSet<sui_types::base_types::SuiAddress>,
+        approvals: VecSet<SuiAddress>,
     },
     Finalized {
         pk: Vec<u8>,
@@ -92,22 +95,34 @@ pub struct Committee {
     old_committee_id: Option<ObjectID>,
 }
 
-/// Fetches committee candidate data from Committee object onchain
-/// Returns Vec of (address, public_key) pairs in members order
-pub async fn fetch_committee_candidate_data(
-    committee_id: &str,
-    rpc_url: &str,
-) -> Result<Vec<(SuiAddress, String)>> {
-    // Parse the Committee object ID
-    let object_id = ObjectID::from_hex_literal(committee_id)?;
+/// Complete committee data including threshold, old_committee_id, and members
+/// Each member is represented as (party_id, address, enc_pk_hex)
+#[derive(Debug, Clone)]
+pub struct ParsedCommitteeData {
+    pub threshold: u16,
+    pub members: Vec<(u16, SuiAddress, PublicKey<G2Element>)>,
+    pub old_committee_id: Option<ObjectID>,
+}
 
-    // Create gRPC client
-    let mut grpc_client = Client::new(rpc_url)?;
+impl ParsedCommitteeData {
+    /// Find party ID by address
+    pub fn find_party_id(&self, address: &SuiAddress) -> Option<u16> {
+        self.members
+            .iter()
+            .find(|(_, addr, _)| addr == address)
+            .map(|(party_id, _, _)| *party_id)
+    }
+}
 
+/// Fetches complete committee data from Committee object onchain
+pub async fn fetch_committee_data(
+    committee_id: &ObjectID,
+    grpc_client: &mut Client,
+) -> Result<ParsedCommitteeData> {
     // Fetch the Committee object with BCS data
     let mut ledger_client = grpc_client.ledger_client();
     let mut request = sui_rpc::proto::sui::rpc::v2beta2::GetObjectRequest::default();
-    request.object_id = Some(object_id.to_string());
+    request.object_id = Some(committee_id.to_string());
     request.read_mask = Some(prost_types::FieldMask {
         paths: vec!["bcs".to_string()],
     });
@@ -135,25 +150,23 @@ pub async fn fetch_committee_candidate_data(
     let committee: Committee = bcs::from_bytes(move_object.contents())?;
 
     // Extract candidate data from Init state
-    let candidate_data = match committee.state {
+    let candidate_data = match &committee.state {
         CommitteeState::Init { candidate_data } => candidate_data,
         _ => {
-            return Err(anyhow!(
-                "Committee is in Finalized state - no candidate data available"
-            ))
+            return Err(anyhow!("Invalid committee state: {:?}", committee.state));
         }
     };
 
-    let mut candidates = Vec::new();
+    let mut members = Vec::new();
 
-    // Use committee.members ordering.
-    for member_addr in committee.members {
+    // Use committee.members ordering. Party ID is the index in the members vector.
+    for (party_id, member_addr) in committee.members.iter().enumerate() {
         // Find the candidate data for this member
         let entry = candidate_data
             .0
             .contents
             .iter()
-            .find(|e| e.key == member_addr)
+            .find(|e| &e.key == member_addr)
             .ok_or_else(|| anyhow!("Member address {} not found in candidate data", member_addr))?;
 
         // The enc_pk is stored as ASCII bytes of a Move byte literal (x0x...)
@@ -163,28 +176,34 @@ pub async fn fetch_committee_candidate_data(
 
         // Strip Move byte literal format: x0x... -> 0x...
         let enc_pk_hex = enc_pk_str.trim_start_matches('x').to_string();
-        candidates.push((member_addr, enc_pk_hex));
+        let node_pk: PublicKey<G2Element> =
+            bcs::from_bytes(&Hex::decode(&enc_pk_hex)?).map_err(|e| {
+                anyhow!(
+                    "Failed to deserialize ECIES PK for party {}: {}",
+                    party_id,
+                    e
+                )
+            })?;
+        members.push((party_id as u16, *member_addr, node_pk));
     }
 
-    Ok(candidates)
+    Ok(ParsedCommitteeData {
+        threshold: committee.threshold,
+        members,
+        old_committee_id: committee.old_committee_id,
+    })
 }
 
 /// Fetches old partial public keys from KeyServer object onchain
 pub async fn fetch_old_partial_pks_from_keyserver(
-    key_server_id: &str,
-    rpc_url: &str,
+    key_server_id: &ObjectID,
+    grpc_client: &mut Client,
 ) -> Result<HashMap<u16, G2Element>> {
-    // Parse the KeyServer object ID
-    let parent_id = ObjectID::from_hex_literal(key_server_id)?;
-
-    // Create gRPC client
-    let mut grpc_client = Client::new(rpc_url)?;
-
     // BCS-serialize the dynamic field name (u64 value 2 for KeyServerV2)
     let field_name_bcs = bcs::to_bytes(&2u64)?;
 
     // Find the dynamic field with name value = 2
-    let field_object_id = find_dynamic_field(&mut grpc_client, &parent_id, &field_name_bcs).await?;
+    let field_object_id = find_dynamic_field(grpc_client, key_server_id, &field_name_bcs).await?;
 
     // Fetch the Field<u64, KeyServerV2> object with BCS data
     let mut ledger_client = grpc_client.ledger_client();
@@ -321,13 +340,18 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_old_partial_pks_from_keyserver() {
         // Test KeyServer object ID from testnet
-        let key_server_id = "0xe2974ab332c5625bf1ce501bd33f518c39a3b1c788b88e996aaa3f90b8fe27e7";
+        let key_server_id = ObjectID::from_hex_literal(
+            "0xe2974ab332c5625bf1ce501bd33f518c39a3b1c788b88e996aaa3f90b8fe27e7",
+        )
+        .unwrap();
+
+        // Create gRPC client
+        let mut grpc_client = Client::new(Client::TESTNET_FULLNODE).unwrap();
 
         // Fetch partial PKs
-        let partial_pks =
-            fetch_old_partial_pks_from_keyserver(key_server_id, Client::TESTNET_FULLNODE)
-                .await
-                .unwrap();
+        let partial_pks = fetch_old_partial_pks_from_keyserver(&key_server_id, &mut grpc_client)
+            .await
+            .unwrap();
 
         // Verify partial PKs match expected values from onchain KeyServer
         let expected_pks = [
@@ -338,10 +362,7 @@ mod tests {
         ];
 
         for (party_id, expected_pk_hex) in expected_pks.iter().enumerate() {
-            let expected_pk: G2Element = bcs::from_bytes(&Hex::decode(expected_pk_hex).unwrap())
-                .unwrap_or_else(|_| {
-                    panic!("Failed to deserialize expected PK for party {}", party_id)
-                });
+            let expected_pk = bcs::from_bytes(&Hex::decode(expected_pk_hex).unwrap()).unwrap();
 
             let actual_pk = partial_pks
                 .get(&(party_id as u16))
@@ -352,25 +373,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_committee_candidate_data() {
+    async fn test_fetch_committee_data() {
         // Test Committee object ID from testnet
-        let committee_id = "0x7323635e5fda4e43895b8a954f1f620bebe8bfabf2714fa6fb54d1a4a97c9586";
+        let committee_id = ObjectID::from_hex_literal(
+            "0x7323635e5fda4e43895b8a954f1f620bebe8bfabf2714fa6fb54d1a4a97c9586",
+        )
+        .unwrap();
+
+        // Create gRPC client
+        let mut grpc_client = Client::new(Client::TESTNET_FULLNODE).unwrap();
 
         // Fetch committee data
-        let candidates = fetch_committee_candidate_data(committee_id, Client::TESTNET_FULLNODE)
+        let committee_data = fetch_committee_data(&committee_id, &mut grpc_client)
             .await
             .unwrap();
 
-        // Expected mappings from actual onchain data
-        let expected_mappings = vec![
-            (SuiAddress::from_str("0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d").unwrap(),
-             "0x886d98eddd9f4e66e69f620dff66b6ed3c21f3cf5bde3b42d1e18159ad2e7b59ed5eb994b2bdcc491d29a1c5d4d492fc0c549c8d20838c6adaa82945a60908f3a481c78273eadbc51d94906238d6fe2f16494559556b074e7bb6f36807f8462c".to_string()),
-            (SuiAddress::from_str("0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6").unwrap(),
-             "0xab5603f3cfaef06c0994f289bf8f1519222edd6ed48b49d9ebb975312dfbcd513dca31c83f6d1d1f45188f373aff95ae06f81dfd2cfafd69f679ce22d311ad4d34725277b369ece21f98e8f3ac257a589c0075d7533487862170760c69aedf4e".to_string()),
-            (SuiAddress::from_str("0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9").unwrap(),
-             "0xa92323cf59aa3250ce8dc9e9c9062e675be937fe342ec276927c7dc99788957a0e589b7eff49a5de061b72976312d1e80281c37d050d1a68959c7b92c815ecd8283df96578c91a6da9e1b5b1cba73b7d39b77af88d784ce9f51f487d64295560".to_string()),
+        // Expected members with party_id from actual onchain data
+        let expected_members = vec![
+            (0u16, SuiAddress::from_str("0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d").unwrap(),
+             bcs::from_bytes(&Hex::decode("0x886d98eddd9f4e66e69f620dff66b6ed3c21f3cf5bde3b42d1e18159ad2e7b59ed5eb994b2bdcc491d29a1c5d4d492fc0c549c8d20838c6adaa82945a60908f3a481c78273eadbc51d94906238d6fe2f16494559556b074e7bb6f36807f8462c").unwrap()).unwrap()),
+            (1u16, SuiAddress::from_str("0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6").unwrap(),
+              bcs::from_bytes(&Hex::decode("0xab5603f3cfaef06c0994f289bf8f1519222edd6ed48b49d9ebb975312dfbcd513dca31c83f6d1d1f45188f373aff95ae06f81dfd2cfafd69f679ce22d311ad4d34725277b369ece21f98e8f3ac257a589c0075d7533487862170760c69aedf4e").unwrap()).unwrap()),
+            (2u16, SuiAddress::from_str("0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9").unwrap(),
+            bcs::from_bytes(&Hex::decode("0xa92323cf59aa3250ce8dc9e9c9062e675be937fe342ec276927c7dc99788957a0e589b7eff49a5de061b72976312d1e80281c37d050d1a68959c7b92c815ecd8283df96578c91a6da9e1b5b1cba73b7d39b77af88d784ce9f51f487d64295560").unwrap()).unwrap()),
         ];
 
-        assert_eq!(candidates, expected_mappings);
+        assert_eq!(committee_data.members, expected_members);
     }
 }
