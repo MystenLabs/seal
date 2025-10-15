@@ -54,8 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.sui/sui_config"
-          # Ensure keystore file exists
-          touch "$HOME/.sui/sui_config/sui.keystore"
+          # Initialize keystore with valid empty JSON array
+          echo '[]' > "$HOME/.sui/sui_config/sui.keystore"
           # Write minimal client.yaml pointing to keystore and mainnet env
           cat > "$HOME/.sui/sui_config/client.yaml" <<YAML
           keystore:
