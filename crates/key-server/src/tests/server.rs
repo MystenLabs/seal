@@ -38,6 +38,7 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
+use sui_rpc::Client as GrpcClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
@@ -50,6 +51,8 @@ async fn test_get_latest_checkpoint_timestamp() {
     let tolerance = 20000;
     let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
         tc.cluster.sui_client().clone(),
+        SuiGrpcClient::new(tc.cluster.fullnode_handle.rpc_url.clone())
+            .expect("Failed to create gRPC client"),
         RetryConfig::default(),
         None,
     ))

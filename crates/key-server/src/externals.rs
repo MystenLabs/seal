@@ -13,6 +13,7 @@ use sui_sdk::rpc_types::{CheckpointId, SuiData, SuiObjectDataOptions};
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
 use tracing::{debug, warn};
+use sui_rpc::client::Client as SuiGrpcClient;
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
 static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(default_lru_cache);
@@ -104,7 +105,7 @@ pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
 
 /// Returns the timestamp for the latest checkpoint.
 pub(crate) async fn get_latest_checkpoint_timestamp(
-    sui_rpc_client: SuiRpcClient,
+    sui_rpc_client: SuiGrpcClient,
 ) -> SuiRpcResult<Timestamp> {
     let latest_checkpoint_sequence_number = sui_rpc_client
         .get_latest_checkpoint_sequence_number()
@@ -139,12 +140,12 @@ mod tests {
     use fastcrypto::secp256r1::Secp256r1KeyPair;
     use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
+    use sui_rpc::Client as SuiGrpcClient;
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
-
     #[tokio::test]
     async fn test_fetch_first_pkg_id() {
         let address = ObjectID::from_str(
@@ -158,6 +159,7 @@ mod tests {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
+            SuiGrpcClient::new(Network::Testnet.node_url()).unwrap(),
             RetryConfig::default(),
             None,
         );
@@ -184,6 +186,8 @@ mod tests {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
+            SuiGrpcClient::new(Network::Testnet.node_url())
+                .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,
         );

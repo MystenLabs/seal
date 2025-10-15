@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use crate::{key_server_options::RetryConfig, metrics::Metrics};
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{
@@ -13,8 +15,6 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
-
-use crate::{key_server_options::RetryConfig, metrics::Metrics};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -119,6 +119,7 @@ where
 #[derive(Clone)]
 pub struct SuiRpcClient {
     sui_client: SuiClient,
+    sui_grpc_client: SuiGrpcClient,
     rpc_retry_config: RetryConfig,
     metrics: Option<Arc<Metrics>>,
 }
@@ -126,11 +127,13 @@ pub struct SuiRpcClient {
 impl SuiRpcClient {
     pub fn new(
         sui_client: SuiClient,
+        sui_grpc_client: SuiGrpcClient,
         rpc_retry_config: RetryConfig,
         metrics: Option<Arc<Metrics>>,
     ) -> Self {
         Self {
             sui_client,
+            sui_grpc_client,
             rpc_retry_config,
             metrics,
         }
@@ -191,11 +194,21 @@ impl SuiRpcClient {
             &self.rpc_retry_config,
             "get_latest_checkpoint_sequence_number",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_latest_checkpoint_sequence_number()
-                    .await
+            || {
+                let mut grpc_client = self.grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request =
+                        sui_rpc::proto::sui::rpc::v2beta2::GetCheckpointRequest::default();
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["sequence_number".to_string()],
+                    });
+                    client
+                        .get_checkpoint(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
         .await

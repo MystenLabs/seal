@@ -143,6 +143,8 @@ impl SealTestCluster {
                 let server = Server {
                     sui_rpc_client: SuiRpcClient::new(
                         self.cluster.sui_client().clone(),
+                        SuiGrpcClient::new(Network::Testnet.node_url())
+                            .expect("Failed to create SuiGrpcClient"),
                         RetryConfig::default(),
                         None,
                     ),
@@ -176,7 +178,13 @@ impl SealTestCluster {
         key_server_object_id: ObjectID,
     ) -> Server {
         Server {
-            sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
+            sui_rpc_client: SuiRpcClient::new(
+                sui_client,
+                SuiGrpcClient::new(Network::Testnet.node_url())
+                    .expect("Failed to create SuiGrpcClient"),
+                RetryConfig::default(),
+                None,
+            ),
             master_keys: MasterKeys::Open { master_key },
             key_server_oid_to_pop: HashMap::new(),
             options: KeyServerOptions {

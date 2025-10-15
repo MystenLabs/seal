@@ -4485,6 +4485,7 @@ dependencies = [
  "shared-crypto",
  "snap",
  "sui-move-build",
+ "sui-rpc 0.0.8",
  "sui-sdk",
  "sui-sdk-types 0.0.8",
  "sui-types",

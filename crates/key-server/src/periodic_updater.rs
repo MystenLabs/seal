@@ -7,13 +7,14 @@ use sui_sdk::error::SuiRpcResult;
 use tokio::sync::watch::{channel, Receiver};
 use tokio::task::JoinHandle;
 use tracing::debug;
+use sui_rpc::client::Client as SuiGrpcClient;
 
 /// Helper function to spawn a thread that periodically fetches a value and sends it to a [Receiver].
 /// If a subscriber is provided, it will be called when the value is updated.
 /// If a duration_callback is provided, it will be called with the duration of each fetch operation.
 /// Returns the [Receiver].
 pub async fn spawn_periodic_updater<F, Fut, G, H, I>(
-    client: &SuiRpcClient,
+    client: &SuiGrpcClient,
     update_interval: Duration,
     fetch_fn: F,
     value_name: &'static str,
