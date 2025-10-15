@@ -95,20 +95,14 @@ jobs:
 
           # Desired address
           target_addr="0x7edc2e9108968bc3df2b5543cf9ce9ee7bcdc28b043044e51cc1900510b6f58e"
-
-          # Try to find alias via 'sui client addresses' output
-          alias=$(sui client addresses 2>/dev/null | awk -v addr="$target_addr" '$0 ~ addr {print $1}' | head -n1 || true)
-
-          if [ -n "$alias" ]; then
-            sui client switch --address "$alias"
+          # Switch by address directly; verify address exists first
+          if sui client addresses | grep -qi "$target_addr"; then
+            sui client switch --address "$target_addr"
+            echo "Active address set to $target_addr"
           else
-            # Fall back to switching directly by address if supported
-            if sui client switch --address "$target_addr" 2>/dev/null; then
-              echo "Switched using address directly."
-            else
-              echo "Could not determine alias for $target_addr" >&2
-              exit 1
-            fi
+            echo "Target address $target_addr not found in imported key addresses" >&2
+            sui client addresses || true
+            exit 1
           fi
 
       - name: Install Walrus CLI
