@@ -9,6 +9,19 @@ use std::collections::HashMap;
 use sui_rpc::client::Client;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::dynamic_field::Field;
+
+/// Get RPC URL for a given network name
+pub fn get_rpc_url(network: &str) -> Result<&'static str> {
+    match network.to_lowercase().as_str() {
+        "mainnet" => Ok(Client::MAINNET_FULLNODE),
+        "testnet" => Ok(Client::TESTNET_FULLNODE),
+        _ => Err(anyhow!(
+            "Invalid network: {}. Use 'mainnet' or 'testnet'",
+            network
+        )),
+    }
+}
+
 // Move struct definitions for BCS deserialization (matching deployed contract on testnet)
 #[derive(Deserialize, Clone, Debug)]
 pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
