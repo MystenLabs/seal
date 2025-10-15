@@ -13,7 +13,7 @@ use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
 use grpc_helpers::{
-    fetch_committee_candidate_data, fetch_old_partial_pks_from_keyserver, get_rpc_url,
+    create_grpc_client, fetch_committee_data, fetch_old_partial_pks_from_keyserver,
 };
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 
 /// Configuration for a DKG party
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +37,7 @@ struct PartyConfig {
     /// Signing public key
     signing_pk: G2Element,
     /// The committee object ID (used for random oracle)
-    committee_id: String,
+    committee_id: ObjectID,
     /// Threshold (t)
     threshold: u16,
     /// Old threshold for key rotation (None for fresh DKG)
@@ -45,11 +45,9 @@ struct PartyConfig {
     /// Old share for key rotation (None for fresh DKG)
     old_share: Option<G2Scalar>,
     /// Old partial public key for key rotation verification
-    old_pk: Option<G2Element>,
+    old_enc_pk: Option<PublicKey<G2Element>>,
     /// Old party ID (for continuing members in rotation)
     old_party_id: Option<u16>,
-    /// Is this party in both committees (for rotation)
-    is_continuing_member: bool,
 }
 
 /// State of the DKG protocol
@@ -91,15 +89,15 @@ enum Commands {
     /// Generate ECIES keypair for registration
     GenerateKeys,
 
-    /// Initialize DKG party
+    /// Initialize DKG party (fresh DKG or key rotation)
     Init {
-        /// My address (to determine my party ID from sorted committee)
+        /// My address (used to determine party id based on position in committee.members)
         #[arg(long)]
         my_address: SuiAddress,
 
-        /// InitCommittee object ID
+        /// Committee object ID
         #[arg(short = 'c', long)]
-        committee_id: String,
+        committee_id: ObjectID,
 
         /// ECIES private key (hex encoded)
         #[arg(long)]
@@ -109,55 +107,19 @@ enum Commands {
         #[arg(long)]
         signing_sk: String,
 
-        /// Threshold (number of parties needed to sign)
-        #[arg(short, long)]
-        threshold: u16,
+        /// KeyServer object ID (required for key rotation to fetch old partial public keys)
+        #[arg(long)]
+        key_server_id: Option<ObjectID>,
+
+        /// Old key share (for continuing members in key rotation)
+        #[arg(long)]
+        old_share: Option<String>,
 
         /// Network (mainnet or testnet)
         #[arg(long, default_value = "testnet")]
         network: String,
 
         /// State directory
-        #[arg(short = 's', long)]
-        state_dir: PathBuf,
-    },
-
-    /// Initialize for key rotation
-    InitRotation {
-        /// Party ID in new committee (unique identifier)
-        #[arg(short, long)]
-        party_id: u16,
-        /// Old party ID (for parties in both committees)
-        #[arg(long)]
-        old_party_id: Option<u16>,
-        /// New committee ID (e.g., new Sui object ID)
-        #[arg(short = 'c', long)]
-        committee_id: String,
-        /// ECIES private key (hex encoded)
-        #[arg(long)]
-        ecies_sk: String,
-        /// Signing private key (hex encoded)
-        #[arg(long)]
-        signing_sk: String,
-        /// New threshold
-        #[arg(short, long)]
-        threshold: u16,
-        /// Old threshold (t' from previous committee)
-        #[arg(long)]
-        old_threshold: u16,
-        /// Old share (hex encoded, for parties in both committees)
-        #[arg(long)]
-        old_share: Option<String>,
-        /// New-to-old party mapping (format: "0:1,1:0" meaning new party 0 was old party 1, etc.)
-        #[arg(long)]
-        party_mapping: String,
-        /// KeyServer object ID (to fetch old partial public keys)
-        #[arg(long)]
-        key_server_id: String,
-        /// Network (mainnet or testnet)
-        #[arg(long, default_value = "testnet")]
-        network: String,
-        /// State directory (default: .dkg-state)
         #[arg(short = 's', long)]
         state_dir: PathBuf,
     },
@@ -208,12 +170,24 @@ async fn main() -> Result<()> {
             let signing_pk = G2Element::generator() * signing_sk;
 
             println!("==============FOR REGISTRATION ONCHAIN===============");
-            println!("ECIES_PK={}", Hex::encode_with_format(bcs::to_bytes(&enc_pk)?));
-            println!("SIGNING_PK={}", Hex::encode_with_format(bcs::to_bytes(&signing_pk)?));
-            
+            println!(
+                "ECIES_PK={}",
+                Hex::encode_with_format(bcs::to_bytes(&enc_pk)?)
+            );
+            println!(
+                "SIGNING_PK={}",
+                Hex::encode_with_format(bcs::to_bytes(&signing_pk)?)
+            );
+
             println!("\n==============KEEP SECRET, FOR DKG INITIALIZATION===============");
-            println!("ECIES_SK={}", Hex::encode_with_format(bcs::to_bytes(&enc_sk)?));
-            println!("SIGNING_SK={}", Hex::encode_with_format(bcs::to_bytes(&signing_sk)?));
+            println!(
+                "ECIES_SK={}",
+                Hex::encode_with_format(bcs::to_bytes(&enc_sk)?)
+            );
+            println!(
+                "SIGNING_SK={}",
+                Hex::encode_with_format(bcs::to_bytes(&signing_sk)?)
+            );
         }
 
         Commands::Init {
@@ -221,131 +195,45 @@ async fn main() -> Result<()> {
             committee_id,
             ecies_sk,
             signing_sk,
-            threshold,
+            key_server_id,
+            old_share,
             network,
             state_dir,
         } => {
-            println!(
-                "Initializing DKG party for address {} and committee {}",
-                my_address, committee_id
-            );
+            // Create gRPC client.
+            let mut grpc_client = create_grpc_client(&network)?;
 
-            // Determine RPC URL from network
-            let rpc_url = get_rpc_url(&network)?;
-
-            // Fetch committee candidate data from onchain
-            let candidates = fetch_committee_candidate_data(&committee_id, rpc_url).await?;
+            // Fetch committee data from onchain.
+            let committee_data = fetch_committee_data(&committee_id, &mut grpc_client).await?;
             println!(
-                "Successfully fetched {} candidates, committee_id: {}, network: {}",
-                candidates.len(),
-                committee_id,
+                "Fetched committee with {} members, threshold: {}, network: {}",
+                committee_data.members.len(),
+                committee_data.threshold,
                 network
             );
 
-            // Find my party ID based on address position in members list (case-insensitive)
-            let my_party_id = candidates
-                .iter()
-                .position(|(addr, _pk)| addr == &my_address)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "My address {} not found in committee candidates",
-                        my_address
-                    )
-                })? as u16;
-
-            let my_enc_sk: PrivateKey<G2Element> = bcs::from_bytes(&Hex::decode(&ecies_sk)?)?;
-            let my_enc_pk = PublicKey::<G2Element>::from_private_key(&my_enc_sk);
-            let my_signing_sk: G2Scalar = bcs::from_bytes(&Hex::decode(&signing_sk)?)?;
-            let my_signing_pk = G2Element::generator() * my_signing_sk;
-
-            // Create nodes for all parties using real public keys
-            let mut nodes = Vec::new();
-            for (i, (_addr, pk_hex)) in candidates.iter().enumerate() {
-                let public_key_bytes = Hex::decode(pk_hex)?;
-                let node_pk: PublicKey<G2Element> = bcs::from_bytes(&public_key_bytes)?;
-                nodes.push(Node {
-                    id: i as u16,
-                    pk: node_pk,
-                    weight: 1,
-                });
-            }
-
-            let config = PartyConfig {
-                party_id: my_party_id,
-                enc_sk: my_enc_sk,
-                enc_pk: my_enc_pk,
-                signing_sk: my_signing_sk,
-                signing_pk: my_signing_pk,
-                committee_id,
-                threshold,
-                old_threshold: None,
-                old_share: None,
-                old_pk: None,
-                old_party_id: None,
-                is_continuing_member: false,
-            };
-
-            let state = DkgState {
-                config,
-                nodes: Nodes::new(nodes)?,
-                my_messages: vec![],
-                received_messages: HashMap::new(),
-                processed_messages: vec![],
-                confirmation: None,
-                output: None,
-                new_to_old_mapping: HashMap::new(),
-                expected_old_partial_pks: HashMap::new(),
-            };
-
-            state.save(&state_dir)?;
-            println!("DKG party initialized and saved to {:?}", state_dir);
-            println!("Ready for DKG protocol. Run 'create-message' to start.");
-        }
-
-        Commands::InitRotation {
-            party_id,
-            old_party_id,
-            committee_id,
-            ecies_sk,
-            signing_sk,
-            threshold,
-            old_threshold,
-            old_share,
-            party_mapping,
-            key_server_id,
-            network,
-            state_dir,
-        } => {
-            println!("Initializing key rotation for party {}", party_id);
-            println!("New committee: {}", committee_id);
-
-            let is_continuing = old_share.is_some();
-            if is_continuing {
-                println!("Continuing member from old committee");
+            // Check init for fresh DKG or rotation.
+            let is_rotation = if committee_data.old_committee_id.is_some()
+                && key_server_id.is_some()
+                && old_share.is_some()
+            {
+                println!(
+                    "Initializing key rotation for address {} and committee: {}",
+                    my_address, committee_id
+                );
+                true
+            } else if committee_data.old_committee_id.is_none()
+                && key_server_id.is_none()
+                && old_share.is_none()
+            {
+                println!(
+                    "Initializing fresh DKG for address {} and committee {}",
+                    my_address, committee_id
+                );
+                false
             } else {
-                println!("New member joining committee");
-            }
-
-            // Parse old share if provided (for parties in both committees)
-            let parsed_old_share = old_share
-                .as_ref()
-                .map(|s| -> Result<G2Scalar> { Ok(bcs::from_bytes(&Hex::decode(s)?)?) })
-                .transpose()?;
-
-            // Determine RPC URL from network
-            let rpc_url = get_rpc_url(&network)?;
-
-            // Fetch old partial public keys from the KeyServer object onchain
-            println!(
-                "Fetching old partial public keys from KeyServer {} on {}...",
-                key_server_id, network
-            );
-            let expected_pks =
-                fetch_old_partial_pks_from_keyserver(&key_server_id, rpc_url).await?;
-            println!(
-                "Successfully fetched {} old partial public keys",
-                expected_pks.len()
-            );
+                return Err(anyhow!("Invalid initialization parameters"));
+            };
 
             // Parse keys
             let enc_sk: PrivateKey<G2Element> = bcs::from_bytes(&Hex::decode(&ecies_sk)?)?;
@@ -353,88 +241,85 @@ async fn main() -> Result<()> {
             let signing_sk: G2Scalar = bcs::from_bytes(&Hex::decode(&signing_sk)?)?;
             let signing_pk = G2Element::generator() * signing_sk;
 
-            // Parse new->old party mapping from CLI parameter
-            // Format: "0:1,1:0" meaning new party 0 was old party 1, etc.
-            let mut new_to_old_map = HashMap::new();
-            for mapping in party_mapping.split(',') {
-                let parts: Vec<&str> = mapping.trim().split(':').collect();
-                if parts.len() != 2 {
-                    return Err(anyhow!(
-                        "Invalid party mapping format. Expected 'new:old,new:old,...'"
-                    ));
-                }
-                let new_party: u16 = parts[0]
-                    .parse()
-                    .map_err(|e| anyhow!("Invalid new party ID '{}': {}", parts[0], e))?;
-                let old_party: u16 = parts[1]
-                    .parse()
-                    .map_err(|e| anyhow!("Invalid old party ID '{}': {}", parts[1], e))?;
-                new_to_old_map.insert(new_party, old_party);
-            }
+            // Find my party ID in the committee by address
+            let my_party_id = committee_data.find_party_id(&my_address).ok_or_else(|| {
+                anyhow!("My address {} not found in committee members", my_address)
+            })?;
+            println!("My party ID: {}", my_party_id);
 
-            // Fetch new committee candidate data from onchain
-            println!(
-                "Fetching new committee data from {} on {}...",
-                committee_id, network
-            );
-            let candidates = fetch_committee_candidate_data(&committee_id, rpc_url).await?;
-            println!(
-                "Successfully fetched {} candidates for new committee",
-                candidates.len()
-            );
+            let old_share = old_share
+                .as_ref()
+                .map(|s| -> Result<G2Scalar> { Ok(bcs::from_bytes(&Hex::decode(s)?)?) })
+                .transpose()?;
 
-            // Debug: Show all new committee members
-            println!("\nNew committee members:");
-            for (i, (addr, _pk)) in candidates.iter().enumerate() {
-                println!("  Party {}: {}", i, addr);
-            }
-
-            // Find my actual party ID by matching my ECIES public key against candidates
-            let my_enc_pk = Hex::encode_with_format(bcs::to_bytes(&enc_pk)?);
-            let my_party_id = candidates
-                .iter()
-                .position(|(_addr, pk)| pk == &my_enc_pk)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "My ECIES public key {} not found in committee candidates",
-                        my_enc_pk
+            let (my_old_party_id, old_enc_pk, old_threshold, new_to_old_map, expected_pks) =
+                if is_rotation {
+                    let old_committee_data = fetch_committee_data(
+                        &committee_data.old_committee_id.unwrap(),
+                        &mut grpc_client,
                     )
-                })? as u16;
+                    .await?;
+                    let my_old_party_id = old_committee_data
+                        .find_party_id(&my_address)
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "My address {} not found in old committee members",
+                                my_address
+                            )
+                        })?;
+                    let old_enc_pk = old_committee_data
+                        .members
+                        .iter()
+                        .find(|(_, address, _)| *address == my_address)
+                        .map(|(_, _, pk)| pk.clone())
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "My old ECIES PK not found in old committee members {}",
+                                my_address
+                            )
+                        })?;
+                    let old_threshold = old_committee_data.threshold;
 
-            println!(
-                "Found my party ID {} based on ECIES public key position in members list",
-                my_party_id
-            );
+                    let mut new_to_old_map = HashMap::new();
+                    committee_data
+                        .members
+                        .iter()
+                        .for_each(|(party_id, address, _)| {
+                            let old_party_id = old_committee_data
+                                .members
+                                .iter()
+                                .find(|(_, addr, _)| addr == address)
+                                .map(|(old_party_id, _, _)| *old_party_id);
+                            if let Some(old_party_id) = old_party_id {
+                                new_to_old_map.insert(*party_id, old_party_id);
+                            }
+                        });
 
-            if my_party_id != party_id {
-                println!(
-                    "WARNING: CLI parameter --party-id {} differs from actual party ID {} (determined by members order)",
-                    party_id, my_party_id
-                );
-            }
+                    let expected_pks = fetch_old_partial_pks_from_keyserver(
+                        &key_server_id.unwrap(),
+                        &mut grpc_client,
+                    )
+                    .await?;
+                    (
+                        Some(my_old_party_id),
+                        Some(old_enc_pk),
+                        Some(old_threshold),
+                        new_to_old_map,
+                        expected_pks,
+                    )
+                } else {
+                    (None, None, None, HashMap::new(), HashMap::new())
+                };
 
-            // Create nodes for all parties in the new committee using real public keys
+            // Create nodes for all parties using their enc_pks
             let mut nodes = Vec::new();
-            for (i, (_addr, pk_hex)) in candidates.iter().enumerate() {
-                let pk_bytes = Hex::decode(pk_hex)
-                    .map_err(|e| anyhow!("Failed to decode ECIES PK for party {}: {}", i, e))?;
-
-                let node_pk: PublicKey<G2Element> = bcs::from_bytes(&pk_bytes)
-                    .map_err(|e| anyhow!("Failed to deserialize ECIES PK for party {}: {}", i, e))?;
-
+            for (party_id, _, pk) in committee_data.members {
                 nodes.push(Node {
-                    id: i as u16,
-                    pk: node_pk,
+                    id: party_id,
+                    pk,
                     weight: 1,
                 });
             }
-
-            // Get my old PK if continuing member
-            let my_old_pk = if let Some(old_id) = old_party_id {
-                expected_pks.get(&old_id).cloned()
-            } else {
-                None
-            };
 
             let config = PartyConfig {
                 party_id: my_party_id,
@@ -443,12 +328,11 @@ async fn main() -> Result<()> {
                 signing_sk,
                 signing_pk,
                 committee_id,
-                threshold,
-                old_threshold: Some(old_threshold),
-                old_share: parsed_old_share,
-                old_pk: my_old_pk,
-                old_party_id,
-                is_continuing_member: is_continuing,
+                threshold: committee_data.threshold,
+                old_threshold,
+                old_share,
+                old_enc_pk,
+                old_party_id: my_old_party_id,
             };
 
             let state = DkgState {
@@ -464,29 +348,27 @@ async fn main() -> Result<()> {
             };
 
             state.save(&state_dir)?;
-            println!("Key rotation initialized and saved to {:?}", state_dir);
-            println!("Ready for key rotation protocol. Run 'create-message' to start.");
+            println!(
+                "State saved to {:?}. Ready for DKG protocol. Run 'create-message' to start.",
+                state_dir
+            );
         }
 
         Commands::CreateMessage { state_dir } => {
             let mut state = DkgState::load(&state_dir)?;
 
             // For rotation, only continuing members create messages
-            if state.config.old_threshold.is_some() && !state.config.is_continuing_member {
+            if state.config.old_share.is_none() {
                 println!(
                     "New party {} - skipping message creation for rotation",
                     state.config.party_id
-                );
-                println!(
-                    "Waiting for messages from {} continuing members",
-                    state.config.old_threshold.unwrap()
                 );
                 return Ok(());
             }
 
             println!("Creating DKG message for party {}", state.config.party_id);
 
-            let random_oracle = RandomOracle::new(&state.config.committee_id);
+            let random_oracle = RandomOracle::new(&state.config.committee_id.to_string());
 
             // Create party instance
             let party = if let Some(old_share) = state.config.old_share {
@@ -565,7 +447,7 @@ async fn main() -> Result<()> {
                 state.config.enc_sk.clone(),
                 state.nodes.clone(),
                 state.config.threshold,
-                RandomOracle::new(&state.config.committee_id),
+                RandomOracle::new(&state.config.committee_id.to_string()),
                 state.config.old_share,
                 state.config.old_threshold,
                 &mut thread_rng(),
@@ -684,9 +566,11 @@ async fn main() -> Result<()> {
 
             state.output = Some(output.clone());
 
-            println!("========================================");
-            println!("KEY_SERVER_PK={}", Hex::encode_with_format(bcs::to_bytes(output.vss_pk.c0())?));
-            println!("========================================");
+            println!("============MASTER PK AND PARTIAL PKS=====================");
+            println!(
+                "KEY_SERVER_PK={}",
+                Hex::encode_with_format(bcs::to_bytes(output.vss_pk.c0())?)
+            );
             // Generate partial public keys for ALL parties in the new committee
             for party_id in 0..state.nodes.num_nodes() {
                 // party id is 0 index and share index is party id + 1
@@ -699,38 +583,25 @@ async fn main() -> Result<()> {
                 );
             }
 
+            println!("============YOUR PARTIAL KEY SHARE, KEEP SECRET=====================");
             if let Some(shares) = &output.shares {
-                println!("========================================");
-                println!(
-                    "YOUR SECRET SHARE (THIS IS YOUR MASTER KEY FOR THE KEY SERVER- KEEP PRIVATE):"
-                );
                 for share in shares {
-                    println!("   {}", Hex::encode_with_format(bcs::to_bytes(&share.value)?));
-                }
-
-                println!("========================================");
-                println!("YOUR PARTY ID AND PARTIAL PUBLIC KEY:");
-                for share in shares {
-                    let my_partial_pk = output.vss_pk.eval(share.index);
                     println!(
-                        "  Party ID {} {}",
-                        state.config.party_id,
-                        Hex::encode_with_format(bcs::to_bytes(&my_partial_pk.value)?)
+                        "MASTER_KEY={}",
+                        Hex::encode_with_format(bcs::to_bytes(&share.value)?)
                     );
                 }
             }
 
-            println!("========================================");
-            println!("FULL VSS POLYNOMIAL COEFFICIENTS:");
+            println!("============FULL VSS POLYNOMIAL COEFFICIENTS=====================");
             for i in 0..=output.vss_pk.degree() {
                 let coeff = output.vss_pk.coefficient(i);
                 println!(
-                    "   Coefficient {}: {}",
+                    "Coefficient {}: {}",
                     i,
                     Hex::encode_with_format(bcs::to_bytes(coeff)?)
                 );
             }
-            println!("========================================");
         }
     }
 
