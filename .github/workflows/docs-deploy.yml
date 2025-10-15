@@ -62,7 +62,7 @@ jobs:
             File: "$HOME/.sui/sui_config/sui.keystore"
           envs:
             - alias: mainnet
-              rpc: "https://fullnode.mainnet.sui.io:44"
+              rpc: "https://fullnode.mainnet.sui.io:443"
           active_env: mainnet
           # Active address will be set later after key import
           YAML
@@ -72,7 +72,7 @@ jobs:
       - name: Configure Sui client for mainnet
         run: |
           # Create or update mainnet env and switch to it
-          sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:44 || true
+          sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:443 || true
           sui client switch --env mainnet
 
       - name: Show Sui client info
