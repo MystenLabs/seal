@@ -50,6 +50,12 @@ jobs:
           brew install sui || (brew tap mystenlabs/tap && brew install mystenlabs/tap/sui)
           sui --version
 
+      - name: Initialize Sui client config (non-interactive)
+        run: |
+          mkdir -p "$HOME/.sui/sui_config"
+          # Accept first-run prompt automatically
+          printf 'y\n' | sui client envs || true
+
       - name: Configure Sui client for mainnet
         run: |
           # Create or update mainnet env and switch to it
