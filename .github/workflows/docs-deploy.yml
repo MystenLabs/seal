@@ -83,15 +83,15 @@ jobs:
 
       - name: Import Sui private key and select address
         env:
-          SUI_PRIVATE_KEY: ${{ secrets.SUI_PRIVATE_KEY }}
+          SEAL_WALLET_PRIVATE_KEY: ${{ secrets.SEAL_WALLET_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${SUI_PRIVATE_KEY:-}" ]; then
-            echo "SUI_PRIVATE_KEY secret is not set. Add it in repository Settings > Secrets and variables > Actions." >&2
+          if [ -z "${SEAL_WALLET_PRIVATE_KEY:-}" ]; then
+            echo "SEAL_WALLET_PRIVATE_KEY secret is not set. Add it in repository Settings > Secrets and variables > Actions." >&2
             exit 1
           fi
           # Import the ed25519 key (idempotent)
-          sui keytool import "$SUI_PRIVATE_KEY" ed25519 || true
+          sui keytool import "$SEAL_WALLET_PRIVATE_KEY" ed25519 || true
 
           # Desired address
           target_addr="0x7edc2e9108968bc3df2b5543cf9ce9ee7bcdc28b043044e51cc1900510b6f58e"
