@@ -52,9 +52,22 @@ jobs:
 
       - name: Initialize Sui client config (non-interactive)
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.sui/sui_config"
-          # Accept first-run prompt automatically
-          printf 'y\n' | sui client envs || true
+          # Ensure keystore file exists
+          touch "$HOME/.sui/sui_config/sui.keystore"
+          # Write minimal client.yaml pointing to keystore and mainnet env
+          cat > "$HOME/.sui/sui_config/client.yaml" <<YAML
+          keystore:
+            File: "$HOME/.sui/sui_config/sui.keystore"
+          envs:
+            - alias: mainnet
+              rpc: "https://fullnode.mainnet.sui.io:44"
+          active_env: mainnet
+          # Active address will be set later after key import
+          YAML
+          # Show resulting config for debugging
+          cat "$HOME/.sui/sui_config/client.yaml"
 
       - name: Configure Sui client for mainnet
         run: |
