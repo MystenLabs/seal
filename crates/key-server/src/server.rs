@@ -52,6 +52,7 @@ use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
@@ -145,6 +146,8 @@ impl Server {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
+            SuiGrpcClient::new(Network::Testnet.node_url())
+                .expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics,
         );

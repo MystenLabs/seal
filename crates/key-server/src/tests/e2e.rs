@@ -29,6 +29,7 @@ use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
+use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
@@ -531,7 +532,13 @@ async fn create_server(
         .collect::<Vec<_>>();
 
     Server {
-        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
+        sui_rpc_client: SuiRpcClient::new(
+            sui_client,
+            SuiGrpcClient::new(Network::Testnet.node_url())
+                .expect("Failed to create SuiGrpcClient"),
+            RetryConfig::default(),
+            None,
+        ),
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,

@@ -51,6 +51,11 @@ http-body-util = "0.1.2"
 futures = "0.3"
 seal-sdk = { path = "../seal-sdk" }
 
+# sui grpc dep
+sui-rpc = { workspace = true }
+prost-types = { workspace = true }
+tonic = { workspace = true }
+
 [dev-dependencies]
 tracing-test = "0.2.5"
 test-cluster = { workspace = true }
