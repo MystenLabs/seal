@@ -11,7 +11,7 @@ jobs:
   build-and-deploy:
     name: Build and deploy MkDocs to Walrus
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
@@ -134,8 +134,36 @@ jobs:
 
       - name: Deploy site to Walrus and verify
         run: |
+          set -euo pipefail
           ls -la ./site || true
-          ./site-builder deploy ./site --check-extend --epochs 50
-          ./site-builder sitemap @seal-docs
+          export RUST_LOG=info
+
+          # Retry deploy up to 4 times with backoff to handle transient network timeouts
+          for attempt in 1 2 3 4; do
+            echo "Deploy attempt $attempt"
+            if ./site-builder deploy ./site --check-extend --epochs 50; then
+              echo "Deploy succeeded on attempt $attempt";
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Deploy failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+
+          # Retry sitemap generation similarly
+          for attempt in 1 2 3; do
+            echo "Sitemap attempt $attempt"
+            if ./site-builder sitemap @seal-docs; then
+              echo "Sitemap succeeded on attempt $attempt";
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Sitemap failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
 
