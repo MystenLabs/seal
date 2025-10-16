@@ -58,10 +58,9 @@ public enum ServerType has drop, store {
 /// PartialKeyServer, holds the parital pk and URL that belongs to a
 /// committee based KeyServerV2.
 public struct PartialKeyServer has copy, drop, store {
-    partial_pk: vector<u8>, // Partial public key (BLS G2 point)
-    url: String, // Key server URL
-    party_id: u16,
-    owner: address,
+    partial_pk: vector<u8>, // Partial public key (G2 element).
+    url: String, // Key server URL.
+    party_id: u16, // Party ID in the DKG. need for sdk to look up.
 }
 
 // ===== V2 Functions =====
@@ -109,13 +108,11 @@ public fun create_partial_key_server(
     partial_pk: vector<u8>,
     url: String,
     party_id: u16,
-    owner: address,
 ): PartialKeyServer {
     PartialKeyServer {
         partial_pk,
         url,
         party_id,
-        owner,
     }
 }
 
@@ -137,7 +134,7 @@ public fun set_partial_key_servers(
 
 /// Get the v2 struct of a key server.
 public fun v2(s: &KeyServer): &KeyServerV2 {
-    assert!(has_v2(s), EInvalidVersion);
+    assert!(s.has_v2(), EInvalidVersion);
     df::borrow(&s.id, 2)
 }
 
@@ -147,8 +144,8 @@ public fun has_v2(s: &KeyServer): bool {
 }
 
 /// Check if KeyServer is v2 and is a committee server.
-public fun assert_committee_server_v2(s: &KeyServer) {
-    assert!(has_v2(s), EInvalidVersion);
+fun assert_committee_server_v2(s: &KeyServer) {
+    assert!(s.has_v2(), EInvalidVersion);
     assert!(
         match (&s.v2().server_type) {
             ServerType::Committee { threshold: _, partial_key_servers: _ } => true,
@@ -165,7 +162,7 @@ public fun id(s: &KeyServer): address {
 
 /// Get name (supports both v1 and v2)
 public fun name(s: &KeyServer): String {
-    if (has_v2(s)) {
+    if (s.has_v2()) {
         s.v2().name
     } else {
         s.v1().name
@@ -174,25 +171,13 @@ public fun name(s: &KeyServer): String {
 
 /// Get key type (supports both v1 and v2)
 public fun key_type(s: &KeyServer): u8 {
-    if (has_v2(s)) {
+    if (s.has_v2()) {
         s.v2().key_type
     } else {
         s.v1().key_type
     }
 }
 
-/// Get the URL of the partial key server object corresponding to the member.
-#[test_only]
-public fun url_for_member(s: &KeyServer, member: address): String {
-    assert_committee_server_v2(s);
-    let v2: &KeyServerV2 = df::borrow(&s.id, 2);
-    match (&v2.server_type) {
-        ServerType::Committee { threshold: _, partial_key_servers } => {
-            partial_key_servers.get(&member).url
-        },
-        _ => abort EInvalidServerType,
-    }
-}
 // ===== V1 functions =====
 
 fun create_v1(
@@ -257,6 +242,7 @@ public fun update(s: &mut KeyServer, url: String) {
     }
 }
 
+/// Update URL for a partial key server in a committee based KeyServerV2.
 public fun update_partial_key_server_url(s: &mut KeyServer, url: String, member: address) {
     assert_committee_server_v2(s);
     let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
@@ -276,7 +262,7 @@ public fun url(s: &KeyServer): String {
 
 /// Get public key (supports both v1 and v2)
 public fun pk(s: &KeyServer): &vector<u8> {
-    if (has_v2(s)) {
+    if (s.has_v2()) {
         &s.v2().pk
     } else {
         &s.v1().pk
@@ -288,6 +274,37 @@ public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
     let v1 = s.v1();
     assert!(v1.key_type == KeyTypeBonehFranklinBLS12381, EInvalidKeyType);
     g2_from_bytes(&v1.pk)
+}
+
+/// Get the partial key server object corresponding to the member.
+#[test_only]
+public fun partial_key_server_for_member(s: &KeyServer, member: address): PartialKeyServer {
+    assert_committee_server_v2(s);
+    let v2: &KeyServerV2 = df::borrow(&s.id, 2);
+    match (&v2.server_type) {
+        ServerType::Committee { threshold: _, partial_key_servers } => {
+            *partial_key_servers.get(&member)
+        },
+        _ => abort EInvalidServerType,
+    }
+}
+
+/// Get URL for PartialKeyServer.
+#[test_only]
+public fun partial_ks_url(partial: &PartialKeyServer): String {
+    partial.url
+}
+
+/// Get partial PK for PartialKeyServer.
+#[test_only]
+public fun partial_ks_pk(partial: &PartialKeyServer): vector<u8> {
+    partial.partial_pk
+}
+
+/// Get party ID for PartialKeyServer.
+#[test_only]
+public fun partial_ks_party_id(partial: &PartialKeyServer): u16 {
+    partial.party_id
 }
 
 #[test_only]
