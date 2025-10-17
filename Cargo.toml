@@ -21,6 +21,9 @@ hex = "0.4"
 clap = { version = "4.5.40", features = ["derive"] }
 tracing = "0.1.37"
 serde_with = "3.13.0"
+prost-types = "0.13"
+sui-rpc = "0.0.8"
+tonic = "0.13"
 
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
