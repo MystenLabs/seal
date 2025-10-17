@@ -4433,6 +4433,7 @@ name = "key-server"
 version = "0.5.12"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.8.4",
  "bcs",
  "chrono",

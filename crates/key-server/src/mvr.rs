@@ -16,7 +16,7 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
-use crate::sui_rpc_client::SuiRpcClient;
+use crate::sui_rpc_client::{RpcClient, SuiRpcClient};
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -91,8 +91,8 @@ impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
 }
 
 /// Given an MVR name, look up the package it points to.
-pub(crate) async fn mvr_forward_resolution(
-    sui_rpc_client: &SuiRpcClient,
+pub(crate) async fn mvr_forward_resolution<Client: RpcClient>(
+    sui_rpc_client: &SuiRpcClient<Client>,
     mvr_name: &str,
     key_server_options: &KeyServerOptions,
 ) -> Result<ObjectID, InternalError> {
@@ -171,9 +171,9 @@ pub(crate) fn resolve_network(network: &Network) -> Result<Network, InternalErro
 }
 
 /// Given an MVR name, look up the record in the MVR registry on mainnet.
-async fn get_from_mvr_registry(
+async fn get_from_mvr_registry<Client: RpcClient>(
     mvr_name: &str,
-    mainnet_sui_rpc_client: &SuiRpcClient,
+    mainnet_sui_rpc_client: &SuiRpcClient<Client>,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
     let record_id = mainnet_sui_rpc_client
@@ -213,10 +213,14 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
     })
 }
 
-async fn get_object<T: for<'a> Deserialize<'a>>(
+async fn get_object<T, Client>(
     object_id: ObjectID,
-    sui_rpc_client: &SuiRpcClient,
-) -> Result<T, InternalError> {
+    sui_rpc_client: &SuiRpcClient<Client>,
+) -> Result<T, InternalError>
+where
+    T: for<'a> Deserialize<'a>,
+    Client: RpcClient,
+{
     bcs::from_bytes(
         sui_rpc_client
             .get_object_with_options(object_id, SuiObjectDataOptions::new().with_bcs())

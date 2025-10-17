@@ -14,6 +14,7 @@ use rand::thread_rng;
 use seal_sdk::signed_message;
 use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
+use sui_sdk::SuiClient;
 use sui_types::{
     base_types::ObjectID, crypto::Signature, signature::GenericSignature,
     transaction::ProgrammableTransaction,
@@ -57,7 +58,7 @@ pub(super) fn sign(
 }
 
 pub(crate) async fn get_key(
-    server: &Server,
+    server: &Server<SuiClient>,
     pkg_id: &ObjectID,
     ptb: ProgrammableTransaction,
     kp: &Ed25519KeyPair,

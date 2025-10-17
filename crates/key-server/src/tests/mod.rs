@@ -25,6 +25,7 @@ use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
+use sui_sdk::SuiClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::move_package::UpgradePolicy;
@@ -43,7 +44,7 @@ pub(crate) struct SealTestCluster {
     cluster: TestCluster,
     #[allow(dead_code)]
     pub(crate) registry: (ObjectID, ObjectID),
-    pub(crate) servers: Vec<(ObjectID, Server)>,
+    pub(crate) servers: Vec<(ObjectID, Server<SuiClient>)>,
     pub(crate) users: Vec<SealUser>,
 }
 
@@ -142,7 +143,7 @@ impl SealTestCluster {
         };
     }
 
-    pub fn server(&self) -> &Server {
+    pub fn server(&self) -> &Server<SuiClient> {
         &self.servers[0].1
     }
 
