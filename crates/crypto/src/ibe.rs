@@ -16,7 +16,7 @@ use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto::hmac::{hkdf_sha3_256, HkdfIkm};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::{AllowedRng, ToFromBytes};
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::Address as ObjectID;
 
 pub type MasterKey = Scalar;
 pub type PublicKey = G2Element;
@@ -129,7 +129,7 @@ pub fn decrypt(
 }
 
 /// Verify that the given randomness was used to crate the nonce.
-fn verify_nonce(randomness: &Randomness, nonce: &Nonce) -> FastCryptoResult<()> {
+pub fn verify_nonce(randomness: &Randomness, nonce: &Nonce) -> FastCryptoResult<()> {
     if G2Element::generator() * randomness != *nonce {
         return Err(GeneralError("Invalid randomness".to_string()));
     }
@@ -170,7 +170,7 @@ fn kdf(
     hash.update(input.to_byte_array());
     hash.update(nonce.to_byte_array());
     hash.update(gid.to_byte_array());
-    hash.update(object_id.as_slice());
+    hash.update(object_id.as_bytes());
     hash.update([*index]);
     hash.finalize().digest
 }
@@ -181,14 +181,11 @@ pub fn encrypt_randomness(randomness: &Randomness, key: &[u8; KEY_SIZE]) -> Encr
 }
 
 /// Decrypt the Randomness using a key and verify that the randomness was used to create the given nonce.
-pub fn decrypt_and_verify_nonce(
+pub fn decrypt_randomness(
     encrypted_randomness: &EncryptedRandomness,
     derived_key: &[u8; KEY_SIZE],
-    nonce: &Nonce,
 ) -> FastCryptoResult<Randomness> {
-    let randomness = Scalar::from_byte_array(&xor(derived_key, encrypted_randomness))?;
-    verify_nonce(&randomness, nonce)?;
-    Ok(randomness)
+    Scalar::from_byte_array(&xor(derived_key, encrypted_randomness))
 }
 
 pub type ProofOfPossession = G1Element;

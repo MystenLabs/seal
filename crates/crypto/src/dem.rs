@@ -47,11 +47,12 @@ impl Aes256Gcm {
 }
 
 /// Authenticated encryption using CTR mode with HMAC-SHA3-256 as a PRF.
-/// 1. Derive an encryption key, <i>k<sub>1</sub> = <b>hmac</b>(key, 1)</i>.
-/// 2. Chunk the message into blocks of 32 bytes, <i>m = m<sub>1</sub> || ... || m<sub>n</sub></i>.
-/// 3. Let the ciphertext be defined by <i>c = c<sub>1</sub> || ... || c<sub>n</sub></i> where <i>c<sub>i</sub> = m<sub>i</sub> ⊕ <b>hmac</b>(k<sub>1</sub>, i)</i>.
-/// 4. Compute a MAC over the AAD and the ciphertext, <i>mac = <b>hmac</b>(k<sub>2</sub>, aad || c) where k<sub>2</sub> = <b>hmac</b>(key, 2)</i>.
-/// 5. Return <i>mac || c</i>.
+/// 1. Chunk the message into blocks of 32 bytes, <i>m = m<sub>1</sub> || ... || m<sub>n</sub></i>.
+/// 2. Let the ciphertext be defined by <i>c = c<sub>1</sub> || ... || c<sub>n</sub></i> where <i>c<sub>i</sub> = m<sub>i</sub> ⊕ <b>hmac</b>("ENC", k, i)</i>.
+/// 3. Compute a MAC over the AAD and the ciphertext, <i>mac = <b>hmac</b>("MAC", k, aad, c).
+/// 4. Return <i>mac || c</i>.
+///
+/// This is intended to be used as part of a KEM/DEM construction with random keys. Since there is no IV for this scheme, the same key must never be used to encrypt two different messages.
 pub struct Hmac256Ctr;
 
 impl Hmac256Ctr {

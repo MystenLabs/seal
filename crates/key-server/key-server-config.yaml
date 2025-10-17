@@ -5,10 +5,15 @@
 # network: Mainnet
 # network: Devnet
 # network: !Custom
-#   node_url: 'url_to_node_endpoint'
+#   node_url: 'url_to_node_endpoint'  # Optional - see below
+#   use_default_mainnet_for_mvr: true # Optional, default to true if not present, 
+set this to false for mvr to resolve on testnet. 
 #
-# Use Custom for production deployments, and set the `node_url` 
-# with the URL of your Full Node endpoint.
+# Use Custom for production deployments. You must provide the node URL
+# in exactly one of these ways:
+# 1. Set the `node_url` in this config file
+# 2. OR omit `node_url` here and set the NODE_URL environment variable
+#
 #
 # Example:
 network: Testnet
@@ -84,3 +89,10 @@ server_mode: !Open
 # rgp_update_interval: '60s'
 # allowed_staleness: '2m'
 # session_key_ttl_max: '30m'
+
+# Optional: Metrics push configuration to send metrics to seal-proxy
+# Uncomment and configure to enable pushing metrics to an external endpoint
+# metrics_push_config:
+#   bearer_token: "random-string-for-testing"
+#   push_interval_secs: 10
+#   push_url: "http://localhost:8000/publish/metrics"

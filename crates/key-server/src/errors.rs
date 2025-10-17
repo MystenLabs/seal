@@ -10,23 +10,23 @@ use serde::Serialize;
 pub enum InternalError {
     InvalidPTB(String),
     InvalidPackage,
-    NoAccess,
+    NoAccess(String),
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
     InvalidSDKVersion,
     DeprecatedSDKVersion,
     MissingRequiredHeader(String),
-    InvalidParameter,
+    InvalidParameter(String),
     InvalidMVRName,
     InvalidServiceId,
     UnsupportedPackageId,
-    Failure, // Internal error, try again later
+    Failure(String), // Internal error, try again later. Debug message is for logging only.
 }
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
-    error: InternalError,
+    error: String,
     message: String,
 }
 
@@ -39,7 +39,9 @@ impl IntoResponse for InternalError {
             InternalError::InvalidPackage => {
                 (StatusCode::FORBIDDEN, "Invalid package ID".to_string())
             }
-            InternalError::NoAccess => (StatusCode::FORBIDDEN, "Access denied".to_string()),
+            InternalError::NoAccess(ref inner) => {
+                (StatusCode::FORBIDDEN, format!("Access denied: {inner}"))
+            }
             InternalError::InvalidCertificate => (
                 StatusCode::FORBIDDEN,
                 "Invalid certificate time or ttl".to_string(),
@@ -62,9 +64,9 @@ impl IntoResponse for InternalError {
                 StatusCode::FORBIDDEN,
                 "Invalid session key signature".to_string(),
             ),
-            InternalError::InvalidParameter => (
+            InternalError::InvalidParameter(ref inner) => (
                 StatusCode::FORBIDDEN,
-                "Invalid parameter. If the object was just created, try again later.".to_string(),
+                format!("Invalid parameter to PTB: {inner}").to_string(),
             ),
             InternalError::InvalidMVRName => {
                 (StatusCode::FORBIDDEN, "Invalid MVR name".to_string())
@@ -76,14 +78,14 @@ impl IntoResponse for InternalError {
                 StatusCode::BAD_REQUEST,
                 "Unsupported package ID".to_string(),
             ),
-            InternalError::Failure => (
+            InternalError::Failure(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
             ),
         };
 
         let error_response = ErrorResponse {
-            error: self,
+            error: self.as_str().to_string(),
             message,
         };
 
@@ -96,18 +98,18 @@ impl InternalError {
         match self {
             InternalError::InvalidPTB(_) => "InvalidPTB",
             InternalError::InvalidPackage => "InvalidPackage",
-            InternalError::NoAccess => "NoAccess",
+            InternalError::NoAccess(_) => "NoAccess",
             InternalError::InvalidCertificate => "InvalidCertificate",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
-            InternalError::InvalidParameter => "InvalidParameter",
+            InternalError::InvalidParameter(_) => "InvalidParameter",
             InternalError::InvalidMVRName => "InvalidMVRName",
             InternalError::InvalidServiceId => "InvalidServiceId",
             InternalError::UnsupportedPackageId => "UnsupportedPackageId",
-            InternalError::Failure => "Failure",
+            InternalError::Failure(_) => "Failure",
         }
     }
 }

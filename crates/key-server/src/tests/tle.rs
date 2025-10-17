@@ -3,8 +3,9 @@
 
 use crate::tests::externals::sign;
 use crate::tests::SealTestCluster;
+use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
-use crate::{current_epoch_time, InternalError};
+use crate::InternalError;
 use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::traits::KeyPair;
@@ -86,7 +87,7 @@ async fn test_tle_policy() {
                 None,
             )
             .await;
-        assert_eq!(result, Err(InternalError::NoAccess));
+        assert!(matches!(result, Err(InternalError::NoAccess(_))));
     }
 }
 

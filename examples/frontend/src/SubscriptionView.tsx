@@ -11,7 +11,7 @@ import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex } from '@radix-ui/themes';
 import { coinWithBalance, Transaction } from '@mysten/sui/transactions';
 import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
-import { SealClient, SessionKey, getAllowlistedKeyServers } from '@mysten/seal';
+import { SealClient, SessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
@@ -30,10 +30,11 @@ export interface FeedData {
 const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
   const { id } = useParams();
+  const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
 
   const client = new SealClient({
     suiClient,
-    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    serverConfigs: serverObjectIds.map((id) => ({
       objectId: id,
       weight: 1,
     })),

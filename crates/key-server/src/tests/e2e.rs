@@ -10,20 +10,27 @@ use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
+use crate::time::from_mins;
 use crate::types::Network;
-use crate::utils::from_mins;
 use crate::{DefaultEncoding, Server};
-use crypto::ibe::{generate_seed, public_key_from_master_key};
-use crypto::{ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys, IBEUserSecretKeys};
+use crypto::elgamal::encrypt;
+use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
+use crypto::{
+    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys,
+    IBEUserSecretKeys,
+};
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
+use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
+use seal_sdk::{genkey, seal_decrypt_all_objects};
 use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_sdk::SuiClient;
+use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
 use test_cluster::TestClusterBuilder;
@@ -53,14 +60,19 @@ async fn test_e2e() {
 
     // Read the public keys from the service objects
     let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| NewObjectID::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        examples_package_id,
+        NewObjectID::new(examples_package_id.into_bytes()),
         whitelist.to_vec(),
-        services.clone(),
+        services_ids.clone(),
         &pks,
         2,
         EncryptionInput::Aes256Gcm {
@@ -88,12 +100,125 @@ async fn test_e2e() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip(usks).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip(usks).collect()),
         Some(&pks),
     )
     .unwrap();
 
     assert_eq!(decryption, message);
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_decrypt_all_objects() {
+    let mut tc = SealTestCluster::new(1).await;
+    tc.add_open_servers(3).await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+
+    let (whitelist, cap, _initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    let services = tc.get_services();
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| NewObjectID::new(id.into_bytes()))
+        .collect::<Vec<_>>();
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
+
+    let message1 = b"First message";
+    let message2 = b"Second message";
+
+    let id1 = vec![1, 2, 3, 4];
+    let id2 = vec![5, 6, 7, 8];
+
+    let encryption1 = seal_encrypt(
+        NewObjectID::new(examples_package_id.into_bytes()),
+        id1.clone(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message1.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    let encryption2 = seal_encrypt(
+        NewObjectID::new(examples_package_id.into_bytes()),
+        id2.clone(),
+        services_ids.clone(),
+        &pks,
+        2,
+        EncryptionInput::Aes256Gcm {
+            data: message2.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    let eg_keys = genkey::<UserSecretKey, crypto::ibe::PublicKey, _>(&mut thread_rng());
+    let (eg_sk, eg_pk, _) = eg_keys;
+
+    let full_id1 = create_full_id(&examples_package_id.into_bytes(), &id1);
+    let full_id2 = create_full_id(&examples_package_id.into_bytes(), &id2);
+
+    let mut seal_responses = Vec::new();
+    let mut server_pk_map = HashMap::new();
+
+    for (service_id, server) in tc.servers.iter() {
+        let master_keys = &server.master_keys;
+        let master_key = master_keys.get_key_for_key_server(service_id).unwrap();
+
+        let usk1 = extract(master_key, &full_id1);
+        let usk2 = extract(master_key, &full_id2);
+
+        let enc_usk1 = encrypt(&mut thread_rng(), &usk1, &eg_pk);
+        let enc_usk2 = encrypt(&mut thread_rng(), &usk2, &eg_pk);
+
+        let response = FetchKeyResponse {
+            decryption_keys: vec![
+                DecryptionKey {
+                    id: full_id1.clone(),
+                    encrypted_key: enc_usk1,
+                },
+                DecryptionKey {
+                    id: full_id2.clone(),
+                    encrypted_key: enc_usk2,
+                },
+            ],
+        };
+
+        let service_id_sdk = NewObjectID::new(service_id.into_bytes());
+        seal_responses.push((service_id_sdk, response));
+
+        let public_key = public_key_from_master_key(master_key);
+        server_pk_map.insert(service_id_sdk, public_key);
+    }
+
+    let encrypted_objects = vec![encryption1, encryption2];
+
+    let decrypted =
+        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
+            .unwrap();
+
+    assert_eq!(decrypted.len(), 2);
+    assert_eq!(decrypted[0], message1);
+    assert_eq!(decrypted[1], message2);
 }
 
 #[traced_test]
@@ -142,7 +267,7 @@ async fn test_e2e_permissioned() {
                 package_ids: vec![ObjectID::random()],
             },
         ],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 
@@ -157,7 +282,7 @@ async fn test_e2e_permissioned() {
             key_server_object_id: ObjectID::random(),
             package_ids: vec![ObjectID::random()],
         }],
-        [("MASTER_SEED", [0u8; 32].as_slice())],
+        [("MASTER_KEY", [0u8; 32].as_slice())],
     )
     .await;
 
@@ -175,13 +300,17 @@ async fn test_e2e_permissioned() {
 
     // This is encrypted using just the client on the first server
     let services = vec![key_server_object_id];
-
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| NewObjectID::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        package_id,
+        NewObjectID::new(package_id.into_bytes()),
         whitelist.to_vec(),
-        services.to_vec(),
+        services_ids.to_vec(),
         &pks,
         1,
         EncryptionInput::Aes256Gcm {
@@ -206,7 +335,7 @@ async fn test_e2e_permissioned() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip([usk]).collect()),
         Some(&pks),
     )
     .unwrap();
@@ -252,7 +381,7 @@ async fn test_e2e_imported_key() {
             key_server_object_id,
             package_ids: vec![package_id],
         }],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 
@@ -270,13 +399,17 @@ async fn test_e2e_imported_key() {
 
     // This is encrypted using just the first client
     let services = vec![key_server_object_id];
-
+    let services_ids = services
+        .clone()
+        .into_iter()
+        .map(|id| NewObjectID::new(id.into_bytes()))
+        .collect::<Vec<_>>();
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
     let encryption = seal_encrypt(
-        package_id,
+        NewObjectID::new(package_id.into_bytes()),
         whitelist.to_vec(),
-        services.to_vec(),
+        services_ids.clone().to_vec(),
         &pks,
         1,
         EncryptionInput::Aes256Gcm {
@@ -299,7 +432,7 @@ async fn test_e2e_imported_key() {
     let decryption = seal_decrypt(
         &encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(
-            services.clone().into_iter().zip([usk]).collect(),
+            services_ids.clone().into_iter().zip([usk]).collect(),
         ),
         Some(&pks),
     )
@@ -323,7 +456,7 @@ async fn test_e2e_imported_key() {
                 "IMPORTED_MASTER_KEY",
                 derived_master_key.to_byte_array().as_slice(),
             ),
-            ("MASTER_SEED", [0u8; 32].as_slice()),
+            ("MASTER_KEY", [0u8; 32].as_slice()),
         ],
     )
     .await;
@@ -336,7 +469,7 @@ async fn test_e2e_imported_key() {
     // Decrypt the message
     let decryption = seal_decrypt(
         &encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(services.into_iter().zip([usk]).collect()),
+        &IBEUserSecretKeys::BonehFranklinBLS12381(services_ids.into_iter().zip([usk]).collect()),
         Some(&pks),
     )
     .unwrap();
@@ -364,7 +497,7 @@ async fn test_e2e_imported_key() {
                 package_ids: vec![ObjectID::random()],
             },
         ],
-        [("MASTER_SEED", seed.as_slice())],
+        [("MASTER_KEY", seed.as_slice())],
     )
     .await;
 
@@ -388,6 +521,7 @@ async fn create_server(
         allowed_staleness: Duration::from_secs(120),
         session_key_ttl_max: from_mins(30),
         rpc_config: RpcConfig::default(),
+        metrics_push_config: None,
     };
 
     let vars = vars

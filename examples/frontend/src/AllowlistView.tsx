@@ -7,11 +7,10 @@ import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes'
 import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
 import {
-  getAllowlistedKeyServers,
   KeyServerConfig,
   SealClient,
   SessionKey,
-  type SessionKeyType,
+  type ExportedSessionKey
 } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
@@ -36,15 +35,17 @@ function constructMoveCall(packageId: string, allowlistId: string): MoveCallCons
 
 const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
+  const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
   const client = new SealClient({
     suiClient,
-    serverConfigs: getAllowlistedKeyServers('testnet').map((id) => ({
+    serverConfigs: serverObjectIds.map((id) => ({
       objectId: id,
       weight: 1,
     })),
     verifyKeyServers: false,
   });
   const packageId = useNetworkVariable('packageId');
+  const mvrName = useNetworkVariable('mvrName');
 
   const [feed, setFeed] = useState<FeedData>();
   const [decryptedFileUrls, setDecryptedFileUrls] = useState<string[]>([]);
@@ -88,7 +89,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   }
 
   const onView = async (blobIds: string[], allowlistId: string) => {
-    const imported: SessionKeyType = await get('sessionKey');
+    const imported: ExportedSessionKey = await get('sessionKey');
 
     if (imported) {
       try {
@@ -128,6 +129,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       packageId,
       ttlMin: TTL_MIN,
       suiClient,
+      mvrName,
     });
 
     try {

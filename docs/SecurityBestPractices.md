@@ -1,11 +1,3 @@
-## Table of Contents:
-
-- [Introduction](README.md)
-- [Seal Design](Design.md)
-- [Using Seal](UsingSeal.md)
-- [Pricing](Pricing.md)
-- [Seal Beta Terms of Service](TermsOfService.md)
-
 # Security best practices and risk mitigations
 
 When using Seal to manage encrypted data and access policies, it’s important to understand and mitigate certain risks associated with key management, data availability, and operational trust. This section outlines recommendations for developers to follow when integrating Seal into production systems, especially for use cases involving sensitive or long-lived data.
@@ -28,6 +20,9 @@ To reduce operational risk, you should:
 
 Legal agreements can serve as a deterrent to unilateral service disruptions and provide a recourse mechanism if a provider fails to meet expectations.
 
+!!! tip
+    Confirm the Full node dependency behind the key server - whether it’s self-managed, third-party-managed, or a public-good Full node. Ask for relevant details on redundancy/failover, upgrade cadence, and SLAs. Factor these dependencies into your security and availability assumptions when selecting providers.
+
 ## Use layered encryption for critical or large data
 
 If you're handling data that is highly sensitive, large in size, or difficult to re-encrypt frequently, consider using **envelope encryption**.
@@ -46,8 +41,8 @@ The Seal SDK’s `encrypt` API returns a symmetric key used to encrypt your data
 
 Anyone who retains this key is responsible for keeping it secure. If the key is leaked, unauthorized parties may gain access to the encrypted data.
 
-> [!NOTE] 
-> This symmetric key is distinct from the one used in the layered encryption pattern.
+!!!note
+    This symmetric key is distinct from the one used in the layered encryption pattern.
 
 ## Understand the risks of leaked decryption keys
 
@@ -62,5 +57,3 @@ To help detect or respond to such incidents:
 * Store logs in a tamper-evident system such as Walrus, or anchor them to the chain if required.
 
 This can support transparency, internal review, or regulatory compliance in high-trust scenarios.
-
-[Back to table of contents](#table-of-contents)

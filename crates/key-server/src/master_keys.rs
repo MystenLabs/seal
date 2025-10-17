@@ -15,11 +15,7 @@ use std::collections::HashMap;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
-/// In Open mode, the key server has a single master key which should be set in the environment variable `MASTER_KEY`.
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
-
-/// In Permissioned mode, the key server has a seed used to derive master keys for clients, which should be set in the environment variable `MASTER_SEED`.
-const MASTER_SEED_ENV_VAR: &str = "MASTER_SEED";
 
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
@@ -49,7 +45,7 @@ impl MasterKeys {
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
                 let mut key_server_oid_to_key = HashMap::new();
-                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_SEED_ENV_VAR)?;
+                let seed = decode_byte_array::<DefaultEncoding, SEED_LENGTH>(MASTER_KEY_ENV_VAR)?;
                 for config in client_configs {
                     let master_key = match &config.client_master_key {
                         ClientKeyType::Derived { derivation_index } => {
@@ -161,7 +157,6 @@ fn test_master_keys_open_mode() {
 
     let options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
         ObjectID::from_hex_literal("0x2").unwrap(),
     );
 
@@ -192,7 +187,6 @@ fn test_master_keys_permissioned_mode() {
 
     let mut options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x1").unwrap(),
         ObjectID::from_hex_literal("0x2").unwrap(),
     );
     options.server_mode = ServerMode::Permissioned {
@@ -228,7 +222,7 @@ fn test_master_keys_permissioned_mode() {
     let seed = [1u8; 32];
     with_vars(
         [
-            ("MASTER_SEED", Some(sk_as_bytes.clone())),
+            ("MASTER_KEY", Some(sk_as_bytes.clone())),
             ("ALICE_KEY", Some(DefaultEncoding::encode(seed))),
         ],
         || {
@@ -241,7 +235,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_SEED", None::<&str>),
+            ("MASTER_KEY", None::<&str>),
             ("ALICE_KEY", Some(&DefaultEncoding::encode(seed))),
         ],
         || {
@@ -250,7 +244,7 @@ fn test_master_keys_permissioned_mode() {
     );
     with_vars(
         [
-            ("MASTER_SEED", Some(&sk_as_bytes)),
+            ("MASTER_KEY", Some(&sk_as_bytes)),
             ("ALICE_KEY", None::<&String>),
         ],
         || {

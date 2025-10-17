@@ -10,16 +10,165 @@ use crypto::{
     create_full_id, ibe, seal_decrypt, seal_encrypt, Ciphertext, EncryptedObject, EncryptionInput,
     IBEEncryptions, IBEPublicKeys, IBEUserSecretKeys, ObjectID,
 };
-use fastcrypto::encoding::Encoding;
+use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::{FastCryptoError, FastCryptoResult};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar};
+use fastcrypto::serde_helpers::ToFromByteArray;
 use rand::thread_rng;
-use serde::Deserialize;
-use serde::Serialize;
+use reqwest::Body;
+use seal_sdk::types::{FetchKeyRequest, FetchKeyResponse};
+use seal_sdk::IBEPublicKey;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use sui_sdk::rpc_types::SuiParsedData;
+use sui_sdk::SuiClientBuilder;
+use sui_sdk_types::Address as NewObjectID;
+use sui_types::dynamic_field::DynamicFieldName;
+use sui_types::TypeTag;
 
 const KEY_LENGTH: usize = 32;
+
+/// Key server object layout containing object id, name, url, and public key.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KeyServerInfo {
+    pub object_id: ObjectID,
+    pub name: String,
+    pub url: String,
+    pub public_key: String,
+}
+
+/// Fetch and parse key server object from fullnode.
+/// TODO: rewrite with sui-rust-sdk
+pub async fn fetch_key_server_urls(
+    key_server_ids: &[ObjectID],
+    network: &str,
+) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
+    let sui_rpc = match network {
+        "mainnet" => "https://fullnode.mainnet.sui.io:443",
+        "testnet" => "https://fullnode.testnet.sui.io:443",
+        _ => {
+            return Err(FastCryptoError::GeneralError(format!(
+                "Invalid network: {}. Use 'mainnet' or 'testnet'",
+                network
+            )))
+        }
+    };
+    let sui_client = SuiClientBuilder::default()
+        .build(sui_rpc)
+        .await
+        .map_err(|e| FastCryptoError::GeneralError(format!("Failed to build Sui client: {}", e)))?;
+    let mut key_servers = Vec::new();
+    for object_id in key_server_ids {
+        // Get the dynamic field object for version 1
+        let dynamic_field_name = DynamicFieldName {
+            type_: TypeTag::U64,
+            value: serde_json::Value::String("1".to_string()),
+        };
+
+        match sui_client
+            .read_api()
+            .get_dynamic_field_object(
+                sui_types::base_types::ObjectID::new(object_id.into_inner()),
+                dynamic_field_name,
+            )
+            .await
+        {
+            Ok(response) => {
+                if let Some(object_data) = response.data {
+                    if let Some(content) = object_data.content {
+                        if let SuiParsedData::MoveObject(parsed_data) = content {
+                            let fields = &parsed_data.fields;
+
+                            // Convert fields to JSON value for access
+                            let fields_json = serde_json::to_value(fields).map_err(|e| {
+                                FastCryptoError::GeneralError(format!(
+                                    "Failed to serialize fields: {}",
+                                    e
+                                ))
+                            })?;
+
+                            // Extract URL and name from the nested 'value' field
+                            let value_struct = fields_json.get("value").ok_or_else(|| {
+                                FastCryptoError::GeneralError(format!(
+                                    "Missing 'value' field for object {}",
+                                    object_id
+                                ))
+                            })?;
+
+                            let value_fields = value_struct.get("fields").ok_or_else(|| {
+                                FastCryptoError::GeneralError(format!(
+                                    "Missing 'fields' in value struct for object {}",
+                                    object_id
+                                ))
+                            })?;
+
+                            let url = value_fields.get("url")
+                                .and_then(|v| match v {
+                                    serde_json::Value::String(s) => Some(s.clone()),
+                                    _ => None,
+                                })
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {}", object_id)))?;
+
+                            let name = value_fields
+                                .get("name")
+                                .map(|v| match v {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    _ => "Unknown".to_string(),
+                                })
+                                .unwrap_or_else(|| "Unknown".to_string());
+
+                            let public_key = value_fields.get("pk")
+                                .and_then(|v| match v {
+                                    serde_json::Value::Array(arr) => {
+                                        // Convert array of numbers to bytes then to hex string
+                                        let bytes: Result<Vec<u8>, _> = arr.iter()
+                                            .map(|n| n.as_u64().and_then(|n| u8::try_from(n).ok()))
+                                            .collect::<Option<Vec<_>>>()
+                                            .ok_or("Invalid byte values in pk array");
+                                        bytes.ok().map(|b| Hex::encode(&b))
+                                    },
+                                    serde_json::Value::String(s) => Some(s.clone()),
+                                    _ => None,
+                                })
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {}", object_id)))?;
+
+                            key_servers.push(KeyServerInfo {
+                                object_id: *object_id,
+                                name,
+                                url,
+                                public_key,
+                            });
+                        } else {
+                            return Err(FastCryptoError::GeneralError(format!(
+                                "Unexpected content type for object {}",
+                                object_id
+                            )));
+                        }
+                    } else {
+                        return Err(FastCryptoError::GeneralError(format!(
+                            "No content found for object {}",
+                            object_id
+                        )));
+                    }
+                } else {
+                    return Err(FastCryptoError::GeneralError(format!(
+                        "Object {} not found",
+                        object_id
+                    )));
+                }
+            }
+            Err(e) => {
+                return Err(FastCryptoError::GeneralError(format!(
+                    "Failed to fetch dynamic field for object {}: {}",
+                    object_id, e
+                )));
+            }
+        }
+    }
+
+    Ok(key_servers)
+}
 
 /// Default encoding for serializing and deserializing values.
 type DefaultEncoding = PrefixedHex;
@@ -175,6 +324,51 @@ enum Command {
         #[arg(long)]
         key: EncodedByteArray<KEY_LENGTH>,
     },
+    /// Encrypt a secret's Hex encoded bytes using Seal. This uses the public fullnode for
+    /// retrieval of key servers' public keys for the given network.
+    Encrypt {
+        /// The secrets to encrypt.
+        #[arg(long, value_delimiter = ',')]
+        secrets: Vec<EncodedBytes>,
+
+        /// Unique per package identifier for all secrets.
+        #[arg(long, value_delimiter = ',')]
+        ids: Vec<EncodedBytes>,
+
+        /// Package ID that defines seal policy.
+        #[arg(short = 'p', long)]
+        package_id: ObjectID,
+
+        /// Comma-separated key server object IDs (e.g., 0x123,0x456)
+        #[arg(short = 'k', long, value_delimiter = ',')]
+        key_server_ids: Vec<ObjectID>,
+
+        /// Threshold
+        #[arg(short = 't', long)]
+        threshold: u8,
+
+        /// Network (mainnet or testnet)
+        #[arg(short = 'n', long, default_value = "testnet")]
+        network: String,
+    },
+    /// Fetch keys from Seal servers using encoded fetch keys request.
+    FetchKeys {
+        /// Hex encoded fetch keys request.
+        #[arg(long)]
+        request: EncodedBytes,
+
+        /// Comma-separated key server object IDs (e.g., 0x123,0x456)
+        #[arg(short = 'k', long, value_delimiter = ',')]
+        key_server_ids: Vec<ObjectID>,
+
+        /// Threshold
+        #[arg(short = 't', long)]
+        threshold: u8,
+
+        /// Network (mainnet or testnet)
+        #[arg(short = 'n', long, default_value = "testnet")]
+        network: String,
+    },
 }
 
 struct GenkeyOutput((Scalar, G2Element));
@@ -186,7 +380,8 @@ struct DecryptionOutput(Vec<u8>);
 struct ParseOutput(EncryptedObject);
 struct SymmetricDecryptOutput(Vec<u8>);
 
-fn main() -> FastCryptoResult<()> {
+#[tokio::main]
+async fn main() -> FastCryptoResult<()> {
     let args = Arguments::parse();
 
     let output = match args.command {
@@ -211,7 +406,7 @@ fn main() -> FastCryptoResult<()> {
             master_key,
         } => ExtractOutput(ibe::extract(
             &master_key,
-            &create_full_id(&package_id, &id.0),
+            &create_full_id(package_id.inner(), &id.0),
         ))
         .to_string(),
         Command::Verify {
@@ -221,7 +416,7 @@ fn main() -> FastCryptoResult<()> {
             public_key,
         } => VerifyOutput(ibe::verify_user_secret_key(
             &user_secret_key,
-            &create_full_id(&package_id, &id.0),
+            &create_full_id(package_id.inner(), &id.0),
             &public_key,
         ))
         .to_string(),
@@ -307,6 +502,145 @@ fn main() -> FastCryptoResult<()> {
         }
         .map(SymmetricDecryptOutput)?
         .to_string(),
+        Command::Encrypt {
+            secrets,
+            ids,
+            package_id,
+            key_server_ids,
+            threshold,
+            network,
+        } => {
+            if secrets.len() != ids.len() || secrets.is_empty() {
+                return Err(FastCryptoError::GeneralError(
+                    "Number of secrets and ids must be the same and must be greater than 0"
+                        .to_string(),
+                ));
+            }
+            // Fetch key server info including public keys from blockchain
+            let key_server_infos = fetch_key_server_urls(&key_server_ids, &network)
+                .await
+                .map_err(|e| {
+                    FastCryptoError::GeneralError(format!("Failed to fetch key server info: {}", e))
+                })?;
+
+            // Parse public keys from fetched data
+            let pks: Vec<IBEPublicKey> = key_server_infos
+                .iter()
+                .map(|info| -> Result<IBEPublicKey, FastCryptoError> {
+                    let bytes = Hex::decode(&info.public_key).map_err(|e| {
+                        FastCryptoError::GeneralError(format!("Invalid public key hex: {}", e))
+                    })?;
+                    let pk = IBEPublicKey::from_byte_array(&bytes.try_into().map_err(|_| {
+                        FastCryptoError::GeneralError("Invalid public key length".to_string())
+                    })?)?;
+                    Ok(pk)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Encrypt the secret
+            let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
+                FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
+            })?);
+            let mut encrypted_objects = Vec::new();
+            for (id, secret) in ids.into_iter().zip(secrets.into_iter()) {
+                let (encrypted_object, _) = seal_encrypt(
+                    package_id,
+                    id.0,
+                    key_server_ids.clone(),
+                    &IBEPublicKeys::BonehFranklinBLS12381(pks.clone()),
+                    threshold,
+                    EncryptionInput::Aes256Gcm {
+                        data: secret.0,
+                        aad: None,
+                    },
+                )
+                .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {}", e)))?;
+                encrypted_objects.push(encrypted_object);
+            }
+            format!(
+                "Encoded encrypted object:\n{}",
+                Hex::encode(bcs::to_bytes(&encrypted_objects).expect("serialization failed"))
+            )
+        }
+        Command::FetchKeys {
+            request,
+            key_server_ids,
+            threshold,
+            network,
+        } => {
+            // Parse fetch keys request.
+            let request: FetchKeyRequest = bcs::from_bytes(&request.0).map_err(|e| {
+                FastCryptoError::GeneralError(format!(
+                    "Failed to parse FetchKeyRequest from BCS: {}",
+                    e
+                ))
+            })?;
+
+            // Fetch keys from key server urls and collect service id and its seal responses.
+            let mut seal_responses = Vec::new();
+            let client = reqwest::Client::new();
+            for server in &fetch_key_server_urls(&key_server_ids, &network)
+                .await
+                .map_err(|e| {
+                    FastCryptoError::GeneralError(format!("Failed to fetch key server URLs: {}", e))
+                })?
+            {
+                println!(
+                    "Fetching from {} ({}/v1/fetch_key)",
+                    server.name, server.url
+                );
+                match client
+                    .post(format!("{}/v1/fetch_key", server.url))
+                    .header("Client-Sdk-Type", "rust")
+                    .header("Client-Sdk-Version", "1.0.0")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        request.to_json_string().expect("should not fail"),
+                    ))
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            let response_bytes = response.bytes().await.expect("should not fail");
+                            let response: FetchKeyResponse =
+                                serde_json::from_slice(&response_bytes)
+                                    .expect("Failed to deserialize response");
+                            seal_responses.push((server.object_id, response));
+                            println!("\n Success {}", server.name);
+                        } else {
+                            let error_text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            eprintln!("Server returned error: {}", error_text);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed: {}", e);
+                    }
+                }
+
+                if seal_responses.len() >= threshold as usize {
+                    println!("Reached threshold of {} responses", threshold);
+                    break;
+                }
+            }
+
+            if seal_responses.len() < threshold as usize {
+                return Err(FastCryptoError::GeneralError(format!(
+                    "Failed to get enough responses: {} < {}",
+                    seal_responses.len(),
+                    threshold
+                )));
+            }
+
+            format!(
+                "\n {:?} Encoded seal responses: {:?}",
+                seal_responses.len(),
+                Hex::encode(bcs::to_bytes(&seal_responses).expect("should not fail"))
+            )
+        }
     };
     println!("{}", output);
     Ok(())
@@ -471,5 +805,28 @@ impl Display for ParseOutput {
 impl Display for SymmetricDecryptOutput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Decrypted message: {}", DefaultEncoding::encode(&self.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_fetch_key_server_urls() {
+        let key_server_ids = vec![ObjectID::from_str(
+            "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+        )
+        .unwrap()];
+        let key_servers = fetch_key_server_urls(&key_server_ids, "testnet")
+            .await
+            .unwrap();
+        assert_eq!(key_servers.len(), 1);
+        assert_eq!(
+            key_servers[0].url,
+            "https://seal-key-server-testnet-1.mystenlabs.com"
+        );
+        // Verify public key exists
+        assert!(!key_servers[0].public_key.is_empty());
     }
 }

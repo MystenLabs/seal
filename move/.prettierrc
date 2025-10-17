@@ -1,0 +1,6 @@
+{
+    "tabWidth": 4,
+    "printWidth": 100,
+    "useModuleLabel": true,
+    "autoGroupImports": "package"
+}

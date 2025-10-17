@@ -1,0 +1,4 @@
+- name: sample-token
+  token: abcdefghijklmnopqrstuvwxyz
+- name: local-key-server
+  token: random-string-for-testing

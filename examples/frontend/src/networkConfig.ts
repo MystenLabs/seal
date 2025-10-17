@@ -9,6 +9,7 @@ const { networkConfig, useNetworkVariable, useNetworkVariables } = createNetwork
     url: getFullnodeUrl('testnet'),
     variables: {
       packageId: TESTNET_PACKAGE_ID,
+      mvrName: '@pkg/seal-demo-1234',
     },
   },
 });

@@ -6,8 +6,8 @@ use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, Server
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
+use crate::time::from_mins;
 use crate::types::Network;
-use crate::utils::from_mins;
 use crate::{DefaultEncoding, Server};
 use crypto::ibe;
 use crypto::ibe::public_key_from_master_key;
@@ -34,7 +34,7 @@ mod e2e;
 mod externals;
 mod pd;
 mod tle;
-mod whitelist;
+pub(crate) mod whitelist;
 
 mod server;
 
@@ -124,7 +124,6 @@ impl SealTestCluster {
                     options: KeyServerOptions {
                         network: Network::TestCluster,
                         server_mode: ServerMode::Open {
-                            legacy_key_server_object_id: None,
                             key_server_object_id,
                         },
                         metrics_host_port: 0,
@@ -134,6 +133,7 @@ impl SealTestCluster {
                         allowed_staleness: Duration::from_secs(120),
                         session_key_ttl_max: from_mins(30),
                         rpc_config: RpcConfig::default(),
+                        metrics_push_config: None,
                     },
                 };
                 self.servers.push((key_server_object_id, server));

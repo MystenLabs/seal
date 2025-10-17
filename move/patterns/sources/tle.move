@@ -13,7 +13,7 @@
 ///   The cap owner can increase the end_time before the end_time has passed. Once the end_time has passed, anyone
 ///   can request the key.
 ///
-/// This pattern does NOT implement versioning, please see other patterns for 
+/// This pattern does NOT implement versioning, please see other patterns for
 /// examples of versioning.
 ///
 module patterns::tle;

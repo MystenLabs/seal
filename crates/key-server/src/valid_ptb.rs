@@ -24,6 +24,8 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
     fn try_from(ptb: ProgrammableTransaction) -> Result<Self, Self::Error> {
         debug!("Creating vptb from: {:?}", ptb);
 
+        // Restriction: The PTB must not have more than MAX_COMMANDS commands (MAX_COMMANDS may
+        // increase in the future).
         if ptb.commands.len() > MAX_COMMANDS {
             return_err!(
                 InternalError::InvalidPTB(format!(
@@ -68,7 +70,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
             let _ = get_key_id(&ptb, cmd)?;
 
             // Restriction: The called function must start with the prefix seal_approve.
-            // Restriction: All commands must use the same package id.
+            // Restriction: All commands in the PTB must use the same package id.
             if !cmd.function.starts_with("seal_approve") || cmd.package != pkg_id {
                 return_err!(
                     InternalError::InvalidPTB("Invalid function or package id".to_string()),
@@ -77,8 +79,6 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
                 );
             }
         }
-
-        // TODO: sanity checks - non mutable objs.
 
         Ok(ValidPtb(ptb))
     }
@@ -102,7 +102,7 @@ fn get_key_id(
             cmd
         );
     };
-    let CallArg::Pure(id) = &ptb.inputs[arg_idx as usize] else {
+    let Some(CallArg::Pure(id)) = &ptb.inputs.get(arg_idx as usize) else {
         return_err!(
             InternalError::InvalidPTB("Invalid first parameter for seal_approve".to_string()),
             "Invalid PTB command {:?}",
