@@ -6,6 +6,7 @@ use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, Server
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
+use crate::tests::KeyServerType::MPC;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
@@ -25,6 +26,7 @@ use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
+use sui_sdk::SuiClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::move_package::UpgradePolicy;
@@ -48,8 +50,14 @@ pub(crate) struct SealTestCluster {
 }
 
 pub(crate) struct SealUser {
-    address: SuiAddress,
-    keypair: Ed25519KeyPair,
+    pub(crate) address: SuiAddress,
+    pub(crate) keypair: Ed25519KeyPair,
+}
+
+pub(crate) struct SealCommittee {
+    pub(crate) committee_package_id: ObjectID,
+    pub(crate) committee_id: ObjectID,
+    pub(crate) key_server_id: ObjectID,
 }
 
 /// Key server types allowed in tests
@@ -59,16 +67,17 @@ pub enum KeyServerType {
         seed: Vec<u8>,
         package_ids: Vec<ObjectID>,
     },
+    MPC(ibe::MasterKey),
 }
 
 impl SealTestCluster {
     /// Create a new SealTestCluster with the given number users. To add servers, use the `add_server` method.
-    pub async fn new(users: usize) -> Self {
+    pub async fn new(users: usize, module: &str) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
             .build()
             .await;
-        let registry = Self::publish_internal(&cluster, "seal").await;
+        let registry = Self::publish_internal(&cluster, module).await;
         Self {
             cluster,
             servers: vec![],
@@ -94,7 +103,7 @@ impl SealTestCluster {
     pub async fn add_open_server(&mut self) {
         let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
         let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name).await;
+        self.add_server(Open(master_key), &name, None).await;
     }
 
     pub async fn add_open_servers(&mut self, num_servers: usize) {
@@ -103,7 +112,14 @@ impl SealTestCluster {
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+    // Initialize a server object. If a key server obj id is provided,
+    // do not register key server onchain again.
+    pub async fn add_server(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        key_server_object_id: Option<ObjectID>,
+    ) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -113,6 +129,17 @@ impl SealTestCluster {
                         public_key_from_master_key(&master_key),
                     )
                     .await;
+                let server = Self::create_server(
+                    self.cluster.sui_client().clone(),
+                    master_key,
+                    key_server_object_id,
+                );
+                self.servers.push((key_server_object_id, server));
+            }
+            MPC(master_key) => {
+                // no need to register onchain here since its done in set_up_committee_server.
+                // just use the given key server object id to initialize the key server.
+                let key_server_object_id = key_server_object_id.unwrap();
                 let server = Server {
                     sui_rpc_client: SuiRpcClient::new(
                         self.cluster.sui_client().clone(),
@@ -138,8 +165,358 @@ impl SealTestCluster {
                 };
                 self.servers.push((key_server_object_id, server));
             }
-            _ => panic!(),
+            _ => panic!("Unhandled server type"),
         };
+    }
+
+    /// Create a server object.
+    fn create_server(
+        sui_client: SuiClient,
+        master_key: ibe::MasterKey,
+        key_server_object_id: ObjectID,
+    ) -> Server {
+        Server {
+            sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
+            master_keys: MasterKeys::Open { master_key },
+            key_server_oid_to_pop: HashMap::new(),
+            options: KeyServerOptions {
+                network: Network::TestCluster,
+                server_mode: ServerMode::Open {
+                    key_server_object_id,
+                },
+                metrics_host_port: 0,
+                checkpoint_update_interval: Duration::from_secs(10),
+                rgp_update_interval: Duration::from_secs(60),
+                sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                allowed_staleness: Duration::from_secs(120),
+                session_key_ttl_max: from_mins(30),
+                rpc_config: RpcConfig::default(),
+                metrics_push_config: None,
+            },
+        }
+    }
+
+    /// Set up all onchain artifiacts with the given partial public keys and aggregated pk.
+    /// Returns the key server obj id and an array of the partial key servers obj ids.
+    pub async fn set_up_committee_server(
+        &mut self,
+        ordered_members: Vec<SuiAddress>,
+        ordered_partial_pks: Vec<Vec<u8>>,
+        aggregated_pk: ibe::PublicKey,
+        threshold: u16,
+    ) -> SealCommittee {
+        let (committee_package_id, _) = self.publish("committee").await;
+
+        // 1. Create a committee obj with threshold 2 and the members addresses.
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                ordered_members[0],
+                committee_package_id,
+                "committee",
+                "init_committee",
+                vec![],
+                vec![
+                    SuiJsonValue::from_str(&threshold.to_string()).unwrap(),
+                    SuiJsonValue::new(json!(ordered_members)).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 2. Get the committee obj id.
+        let committee_id = response
+            .object_changes
+            .unwrap()
+            .into_iter()
+            .find_map(|d| match d {
+                ObjectChange::Created {
+                    object_type,
+                    object_id,
+                    ..
+                } if object_type.name.as_str() == "Committee" => Some(object_id),
+                _ => None,
+            })
+            .expect("Committee should be created");
+
+        // 3. Each member registers their enc_pk and signing_pk and URL.
+        for member in ordered_members.iter() {
+            self.register_committee_member(
+                *member,
+                format!("enc_pk_{}", member).into_bytes(),
+                format!("signing_pk_{}", member).into_bytes(),
+                format!("https://{}.com", member),
+                committee_package_id,
+                committee_id,
+            )
+            .await;
+        }
+
+        // 4. After DKG, each member proposes partial pks and aggregated pk with each member.
+        for addr in ordered_members.iter() {
+            self.propose_committee(
+                *addr,
+                committee_package_id,
+                committee_id,
+                ordered_partial_pks.clone(),
+                aggregated_pk,
+            )
+            .await;
+        }
+
+        // 5. A member finalizes the committee, this creates the key server obj
+        // and the df including partial key server objects
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                ordered_members[0],
+                committee_package_id,
+                "committee",
+                "finalize",
+                vec![],
+                vec![SuiJsonValue::from_object_id(committee_id)],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 6. Get the key server object id.
+        let mut key_server_id = None;
+        for change in response.object_changes.as_ref().unwrap() {
+            if let ObjectChange::Created {
+                object_type,
+                object_id,
+                ..
+            } = change
+            {
+                if object_type.name.as_str() == "KeyServer" {
+                    key_server_id = Some(*object_id);
+                }
+            }
+        }
+
+        SealCommittee {
+            committee_package_id,
+            committee_id,
+            key_server_id: key_server_id.expect("KeyServer should be created"),
+        }
+    }
+
+    /// Helper function to register committee member's enc_pk and signing_pk with an address onchain.
+    async fn register_committee_member(
+        &self,
+        address: SuiAddress,
+        enc_pk: Vec<u8>,
+        signing_pk: Vec<u8>,
+        url: String,
+        committee_package: ObjectID,
+        committee_id: ObjectID,
+    ) {
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                address,
+                committee_package,
+                "committee",
+                "register",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(committee_id),
+                    SuiJsonValue::new(json!(enc_pk)).unwrap(),
+                    SuiJsonValue::new(json!(signing_pk)).unwrap(),
+                    SuiJsonValue::from_str(url.as_str()).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+    }
+
+    /// Helper function to propose a committee with an aggregated pk and a list of partial pk with
+    /// an address onchain.
+    async fn propose_committee(
+        &self,
+        address: SuiAddress,
+        committee_package_id: ObjectID,
+        committee_id: ObjectID,
+        ordered_partial_pks: Vec<Vec<u8>>,
+        aggregated_pk: ibe::PublicKey,
+    ) {
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                address,
+                committee_package_id,
+                "committee",
+                "propose",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(committee_id),
+                    SuiJsonValue::new(json!(ordered_partial_pks)).unwrap(),
+                    SuiJsonValue::new(json!(aggregated_pk.to_byte_array().to_vec())).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+    }
+
+    /// Helper function to propose a committee for rotation with a list of partial pk and new and
+    /// old committee obj id onchain.
+    async fn propose_committee_for_rotation(
+        &self,
+        address: SuiAddress,
+        committee_package_id: ObjectID,
+        new_committee_id: ObjectID,
+        old_committee_id: ObjectID,
+        ordered_new_partial_pks: Vec<Vec<u8>>,
+    ) {
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                address,
+                committee_package_id,
+                "committee",
+                "propose_for_rotation",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(new_committee_id),
+                    SuiJsonValue::from_object_id(old_committee_id),
+                    SuiJsonValue::new(json!(ordered_new_partial_pks)).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
+    }
+
+    /// Rotate the committee with the given partial public keys and threshold.
+    /// Returns the ordered partial key server field IDs.
+    pub async fn rotate_committee(
+        &mut self,
+        ordered_members: Vec<SuiAddress>,
+        ordered_new_partial_pks: Vec<Vec<u8>>,
+        threshold: u16,
+        old_committee_id: ObjectID,
+        committee_package_id: ObjectID,
+        old_key_server_id: ObjectID,
+    ) {
+        self.servers.clear();
+
+        // 1. Initialize new committee for rotation with first address.
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                ordered_members[0],
+                committee_package_id,
+                "committee",
+                "init_rotation",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(old_committee_id),
+                    SuiJsonValue::new(json!(threshold)).unwrap(),
+                    SuiJsonValue::new(json!(ordered_members.clone())).unwrap(),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = self.cluster.sign_and_execute_transaction(&tx).await;
+
+        // 2. Get the new committee object ID.
+        let mut new_committee_id = None;
+        for change in response.object_changes.as_ref().unwrap() {
+            if let ObjectChange::Created {
+                object_type,
+                object_id,
+                ..
+            } = change
+            {
+                if object_type.name.as_str() == "Committee" {
+                    new_committee_id = Some(*object_id);
+                }
+            }
+        }
+        let new_committee_id = new_committee_id.expect("New committee should be created");
+
+        // 3. Register each member in the new committee.
+        for member in ordered_members.iter() {
+            self.register_committee_member(
+                *member,
+                format!("enc_pk_{}", member).into_bytes(),
+                format!("signing_pk_{}", member).into_bytes(),
+                format!("https://{}.com", member),
+                committee_package_id,
+                new_committee_id,
+            )
+            .await;
+        }
+
+        // 4. Each member proposes with the list of partial pks.
+        for member in ordered_members.iter() {
+            self.propose_committee_for_rotation(
+                *member,
+                committee_package_id,
+                new_committee_id,
+                old_committee_id,
+                ordered_new_partial_pks.clone(),
+            )
+            .await;
+        }
+
+        // 5. Finalize the committee rotation.
+        let tx = self
+            .cluster
+            .sui_client()
+            .transaction_builder()
+            .move_call(
+                ordered_members[0],
+                committee_package_id,
+                "committee",
+                "finalize_for_rotation",
+                vec![],
+                vec![
+                    SuiJsonValue::from_object_id(new_committee_id),
+                    SuiJsonValue::from_object_id(old_committee_id),
+                    SuiJsonValue::from_object_id(old_key_server_id),
+                ],
+                None,
+                50_000_000,
+                None,
+            )
+            .await
+            .unwrap();
+        self.cluster.sign_and_execute_transaction(&tx).await;
     }
 
     pub fn server(&self) -> &Server {
@@ -359,7 +736,7 @@ impl SealTestCluster {
 
 #[tokio::test]
 async fn test_pkg_upgrade() {
-    let mut setup = SealTestCluster::new(0).await;
+    let mut setup = SealTestCluster::new(0, "seal").await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id, upgrade_cap) = setup.publish_path(path).await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");

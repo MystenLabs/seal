@@ -34,6 +34,7 @@ test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", pac
 
 # this matches the sdk version used by mvr-types dep: https://github.com/MystenLabs/mvr
 sui-sdk-types = { version = "0.0.8", features = ["serde"] }
+sui-rpc = "0.0.8"
 
 [profile.release]
 panic = 'abort'
