@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "tsx simple-seal-server.test.ts",
+    "perf": "NODE_OPTIONS='--expose-gc --max-old-space-size=8192' tsx performance-test.ts",
     "lint": "eslint ."
   },
   "keywords": [],

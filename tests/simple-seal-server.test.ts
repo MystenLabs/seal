@@ -44,13 +44,14 @@ async function testCorsHeaders(url: string, name: string, apiKeyName?: string, a
     return keyServerVersion;
 }
 
-async function main(network: 'testnet' | 'mainnet', keyServerConfigs: { objectId: string, apiKeyName?: string, apiKey?: string }[]) {
+async function main(network: 'testnet' | 'mainnet', keyServerConfigs: { objectId: string, apiKeyName?: string, apiKey?: string }[], dataSize: number) {
     const keypair = Ed25519Keypair.generate();
     const suiAddress = keypair.getPublicKey().toSuiAddress();
     const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
-    const testData = crypto.getRandomValues(new Uint8Array(1000));
+    const testData = crypto.getRandomValues(new Uint8Array(dataSize));
     const packageId = PACKAGE_IDS[network];
     console.log(`packageId: ${packageId}`);
+    console.log(`test data size: ${dataSize} bytes`);
     const client = new SealClient({
         suiClient,
         serverConfigs: keyServerConfigs.map(({ objectId, apiKeyName, apiKey }) => ({
@@ -70,13 +71,17 @@ async function main(network: 'testnet' | 'mainnet', keyServerConfigs: { objectId
     }
     console.log('✅ All key servers have proper CORS configuration');
 
-    // Encrypt data
+    // Encrypt data and measure time
+    const encryptStartTime = performance.now();
     const { encryptedObject: encryptedBytes } = await client.encrypt({
         threshold: keyServerConfigs.length,
         packageId: packageId,
         id: suiAddress,
         data: testData,
     });
+    const encryptEndTime = performance.now();
+    const encryptionTime = encryptEndTime - encryptStartTime;
+    console.log(`⏱️  Encryption time: ${encryptionTime.toFixed(2)} ms`);
 
     // Create session key
     const sessionKey = await SessionKey.create({
@@ -118,12 +123,23 @@ const { values } = parseArgs({
         servers: {
             type: 'string',
         },
+        size: {
+            type: 'string',
+            default: '1000',
+        },
     },
 });
 
 const network = values.network as 'testnet' | 'mainnet';
 if (network !== 'testnet' && network !== 'mainnet') {
     console.error('Error: network must be either "testnet" or "mainnet"');
+    process.exit(1);
+}
+
+// Parse data size parameter
+const dataSize = parseInt(values.size || '1000', 10);
+if (isNaN(dataSize) || dataSize <= 0) {
+    console.error('Error: size must be a positive integer');
     process.exit(1);
 }
 
@@ -158,7 +174,7 @@ if (values.servers) {
 
 console.log(`Running test on ${network} with servers:`, keyServerConfigs);
 
-main(network, keyServerConfigs).catch(error => {
+main(network, keyServerConfigs, dataSize).catch(error => {
     console.error('Test failed:', error);
     process.exit(1);
 });
