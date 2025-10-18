@@ -20,6 +20,10 @@ RUN apt-get update && apt-get install -y cmake clang libpq5 ca-certificates libp
 
 COPY --from=builder /work/target/release/key-server /opt/key-server/bin/
 
+# Pass GIT_REVISION from builder stage to runtime stage
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
+
 # Handle all environment variables
 RUN echo '#!/bin/bash\n\
 # Export all environment variables\n\
