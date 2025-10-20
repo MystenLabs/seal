@@ -5,13 +5,10 @@
 #[allow(unused_mut_ref, unused_variable, dead_code)]
 module seal_committee::seal_committee_tests;
 
-use seal_committee::seal_committee::{Self, Committee};
+use seal_committee::seal_committee::{Self, Committee, propose_for_rotation, init_rotation};
 use seal_testnet::key_server::KeyServer;
 use std::string;
 use sui::test_scenario::{Self, Scenario};
-use seal_committee::seal_committee::propose_for_rotation;
-use bridge::bridge_env::init_committee;
-use seal_committee::seal_committee::init_rotation;
 
 const ALICE: address = @0x0;
 const BOB: address = @0x1;
@@ -41,7 +38,7 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         let committee = scenario.take_shared<Committee>();
         assert!(!committee.is_finalized(), 0);
         test_scenario::return_shared(committee);
-        
+
         // All 3 proposals, committee finalized.
         propose_member!(scenario, ALICE, partial_pks, master_pk);
         scenario.next_tx(ALICE);
@@ -53,7 +50,7 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         // Verify KeyServer TTO to committee.
         scenario.next_tx(ALICE);
         let key_server = scenario.take_from_address<KeyServer>(old_committee_id.to_address());
-        
+
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
         assert_partial_key_server!(&key_server, ALICE, b"https://url0.com", b"partial_pk_0", 0);
         assert_partial_key_server!(&key_server, BOB, b"https://url1.com", b"partial_pk_1", 1);
@@ -70,7 +67,7 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         );
         test_scenario::return_shared(old_committee);
 
-        // Get the new committee shared obj. 
+        // Get the new committee shared obj.
         scenario.next_tx(BOB);
         let committee = scenario.take_shared<Committee>();
         let committee_id = committee.id();
@@ -84,17 +81,69 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         test_scenario::return_shared(new_committee);
 
         // Register all 4 members (2 continuing, 2 new) for the new committee.
-        register_member_by_id!(scenario, ALICE, new_committee_id, b"enc_pk_0", b"signing_pk_0", b"https://new_url0.com");
-        register_member_by_id!(scenario, BOB, new_committee_id, b"enc_pk_1", b"signing_pk_1", b"https://new_url1.com");
-        register_member_by_id!(scenario, DAVE, new_committee_id, b"enc_pk_3", b"signing_pk_3", b"https://new_url3.com");
-        register_member_by_id!(scenario, EVE, new_committee_id, b"enc_pk_4", b"signing_pk_4", b"https://new_url4.com");
+        register_member_by_id!(
+            scenario,
+            ALICE,
+            new_committee_id,
+            b"enc_pk_0",
+            b"signing_pk_0",
+            b"https://new_url0.com",
+        );
+        register_member_by_id!(
+            scenario,
+            BOB,
+            new_committee_id,
+            b"enc_pk_1",
+            b"signing_pk_1",
+            b"https://new_url1.com",
+        );
+        register_member_by_id!(
+            scenario,
+            DAVE,
+            new_committee_id,
+            b"enc_pk_3",
+            b"signing_pk_3",
+            b"https://new_url3.com",
+        );
+        register_member_by_id!(
+            scenario,
+            EVE,
+            new_committee_id,
+            b"enc_pk_4",
+            b"signing_pk_4",
+            b"https://new_url4.com",
+        );
 
         // Propose rotation with all 4 members.
         let new_partial_pks = vector[b"pk1", b"pk0", b"pk3", b"pk4"];
-        propose_for_rotation_member!(scenario, BOB, new_committee_id, old_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, ALICE, new_committee_id, old_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, DAVE, new_committee_id, old_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, EVE, new_committee_id, old_committee_id, new_partial_pks);
+        propose_for_rotation_member!(
+            scenario,
+            BOB,
+            new_committee_id,
+            old_committee_id,
+            new_partial_pks,
+        );
+        propose_for_rotation_member!(
+            scenario,
+            ALICE,
+            new_committee_id,
+            old_committee_id,
+            new_partial_pks,
+        );
+        propose_for_rotation_member!(
+            scenario,
+            DAVE,
+            new_committee_id,
+            old_committee_id,
+            new_partial_pks,
+        );
+        propose_for_rotation_member!(
+            scenario,
+            EVE,
+            new_committee_id,
+            old_committee_id,
+            new_partial_pks,
+        );
 
         // New committee finalized and owns the key server.
         scenario.next_tx(BOB);
@@ -155,15 +204,54 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         test_scenario::return_shared(third_committee);
 
         // Register all 3 members for the third committee.
-        register_member_by_id!(scenario, EVE, third_committee_id, b"enc_pk_eve_3", b"signing_pk_eve_3", b"https://eve_url_3.com");
-        register_member_by_id!(scenario, ALICE, third_committee_id, b"enc_pk_alice_3", b"signing_pk_alice_3", b"https://alice_url_3.com");
-        register_member_by_id!(scenario, BOB, third_committee_id, b"enc_pk_bob_3", b"signing_pk_bob_3", b"https://bob_url_3.com");
+        register_member_by_id!(
+            scenario,
+            EVE,
+            third_committee_id,
+            b"enc_pk_eve_3",
+            b"signing_pk_eve_3",
+            b"https://eve_url_3.com",
+        );
+        register_member_by_id!(
+            scenario,
+            ALICE,
+            third_committee_id,
+            b"enc_pk_alice_3",
+            b"signing_pk_alice_3",
+            b"https://alice_url_3.com",
+        );
+        register_member_by_id!(
+            scenario,
+            BOB,
+            third_committee_id,
+            b"enc_pk_bob_3",
+            b"signing_pk_bob_3",
+            b"https://bob_url_3.com",
+        );
 
         // Propose rotation with all 3 members (last proposal auto-finalizes).
         let third_partial_pks = vector[b"eve_pk_3", b"alice_pk_3", b"bob_pk_3"];
-        propose_for_rotation_member!(scenario, EVE, third_committee_id, new_committee_id, third_partial_pks);
-        propose_for_rotation_member!(scenario, ALICE, third_committee_id, new_committee_id, third_partial_pks);
-        propose_for_rotation_member!(scenario, BOB, third_committee_id, new_committee_id, third_partial_pks);
+        propose_for_rotation_member!(
+            scenario,
+            EVE,
+            third_committee_id,
+            new_committee_id,
+            third_partial_pks,
+        );
+        propose_for_rotation_member!(
+            scenario,
+            ALICE,
+            third_committee_id,
+            new_committee_id,
+            third_partial_pks,
+        );
+        propose_for_rotation_member!(
+            scenario,
+            BOB,
+            third_committee_id,
+            new_committee_id,
+            third_partial_pks,
+        );
 
         // Third committee finalized and owns the key server.
         scenario.next_tx(BOB);
@@ -178,9 +266,15 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
         assert_partial_key_server!(&key_server, EVE, b"https://eve_url_3.com", b"eve_pk_3", 0);
-        assert_partial_key_server!(&key_server, ALICE, b"https://alice_url_3.com", b"alice_pk_3", 1);
+        assert_partial_key_server!(
+            &key_server,
+            ALICE,
+            b"https://alice_url_3.com",
+            b"alice_pk_3",
+            1,
+        );
         assert_partial_key_server!(&key_server, BOB, b"https://bob_url_3.com", b"bob_pk_3", 2);
-        test_scenario::return_to_address(third_committee_id.to_address(), key_server); 
+        test_scenario::return_to_address(third_committee_id.to_address(), key_server);
     });
 }
 
@@ -205,14 +299,21 @@ fun test_init_committee_with_duplicate_members() {
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::EInvalidThreshold)]
+fun test_init_committee_with_empty_members() {
+    test_tx!(|scenario| {
+        seal_committee::init_committee(1, vector[], scenario.ctx());
+    });
+}
+
 #[test, expected_failure(abort_code = seal_committee::EInsufficientOldMembers)]
 fun test_init_rotation_fails_with_not_enough_old_members() {
     test_tx!(|scenario| {
-        // Init and finalize committee with BOB only. 
+        // Init and finalize committee with BOB only.
         seal_committee::init_committee(1, vector[BOB], scenario.ctx());
         register_member!(scenario, BOB, b"enc_pk_1", b"signing_pk_1", b"url1");
         propose_member!(scenario, BOB, vector[b"pk_1"], b"master");
-        
+
         scenario.next_tx(BOB);
         let committee = scenario.take_shared<Committee>();
         // Rotate with no continuing members - fails.
@@ -331,7 +432,7 @@ fun test_propose_fails_with_mismatched_pk() {
         propose_member!(scenario, CHARLIE, vector[b"partial_pk_1", b"partial_pk_2"], b"master_pk");
         // Propose with mismatched partial pk
         propose_member!(scenario, CHARLIE, vector[b"blah", b"partial_pk_2"], b"master_pk");
-});
+    });
 }
 
 #[test, expected_failure(abort_code = seal_committee::ENotRegistered)]
@@ -364,27 +465,148 @@ fun test_propose_fails_on_duplicate_approval() {
     });
 }
 
-// #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
+#[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_finalize_for_rotation_mismatched_old_committee() {
     test_tx!(|scenario| {
-        // todo
+        // Create first committee (1-of-1).
+        seal_committee::init_committee(1, vector[ALICE], scenario.ctx());
+        register_member!(scenario, ALICE, b"enc_pk_0", b"signing_pk_0", b"https://url0.com");
+
+        let partial_pks = vector[b"partial_pk_0"];
+        let master_pk = b"master_pk";
+        propose_member!(scenario, ALICE, partial_pks, master_pk);
+
+        scenario.next_tx(ALICE);
+        let first_committee = scenario.take_shared<Committee>();
+        let first_committee_id = first_committee.id();
+        test_scenario::return_shared(first_committee);
+
+        // Create second unrelated committee (1-of-1).
+        seal_committee::init_committee(1, vector[DAVE], scenario.ctx());
+        register_member!(scenario, DAVE, b"enc_pk_3", b"signing_pk_3", b"https://url3.com");
+        let partial_pks2 = vector[b"partial_pk_3"];
+        propose_member!(scenario, DAVE, partial_pks2, master_pk);
+
+        scenario.next_tx(DAVE);
+        let second_committee = scenario.take_shared<Committee>();
+        let second_committee_id = second_committee.id();
+        test_scenario::return_shared(second_committee);
+
+        // Initialize rotation from first committee.
+        scenario.next_tx(ALICE);
+        let first_committee = scenario.take_shared_by_id<Committee>(first_committee_id);
+        first_committee.init_rotation(2, vector[ALICE, BOB], scenario.ctx());
+        test_scenario::return_shared(first_committee);
+
+        // Get new committee created by rotation.
+        scenario.next_tx(ALICE);
+        let new_committee = scenario.take_shared<Committee>();
+        let new_committee_id = new_committee.id();
+        test_scenario::return_shared(new_committee);
+
+        // Register members for new committee.
+        register_member_by_id!(
+            scenario,
+            ALICE,
+            new_committee_id,
+            b"enc_pk_0",
+            b"signing_pk_0",
+            b"https://new_url0.com",
+        );
+        register_member_by_id!(
+            scenario,
+            BOB,
+            new_committee_id,
+            b"enc_pk_1",
+            b"signing_pk_1",
+            b"https://new_url1.com",
+        );
+
+        // Try to propose rotation with WRONG old committee (second_committee instead of first_committee).
+        // This should fail with EInvalidState because second_committee.id != new_committee.old_committee_id.
+        let new_partial_pks = vector[b"pk0", b"pk1"];
+        scenario.next_tx(ALICE);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        let wrong_committee = scenario.take_shared_by_id<Committee>(second_committee_id);
+        let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&first_committee_id);
+        new_committee.propose_for_rotation(
+            new_partial_pks,
+            wrong_committee,
+            ks_ticket,
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(new_committee);
     });
 }
 
-// #[test, expected_failure(abort_code = seal_committee::EInsufficientApprovals)]
-fun test_finalize_for_rotation_not_enough_approvals() {
-    test_tx!(|scenario| {
-        // todo
-    });
-}
-
-// #[test, expected_failure(abort_code = seal_committee::EInsufficientApprovals)]
+#[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_finalize_for_rotation_invalid_state() {
     test_tx!(|scenario| {
-        // todo
+        // Create first committee (1-of-1).
+        seal_committee::init_committee(1, vector[ALICE], scenario.ctx());
+        register_member!(scenario, ALICE, b"enc_pk_0", b"signing_pk_0", b"https://url0.com");
+
+        let partial_pks = vector[b"partial_pk_0"];
+        let master_pk = b"master_pk";
+        propose_member!(scenario, ALICE, partial_pks, master_pk);
+
+        scenario.next_tx(ALICE);
+        let first_committee = scenario.take_shared<Committee>();
+        let first_committee_id = first_committee.id();
+        test_scenario::return_shared(first_committee);
+
+        // Create a second committee that is NOT a rotation (no old_committee_id) (1-of-1).
+        seal_committee::init_committee(1, vector[DAVE], scenario.ctx());
+        register_member!(scenario, DAVE, b"enc_pk_3", b"signing_pk_3", b"https://url3.com");
+        let partial_pks2 = vector[b"partial_pk_3"];
+        propose_member!(scenario, DAVE, partial_pks2, master_pk);
+
+        scenario.next_tx(DAVE);
+        let second_committee = scenario.take_shared<Committee>();
+        let second_committee_id = second_committee.id();
+        test_scenario::return_shared(second_committee);
+
+        // Try to call propose_for_rotation on second_committee (which is NOT a rotation committee).
+        // This should fail with EInvalidState because second_committee.old_committee_id.is_none().
+        let new_partial_pks = vector[b"pk3"];
+        scenario.next_tx(DAVE);
+        let mut second_committee = scenario.take_shared_by_id<Committee>(second_committee_id);
+        let first_committee = scenario.take_shared_by_id<Committee>(first_committee_id);
+        let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&first_committee_id);
+        second_committee.propose_for_rotation(
+            new_partial_pks,
+            first_committee,
+            ks_ticket,
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(second_committee);
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::ENotMember)]
+fun test_update_url_fails_for_non_member() {
+    test_tx!(|scenario| {
+        seal_committee::init_committee(1, vector[ALICE], scenario.ctx());
+        register_member!(scenario, ALICE, b"enc_pk_0", b"signing_pk_0", b"https://url0.com");
+        propose_member!(scenario, ALICE, vector[b"pk0"], b"master_pk");
+
+        scenario.next_tx(ALICE);
+        let committee = scenario.take_shared<Committee>();
+        let committee_id = committee.id();
+        test_scenario::return_shared(committee);
+
+        // BOB (non-member) tries to update URL - should fail
+        scenario.next_tx(BOB);
+        let mut committee = scenario.take_shared_by_id<Committee>(committee_id);
+        let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&committee_id);
+        committee.update_member_url(
+            ks_ticket,
+            string::utf8(b"https://new_url.com"),
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(committee);
+    });
+}
 // ===== Helper Macros =====
 /// Scaffold a test tx that returns the test scenario
 public macro fun test_tx($f: |&mut Scenario|) {
@@ -395,13 +617,13 @@ public macro fun test_tx($f: |&mut Scenario|) {
     scenario.end();
 }
 
-/// Helper macro to register a member. 
+/// Helper macro to register a member.
 public macro fun register_member(
     $scenario: &mut Scenario,
     $member: address,
     $enc_pk: vector<u8>,
     $signing_pk: vector<u8>,
-    $url: vector<u8>
+    $url: vector<u8>,
 ) {
     let scenario = $scenario;
     let member = $member;
@@ -415,14 +637,14 @@ public macro fun register_member(
     test_scenario::return_shared(committee);
 }
 
-/// Helper macro to register a member by committee ID. 
+/// Helper macro to register a member by committee ID.
 public macro fun register_member_by_id(
     $scenario: &mut Scenario,
     $member: address,
     $committee_id: ID,
     $enc_pk: vector<u8>,
     $signing_pk: vector<u8>,
-    $url: vector<u8>
+    $url: vector<u8>,
 ) {
     let scenario = $scenario;
     let member = $member;
@@ -437,12 +659,12 @@ public macro fun register_member_by_id(
     test_scenario::return_shared(committee);
 }
 
-/// Helper macro to propose for a fresh DKG committee. 
+/// Helper macro to propose for a fresh DKG committee.
 public macro fun propose_member(
     $scenario: &mut Scenario,
     $member: address,
     $partial_pks: vector<vector<u8>>,
-    $pk: vector<u8>
+    $pk: vector<u8>,
 ) {
     let scenario = $scenario;
     let member = $member;
@@ -461,7 +683,7 @@ public macro fun propose_for_rotation_member(
     $member: address,
     $new_committee_id: ID,
     $old_committee_id: ID,
-    $partial_pks: vector<vector<u8>>
+    $partial_pks: vector<vector<u8>>,
 ) {
     let scenario = $scenario;
     let member = $member;
@@ -483,7 +705,7 @@ public macro fun assert_partial_key_server(
     $member: address,
     $expected_url: vector<u8>,
     $expected_partial_pk: vector<u8>,
-    $expected_party_id: u64
+    $expected_party_id: u64,
 ) {
     let key_server = $key_server;
     let member = $member;

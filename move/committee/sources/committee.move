@@ -13,9 +13,8 @@ use seal_testnet::key_server::{
     create_committee_v2,
     PartialKeyServer
 };
-use std::string::String;
+use std::{string::String, u64};
 use sui::{transfer::Receiving, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
-use std::u64;
 
 // ===== Errors =====
 
@@ -74,7 +73,6 @@ public struct Committee has key {
 public fun init_committee(threshold: u64, members: vector<address>, ctx: &mut TxContext) {
     init_internal(threshold, members, option::none(), ctx)
 }
-
 
 /// Create a committee for rotation from an existing finalized old committee. The new committee must
 /// contain an old threshold of the old committee members.
@@ -197,7 +195,7 @@ fun propose_internal(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
     pk: vector<u8>,
-    ctx: &mut TxContext,
+    ctx: &TxContext,
 ) {
     // TODO: add sanity check for partial pks and pk as valid elements.
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
@@ -269,7 +267,7 @@ fun finalize(committee: &mut Committee, ctx: &mut TxContext) {
     }
 }
 
-/// Helper function to finalize rotation for the committee. Transfer the KeyServer from old 
+/// Helper function to finalize rotation for the committee. Transfer the KeyServer from old
 /// committee to the new committee and destroys the old committee object. Add all new partial key
 /// server as df to key server.
 fun finalize_for_rotation(
@@ -299,7 +297,7 @@ fun finalize_for_rotation(
             committee.state = State::Finalized;
 
             // Destroy the old committee object.
-            let Committee {id, ..} = old_committee; 
+            let Committee { id, .. } = old_committee;
             object::delete(id);
         },
         _ => abort EInvalidState,
@@ -315,7 +313,7 @@ fun build_partial_key_servers(
     assert!(members.length() > 0, EInvalidMembers);
     assert!(members.length() == partial_pks.length(), EInvalidMembers);
     assert!(members.length() == members_info.length(), EInvalidMembers);
-    
+
     let mut partial_key_servers = vec_map::empty();
     let mut i = 0;
     members.do!(|member| {

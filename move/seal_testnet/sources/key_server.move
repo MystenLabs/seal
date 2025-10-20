@@ -1,20 +1,20 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Key server is a top level object that maps to versioned key server. 
+// Key server is a top level object that maps to versioned key server.
 // V1: Supports only independent key servers. A V1 server can upgrade to a V2 independent server.
-// V2: Supports both independent and committee-based key servers. A committee based V2 server can 
-// be created afresh, that holds map of partial key servers that contains the member's partial 
-// public key, party ID and URL. When a committee rotates, the partial public keys and party IDs 
-// are updated. 
+// V2: Supports both independent and committee-based key servers. A committee based V2 server can
+// be created afresh, that holds map of partial key servers that contains the member's partial
+// public key, party ID and URL. When a committee rotates, the partial public keys and party IDs
+// are updated.
 //
 // Permissionless registration of a key server:
-// - Key server should expose an endpoint /service: For V1 or V2 independent server, it returns the 
-// official object id of its key server (to prevent impersonation) and a PoP(key=IBE key, 
+// - Key server should expose an endpoint /service: For V1 or V2 independent server, it returns the
+// official object id of its key server (to prevent impersonation) and a PoP(key=IBE key,
 // m=[key_server_id | IBE public key]). For V2 committee based server it returns the key server
-// object ID for the committee it belongs to, and a PoP(key=IBE key, m=[key_server_id | party_id | 
-// partial public key]). 
-// 
+// object ID for the committee it belongs to, and a PoP(key=IBE key, m=[key_server_id | party_id |
+// partial public key]).
+//
 // - Key server should expose an endpoint /fetch_key that allows users to request a key from the key
 // server.
 
@@ -27,7 +27,7 @@ const KeyTypeBonehFranklinBLS12381: u8 = 0;
 const EInvalidKeyType: u64 = 1;
 const EInvalidVersion: u64 = 2;
 const EInvalidServerType: u64 = 3;
-const EInvalidThreshold : u64 = 4;
+const EInvalidThreshold: u64 = 4;
 
 /// KeyServer should always be guarded as it's a capability
 /// on its own. It should either be an owned object, wrapped object,
@@ -87,7 +87,7 @@ public fun create_committee_v2(
 ): KeyServer {
     assert!(threshold > 0, EInvalidThreshold);
     assert!(partial_key_servers.length() >= threshold, EInvalidThreshold);
-    // TODO: assert pk and partial_pk are all valid elements. 
+    // TODO: assert pk and partial_pk are all valid elements.
     let mut key_server = KeyServer {
         id: object::new(ctx),
         first_version: 2,
@@ -142,7 +142,7 @@ public fun set_partial_key_servers(
     s: &mut KeyServer,
     partial_key_servers: VecMap<address, PartialKeyServer>,
 ) {
-    // TODO: validate partial pk are valid elements. 
+    // TODO: validate partial pk are valid elements.
     s.assert_committee_server_v2();
     let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
     match (&mut v2.server_type) {
@@ -311,7 +311,6 @@ fun create_v1(
     df::add(&mut key_server.id, 1, key_server_v1);
     key_server
 }
-
 
 /// Get the partial key server object corresponding to the member.
 #[test_only]
