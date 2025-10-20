@@ -311,3 +311,22 @@ To reduce latency and improve efficiency when using the Seal SDK, apply the foll
 - **Include fully specified objects in PTBs**:  When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui Full node.
 - **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK’s internal caching to reduce overhead.
 - **Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
+
+### Other performance recommendations
+
+**Choose AES for speed, and reserve HMAC-CTR for on-chain decryptions**
+
+Use `AES` for most app data. It is significantly faster and more memory-efficient than `HMAC-CTR`. Use `HMAC_CTR` **only** when you need on-chain decryption of small-sized data.
+
+**Use envelope (layered) encryption for large payloads**
+
+For big files (videos, large datasets etc.), treat Seal as a **KMS**:
+
+- Generate a symmetric key and encrypt the data with `AES`.
+- Encrypt the symmetric key using Seal.
+- Store the ciphertext (e.g., on Walrus) and keep a reference to the Seal-encrypted symmetric key.
+
+!!! tip
+    Hardware, runtime (browser vs. Node.js), and object size vary. Try both direct `AES` and envelope encryption to find the best balance of performance, scalability, and manageability for your workload.
+
+Envelope encryption is also recommended for highly sensitive data and enables safer key rotation/updates without re-encrypting large blobs. See [Use layered encryption for critical or large data](./SecurityBestPractices.md#use-layered-encryption-for-critical-or-large-data).
