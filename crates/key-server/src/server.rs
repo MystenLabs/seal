@@ -146,8 +146,7 @@ impl Server {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Testnet.node_url())
-                .expect("Failed to create SuiGrpcClient"),
+            SuiGrpcClient::new(options.network.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics,
         );

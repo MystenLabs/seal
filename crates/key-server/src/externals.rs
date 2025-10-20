@@ -110,7 +110,7 @@ pub(crate) async fn get_latest_checkpoint_timestamp(
         .get_latest_checkpoint_sequence_number()
         .await?;
     sui_rpc_client
-        .get_checkpoint(latest_checkpoint_sequence_number)
+        .get_checkpoint_time(latest_checkpoint_sequence_number)
         .await
 }
 
@@ -179,7 +179,7 @@ mod tests {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Testnet.node_url())
+            SuiGrpcClient::new(Network::Mainnet.node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::Metrics};
 use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::proto::proto_to_timestamp_ms;
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},
@@ -12,9 +13,6 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
-
-const SECONDS_TO_MILLIS: u64 = 1000;
-const NANOS_TO_MILLIS: u64 = 1_000_000;
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -257,7 +255,7 @@ impl SuiRpcClient {
     }
 
     /// Returns a checkpoint timestamp in milliseconds by its sequence number.
-    pub async fn get_checkpoint(&self, checkpoint_seq: u64) -> RpcResult<u64> {
+    pub async fn get_checkpoint_time(&self, checkpoint_seq: u64) -> RpcResult<u64> {
         let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
             "get_checkpoint",
@@ -291,17 +289,7 @@ impl SuiRpcClient {
             .and_then(|s| s.timestamp)
             .ok_or_else(|| RpcError::new("No timestamp in checkpoint"))?;
 
-        let seconds_ms = (timestamp.seconds as u64)
-            .checked_mul(SECONDS_TO_MILLIS)
-            .ok_or_else(|| RpcError::new("Timestamp overflow"))?;
-
-        let nanos_ms = (timestamp.nanos as u64)
-            .checked_div(NANOS_TO_MILLIS)
-            .ok_or_else(|| RpcError::new("Invalid nanoseconds to milliseconds conversion"))?;
-
-        seconds_ms
-            .checked_add(nanos_ms)
-            .ok_or_else(|| RpcError::new("Timestamp overflow"))
+        proto_to_timestamp_ms(timestamp).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Returns the current reference gas price.
