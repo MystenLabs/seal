@@ -41,18 +41,19 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         let committee = scenario.take_shared<Committee>();
         assert!(!committee.is_finalized(), 0);
         test_scenario::return_shared(committee);
+        
         // All 3 proposals, committee finalized.
         propose_member!(scenario, ALICE, partial_pks, master_pk);
         scenario.next_tx(ALICE);
         let committee = scenario.take_shared<Committee>();
         assert!(committee.is_finalized(), 0);
-        
         let old_committee_id = committee.id();
         test_scenario::return_shared(committee);
 
         // Verify KeyServer TTO to committee.
         scenario.next_tx(ALICE);
         let key_server = scenario.take_from_address<KeyServer>(old_committee_id.to_address());
+        
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
         assert_partial_key_server!(&key_server, ALICE, b"https://url0.com", b"partial_pk_0", 0);
         assert_partial_key_server!(&key_server, BOB, b"https://url1.com", b"partial_pk_1", 1);
@@ -90,24 +91,20 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
 
         // Propose rotation with all 4 members.
         let new_partial_pks = vector[b"pk1", b"pk0", b"pk3", b"pk4"];
-        propose_for_rotation_member!(scenario, BOB, new_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, ALICE, new_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, DAVE, new_committee_id, new_partial_pks);
-        propose_for_rotation_member!(scenario, EVE, new_committee_id, new_partial_pks);
+        propose_for_rotation_member!(scenario, BOB, new_committee_id, old_committee_id, new_partial_pks);
+        propose_for_rotation_member!(scenario, ALICE, new_committee_id, old_committee_id, new_partial_pks);
+        propose_for_rotation_member!(scenario, DAVE, new_committee_id, old_committee_id, new_partial_pks);
+        propose_for_rotation_member!(scenario, EVE, new_committee_id, old_committee_id, new_partial_pks);
 
-        // Finalize committee for rotation.
+        // New committee finalized and owns the key server.
         scenario.next_tx(BOB);
-        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
-        let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&old_committee_id);
-        new_committee.finalize_for_rotation(
-            old_committee,
-            ks_ticket
-        );
+        let new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        assert!(new_committee.is_finalized(), 0);
         test_scenario::return_shared(new_committee);
 
-        // New committee owns the key server.
-        scenario.next_tx(BOB);
+        // Verify old committee has been destroyed.
+        assert!(!test_scenario::has_most_recent_shared<Committee>(), 0);
+
         let key_server = scenario.take_from_address<KeyServer>(new_committee_id.to_address());
 
         // Verify each member's URL, partial PK, and party ID (BOB=party0, ALICE=party1, DAVE=party2, EVE=party3).
@@ -121,7 +118,7 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         scenario.next_tx(BOB);
         let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
         let ks_ticket_1 = test_scenario::most_recent_receiving_ticket<KeyServer>(&new_committee_id);
-        new_committee.update_partial_ks_url(
+        new_committee.update_member_url(
             ks_ticket_1,
             string::utf8(b"https://new_url1.com"),
             scenario.ctx(),
@@ -162,34 +159,28 @@ fun test_scenario_2of3_to_3of4_to_1of1() {
         register_member_by_id!(scenario, ALICE, third_committee_id, b"enc_pk_alice_3", b"signing_pk_alice_3", b"https://alice_url_3.com");
         register_member_by_id!(scenario, BOB, third_committee_id, b"enc_pk_bob_3", b"signing_pk_bob_3", b"https://bob_url_3.com");
 
-        // Propose rotation with all 3 members.
+        // Propose rotation with all 3 members (last proposal auto-finalizes).
         let third_partial_pks = vector[b"eve_pk_3", b"alice_pk_3", b"bob_pk_3"];
-        propose_for_rotation_member!(scenario, EVE, third_committee_id, third_partial_pks);
-        propose_for_rotation_member!(scenario, ALICE, third_committee_id, third_partial_pks);
-        propose_for_rotation_member!(scenario, BOB, third_committee_id, third_partial_pks);
+        propose_for_rotation_member!(scenario, EVE, third_committee_id, new_committee_id, third_partial_pks);
+        propose_for_rotation_member!(scenario, ALICE, third_committee_id, new_committee_id, third_partial_pks);
+        propose_for_rotation_member!(scenario, BOB, third_committee_id, new_committee_id, third_partial_pks);
 
-        // Finalize third committee for rotation.
+        // Third committee finalized and owns the key server.
         scenario.next_tx(BOB);
-        let mut third_committee = scenario.take_shared_by_id<Committee>(third_committee_id);
-        let second_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        let ks_ticket_2 = test_scenario::most_recent_receiving_ticket<KeyServer>(&new_committee_id);
-        third_committee.finalize_for_rotation(
-            second_committee,
-            ks_ticket_2
-        );
+        let third_committee = scenario.take_shared_by_id<Committee>(third_committee_id);
+        assert!(third_committee.is_finalized(), 0);
         test_scenario::return_shared(third_committee);
 
-        // Third committee owns the key server.
-        scenario.next_tx(BOB);
+        // Verify second committee (new_committee) has been destroyed.
+        assert!(!test_scenario::has_most_recent_shared<Committee>(), 0);
+
         let key_server = scenario.take_from_address<KeyServer>(third_committee_id.to_address());
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
         assert_partial_key_server!(&key_server, EVE, b"https://eve_url_3.com", b"eve_pk_3", 0);
         assert_partial_key_server!(&key_server, ALICE, b"https://alice_url_3.com", b"alice_pk_3", 1);
         assert_partial_key_server!(&key_server, BOB, b"https://bob_url_3.com", b"bob_pk_3", 2);
-        test_scenario::return_to_address(third_committee_id.to_address(), key_server);
-        
-        // TODO: assert last committee is destroyed. 
+        test_scenario::return_to_address(third_committee_id.to_address(), key_server); 
     });
 }
 
@@ -464,21 +455,25 @@ public macro fun propose_member(
     test_scenario::return_shared(committee);
 }
 
-/// Helper macro to propose for rotation. 
+/// Helper macro to propose for rotation.
 public macro fun propose_for_rotation_member(
     $scenario: &mut Scenario,
     $member: address,
     $new_committee_id: ID,
+    $old_committee_id: ID,
     $partial_pks: vector<vector<u8>>
 ) {
     let scenario = $scenario;
     let member = $member;
     let new_committee_id = $new_committee_id;
+    let old_committee_id = $old_committee_id;
     let partial_pks = $partial_pks;
 
     scenario.next_tx(member);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-    new_committee.propose_for_rotation(partial_pks, scenario.ctx());
+    let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
+    let ks_ticket = test_scenario::most_recent_receiving_ticket<KeyServer>(&old_committee_id);
+    new_committee.propose_for_rotation(partial_pks, old_committee, ks_ticket, scenario.ctx());
     test_scenario::return_shared(new_committee);
 }
 
@@ -488,7 +483,7 @@ public macro fun assert_partial_key_server(
     $member: address,
     $expected_url: vector<u8>,
     $expected_partial_pk: vector<u8>,
-    $expected_party_id: u16
+    $expected_party_id: u64
 ) {
     let key_server = $key_server;
     let member = $member;
