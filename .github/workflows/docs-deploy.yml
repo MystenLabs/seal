@@ -1,15 +1,7 @@
 name: Docs Deploy
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'overrides/**'
-      - 'theme/**'
-      - 'ws-resources.json'
+  workflow_dispatch:
 
 concurrency:
   group: docs-deploy-${{ github.ref }}
@@ -22,10 +14,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
 
       - name: Set up Python
-        uses: actions/setup-python@49933ea5288caeca8642d1e84afbd3f7d6820020 # pin@v4.4.0
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # pin@v6.0.0
         with:
           python-version: '3.11'
 
@@ -33,6 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install mkdocs mkdocs-material
+          mkdocs --version
 
       - name: Clean site directory
         run: |
@@ -54,13 +47,20 @@ jobs:
       - name: Install Sui CLI (Homebrew)
         run: |
           brew update
-          brew install sui
+          brew install sui || (brew tap mystenlabs/tap && brew install mystenlabs/tap/sui)
+          sui --version
 
       - name: Configure Sui client for mainnet
         run: |
           # Create or update mainnet env and switch to it
           sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:44 || true
           sui client switch --env mainnet
+
+      - name: Show Sui client info
+        run: |
+          sui --version
+          sui client envs || true
+          sui client addresses || true
 
       - name: Import Sui private key and select address
         env:
@@ -98,6 +98,8 @@ jobs:
           # Ensure installed bins are on PATH for subsequent steps
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          which walrus || true
+          walrus --version || true
 
       - name: Configure Walrus client
         run: |
@@ -119,6 +121,7 @@ jobs:
 
       - name: Deploy site to Walrus and verify
         run: |
+          ls -la ./site || true
           ./site-builder deploy ./site --check-extend --epochs 50
           ./site-builder sitemap @seal-docs
 
