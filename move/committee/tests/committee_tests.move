@@ -705,7 +705,7 @@ public macro fun assert_partial_key_server(
     $member: address,
     $expected_url: vector<u8>,
     $expected_partial_pk: vector<u8>,
-    $expected_party_id: u64,
+    $expected_party_id: u16,
 ) {
     let key_server = $key_server;
     let member = $member;

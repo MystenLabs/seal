@@ -13,7 +13,7 @@ use seal_testnet::key_server::{
     create_committee_v2,
     PartialKeyServer
 };
-use std::{string::String, u64};
+use std::string::String;
 use sui::{transfer::Receiving, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
 
 // ===== Errors =====
@@ -57,7 +57,7 @@ public enum State has drop, store {
 /// MPC committee with defined threshold and members with its state.
 public struct Committee has key {
     id: UID,
-    threshold: u64,
+    threshold: u16,
     /// The members of the committee. The 'party_id' used in the DKG protocol is the index of this
     /// vector.
     members: vector<address>,
@@ -70,7 +70,7 @@ public struct Committee has key {
 
 /// Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
 /// state with empty members_info.
-public fun init_committee(threshold: u64, members: vector<address>, ctx: &mut TxContext) {
+public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
     init_internal(threshold, members, option::none(), ctx)
 }
 
@@ -78,7 +78,7 @@ public fun init_committee(threshold: u64, members: vector<address>, ctx: &mut Tx
 /// contain an old threshold of the old committee members.
 public fun init_rotation(
     old_committee: &Committee,
-    threshold: u64,
+    threshold: u16,
     members: vector<address>,
     ctx: &mut TxContext,
 ) {
@@ -129,7 +129,7 @@ public fun propose(
     // For fresh DKG committee only.
     assert!(committee.old_committee_id.is_none(), EInvalidState);
     committee.propose_internal(partial_pks, pk, ctx);
-    committee.finalize(ctx);
+    committee.try_finalize(ctx);
 }
 
 /// Propose a rotation from old committee to new one with a list of partial pks. Add the caller to
@@ -146,7 +146,7 @@ public fun propose_for_rotation(
     let key_server = transfer::public_receive(&mut old_committee.id, key_server);
     key_server.assert_committee_server_v2();
     committee.propose_internal(partial_pks, *key_server.pk(), ctx);
-    committee.finalize_for_rotation(old_committee, key_server);
+    committee.try_finalize_for_rotation(old_committee, key_server);
 }
 
 /// Update the url of the partial key server object corresponding to the sender.
@@ -168,14 +168,14 @@ public fun update_member_url(
 
 /// Internal function to initialize a shared committee object with optional old committee id.
 fun init_internal(
-    threshold: u64,
+    threshold: u16,
     members: vector<address>,
     old_committee_id: Option<ID>,
     ctx: &mut TxContext,
 ) {
     assert!(threshold > 0, EInvalidThreshold);
-    assert!(members.length() >= threshold, EInvalidThreshold);
-    assert!(members.length() < u64::max_value!(), EInvalidMembers);
+    assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
+    assert!(members.length() as u16 >= threshold, EInvalidThreshold);
 
     // Verify no duplicate members.
     let members_set = vec_set::from_keys(members);
@@ -235,14 +235,14 @@ fun propose_internal(
 
 /// Helper function to finalize the committee for a fresh DKG, creates a new KeyServer and TTO to
 /// the committee.
-fun finalize(committee: &mut Committee, ctx: &mut TxContext) {
+fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
     // Sanity check, only for fresh DKG committee.
     assert!(committee.old_committee_id.is_none(), EInvalidState);
 
     match (&committee.state) {
         State::PostDKG { approvals, members_info, partial_pks, pk } => {
             // Approvals count not reached, exit immediately.
-            if (approvals.length() < committee.members.length()) {
+            if (approvals.length() != committee.members.length()) {
                 return
             };
 
@@ -270,7 +270,7 @@ fun finalize(committee: &mut Committee, ctx: &mut TxContext) {
 /// Helper function to finalize rotation for the committee. Transfer the KeyServer from old
 /// committee to the new committee and destroys the old committee object. Add all new partial key
 /// server as df to key server.
-fun finalize_for_rotation(
+fun try_finalize_for_rotation(
     committee: &mut Committee,
     old_committee: Committee,
     mut key_server: KeyServer,
@@ -280,7 +280,7 @@ fun finalize_for_rotation(
     match (&committee.state) {
         State::PostDKG { approvals, members_info, partial_pks, .. } => {
             // Approvals count not reached, return key server back to old committee.
-            if (approvals.length() < committee.members.length()) {
+            if (approvals.length() != committee.members.length()) {
                 transfer::public_transfer(key_server, old_committee.id.to_address());
                 transfer::share_object(old_committee);
                 return
@@ -322,7 +322,7 @@ fun build_partial_key_servers(
             create_partial_key_server(
                 partial_pks[i],
                 members_info.get(&member).url,
-                i,
+                i as u16,
             ),
         );
         i = i + 1;

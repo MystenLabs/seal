@@ -63,7 +63,7 @@ public enum ServerType has drop, store {
         url: String,
     },
     Committee {
-        threshold: u64,
+        threshold: u16,
         partial_key_servers: VecMap<address, PartialKeyServer>,
     },
 }
@@ -72,7 +72,7 @@ public enum ServerType has drop, store {
 public struct PartialKeyServer has copy, drop, store {
     partial_pk: vector<u8>, // Partial public key (G2 element).
     url: String, // Key server URL.
-    party_id: u64, // Party ID in the DKG.
+    party_id: u16, // Party ID in the DKG.
 }
 
 // ===== V2 Functions =====
@@ -80,13 +80,13 @@ public struct PartialKeyServer has copy, drop, store {
 /// Create a committee-owned KeyServer.
 public fun create_committee_v2(
     name: String,
-    threshold: u64,
+    threshold: u16,
     pk: vector<u8>,
     partial_key_servers: VecMap<address, PartialKeyServer>,
     ctx: &mut TxContext,
 ): KeyServer {
     assert!(threshold > 0, EInvalidThreshold);
-    assert!(partial_key_servers.length() >= threshold, EInvalidThreshold);
+    assert!(partial_key_servers.length() as u16 >= threshold, EInvalidThreshold);
     // TODO: assert pk and partial_pk are all valid elements.
     let mut key_server = KeyServer {
         id: object::new(ctx),
@@ -127,7 +127,7 @@ public fun upgrade_to_independent_v2(ks: &mut KeyServer) {
 public fun create_partial_key_server(
     partial_pk: vector<u8>,
     url: String,
-    party_id: u64,
+    party_id: u16,
 ): PartialKeyServer {
     // TODO: validate partial_pk is a valid element.
     PartialKeyServer {
@@ -339,7 +339,7 @@ public fun partial_ks_pk(partial: &PartialKeyServer): vector<u8> {
 
 /// Get party ID for PartialKeyServer.
 #[test_only]
-public fun partial_ks_party_id(partial: &PartialKeyServer): u64 {
+public fun partial_ks_party_id(partial: &PartialKeyServer): u16 {
     partial.party_id
 }
 
