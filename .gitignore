@@ -85,3 +85,6 @@ docs/content/references/framework/**
 lcov.info
 
 **/build/**
+
+# dkg
+.dkg-keys

@@ -2467,6 +2467,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dkg-cli"
+version = "0.5.12"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "hex",
+ "rand 0.8.5",
+ "seal-utils",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.8",
+ "sui-types",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8060,6 +8080,22 @@ dependencies = [
  "sui-sdk-types 0.0.8",
  "sui-types",
  "tracing",
+]
+
+[[package]]
+name = "seal-utils"
+version = "0.5.12"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "prost-types",
+ "serde",
+ "sui-rpc 0.0.8",
+ "sui-sdk-types 0.0.8",
+ "sui-types",
+ "tokio",
 ]
 
 [[package]]
