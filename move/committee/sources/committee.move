@@ -14,7 +14,7 @@ use seal_testnet::key_server::{
     PartialKeyServer
 };
 use std::string::String;
-use sui::{transfer::Receiving, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
+use sui::{dynamic_field as df, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
 
 // ===== Errors =====
 
@@ -139,27 +139,20 @@ public fun propose_for_rotation(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
     mut old_committee: Committee,
-    key_server: Receiving<KeyServer>,
     ctx: &mut TxContext,
 ) {
     committee.check_rotation_consistency(&old_committee);
-    let key_server = transfer::public_receive(&mut old_committee.id, key_server);
+    let key_server = df::remove<vector<u8>, KeyServer>(&mut old_committee.id, b"key_server");
     key_server.assert_committee_server_v2();
     committee.propose_internal(partial_pks, *key_server.pk(), ctx);
     committee.try_finalize_for_rotation(old_committee, key_server);
 }
 
 /// Update the url of the partial key server object corresponding to the sender.
-public fun update_member_url(
-    committee: &mut Committee,
-    ks: Receiving<KeyServer>,
-    url: String,
-    ctx: &mut TxContext,
-) {
+public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut TxContext) {
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
-    let mut key_server = transfer::public_receive(&mut committee.id, ks);
+    let key_server = df::borrow_mut<vector<u8>, KeyServer>(&mut committee.id, b"key_server");
     key_server.update_member_url(url, ctx.sender());
-    transfer::public_transfer(key_server, committee.id.to_address());
 }
 
 // TODO: handle package upgrade with threshold approvals of the committee.
@@ -252,7 +245,7 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
                 members_info,
                 partial_pks,
             );
-            // Create the KeyServerV2 object and transfer it to the committee.
+            // Create the KeyServerV2 object and attach it to the committee as dynamic field.
             let ks = create_committee_v2(
                 committee.id.to_address().to_string(),
                 committee.threshold,
@@ -260,7 +253,7 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
                 partial_key_servers,
                 ctx,
             );
-            transfer::public_transfer(ks, committee.id.to_address());
+            df::add<vector<u8>, KeyServer>(&mut committee.id, b"key_server", ks);
             committee.state = State::Finalized;
         },
         _ => abort EInvalidState,
@@ -272,16 +265,16 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
 /// server as df to key server.
 fun try_finalize_for_rotation(
     committee: &mut Committee,
-    old_committee: Committee,
+    mut old_committee: Committee,
     mut key_server: KeyServer,
 ) {
     committee.check_rotation_consistency(&old_committee);
 
     match (&committee.state) {
         State::PostDKG { approvals, members_info, partial_pks, .. } => {
-            // Approvals count not reached, return key server back to old committee.
+            // Approvals count not reached, return key server back to old committee as dynamic field.
             if (approvals.length() != committee.members.length()) {
-                transfer::public_transfer(key_server, old_committee.id.to_address());
+                df::add<vector<u8>, KeyServer>(&mut old_committee.id, b"key_server", key_server);
                 transfer::share_object(old_committee);
                 return
             };
@@ -293,7 +286,7 @@ fun try_finalize_for_rotation(
                 partial_pks,
             );
             key_server.set_partial_key_servers(partial_key_servers);
-            transfer::public_transfer(key_server, committee.id.to_address());
+            df::add<vector<u8>, KeyServer>(&mut committee.id, b"key_server", key_server);
             committee.state = State::Finalized;
 
             // Destroy the old committee object.
@@ -348,4 +341,10 @@ public(package) fun is_finalized(committee: &Committee): bool {
         State::Finalized => true,
         _ => false,
     }
+}
+
+/// Test-only function to borrow the KeyServer dynamic field.
+#[test_only]
+public fun borrow_key_server(committee: &Committee): &KeyServer {
+    df::borrow<vector<u8>, KeyServer>(&committee.id, b"key_server")
 }
