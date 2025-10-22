@@ -12,7 +12,7 @@ Packages should define `seal_approve*` functions in their modules to control acc
 - A package can include multiple `seal_approve*` functions, each implementing different access control logic and accepting different input parameters.
 - The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`.
 - If access is not granted, the function should abort without returning a value.
-- To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a shared global object with the latest version (see [allowlist](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/subscription.move) examples).
+- To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a versioned shared global object with the latest version (see [allowlist](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/subscription.move) examples).
 
 See [Example patterns](./ExamplePatterns.md) for additional examples and high-level patterns.
 
@@ -27,7 +27,7 @@ $ sui client publish
 
 ### Limitations
 
-The `seal_approve*` functions are evaluated on full nodes using the `dry_run_transaction_block` RPC call. This call executes the associated Move code using the full node’s local view of the chain state. Because full nodes operate independently, the result of `dry_run_transaction_block` may vary across nodes based on differences in their internal state.
+The `seal_approve*` functions are evaluated on full nodes using the `dry_run_transaction_block` RPC call. This call executes the associated Move code using the full node’s local view of the chain state. Because full nodes operate asynchrounsly, the result of `dry_run_transaction_block` may vary across nodes based on differences in their internal state.
 
 When using `seal_approve*` functions, keep the following in mind:
 
@@ -35,7 +35,7 @@ When using `seal_approve*` functions, keep the following in mind:
 - `seal_approve*` functions are not evaluated atomically across all key servers. Avoid relying on frequently changing state to determine access, as different full nodes may observe different versions of the chain.
 - Do not rely on invariants that depend on the relative order of transactions within a checkpoint. For example, the following code assumes a specific ordering of increment operations, but full nodes may observe different intermediate counter values due to interleaved execution.
 
-```move
+```rust
 
 struct Counter {
     id: UID,
@@ -93,12 +93,12 @@ Set `verifyKeyServers` to `true` if the app or user needs to confirm that the pr
 
 Next, the app can call the `encrypt` method on the `client` instance. This function requires the following parameters:
 
-- the encryption threshold
-- the package id of the deployed contract containing the `seal_approve*` functions
-- the id associated with the access control policy (without the prefix of the package id discussed in [Seal Design](Design.md))
-- the data to encrypt
+- The encryption threshold
+- The package id of the deployed contract containing the `seal_approve*` functions
+- The id associated with the access control policy (without the prefix of the package id discussed in [Seal Design](Design.md))
+- The data to encrypt
 
-The `encrypt` function returns two values: the encrypted object, and the symmetric key used for encryption (i.e., the key from the DEM component of the KEM/DEM scheme). The symmetric key can either be ignored or returned to the user as a backup for disaster recovery. If retained, the user can decrypt the data manually using the CLI and the `symmetric-decrypt` command, as shown in the example below.
+The `encrypt` function returns two values: the encrypted object, and the symmetric key used for encryption (i.e., the key from the DEM component of the KEM/DEM scheme). The symmetric key can either be ignored or returned to the user as a backup for disaster recovery. If retained, the user can decrypt the data manually using the CLI and the `symmetric-decrypt` command.
 
 ```typescript
 const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt({
@@ -112,7 +112,7 @@ const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt
 Note that the encryption does **not** conceal the size of the message. If message size is considered sensitive, pad the message with zeros until its length no longer reveals meaningful information.
 
 !!! note
-    Seal supports encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
+    Seal can be used for encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
 
 !!! tip
     The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an `EncryptedObject` instance that includes metadata such as the ID and other associated fields.
@@ -169,6 +169,8 @@ const decryptedBytes = await client.decrypt({
 });
 ```
 
+Seal evaluates the transaction as if it was sent by the user, i.e., `TxContext::sender()` is expected to return the account that signed on the session key.
+
 !!! tip
     To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
 
@@ -193,7 +195,7 @@ Check out our [integration tests](https://github.com/MystenLabs/ts-sdks/blob/mai
 
 ### On-chain decryption
 
-Seal supports on-chain decryption in Move through the [`seal::bf_mac_encryption`](https://github.com/MystenLabs/seal/tree/main/move/seal/sources/bf_hmac_encryption.move) package. This enables Move packages to decrypt Seal-encrypted objects and use the results in on-chain logic such as auctions, secure voting (see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move)), or other verifiable workflows.
+Seal supports on-chain HMAC-CTR decryption in Move through the [`seal::bf_mac_encryption`](https://github.com/MystenLabs/seal/tree/main/move/seal/sources/bf_hmac_encryption.move) package. This enables Move packages to decrypt Seal-encrypted objects and use the results in on-chain logic such as auctions, secure voting (see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move)), or other verifiable workflows.
 
 Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
@@ -204,18 +206,18 @@ Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
 To decrypt an encrypted object in a Move package, follow these steps:
 
-- **Verify derived keys**
-    - Call `bf_hmac_encryption::verify_derived_keys` with the raw keys, package ID, identity, and the vector of key server public keys.
-    - The function returns a vector of `VerifiedDerivedKey` objects.
-    -  Use the Seal SDK client to fetch derived keys via `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
+- **On-chain app initialization**
     - Retrieve public keys with `client.getPublicKeys` and convert them with `bf_hmac_encryption::new_public_key`.
-    - For both derived keys and public keys, you may need to convert from bytes to `Element<G1>` or `Element<G2>` using the [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes) function.
+    - Store the key server public keys on-chain.
+    - The dapp/Users should verify the correctness of those public keys before uploading their encryptions.
+- **Verify derived keys**
+    - Use the Seal SDK client to fetch derived keys via `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
+    - Convert from bytes to `Element<G1>` or `Element<G2>` using the [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes) function.
+    - Call `bf_hmac_encryption::verify_derived_keys` with the raw keys, package ID, identity, and the vector of key server public keys.
+    - The function returns a vector of `VerifiedDerivedKey` objects.          
 - **Perform decryption**
-    - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of public keys
+    - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of public keys.
     - The function returns an `Option<vector<u8>>`. If decryption fails, the return value will be `None`.
-
-!!! note
-    On-chain decryption currently works only with HMAC-CTR mode, _not_ AES.
 
 #### On-chain decryption with the TypeScript SDK
 
@@ -242,6 +244,7 @@ const derivedKeys = await client.getDerivedKeys({
 });
 
 // 3. Get the public keys corresponding to the derived keys.
+// In practice, this should should be done only during the app initialization.
 const publicKeys = await client.getPublicKeys(encryptedObject.services.map(([service, _]) => service));
 const correspondingPublicKeys = derivedKeys.keys().map((objectId) => {
   const index = encryptedObject.services.findIndex(([s, _]) => s === objectId);
@@ -310,4 +313,4 @@ To reduce latency and improve efficiency when using the Seal SDK, apply the foll
 - **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization.
 - **Include fully specified objects in PTBs**:  When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui Full node.
 - **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK’s internal caching to reduce overhead.
-- **Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
+- **[advanced] Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
