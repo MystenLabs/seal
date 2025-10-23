@@ -98,4 +98,4 @@ AES-256-GCM is faster and should be preferred for most use cases. Use HMAC-CTR o
 
 Post-quantum primitives are planned to be added in the future.
 
-More sophisticated encryption schemes can use Seal purely as a KMS for storing the scheme's secret key, enabling, e.g., streaming decryption, hardware assisted decryption, chunked decryption, etc.
+For advanced encryption schemes, use Seal as a KMS to protect the scheme’s secret key. This approach enables streaming, hardware-assisted, or chunked decryption while keeping keys out of application code.
