@@ -169,7 +169,7 @@ const decryptedBytes = await client.decrypt({
 });
 ```
 
-Seal evaluates the transaction as if it was sent by the user, i.e., `TxContext::sender()` is expected to return the account that signed on the session key.
+Seal evaluates the transaction as if the user sent it. In Move, `TxContext::sender()` returns the account that signed with the session key.
 
 !!! tip
     To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
