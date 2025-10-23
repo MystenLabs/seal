@@ -21,7 +21,7 @@ Seal consists of two main components:
 - **Off-chain Key Servers:** Key servers are off-chain services, each holding a single IBE master secret key. Users can request a derived secret key for a specific identity. The key server returns the derived key only if the associated onchain access policy approves the request.
 
 Consider the following basic example for realizing time-lock encryption:
-```move
+```rust
 module patterns::tle;
 
 use sui::bcs;
@@ -44,13 +44,13 @@ entry fun seal_approve(id: vector<u8>, c: &clock::Clock) {
 }
 ```
 
-The module above controls all IBE identities that begin with its package ID, `PkgId`. To encrypt data with a time-lock `T`, a user selects a key server and encrypts the data using the identity `[PkgId][bcs::to_bytes(T)]` and the server’s IBE master public key. Once the onchain time on Sui exceeds `T`, *anyone* can request the decryption key for the identity `[PkgId][bcs::to_bytes(T)]` from the Seal key server. Access control is enforced by the `seal_approve` function defined in the module. This function receives the requested identity (excluding the `PkgId` prefix) and a `Clock` as arguments. It returns success only if the current time is greater than or equal to `T`. The key server evaluates `seal_approve` locally to determine whether the derived key can be returned.
+The module above controls all IBE identities that begin with its package ID `PkgId`. To encrypt data with a time-lock `T`, a user selects a key server and encrypts the data using the identity `[PkgId][bcs::to_bytes(T)]` and the server’s IBE master public key. Once the onchain time on Sui exceeds `T`, *anyone* can request the decryption key for the identity `[PkgId][bcs::to_bytes(T)]` from the Seal key server. Access control is enforced by the `seal_approve` function defined in the module. This function receives the requested identity (excluding the `PkgId` prefix) and a `Clock` as arguments. It returns success only if the current time is greater than or equal to `T`. The key server evaluates `seal_approve` to determine whether the derived key can be returned.
 
 Time-lock encryption can be applied to a variety of onchain use cases, including MEV-resistant trading, secure voting, and more. For additional examples and useful implementation patterns, see the [Example patterns](./ExamplePatterns.md).
 
 The framework is fully generic. Developers can define custom authorization logic within `seal_approve*` functions and choose which key servers to use based on their application's needs. For example, they may use a fixed set of trusted key servers or allow users to select their preferred servers.
 
-When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global shared object for your package. For examples, see the [allowlist and subscription patterns](./ExamplePatterns.md). Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
+When you upgrade a package, it retains the same identity subdomain. To support secure upgrades, follow the recommended best practices for [versioned shared objects](https://docs.sui.io/concepts/sui-move-concepts/packages/upgrade#versioned-shared-objects). Specifically, version your shared objects, or create a global versioned shared object for your package. For examples, see the [allowlist and subscription patterns](./ExamplePatterns.md). Keep in mind that if a package is upgradeable, the access control policy can be changed at any time by the package owner. These changes are transparent and publicly visible onchain.
 
 ## Decentralization and trust model
 
@@ -71,7 +71,7 @@ Secondly, a single key server can also be implemented using a multi-party comput
 The security of encrypted data relies on the following assumptions:
 
 - **Key server integrity**: The Seal key servers are not compromised, or, in the case of threshold encryption, fewer than the required threshold are compromised. This includes both the Seal key servers and the Sui full nodes they depend on to evaluate the access policies.
-- **Correct access control policy**: The access control policy associated with the encrypted data is accurate and appropriately configured. If package upgrades are enabled, the package owner can modify the policy at any time. The new policy replaces the previous one and governs future access.
+- **Correct access control policy**: The access control policy associated with the encrypted data is accurate and appropriately configured. If package upgrades are enabled, the package owner can modify the policy at any time.
 
 ## Key Server
 A light server is initialized with an identity-based encryption (IBE) master secret key and has access to a trusted full node. In simple deployments, the server runs as a backend service with the secret key stored in protected storage, optionally secured using a software or hardware vault. More advanced deployments may use secure enclaves, MPC committees, or even air-gapped environments to enhance security.
@@ -82,7 +82,7 @@ The server exposes only two APIs:
 - `/v1/fetch_key` - Handles a request for one or more derived keys and returns them if access is permitted by the associated package / policies. Each request must meet the following requirements:
     - Be signed by the user's address using `signPersonalMessage`. For details, see the [signed_message](https://github.com/MystenLabs/seal/tree/main/crates/key-server/src/signed_message.rs) format.
     - Include a valid PTB, which is evaluated against the `seal_approve*` rules. For PTB construction guidelines, see [valid_ptb](https://github.com/MystenLabs/seal/tree/main/crates/key-server/src/valid_ptb.rs).
-    - Provide an encryption key to encrypt the response. Encrypting the response ensures that only the requester (the initiator) can decrypt and access the returned keys.
+    - Provide an ephemeral encryption key to encrypt the response. Encrypting the response ensures that only the requester (the initiator) can decrypt and access the returned keys.
 
 See [crates/key-server](https://github.com/MystenLabs/seal/tree/main/crates/key-server/src/server.rs) for the implementation of the key server.
 
@@ -91,7 +91,11 @@ Decryption keys returned from the key server are returned directly to the caller
 
 ## Cryptographic primitives
 Seal is designed to support multiple identity-based encryption (IBE) schemes as Key Encapsulation Mechanisms (KEMs) and various symmetric encryption schemes as Data Encapsulation Mechanisms (DEMs). Currently supported primitives include:
+
 - KEM: Boneh-Franklin IBE with the BLS12-381 curve.
-- DEM: AES-256-GCM, HMAC based CTR mode (to be used when onchain decryption is needed).
+- DEM: AES-256-GCM, HMAC based CTR mode.
+Prefer `AES-256-GCM` for most use cases as it is faster. Use `HMAC-CTR` only when you require on-chain decryption.
 
 Post-quantum primitives are planned to be added in the future.
+
+For advanced encryption schemes, use Seal as a KMS to protect the scheme’s secret key. This approach enables streaming, hardware-assisted, or chunked decryption while keeping keys out of application code.

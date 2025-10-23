@@ -27,6 +27,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
+use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_sdk::SuiClientBuilder;
 use sui_types::base_types::ObjectID;
@@ -116,6 +117,8 @@ pub(crate) async fn mvr_forward_resolution(
                         .build_mainnet()
                         .await
                         .map_err(|_| Failure("Failed to build sui client".to_string()))?,
+                    SuiGrpcClient::new(Network::Mainnet.node_url())
+                        .expect("Failed to create SuiGrpcClient"),
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.get_metrics(),
                 ),
@@ -237,15 +240,16 @@ mod tests {
     use crate::types::Network;
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
+    use sui_rpc::client::v2::Client as SuiGrpcClient;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
-
     #[tokio::test]
     async fn test_forward_resolution() {
         assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
             &SuiRpcClient::new(
                 SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                SuiGrpcClient::new(Network::Mainnet.node_url()).unwrap(),
                 RetryConfig::default(),
                 None,
             ),
@@ -273,6 +277,7 @@ mod tests {
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    SuiGrpcClient::new(Network::Testnet.node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
                 ),
@@ -292,6 +297,8 @@ mod tests {
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    SuiGrpcClient::new(Network::Mainnet.node_url())
+                        .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
                     None,
                 ),
@@ -309,6 +316,8 @@ mod tests {
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
+                    SuiGrpcClient::new(Network::Testnet.node_url())
+                        .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
                     None,
                 ),
@@ -330,6 +339,8 @@ mod tests {
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    SuiGrpcClient::new(Network::Mainnet.node_url())
+                        .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
                     None,
                 ),
@@ -346,6 +357,8 @@ mod tests {
             mvr_forward_resolution(
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
+                    SuiGrpcClient::new(Network::Mainnet.node_url())
+                        .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
                     None,
                 ),

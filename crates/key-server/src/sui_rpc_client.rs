@@ -3,18 +3,16 @@
 
 use std::sync::Arc;
 
+use crate::{key_server_options::RetryConfig, metrics::Metrics};
+use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::proto::proto_to_timestamp_ms;
 use sui_sdk::{
     error::SuiRpcResult,
-    rpc_types::{
-        Checkpoint, CheckpointId, DryRunTransactionBlockResponse, SuiObjectDataOptions,
-        SuiObjectResponse,
-    },
+    rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},
     SuiClient,
 };
 use sui_types::base_types::ObjectID;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
-
-use crate::{key_server_options::RetryConfig, metrics::Metrics};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -39,6 +37,49 @@ impl RetriableError for sui_sdk::error::Error {
     }
 }
 
+/// Result type for RPC operations
+pub type RpcResult<T> = Result<T, RpcError>;
+
+/// Error type for RPC operations
+#[derive(Debug)]
+pub struct RpcError {
+    #[allow(dead_code)]
+    message: String,
+    code: Option<tonic::Code>,
+}
+
+impl RetriableError for RpcError {
+    fn is_retriable_error(&self) -> bool {
+        // Only gRPC errors with specific status codes should be retried
+        self.code.is_some_and(|code| {
+            matches!(
+                code,
+                tonic::Code::Unavailable
+                    | tonic::Code::DeadlineExceeded
+                    | tonic::Code::ResourceExhausted
+                    | tonic::Code::Aborted
+            )
+        })
+    }
+}
+
+impl RpcError {
+    /// Helper to convert gRPC errors to RpcError
+    fn from_grpc(e: tonic::Status) -> Self {
+        Self {
+            message: format!("gRPC error: {}", e),
+            code: Some(e.code()),
+        }
+    }
+
+    /// Create a new RpcError with a message
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: None,
+        }
+    }
+}
 /// Executes an async function with automatic retries for retriable errors
 async fn sui_rpc_with_retries<T, E, F, Fut>(
     rpc_config: &RetryConfig,
@@ -119,6 +160,7 @@ where
 #[derive(Clone)]
 pub struct SuiRpcClient {
     sui_client: SuiClient,
+    sui_grpc_client: SuiGrpcClient,
     rpc_retry_config: RetryConfig,
     metrics: Option<Arc<Metrics>>,
 }
@@ -126,11 +168,13 @@ pub struct SuiRpcClient {
 impl SuiRpcClient {
     pub fn new(
         sui_client: SuiClient,
+        sui_grpc_client: SuiGrpcClient,
         rpc_retry_config: RetryConfig,
         metrics: Option<Arc<Metrics>>,
     ) -> Self {
         Self {
             sui_client,
+            sui_grpc_client,
             rpc_retry_config,
             metrics,
         }
@@ -186,44 +230,89 @@ impl SuiRpcClient {
     }
 
     /// Returns the latest checkpoint sequence number.
-    pub async fn get_latest_checkpoint_sequence_number(&self) -> SuiRpcResult<u64> {
+    pub async fn get_latest_checkpoint_sequence_number(&self) -> RpcResult<u64> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
             "get_latest_checkpoint_sequence_number",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_latest_checkpoint_sequence_number()
-                    .await
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request = sui_rpc::proto::sui::rpc::v2::GetCheckpointRequest::default();
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["sequence_number".to_string()],
+                    });
+                    client
+                        .get_checkpoint(request)
+                        .await
+                        .map(|r| r.into_inner().checkpoint().sequence_number())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
         .await
     }
 
-    /// Returns a checkpoint by its sequence number.
-    pub async fn get_checkpoint(&self, checkpoint_id: CheckpointId) -> SuiRpcResult<Checkpoint> {
-        sui_rpc_with_retries(
+    /// Returns a checkpoint timestamp in milliseconds by its sequence number.
+    pub async fn get_checkpoint_time(&self, checkpoint_seq: u64) -> RpcResult<u64> {
+        let response = sui_rpc_with_retries(
             &self.rpc_retry_config,
             "get_checkpoint",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_checkpoint(checkpoint_id)
-                    .await
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request = sui_rpc::proto::sui::rpc::v2::GetCheckpointRequest::default();
+                    request.checkpoint_id = Some(
+                        sui_rpc::proto::sui::rpc::v2::get_checkpoint_request::CheckpointId::SequenceNumber(
+                            checkpoint_seq,
+                        ),
+                    );
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["summary.timestamp".to_string()],
+                    });
+                    client.get_checkpoint(request).await.map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)
+                }
             },
         )
-        .await
+        .await?;
+
+        let checkpoint = response
+            .checkpoint
+            .ok_or_else(|| RpcError::new("No checkpoint in response"))?;
+
+        let timestamp = checkpoint
+            .summary
+            .and_then(|s| s.timestamp)
+            .ok_or_else(|| RpcError::new("No timestamp in checkpoint"))?;
+
+        proto_to_timestamp_ms(timestamp).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Returns the current reference gas price.
-    pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
+    pub async fn get_reference_gas_price(&self) -> RpcResult<u64> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
             "get_reference_gas_price",
             self.metrics.clone(),
-            || async { self.sui_client.read_api().get_reference_gas_price().await },
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let mut client = grpc_client.ledger_client();
+                    let mut request = sui_rpc::proto::sui::rpc::v2::GetEpochRequest::default();
+                    request.read_mask = Some(prost_types::FieldMask {
+                        paths: vec!["reference_gas_price".to_string()],
+                    });
+                    client
+                        .get_epoch(request)
+                        .await
+                        .map(|r| r.into_inner().epoch().reference_gas_price())
+                        .map_err(RpcError::from_grpc)
+                }
+            },
         )
         .await
     }

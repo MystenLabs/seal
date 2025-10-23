@@ -29,6 +29,7 @@ use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
+use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
@@ -233,7 +234,7 @@ async fn test_e2e_permissioned() {
         .with_num_validators(1)
         .build()
         .await;
-
+    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
     // Publish the patterns package
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
@@ -249,6 +250,7 @@ async fn test_e2e_permissioned() {
     // The client handles two package ids, one per client
     let server1 = create_server(
         cluster.sui_client().clone(),
+        grpc_client.clone(),
         vec![
             ClientConfig {
                 name: "Client 1 on server 1".to_string(),
@@ -274,6 +276,7 @@ async fn test_e2e_permissioned() {
     // The client on the second server has a single (random) package id
     let server2 = create_server(
         cluster.sui_client().clone(),
+        grpc_client,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -358,7 +361,7 @@ async fn test_e2e_imported_key() {
         .with_num_validators(1)
         .build()
         .await;
-
+    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
     // Publish the patterns two times.
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
@@ -373,6 +376,7 @@ async fn test_e2e_imported_key() {
     // Server has a single client with a single package id (the one published above)
     let server1 = create_server(
         cluster.sui_client().clone(),
+        grpc_client.clone(),
         vec![ClientConfig {
             name: "Key server client 1".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -443,6 +447,7 @@ async fn test_e2e_imported_key() {
     // Import the master key for a client into a second server
     let server2 = create_server(
         cluster.sui_client().clone(),
+        grpc_client.clone(),
         vec![ClientConfig {
             name: "Key server client 2".to_string(),
             client_master_key: ClientKeyType::Imported {
@@ -479,6 +484,7 @@ async fn test_e2e_imported_key() {
     // Create a new key server where the derived key is marked as exported
     let server3 = create_server(
         cluster.sui_client().clone(),
+        grpc_client,
         vec![
             ClientConfig {
                 name: "Key server client 3.0".to_string(),
@@ -508,6 +514,7 @@ async fn test_e2e_imported_key() {
 
 async fn create_server(
     sui_client: SuiClient,
+    sui_grpc_client: SuiGrpcClient,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
@@ -531,7 +538,12 @@ async fn create_server(
         .collect::<Vec<_>>();
 
     Server {
-        sui_rpc_client: SuiRpcClient::new(sui_client, RetryConfig::default(), None),
+        sui_rpc_client: SuiRpcClient::new(
+            sui_client,
+            sui_grpc_client,
+            RetryConfig::default(),
+            None,
+        ),
         master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
         key_server_oid_to_pop: HashMap::new(),
         options,

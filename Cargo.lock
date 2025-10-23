@@ -1738,7 +1738,7 @@ checksum = "8030735ecb0d128428b64cd379809817e620a40e5001c54465b99ec5feec2857"
 dependencies = [
  "futures-core",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "tonic 0.12.3",
  "tracing-core",
 ]
@@ -1757,7 +1757,7 @@ dependencies = [
  "humantime",
  "hyper-util",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "serde",
  "serde_json",
  "thread_local",
@@ -1948,7 +1948,7 @@ checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 
 [[package]]
 name = "crypto"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "bcs",
  "fastcrypto",
@@ -4430,7 +4430,7 @@ dependencies = [
 
 [[package]]
 name = "key-server"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "axum 0.8.4",
@@ -4453,6 +4453,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prometheus-closure-metric",
+ "prost-types",
  "rand 0.8.5",
  "reqwest 0.12.15",
  "seal-sdk",
@@ -4464,6 +4465,7 @@ dependencies = [
  "shared-crypto",
  "snap",
  "sui-move-build",
+ "sui-rpc 0.0.8",
  "sui-sdk",
  "sui-sdk-types 0.0.8",
  "sui-types",
@@ -4471,6 +4473,7 @@ dependencies = [
  "temp-env",
  "test-cluster",
  "tokio",
+ "tonic 0.13.1",
  "tower-http 0.6.6",
  "tracing",
  "tracing-test",
@@ -7004,7 +7007,7 @@ dependencies = [
  "petgraph 0.6.5",
  "prettyplease",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "regex",
  "syn 2.0.90",
  "tempfile",
@@ -7034,15 +7037,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.90",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
-dependencies = [
- "prost 0.12.6",
 ]
 
 [[package]]
@@ -7999,7 +7993,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "seal-cli"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "bcs",
  "clap",
@@ -8019,7 +8013,7 @@ dependencies = [
 
 [[package]]
 name = "seal-proxy"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "axum 0.8.4",
@@ -8034,7 +8028,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prost 0.12.6",
- "prost-types 0.12.6",
+ "prost-types",
  "protobuf",
  "reqwest 0.12.15",
  "serde",
@@ -8053,7 +8047,7 @@ dependencies = [
 
 [[package]]
 name = "seal-sdk"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "bcs",
  "chrono",
@@ -10055,10 +10049,31 @@ dependencies = [
  "futures",
  "http 1.3.1",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "serde",
  "serde_json",
  "sui-sdk-types 0.0.7",
+ "tap",
+ "tokio",
+ "tonic 0.13.1",
+]
+
+[[package]]
+name = "sui-rpc"
+version = "0.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0619337910d280dc5baa8e7e0dd5a6b01141e453e795f9bdea3c1ef8dc42a14a"
+dependencies = [
+ "base64 0.22.1",
+ "bcs",
+ "bytes",
+ "futures",
+ "http 1.3.1",
+ "prost 0.13.4",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.8",
  "tap",
  "tokio",
  "tonic 0.13.1",
@@ -10085,7 +10100,7 @@ dependencies = [
  "mysten-network",
  "prometheus",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "rand 0.8.5",
  "roaring",
  "serde",
@@ -10096,7 +10111,7 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.0.7",
  "sui-sdk-types 0.0.7",
  "sui-types",
  "tap",
@@ -10187,6 +10202,7 @@ checksum = "b43c85a0d7f0e349f79a32a620d82648997f1681107389b178f34c4e460a23a2"
 dependencies = [
  "base64ct",
  "bcs",
+ "blake2",
  "bnum",
  "bs58 0.5.1",
  "bytes",
@@ -10495,7 +10511,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "rand 0.8.5",
  "roaring",
  "rustls-pemfile 2.2.0",
@@ -10512,7 +10528,7 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.0.7",
  "sui-sdk-types 0.0.7",
  "tap",
  "thiserror 1.0.69",
@@ -11349,7 +11365,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "prost-build",
- "prost-types 0.13.4",
+ "prost-types",
  "quote",
  "syn 2.0.90",
 ]
@@ -11373,7 +11389,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9687bd5bfeafebdded2356950f278bba8226f0b32109537c4253406e09aafe1"
 dependencies = [
  "prost 0.13.4",
- "prost-types 0.13.4",
+ "prost-types",
  "tokio",
  "tokio-stream",
  "tonic 0.13.1",
