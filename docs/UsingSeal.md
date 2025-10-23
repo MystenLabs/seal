@@ -313,4 +313,4 @@ To reduce latency and improve efficiency when using the Seal SDK, apply the foll
 - **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization.
 - **Include fully specified objects in PTBs**:  When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui Full node.
 - **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK’s internal caching to reduce overhead.
-- **[advanced] Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
+- **[Advanced] Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.
