@@ -87,7 +87,7 @@ The server exposes only two APIs:
 See [crates/key-server](https://github.com/MystenLabs/seal/tree/main/crates/key-server/src/server.rs) for the implementation of the key server.
 
 ## User confirmation and sessions
-Decryption keys returned from the key server are returned directly to the caller, which is typically the dApp's web page. To ensure that dApps can access only keys explicitly approved by the user, the user must approve the key access request in their wallet. This approval is granted once per package and authorizes a `session key` that can be used to retrieve associated decryption keys for a limited time without requiring repeated user confirmations.
+Decryption keys returned from the key server are returned directly to the caller, which is typically the dApp's web page. To ensure that dApps can access only keys explicitly approved by the user, the user must approve the key access request in their wallet. This approval is granted once per package and authorizes a `session key`. The session key allows the dApp to retrieve associated decryption keys for a limited time without requiring repeated user confirmations.
 
 ## Cryptographic primitives
 Seal is designed to support multiple identity-based encryption (IBE) schemes as Key Encapsulation Mechanisms (KEMs) and various symmetric encryption schemes as Data Encapsulation Mechanisms (DEMs). Currently supported primitives include:

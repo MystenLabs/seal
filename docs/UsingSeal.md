@@ -112,7 +112,7 @@ const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt
 Note that the encryption does **not** conceal the size of the message. If message size is considered sensitive, pad the message with zeros until its length no longer reveals meaningful information.
 
 !!! note
-    Seal can be used for encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
+    Seal supports encrypting an ephemeral symmetric key, which you can use to encrypt your actual content. This approach is useful when storing encrypted data immutably on Walrus while keeping the encrypted key separately on Sui. By managing the key separately, you can update access policies or rotate key servers without modifying the stored content.
 
 !!! tip
     The `encryptedBytes` returned from the encryption call can be parsed using `EncryptedObject.parse(encryptedBytes)`. It returns an `EncryptedObject` instance that includes metadata such as the ID and other associated fields.
