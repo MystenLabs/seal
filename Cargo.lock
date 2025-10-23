@@ -2477,7 +2477,7 @@ dependencies = [
  "fastcrypto-tbls",
  "hex",
  "rand 0.8.5",
- "seal-utils",
+ "seal-committee",
  "serde",
  "serde_json",
  "sui-sdk-types 0.0.8",
@@ -8032,6 +8032,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "seal-committee"
+version = "0.5.12"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "prost-types",
+ "serde",
+ "sui-rpc 0.0.8",
+ "sui-sdk-types 0.0.8",
+ "sui-types",
+ "tokio",
+]
+
+[[package]]
 name = "seal-proxy"
 version = "0.5.13"
 dependencies = [
@@ -8080,22 +8096,6 @@ dependencies = [
  "sui-sdk-types 0.0.8",
  "sui-types",
  "tracing",
-]
-
-[[package]]
-name = "seal-utils"
-version = "0.5.12"
-dependencies = [
- "anyhow",
- "bcs",
- "fastcrypto",
- "fastcrypto-tbls",
- "prost-types",
- "serde",
- "sui-rpc 0.0.8",
- "sui-sdk-types 0.0.8",
- "sui-types",
- "tokio",
 ]
 
 [[package]]

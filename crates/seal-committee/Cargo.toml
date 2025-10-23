@@ -1,5 +1,5 @@
 [package]
-name = "seal-utils"
+name = "seal-committee"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

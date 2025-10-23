@@ -7,4 +7,4 @@ pub mod util;
 
 pub use grpc_helper::{create_grpc_client, fetch_committee_data};
 pub use seal_move_types::{CommitteeState, MemberInfo, ParsedMemberInfo, SealCommittee, VecMap};
-pub use util::build_new_to_old_map;
+pub use utils::build_new_to_old_map;

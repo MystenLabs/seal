@@ -17,10 +17,10 @@ pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct MemberInfo {
-    #[serde(deserialize_with = "deserialize_move_bytes")]
-    pub enc_pk: Vec<u8>,
-    #[serde(deserialize_with = "deserialize_move_bytes")]
-    pub signing_pk: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_enc_pk")]
+    pub enc_pk: PublicKey<G2Element>,
+    #[serde(deserialize_with = "deserialize_signing_pk")]
+    pub signing_pk: G2Element,
     pub url: String,
 }
 
@@ -122,30 +122,11 @@ impl SealCommittee {
                     )
                 })?;
 
-            // Parse enc_pk (already decoded from Move byte literal during deserialization).
-            let enc_pk: PublicKey<G2Element> =
-                bcs::from_bytes(&entry.value.enc_pk).map_err(|e| {
-                    anyhow!(
-                        "Failed to deserialize ECIES PK for party {}: {}",
-                        party_id,
-                        e
-                    )
-                })?;
-
-            // Parse signing_pk (already decoded from Move byte literal during deserialization).
-            let signing_pk: G2Element = bcs::from_bytes(&entry.value.signing_pk).map_err(|e| {
-                anyhow!(
-                    "Failed to deserialize signing PK for party {}: {}",
-                    party_id,
-                    e
-                )
-            })?;
-
             members.push(ParsedMemberInfo {
                 party_id: party_id as u16,
                 address: *member_addr,
-                enc_pk,
-                signing_pk,
+                enc_pk: entry.value.enc_pk.clone(),
+                signing_pk: entry.value.signing_pk,
             });
         }
         Ok(members)
@@ -175,4 +156,24 @@ where
 {
     let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
     parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)
+}
+
+/// Serde deserializer for ECIES public key from Move byte literals.
+fn deserialize_enc_pk<'de, D>(deserializer: D) -> Result<PublicKey<G2Element>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
+    bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
+}
+
+/// Serde deserializer for signing public key from Move byte literals.
+fn deserialize_signing_pk<'de, D>(deserializer: D) -> Result<G2Element, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
+    bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
 }

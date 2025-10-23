@@ -10,7 +10,7 @@ use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMe
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use rand::thread_rng;
-use seal_utils::{build_new_to_old_map, create_grpc_client, fetch_committee_data};
+use seal_committee::{build_new_to_old_map, create_grpc_client, fetch_committee_data};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
