@@ -27,7 +27,7 @@ $ sui client publish
 
 ### Limitations
 
-The `seal_approve*` functions are evaluated on full nodes using the `dry_run_transaction_block` RPC call. This call executes the associated Move code using the full node’s local view of the chain state. Because full nodes operate asynchrounsly, the result of `dry_run_transaction_block` may vary across nodes based on differences in their internal state.
+The `seal_approve*` functions are evaluated on full nodes using the `dry_run_transaction_block` RPC call. This call executes the associated Move code using the full node’s local view of the chain state. Because full nodes operate asynchronously, the result of `dry_run_transaction_block` may vary across nodes based on differences in their internal state.
 
 When using `seal_approve*` functions, keep the following in mind:
 
