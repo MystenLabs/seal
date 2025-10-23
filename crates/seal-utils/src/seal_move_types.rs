@@ -17,7 +17,9 @@ pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct MemberInfo {
+    #[serde(deserialize_with = "deserialize_move_bytes")]
     pub enc_pk: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_move_bytes")]
     pub signing_pk: Vec<u8>,
     pub url: String,
 }
@@ -31,6 +33,7 @@ pub enum CommitteeState {
     PostDKG {
         members_info: VecMap<Address, MemberInfo>,
         partial_pks: Vec<Vec<u8>>,
+        #[serde(deserialize_with = "deserialize_move_bytes")]
         pk: Vec<u8>,
         approvals: VecSet<Address>,
     },
@@ -119,19 +122,18 @@ impl SealCommittee {
                     )
                 })?;
 
-            // Parse enc_pk.
-            let enc_pk_bytes = parse_move_byte_literal(&entry.value.enc_pk)?;
-            let enc_pk: PublicKey<G2Element> = bcs::from_bytes(&enc_pk_bytes).map_err(|e| {
-                anyhow!(
-                    "Failed to deserialize ECIES PK for party {}: {}",
-                    party_id,
-                    e
-                )
-            })?;
+            // Parse enc_pk (already decoded from Move byte literal during deserialization).
+            let enc_pk: PublicKey<G2Element> =
+                bcs::from_bytes(&entry.value.enc_pk).map_err(|e| {
+                    anyhow!(
+                        "Failed to deserialize ECIES PK for party {}: {}",
+                        party_id,
+                        e
+                    )
+                })?;
 
-            // Parse signing_pk.
-            let signing_pk_bytes = parse_move_byte_literal(&entry.value.signing_pk)?;
-            let signing_pk: G2Element = bcs::from_bytes(&signing_pk_bytes).map_err(|e| {
+            // Parse signing_pk (already decoded from Move byte literal during deserialization).
+            let signing_pk: G2Element = bcs::from_bytes(&entry.value.signing_pk).map_err(|e| {
                 anyhow!(
                     "Failed to deserialize signing PK for party {}: {}",
                     party_id,
@@ -164,4 +166,13 @@ fn parse_move_byte_literal(bytes: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| anyhow!("Failed to convert bytes to UTF-8 string: {}", e))?;
     let hex_str = str.strip_prefix('x').unwrap_or(&str);
     Ok(Hex::decode(hex_str)?)
+}
+
+/// Serde deserializer for Move byte literals.
+fn deserialize_move_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)
 }
