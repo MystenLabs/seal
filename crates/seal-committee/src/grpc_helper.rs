@@ -66,7 +66,7 @@ mod tests {
     async fn test_fetch_committee_members() {
         // Test Committee object ID from testnet
         let committee_id =
-            Address::from_str("0xaa2e3cc1637ec725f3e4633f253d24e6f000f2c4a4c110f6c0bc38df1355b034")
+            Address::from_str("0x1d8e07b865da82d86c71bb0ac8adf174996fd780ccae8237dd5f6ea38d9fe903")
                 .unwrap();
 
         // Create gRPC client
@@ -94,8 +94,8 @@ mod tests {
         } in members_info.iter()
         {
             assert!(addresses[*party_id as usize] == *address);
-            assert!(*enc_pk == bcs::from_bytes(&Hex::decode("0xa528d09bb6d99f29d954e2683235a52b03dd0a6f4440454074b12b169a08f4d0b72bcfb65ab3f082784ddb9bc778c9ec17e72c2c738e8f1d971987ba6db21de210d9a31a5cc8871e6229b4be18aa86876b382ab0f61f288bff8d0b6b4a51ba70").unwrap()).unwrap());
-            assert!(*signing_pk == bcs::from_bytes(&Hex::decode("0xb4899c7fd9ac4d17938e61bf645168ceb005e2b1d1a77847a27ae1a4a8132a91e2e59ff705b5eb74eaa1181c30872ac011e18349766f46dcc6ecf00967eb7307d883331876362b323084d8a5b4f2f8a4abeb507e867bd3044a9e402c33a58226").unwrap()).unwrap());
+            assert!(*enc_pk == bcs::from_bytes(&Hex::decode("0xaf2ca44fd70f4e72d5ef6ad1bc8f5ab42850a36f75e1562f4f33ca2d25c5fee5fe780e164f17e0591a46a44d545e71f21447d316563899b77f34ee34d84ee70c70505f98dc4e7f5914b347cec49ef3a510efa9568416413cacd5361f42c8fa58").unwrap()).unwrap());
+            assert!(*signing_pk == bcs::from_bytes(&Hex::decode("0x89dcee7b2f5b6256eafe4eabcac4a2fa348ce52d10b6a994da6f2969eb76d87e54f0298d446ab72f0094dae0f0fb5e2018e1d2957cb1514837d0bdb6edab1f549638bdbdca7542f81b62d426a898c9efff50cdaa1958b8ed06cbc72208570b46").unwrap()).unwrap());
         }
     }
 }

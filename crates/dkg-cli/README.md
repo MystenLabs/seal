@@ -8,47 +8,46 @@ Command-line tool for Distributed Key Generation (DKG) and key rotation protocol
 
 a. Initialize a committee, assuming a coordinator and members. 
 
-- The coordinator deploys the `seal_ommittee` package.
+- The coordinator deploys the `seal_committee` package.
 
-- Members to participate share their wallet addresses with the coordinator. This is the wallet to use to 
-complete the rest of the DKG onchain steps for registering and proposing. 
+- Members to participate share their wallet addresses with the coordinator. This is the wallet to use to complete the rest of the DKG onchain steps for registering and proposing. 
 
 - The coordinator creates a Committee object with a threshold and members addresses. This outputs the committee object ID. Share `COMMITTEE_ID` with all members. 
 
 ```bash
-SEAL_PKG=0x6af07f531232b02c14058d6f980169180d60eecfda69d5267cfabb282f42ff94
-COMMITTEE_PKG=0x434d924fd0b6d73b5de5791556a43820c98cb977396e4604e0166d9f3bb0bc8f
+SEAL_PKG=0x3e1b48f61a4db6f1423bc4d966be318476ac15110798637d1bc019da087ffcbd
+COMMITTEE_PKG=0x916cfe92daf53c838a4ace2f5bd17245bdacab78f1c122042e4f38683c55c5e1
 NETWORK=testnet
 
 ADDRESS_0=0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
 ADDRESS_1=0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6
 ADDRESS_2=0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9
 
+sui client switch --env $NETWORK
 sui client call --package $COMMITTEE_PKG --module seal_committee \
   --function init_committee \
   --args 2 "[\"$ADDRESS_0\", \"$ADDRESS_1\", \"$ADDRESS_2\"]"
 
 # share this with members. 
-COMMITTEE_ID=0xaa2e3cc1637ec725f3e4633f253d24e6f000f2c4a4c110f6c0bc38df1355b034
+COMMITTEE_ID=0x1d8e07b865da82d86c71bb0ac8adf174996fd780ccae8237dd5f6ea38d9fe903
 ```
 
-b.Members verify that the Committee object is initialized with the expected parameters (e.g., using Sui explorer). Then, they generate encryption and signing keypairs using CLI.
+b. Members verify that the Committee object is initialized with the expected parameters (e.g., using Sui explorer). Then, they generate encryption and signing keypairs using CLI. A `.dkg.key` with sensitive DKG keys is generated locally. 
 
 ```bash
 cargo run --bin dkg-cli generate-keys
 
-export DKG_ENC_SK=$(grep enc_sk .dkg-keys | cut -d: -f2 | xargs)
-export DKG_SIGNING_SK=$(grep signing_sk .dkg-keys | cut -d: -f2 | xargs)
-
-export DKG_ENC_PK=0x...
-export DKG_SIGNING_PK=0x...
+# env vars used for next step.
+export DKG_ENC_PK=$(grep enc_pk .dkg.key | cut -d: -f2 | xargs)
+export DKG_SIGNING_PK=$(grep signing_pk .dkg.key | cut -d: -f2 | xargs)
 ```
 
 c. Members register the encryption and signing public keys, and the URL of their key server.
 
 ```bash
-sui client switch --address $ADDRESS_0 # your address
-YOUR_SERVER_URL=<your_url_for_server>
+sui client switch --address $ADDRESS_0 # replace your address
+YOUR_SERVER_URL="replace your url here"
+
 sui client call --package $COMMITTEE_PKG --module seal_committee \
   --function register \
   --args $COMMITTEE_ID x"$DKG_ENC_PK" x"$DKG_SIGNING_PK" "$YOUR_SERVER_URL"
@@ -56,14 +55,10 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 
 d. Admin notifies all members once registration is done.
 
-e. Each member initialize the DKG protocol locally. The state created is sensitive and contains the private keys that will be used till DKG is completed. 
+e. Each member initialize the DKG protocol locally. The `/dkg-state` directory created is sensitive and contains the private keys that will be used till DKG is completed. 
 
 ```bash
-cargo run --bin dkg-cli init \
-    --my-address $ADDRESS_0 \
-    --committee-id $COMMITTEE_ID \
-    --network $NETWORK \
-    --state-dir ./state
+cargo run --bin dkg-cli init --my-address $ADDRESS_0 --committee-id $COMMITTEE_ID --network $NETWORK
 ```
 
 2. TODO: create message, process message and finalize DKG. 
@@ -105,8 +100,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 
 d. All members finished registration. Each member initialize the DKG protocol locally. The state created is sensitive and contains the private keys that will be used till DKG is completed. 
 
-- For continuing member, set the old share to `DKG_OLD_SHARE` environment variable. Also pass in 
-the new committeee ID and the key server object ID. 
+- For continuing member, set the old share to `DKG_OLD_SHARE` environment variable. Also pass in the new committeee ID and the key server object ID. 
 
 ```bash
 export DKG_OLD_SHARE=$PARTY_0_SK

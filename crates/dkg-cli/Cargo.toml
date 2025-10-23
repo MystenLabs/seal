@@ -18,7 +18,7 @@ anyhow.workspace = true
 tracing.workspace = true
 sui_types.workspace = true
 sui-sdk-types.workspace = true
-seal-committee = { path = "../seal-utils" }
+seal-committee = { path = "../seal-committee" }
 tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
 
 [[bin]]

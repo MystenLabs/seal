@@ -3,7 +3,7 @@
 
 pub mod grpc_helper;
 pub mod seal_move_types;
-pub mod util;
+pub mod utils;
 
 pub use grpc_helper::{create_grpc_client, fetch_committee_data};
 pub use seal_move_types::{CommitteeState, MemberInfo, ParsedMemberInfo, SealCommittee, VecMap};

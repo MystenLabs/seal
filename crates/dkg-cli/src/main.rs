@@ -79,14 +79,13 @@ struct Cli {
 enum Commands {
     /// Generate ECIES and signing key pairs.
     GenerateKeys {
-        /// Path to write the secret keys file (default: ./.dkg-keys).
-        #[arg(long, default_value = ".dkg-keys")]
+        /// Path to write the secret keys file (default: ./.dkg.key).
+        #[arg(long, default_value = ".dkg.key")]
         secret_keys_file: PathBuf,
     },
 
-    /// Initialize DKG party, for fresh DKG or key rotation. Requires DKG_ENC_SK and DKG_SIGNING_SK
-    /// environment variables. For key rotation with continuing members, also requires
-    /// DKG_OLD_SHARE.
+    /// Initialize DKG party, for fresh DKG or key rotation. Reads keys from file.
+    /// For key rotation with continuing members, also requires DKG_OLD_SHARE environment variable.
     Init {
         /// My address, used to find my party ID in the committee.
         #[arg(long)]
@@ -104,9 +103,13 @@ enum Commands {
         #[arg(long, default_value = "testnet")]
         network: String,
 
-        /// State directory.
-        #[arg(long)]
+        /// State directory (default: ./dkg-state).
+        #[arg(long, default_value = "./dkg-state")]
         state_dir: PathBuf,
+
+        /// Path to the keys file (default: ./.dkg.key).
+        #[arg(long, default_value = ".dkg.key")]
+        keys_file: PathBuf,
     },
 }
 
@@ -137,9 +140,11 @@ async fn main() -> Result<()> {
             let enc_sk_hex = Hex::encode_with_format(bcs::to_bytes(&enc_sk)?);
             let signing_sk_hex = Hex::encode_with_format(bcs::to_bytes(&signing_sk)?);
 
-            // Write secret keys to file
-            let secret_keys_content =
-                format!("enc_sk: {}\nsigning_sk: {}\n", enc_sk_hex, signing_sk_hex);
+            // Write secret keys and public keys to file
+            let secret_keys_content = format!(
+                "enc_sk: {}\nsigning_sk: {}\nenc_pk: {}\nsigning_pk: {}\n",
+                enc_sk_hex, signing_sk_hex, enc_pk_hex, signing_pk_hex
+            );
 
             if let Some(parent) = secret_keys_file.parent() {
                 fs::create_dir_all(parent)?;
@@ -150,30 +155,6 @@ async fn main() -> Result<()> {
             println!("Secret keys written to: {}", secret_keys_file.display());
             #[cfg(not(unix))]
             println!("WARNING: On non-Unix systems, manually restrict file permissions");
-            println!();
-            println!("==============STEP 1: REGISTER ONCHAIN===============");
-            println!("export MY_ADDRESS=<your address to use> # check with: sui client addresses");
-            println!("export DKG_ENC_PK={}", enc_pk_hex);
-            println!("export DKG_SIGNING_PK={}", signing_pk_hex);
-            println!();
-            println!("sui client switch --address $MY_ADDRESS");
-            println!("sui client call --package $COMMITTEE_PKG --module seal_committee \\");
-            println!("  --function register \\");
-            println!("  --args $COMMITTEE_ID x\"$DKG_ENC_PK\" x\"$DKG_SIGNING_PK\" \"https://your-url.com\"");
-            println!();
-            println!(
-                "==============STEP 2: AFTER ALL MEMBERS REGISTERS, RUN DKG INIT ==============="
-            );
-            println!(
-                "export DKG_ENC_SK=$(grep enc_sk {} | cut -d: -f2 | xargs)",
-                secret_keys_file.display()
-            );
-            println!(
-                "export DKG_SIGNING_SK=$(grep signing_sk {} | cut -d: -f2 | xargs)",
-                secret_keys_file.display()
-            );
-            println!();
-            println!("cargo run dkg-cli init --my-address $MY_ADDRESS --committee-id $COMMITTEE_ID --state-dir ./state");
         }
 
         Commands::Init {
@@ -182,12 +163,16 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
             state_dir,
+            keys_file,
         } => {
-            // Read secrets from environment variables.
-            let enc_sk_hex = std::env::var("DKG_ENC_SK")
-                .map_err(|_| anyhow!("DKG_ENC_SK environment variable not set"))?;
-            let signing_sk_hex = std::env::var("DKG_SIGNING_SK")
-                .map_err(|_| anyhow!("DKG_SIGNING_SK environment variable not set"))?;
+            // Read secrets from keys file.
+            let keys_content = fs::read_to_string(&keys_file)
+                .map_err(|e| anyhow!("Failed to read keys file {}: {}", keys_file.display(), e))?;
+
+            let enc_sk_hex = parse_key_from_file(&keys_content, "enc_sk")
+                .ok_or_else(|| anyhow!("enc_sk not found in keys file"))?;
+            let signing_sk_hex = parse_key_from_file(&keys_content, "signing_sk")
+                .ok_or_else(|| anyhow!("signing_sk not found in keys file"))?;
 
             // Read old share from environment variable if provided (for key rotation).
             let old_share_hex = std::env::var("DKG_OLD_SHARE").ok();
@@ -365,4 +350,16 @@ fn write_secret_file(path: &Path, content: &str) -> Result<()> {
         fs::set_permissions(path, perms)?;
     }
     Ok(())
+}
+
+/// Helper function to parse a key from the keys file content.
+/// Format: "key_name: hex_value"
+fn parse_key_from_file(content: &str, key_name: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix(&format!("{}: ", key_name)) {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
 }
