@@ -14,7 +14,7 @@ use seal_testnet::key_server::{
     PartialKeyServer
 };
 use std::string::String;
-use sui::{dynamic_field as df, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
+use sui::{dynamic_object_field as dof, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
 
 // ===== Errors =====
 
@@ -92,7 +92,7 @@ public fun init_rotation(
     });
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
-    init_internal(threshold, members, option::some(old_committee.id()), ctx);
+    init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
 }
 
 /// Register a member with ecies pk, signing pk and URL. Append it to members_info.
@@ -142,7 +142,8 @@ public fun propose_for_rotation(
     ctx: &mut TxContext,
 ) {
     committee.check_rotation_consistency(&old_committee);
-    let key_server = df::remove<vector<u8>, KeyServer>(&mut old_committee.id, b"key_server");
+    let old_committee_id = object::id(&old_committee);
+    let key_server = dof::remove<ID, KeyServer>(&mut old_committee.id, old_committee_id);
     key_server.assert_committee_server_v2();
     committee.propose_internal(partial_pks, *key_server.pk(), ctx);
     committee.try_finalize_for_rotation(old_committee, key_server);
@@ -151,11 +152,20 @@ public fun propose_for_rotation(
 /// Update the url of the partial key server object corresponding to the sender.
 public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut TxContext) {
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
-    let key_server = df::borrow_mut<vector<u8>, KeyServer>(&mut committee.id, b"key_server");
+    let committee_id = object::id(committee);
+    let key_server = dof::borrow_mut<ID, KeyServer>(&mut committee.id, committee_id);
     key_server.update_member_url(url, ctx.sender());
 }
 
 // TODO: handle package upgrade with threshold approvals of the committee.
+
+/// Helper function to check if a committee is finalized.
+public(package) fun is_finalized(committee: &Committee): bool {
+    match (&committee.state) {
+        State::Finalized => true,
+        _ => false,
+    }
+}
 
 // ===== Internal Functions =====
 
@@ -170,9 +180,8 @@ fun init_internal(
     assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
     assert!(members.length() as u16 >= threshold, EInvalidThreshold);
 
-    // Verify no duplicate members.
-    let members_set = vec_set::from_keys(members);
-    assert!(members_set.length() == members.length(), EInvalidMembers);
+    // Throws EKeyAlreadyExists if duplicate members are found.
+    let _ = vec_set::from_keys(members);
 
     transfer::share_object(Committee {
         id: object::new(ctx),
@@ -240,12 +249,11 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
             };
 
             // Build partial key servers from PostDKG state.
-            let partial_key_servers = build_partial_key_servers(
-                committee.members,
+            let partial_key_servers = committee.build_partial_key_servers(
                 members_info,
                 partial_pks,
             );
-            // Create the KeyServerV2 object and attach it to the committee as dynamic field.
+            // Create the KeyServerV2 object and attach it to the committee as dynamic object field.
             let ks = create_committee_v2(
                 committee.id.to_address().to_string(),
                 committee.threshold,
@@ -253,7 +261,8 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
                 partial_key_servers,
                 ctx,
             );
-            df::add<vector<u8>, KeyServer>(&mut committee.id, b"key_server", ks);
+            let committee_id = object::id(committee);
+            dof::add<ID, KeyServer>(&mut committee.id, committee_id, ks);
             committee.state = State::Finalized;
         },
         _ => abort EInvalidState,
@@ -272,26 +281,27 @@ fun try_finalize_for_rotation(
 
     match (&committee.state) {
         State::PostDKG { approvals, members_info, partial_pks, .. } => {
-            // Approvals count not reached, return key server back to old committee as dynamic field.
+            // Approvals count not reached, return key server back to old committee as dynamic object field.
             if (approvals.length() != committee.members.length()) {
-                df::add<vector<u8>, KeyServer>(&mut old_committee.id, b"key_server", key_server);
+                let old_committee_id = object::id(&old_committee);
+                dof::add<ID, KeyServer>(&mut old_committee.id, old_committee_id, key_server);
                 transfer::share_object(old_committee);
                 return
             };
 
             // Build partial key servers from PostDKG state and update in key server object.
-            let partial_key_servers = build_partial_key_servers(
-                committee.members,
+            let partial_key_servers = committee.build_partial_key_servers(
                 members_info,
                 partial_pks,
             );
             key_server.set_partial_key_servers(partial_key_servers);
-            df::add<vector<u8>, KeyServer>(&mut committee.id, b"key_server", key_server);
+            let committee_id = object::id(committee);
+            dof::add<ID, KeyServer>(&mut committee.id, committee_id, key_server);
             committee.state = State::Finalized;
 
             // Destroy the old committee object.
             let Committee { id, .. } = old_committee;
-            object::delete(id);
+            id.delete();
         },
         _ => abort EInvalidState,
     }
@@ -299,10 +309,11 @@ fun try_finalize_for_rotation(
 
 /// Helper function to build the partial key servers VecMap for the list of committee members.
 fun build_partial_key_servers(
-    members: vector<address>,
+    committee: &Committee,
     members_info: &VecMap<address, MemberInfo>,
     partial_pks: &vector<vector<u8>>,
 ): VecMap<address, PartialKeyServer> {
+    let members = committee.members;
     assert!(members.length() > 0, EInvalidMembers);
     assert!(members.length() == partial_pks.length(), EInvalidMembers);
     assert!(members.length() == members_info.length(), EInvalidMembers);
@@ -326,25 +337,12 @@ fun build_partial_key_servers(
 /// Helper function to check committee and old committee state for rotation.
 fun check_rotation_consistency(self: &Committee, old_committee: &Committee) {
     assert!(self.old_committee_id.is_some(), EInvalidState);
-    assert!(old_committee.id() == *self.old_committee_id.borrow(), EInvalidState);
+    assert!(object::id(old_committee) == *self.old_committee_id.borrow(), EInvalidState);
     assert!(old_committee.is_finalized(), EInvalidState);
 }
 
-/// Helper function to get the committee ID.
-public(package) fun id(committee: &Committee): ID {
-    committee.id.to_inner()
-}
-
-/// Helper function to check if a committee is finalized.
-public(package) fun is_finalized(committee: &Committee): bool {
-    match (&committee.state) {
-        State::Finalized => true,
-        _ => false,
-    }
-}
-
-/// Test-only function to borrow the KeyServer dynamic field.
+/// Test-only function to borrow the KeyServer dynamic object field.
 #[test_only]
-public fun borrow_key_server(committee: &Committee): &KeyServer {
-    df::borrow<vector<u8>, KeyServer>(&committee.id, b"key_server")
+public(package) fun borrow_key_server(committee: &Committee): &KeyServer {
+    dof::borrow<ID, KeyServer>(&committee.id, object::id(committee))
 }

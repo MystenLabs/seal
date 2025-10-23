@@ -44,10 +44,10 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         scenario.next_tx(ALICE);
         let committee = scenario.take_shared<Committee>();
         assert!(committee.is_finalized(), 0);
-        let old_committee_id = committee.id();
+        let old_committee_id = object::id(&committee);
         test_scenario::return_shared(committee);
 
-        // Verify KeyServer is attached to committee as dynamic field.
+        // Verify KeyServer is attached to committee as dynamic field object.
         scenario.next_tx(ALICE);
         let committee = scenario.take_shared_by_id<Committee>(old_committee_id);
         let key_server = committee.borrow_key_server();
@@ -71,14 +71,14 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         // Get the new committee shared obj.
         scenario.next_tx(BOB);
         let committee = scenario.take_shared<Committee>();
-        let committee_id = committee.id();
+        let committee_id = object::id(&committee);
         let new_committee = if (committee_id == old_committee_id) {
             test_scenario::return_shared(committee);
             scenario.take_shared<Committee>()
         } else {
             committee
         };
-        let new_committee_id = new_committee.id();
+        let new_committee_id = object::id(&new_committee);
         test_scenario::return_shared(new_committee);
 
         // Register all 4 members (2 continuing, 2 new) for the new committee.
@@ -188,14 +188,14 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         // Get the third committee shared obj.
         scenario.next_tx(BOB);
         let committee = scenario.take_shared<Committee>();
-        let committee_id = committee.id();
+        let committee_id = object::id(&committee);
         let third_committee = if (committee_id == new_committee_id) {
             test_scenario::return_shared(committee);
             scenario.take_shared<Committee>()
         } else {
             committee
         };
-        let third_committee_id = third_committee.id();
+        let third_committee_id = object::id(&third_committee);
         test_scenario::return_shared(third_committee);
 
         // Register all 3 members for the third committee.
@@ -465,6 +465,50 @@ fun test_propose_fails_on_duplicate_approval() {
 }
 
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
+fun test_propose_fails_committee_has_old_committee_id() {
+    test_tx!(|scenario| {
+        // Create and finalize first committee (1-of-1 with BOB).
+        seal_committee::init_committee(1, vector[BOB], scenario.ctx());
+        register_member!(scenario, BOB, b"enc_pk_1", b"signing_pk_1", b"url1");
+        propose_member!(scenario, BOB, vector[b"partial_pk_1"], b"master_pk");
+
+        scenario.next_tx(BOB);
+        let old_committee = scenario.take_shared<Committee>();
+        let old_committee_id = object::id(&old_committee);
+        test_scenario::return_shared(old_committee);
+
+        // Initialize rotation committee from the old committee.
+        scenario.next_tx(BOB);
+        let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
+        old_committee.init_rotation(1, vector[BOB], scenario.ctx());
+        test_scenario::return_shared(old_committee);
+
+        // Get the new committee (which has old_committee_id.is_some()).
+        scenario.next_tx(BOB);
+        let new_committee = scenario.take_shared<Committee>();
+        let new_committee_id = object::id(&new_committee);
+        test_scenario::return_shared(new_committee);
+
+        // Register BOB for the new committee.
+        register_member_by_id!(
+            scenario,
+            BOB,
+            new_committee_id,
+            b"enc_pk_1",
+            b"signing_pk_1",
+            b"url1",
+        );
+
+        // Try to call propose (instead of propose_for_rotation) on rotation committee.
+        // This should fail because propose is only for fresh DKG committees.
+        scenario.next_tx(BOB);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        new_committee.propose(vector[b"partial_pk_1"], b"master_pk", scenario.ctx());
+        test_scenario::return_shared(new_committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_finalize_for_rotation_mismatched_old_committee() {
     test_tx!(|scenario| {
         // Create first committee (1-of-1).
@@ -477,7 +521,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
 
         scenario.next_tx(ALICE);
         let first_committee = scenario.take_shared<Committee>();
-        let first_committee_id = first_committee.id();
+        let first_committee_id = object::id(&first_committee);
         test_scenario::return_shared(first_committee);
 
         // Create second unrelated committee (1-of-1).
@@ -488,7 +532,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
 
         scenario.next_tx(DAVE);
         let second_committee = scenario.take_shared<Committee>();
-        let second_committee_id = second_committee.id();
+        let second_committee_id = object::id(&second_committee);
         test_scenario::return_shared(second_committee);
 
         // Initialize rotation from first committee.
@@ -500,7 +544,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
         // Get new committee created by rotation.
         scenario.next_tx(ALICE);
         let new_committee = scenario.take_shared<Committee>();
-        let new_committee_id = new_committee.id();
+        let new_committee_id = object::id(&new_committee);
         test_scenario::return_shared(new_committee);
 
         // Register members for new committee.
@@ -548,7 +592,7 @@ fun test_finalize_for_rotation_invalid_state() {
 
         scenario.next_tx(ALICE);
         let first_committee = scenario.take_shared<Committee>();
-        let first_committee_id = first_committee.id();
+        let first_committee_id = object::id(&first_committee);
         test_scenario::return_shared(first_committee);
 
         // Create a second committee that is NOT a rotation (no old_committee_id) (1-of-1).
@@ -559,7 +603,7 @@ fun test_finalize_for_rotation_invalid_state() {
 
         scenario.next_tx(DAVE);
         let second_committee = scenario.take_shared<Committee>();
-        let second_committee_id = second_committee.id();
+        let second_committee_id = object::id(&second_committee);
         test_scenario::return_shared(second_committee);
 
         // Try to call propose_for_rotation on second_committee, fails with EInvalidState.
@@ -585,7 +629,7 @@ fun test_update_url_fails_for_non_member() {
 
         scenario.next_tx(ALICE);
         let committee = scenario.take_shared<Committee>();
-        let committee_id = committee.id();
+        let committee_id = object::id(&committee);
         test_scenario::return_shared(committee);
 
         // BOB (non-member) tries to update URL, fails.
