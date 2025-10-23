@@ -212,7 +212,7 @@ To decrypt an encrypted object in a Move package, follow these steps:
     - The dapp/Users should verify the correctness of those public keys before uploading their encryptions.
 - **Verify derived keys**
     - Use the Seal SDK client to fetch derived keys via `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
-    - Convert from bytes to `Element<G1>` or `Element<G2>` using the [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes) function.
+    - Convert bytes to `Element<G1>` or `Element<G2>` with [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes).
     - Call `bf_hmac_encryption::verify_derived_keys` with the raw keys, package ID, identity, and the vector of key server public keys.
     - The function returns a vector of `VerifiedDerivedKey` objects.          
 - **Perform decryption**
