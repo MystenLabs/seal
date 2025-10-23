@@ -94,7 +94,7 @@ Seal is designed to support multiple identity-based encryption (IBE) schemes as 
 
 - KEM: Boneh-Franklin IBE with the BLS12-381 curve.
 - DEM: AES-256-GCM, HMAC based CTR mode.
-AES-256-GCM is faster and should be preferred for most use cases. Use HMAC-CTR only when on-chain decryption is needed.
+Prefer `AES-256-GCM` for most use cases as it is faster. Use `HMAC-CTR` only when you require on-chain decryption.
 
 Post-quantum primitives are planned to be added in the future.
 
