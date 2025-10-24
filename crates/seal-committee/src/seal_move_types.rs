@@ -154,31 +154,31 @@ fn parse_move_byte_literal(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(Hex::decode(hex_str)?)
 }
 
-/// Serde deserializer for Move byte literals.
-fn deserialize_move_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)
+/// Macro to generate serde deserializers for Move byte literals.
+macro_rules! move_bytes_deserializer {
+    // For Vec<u8>, just return the decoded bytes
+    ($deserialize_fn:ident, Vec<u8>) => {
+        fn $deserialize_fn<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+            parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)
+        }
+    };
+    // For other types, decode and then deserialize from BCS
+    ($deserialize_fn:ident, $type:ty) => {
+        fn $deserialize_fn<'de, D>(deserializer: D) -> Result<$type, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+            let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
+            bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
+        }
+    };
 }
 
-/// Serde deserializer for ECIES public key from Move byte literals.
-fn deserialize_enc_pk<'de, D>(deserializer: D) -> Result<PublicKey<G2Element>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
-    bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
-}
-
-/// Serde deserializer for signing public key from Move byte literals.
-fn deserialize_signing_pk<'de, D>(deserializer: D) -> Result<G2Element, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
-    bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
-}
+move_bytes_deserializer!(deserialize_move_bytes, Vec<u8>);
+move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G2Element>);
+move_bytes_deserializer!(deserialize_signing_pk, G2Element);
