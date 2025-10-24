@@ -51,17 +51,18 @@ c. Members register the encryption and signing public keys, and the URL of their
 
 ```bash
 YOUR_SERVER_URL="replace your url here"
-sui client switch --address $ADDRESS_0 # replace your address
+# replace your address.
+sui client switch --address $ADDRESS_0
 
 sui client call --package $COMMITTEE_PKG --module seal_committee \
   --function register \
   --args $COMMITTEE_ID x"$DKG_ENC_PK" x"$DKG_SIGNING_PK" "$YOUR_SERVER_URL"
 ```
 
-d. Admin notifies all members once registration is done.
+d. The coordinator notifies all members once registration is done.
 
-e. Each member initialize the DKG protocol locally. The `/dkg-state` directory created is sensitive
- and contains the private keys that will be used till DKG is completed. 
+e. Each member initialize the DKG protocol locally. The `/dkg-state` directory is created, 
+containing private keys that will be used till DKG is completed. 
 
 ```bash
 cargo run --bin dkg-cli init --my-address $ADDRESS_0 --committee-id $COMMITTEE_ID --network $NETWORK
@@ -72,8 +73,8 @@ cargo run --bin dkg-cli init --my-address $ADDRESS_0 --committee-id $COMMITTEE_I
 
 ### Key Rotation Steps
 
-1. The coordinator proposes a list of new members and new threshold for the new committee, and pass 
-in the old committee object ID. Share the new committee ID in output with all members. 
+1. The coordinator creates a new Committee with a list of new members and new threshold, specifying
+the old committee object ID. Share the new committee ID in output with all members. 
 
 ```bash
 ADDRESS_3=0x2aaadc85d1013bde04e7bff32aceaa03201627e43e3e3dd0b30521486b5c34cb
@@ -84,12 +85,14 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
   --function init_rotation \
   --args $OLD_COMMITTEE_ID 3 "[\"$ADDRESS_1\", \"$ADDRESS_0\", \"$ADDRESS_3\", \"$ADDRESS_4\"]"
 
-# share this with all members. 
+# share this new committee ID with all members. 
 COMMITTEE_ID=0x15c4b9560ffd4922b3de98ea48cca427a376236fea86828944b3eb7e8719f856
 ```
 
-b. Members generate their ECIES and signing keypairs using CLI and set the environment variables. 
-Same as before. 
+b. Same as fresh DKG: Members verify that the Committee object is initialized with the expected 
+parameters (e.g., using Sui explorer). Then, they generate encryption and signing keypairs using 
+CLI. A `.dkg.key` with sensitive DKG private keys is generated locally. Export the public keys into 
+environment variables for next step. 
 
 ```bash
 cargo run --bin dkg-cli generate-keys
@@ -99,10 +102,12 @@ export DKG_ENC_PK=$(jq -r '.enc_pk' .dkg.key)
 export DKG_SIGNING_PK=$(jq -r '.signing_pk' .dkg.key)
 ```
 
-c. Members register the ECIES public key, signing public key and URL onchain. Same as before. 
+c. Same as fresh DKG: Members register the encryption and signing public keys, and the URL of their 
+key server.
 
 ```bash
-sui client switch --address $ADDRESS_0 # your address
+# replace with your address.
+sui client switch --address $ADDRESS_0
 SERVER_URL=<your_server_url>
 
 sui client call --package $COMMITTEE_PKG --module seal_committee \
@@ -110,20 +115,22 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
   --args $COMMITTEE_ID x"$DKG_ENC_PK" x"$DKG_SIGNING_PK" "$SERVER_URL"
 ```
 
-d. Admin notifies all members once registration is done.
+d. The coordinator notifies all members once registration is done.
 
-e. Each member initialize the DKG protocol locally with new committee ID. The `./dkg-state` 
-directory created is sensitive and contains the private keys that will be used till DKG is completed.
+e. Each member initialize the DKG protocol locally with the new committee ID. The `/dkg-state` 
+directory is created, containing private keys that will be used till DKG is completed. 
 
-- For continuing member, provide the old share arg. 
+- For continuing member, also provide `--old-share` arg. 
 
 ```bash
+# replace with your address.
 cargo run --bin dkg-cli init --my-address $ADDRESS_0 --old-share $DKG_OLD_SHARE --committee-id $COMMITTEE_ID --network $NETWORK
 ```
 
 - For new member. 
 
 ```bash
+# replace with your address.
 cargo run --bin dkg-cli init --my-address $ADDRESS_3 --committee-id $COMMITTEE_ID --network $NETWORK
 ```
 
