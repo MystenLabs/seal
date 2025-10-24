@@ -85,3 +85,4 @@ docs/content/references/framework/**
 lcov.info
 
 **/build/**
+/dkg-state/

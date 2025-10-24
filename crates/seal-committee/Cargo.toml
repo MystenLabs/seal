@@ -1,0 +1,18 @@
+[package]
+name = "seal-committee"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bcs.workspace = true
+fastcrypto = { workspace = true }
+fastcrypto-tbls = { workspace = true }
+prost-types.workspace = true
+serde.workspace = true
+sui-rpc = { workspace = true }
+sui-sdk-types.workspace = true
+sui_types.workspace = true
+tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
