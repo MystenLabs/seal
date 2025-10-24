@@ -89,6 +89,11 @@ impl SealCommittee {
         Ok(())
     }
 
+    /// Check if the committee contains a specific member.
+    pub fn contains(&self, member_addr: &Address) -> bool {
+        self.members.contains(member_addr)
+    }
+
     /// Extract members' party ID, address, enc_pk and signing_pk from Init state.
     pub fn get_members_info(&self) -> Result<Vec<ParsedMemberInfo>> {
         // Extract candidate data from Init state

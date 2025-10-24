@@ -2468,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "dkg-cli"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "bcs",
@@ -8033,7 +8033,7 @@ dependencies = [
 
 [[package]]
 name = "seal-committee"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "bcs",

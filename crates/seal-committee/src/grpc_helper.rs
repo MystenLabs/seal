@@ -53,7 +53,9 @@ pub async fn fetch_committee_data(
         .data
         .try_as_move()
         .ok_or_else(|| anyhow!("Object is not a Move object"))?;
-    Ok(bcs::from_bytes(move_object.contents())?)
+
+    bcs::from_bytes(move_object.contents())
+        .map_err(|e| anyhow!("Failed to deserialize SealCommittee: {}", e))
 }
 
 #[cfg(test)]

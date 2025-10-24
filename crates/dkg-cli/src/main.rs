@@ -10,7 +10,9 @@ use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMe
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use rand::thread_rng;
-use seal_committee::{build_new_to_old_map, create_grpc_client, fetch_committee_data};
+use seal_committee::{
+    build_new_to_old_map, create_grpc_client, fetch_committee_data, format_pk_hex, KeysFile,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -38,9 +40,9 @@ struct InitializedConfig {
     /// Threshold for old committee, for key rotation.
     old_threshold: Option<u16>,
     /// Mapping from new party ID to old party ID, for key rotation.
-    new_to_old_mapping: HashMap<u16, u16>,
+    new_to_old_mapping: Option<HashMap<u16, u16>>,
     /// Expected partial public keys from old committee, for key rotation.
-    expected_old_pks: HashMap<u16, G2Element>,
+    expected_old_pks: Option<HashMap<u16, G2Element>>,
     /// Old partial key share for key rotation, for continuing members for key rotation.
     my_old_share: Option<G2Scalar>,
     /// Old partial public key for key rotation, for continuing members for key rotation.
@@ -85,7 +87,6 @@ enum Commands {
     },
 
     /// Initialize DKG party, for fresh DKG or key rotation. Reads keys from file.
-    /// For key rotation with continuing members, also requires DKG_OLD_SHARE environment variable.
     Init {
         /// My address, used to find my party ID in the committee.
         #[arg(long)]
@@ -94,10 +95,6 @@ enum Commands {
         /// Current committee object ID.
         #[arg(long)]
         committee_id: Address,
-
-        /// Key server object ID (For key rotation to fetch old partial public keys).
-        #[arg(long)]
-        key_server_id: Option<Address>,
 
         /// Network (mainnet or testnet).
         #[arg(long, default_value = "testnet")]
@@ -110,6 +107,10 @@ enum Commands {
         /// Path to the keys file (default: ./.dkg.key).
         #[arg(long, default_value = ".dkg.key")]
         keys_file: PathBuf,
+
+        /// Old share for key rotation (hex-encoded BCS, for continuing members only).
+        #[arg(long)]
+        old_share: Option<String>,
     },
 }
 
@@ -135,22 +136,21 @@ async fn main() -> Result<()> {
             let signing_sk = G2Scalar::rand(&mut thread_rng());
             let signing_pk = G2Element::generator() * signing_sk;
 
-            let enc_pk_hex = Hex::encode_with_format(bcs::to_bytes(&enc_pk)?);
-            let signing_pk_hex = Hex::encode_with_format(bcs::to_bytes(&signing_pk)?);
-            let enc_sk_hex = Hex::encode_with_format(bcs::to_bytes(&enc_sk)?);
-            let signing_sk_hex = Hex::encode_with_format(bcs::to_bytes(&signing_sk)?);
+            let keys_file = KeysFile {
+                enc_sk,
+                enc_pk,
+                signing_sk,
+                signing_pk,
+            };
 
-            // Write secret keys and public keys to file
-            let secret_keys_content = format!(
-                "enc_sk: {}\nsigning_sk: {}\nenc_pk: {}\nsigning_pk: {}\n",
-                enc_sk_hex, signing_sk_hex, enc_pk_hex, signing_pk_hex
-            );
+            // Serialize to JSON
+            let json_content = serde_json::to_string_pretty(&keys_file)?;
 
             if let Some(parent) = secret_keys_file.parent() {
                 fs::create_dir_all(parent)?;
             }
 
-            write_secret_file(&secret_keys_file, &secret_keys_content)?;
+            write_secret_file(&secret_keys_file, &json_content)?;
 
             println!("Secret keys written to: {}", secret_keys_file.display());
             #[cfg(not(unix))]
@@ -160,61 +160,40 @@ async fn main() -> Result<()> {
         Commands::Init {
             my_address,
             committee_id,
-            key_server_id,
             network,
             state_dir,
             keys_file,
+            old_share,
         } => {
-            // Read secrets from keys file.
+            // Read secrets from keys file (JSON format).
             let keys_content = fs::read_to_string(&keys_file)
                 .map_err(|e| anyhow!("Failed to read keys file {}: {}", keys_file.display(), e))?;
 
-            let enc_sk_hex = parse_key_from_file(&keys_content, "enc_sk")
-                .ok_or_else(|| anyhow!("enc_sk not found in keys file"))?;
-            let signing_sk_hex = parse_key_from_file(&keys_content, "signing_sk")
-                .ok_or_else(|| anyhow!("signing_sk not found in keys file"))?;
+            let local_keys: KeysFile = serde_json::from_str(&keys_content)
+                .map_err(|e| anyhow!("Failed to parse keys file as JSON: {}", e))?;
 
-            // Read old share from environment variable if provided (for key rotation).
-            let old_share_hex = std::env::var("DKG_OLD_SHARE").ok();
-
-            // Check if this is fresh DKG or rotation.
-            let (is_rotation, is_continuing) = if key_server_id.is_some() {
-                if old_share_hex.is_some() {
-                    (true, true)
-                } else {
-                    (true, false)
-                }
+            // Parse old share from command argument if provided (for key rotation).
+            let (my_old_share, my_old_pk) = if let Some(share_hex) = old_share {
+                let key_share: G2Scalar = bcs::from_bytes(&Hex::decode(&share_hex)?)?;
+                let key_pk = G2Element::generator() * key_share;
+                (Some(key_share), Some(key_pk))
             } else {
-                if old_share_hex.is_some() {
-                    return Err(anyhow!(
-                        "DKG_OLD_SHARE env var is set but key_server_id is missing. \
-                        For key rotation, both are required."
-                    ));
-                }
-                (false, false)
+                (None, None)
             };
-            println!(
-                "Initializing DKG party, committee {}, my address {}, is_rotation: {}, is_continuing: {}",
-                committee_id, my_address, is_rotation, is_continuing
-            );
 
             // Fetch current committee from onchain.
             let mut grpc_client = create_grpc_client(&network)?;
             let committee = fetch_committee_data(&committee_id, &mut grpc_client).await?;
+
+            // Validate committee state is in Init state and contains my address.
+            committee.is_init()?;
+            assert!(committee.contains(&my_address));
+
             println!(
                 "Fetched committee with {} members, threshold: {}",
                 committee.members.len(),
                 committee.threshold
             );
-
-            // Validate committee state is in Init.
-            committee.is_init()?;
-
-            // Parse keys.
-            let enc_sk: PrivateKey<G2Element> = bcs::from_bytes(&Hex::decode(&enc_sk_hex)?)?;
-            let enc_pk = PublicKey::<G2Element>::from_private_key(&enc_sk);
-            let signing_sk: G2Scalar = bcs::from_bytes(&Hex::decode(&signing_sk_hex)?)?;
-            let signing_pk = G2Element::generator() * signing_sk;
 
             // Fetch members info.
             let members_info = committee.get_members_info()?;
@@ -229,75 +208,81 @@ async fn main() -> Result<()> {
             println!("My party ID: {}", my_party_id);
 
             // Validate PK locally vs registration onchain.
-            if &enc_pk != registered_enc_pk || &signing_pk != registered_signing_pk {
+            if &local_keys.enc_pk != registered_enc_pk
+                || &local_keys.signing_pk != registered_signing_pk
+            {
                 return Err(anyhow!(
-                    "Mismatched PK for {}!\n\
+                    "Mismatched PK for address {}!\n\
                     ECIES PK Derived from secret: {}\n\
                     Registered onchain: {}\n\
                     Signing PK Derived from secret: {}\n\
                     Registered onchain: {}",
                     my_address,
-                    Hex::encode(&bcs::to_bytes(&enc_pk)?),
-                    Hex::encode(&bcs::to_bytes(registered_enc_pk)?),
-                    Hex::encode(&bcs::to_bytes(&signing_pk)?),
-                    Hex::encode(&bcs::to_bytes(registered_signing_pk)?)
+                    format_pk_hex(&local_keys.enc_pk)?,
+                    format_pk_hex(registered_enc_pk)?,
+                    format_pk_hex(&local_keys.signing_pk)?,
+                    format_pk_hex(registered_signing_pk)?
                 ));
             }
             println!("Successfully validated registered public keys onchain.");
 
-            // For key rotation, fetch old committee data, build new_to_old mapping, and fetch expected old pks.
-            let (old_threshold, new_to_old_mapping, expected_old_pks, my_old_share, my_old_pk) =
-                if is_rotation {
-                    let old_committee_id = committee.old_committee_id.ok_or_else(|| {
-                        anyhow!(
-                            "Committee {} does not have old_committee_id for rotation",
-                            committee_id
-                        )
-                    })?;
+            // Get old committee params for key rotation.
+            let (old_threshold, new_to_old_mapping, expected_old_pks) = match committee
+                .old_committee_id
+            {
+                None => {
+                    if my_old_share.is_some() {
+                        return Err(anyhow!("DKG_KEY_SHARE should not be set for fresh DKG!"));
+                    }
+                    println!("No old committee ID, performing fresh DKG.");
+                    (None, None, None)
+                }
+                Some(old_committee_id) => {
+                    println!(
+                        "Old committee ID: {}, performing key rotation.",
+                        old_committee_id
+                    );
 
                     let old_committee =
                         fetch_committee_data(&old_committee_id, &mut grpc_client).await?;
+                    let old_threshold = Some(old_committee.threshold);
+                    let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
 
-                    // Validate old committee is finalized.
-                    old_committee
-                        .is_finalized()
-                        .map_err(|e| anyhow!("{}. Cannot perform key rotation.", e))?;
-
-                    // Build new to old party ID mapping.
-                    let new_to_old_map = build_new_to_old_map(&committee, &old_committee);
-
-                    // TODO: fetch this from onchain using key_server_id.
+                    // TODO: Fetch this from the key server object owned by the old committee.
                     let expected_old_pks = HashMap::new();
 
-                    // Validate continuing member if applicable.
-                    if is_continuing
-                        && (!committee.members.contains(&my_address)
-                            || !old_committee.members.contains(&my_address))
-                    {
-                        return Err(anyhow!("Not a continuing member."));
-                    }
-
-                    let (my_old_share, my_old_pk) = match old_share_hex {
-                        Some(ref share_hex) => {
-                            let key_share: G2Scalar = bcs::from_bytes(&Hex::decode(share_hex)?)?;
-                            let partial_pk = G2Element::generator() * key_share;
-                            // TODO: verify the old partial pk matches with the partial key server
-                            // for this address in key server object.
-                            (Some(key_share), Some(partial_pk))
+                    // Validate my_old_share and membership in old committee.
+                    match my_old_share {
+                        Some(_) => {
+                            if !old_committee.contains(&my_address) {
+                                return Err(anyhow!(
+                                    "Invalid state: My address {} not found in old committee {} so 
+                                    I am a new member. Do not provide `--old-share` for key rotation.",
+                                    my_address,
+                                    old_committee_id
+                                ));
+                            }
+                            println!("Continuing member for key rotation.");
                         }
-                        None => (None, None),
-                    };
-
+                        None => {
+                            if old_committee.contains(&my_address) {
+                                return Err(anyhow!(
+                                    "Invalid state: My address {} found in old committee {} so I am 
+                                    a continuing member. Must provide `--old-share` for key rotation.",
+                                    my_address,
+                                    old_committee_id
+                                ));
+                            }
+                            println!("New member for key rotation.");
+                        }
+                    }
                     (
-                        Some(old_committee.threshold),
-                        new_to_old_map,
-                        expected_old_pks,
-                        my_old_share,
-                        my_old_pk,
+                        old_threshold,
+                        Some(new_to_old_mapping),
+                        Some(expected_old_pks),
                     )
-                } else {
-                    (None, HashMap::new(), HashMap::new(), None, None)
-                };
+                }
+            };
 
             // Create nodes for all parties with their enc_pks.
             let mut nodes = Vec::new();
@@ -312,8 +297,8 @@ async fn main() -> Result<()> {
             let state = DkgState {
                 config: InitializedConfig {
                     my_party_id,
-                    enc_sk,
-                    signing_sk,
+                    enc_sk: local_keys.enc_sk,
+                    signing_sk: local_keys.signing_sk,
                     nodes: Nodes::new(nodes)?,
                     committee_id,
                     threshold: committee.threshold,
@@ -350,16 +335,4 @@ fn write_secret_file(path: &Path, content: &str) -> Result<()> {
         fs::set_permissions(path, perms)?;
     }
     Ok(())
-}
-
-/// Helper function to parse a key from the keys file content.
-/// Format: "key_name: hex_value"
-fn parse_key_from_file(content: &str, key_name: &str) -> Option<String> {
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(value) = line.strip_prefix(&format!("{}: ", key_name)) {
-            return Some(value.trim().to_string());
-        }
-    }
-    None
 }
