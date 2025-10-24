@@ -55,7 +55,7 @@ struct DkgState {
     /// Configuration
     config: InitializedConfig,
     /// Messages created by this party.
-    my_messages: Vec<Message<G2Element, G2Element>>,
+    my_message: Option<Message<G2Element, G2Element>>,
     /// Messages received from other parties.
     received_messages: HashMap<u16, Message<G2Element, G2Element>>,
     /// Processed messages.
@@ -308,7 +308,7 @@ async fn main() -> Result<()> {
                     my_old_share,
                     my_old_pk,
                 },
-                my_messages: vec![],
+                my_message: None,
                 received_messages: HashMap::new(),
                 processed_messages: vec![],
                 confirmation: None,
