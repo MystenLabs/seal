@@ -4,7 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::ServerMode;
+use crate::key_server_options::{ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
@@ -155,23 +155,121 @@ impl Server {
             panic!("Failed to load master keys: {}", e);
         });
 
-        let key_server_oid_to_pop = options
-            .get_supported_key_server_object_ids()
-            .into_iter()
-            .map(|ks_oid| {
-                let key = master_keys
-                    .get_key_for_key_server(&ks_oid)
-                    .expect("checked already");
-                let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
-                (ks_oid, pop)
-            })
-            .collect();
+        let key_server_oid_to_pop = Self::build_key_server_pop_map(&options, &master_keys).await;
 
         Server {
             sui_rpc_client,
             master_keys,
             key_server_oid_to_pop,
             options,
+        }
+    }
+
+    /// Build the key_server_oid -> PoP HashMap for all server modes.
+    /// Handles fetching from chain for Committee mode.
+    async fn build_key_server_pop_map(
+        options: &KeyServerOptions,
+        master_keys: &MasterKeys,
+    ) -> HashMap<ObjectID, MasterKeyPOP> {
+        match &options.server_mode {
+            ServerMode::Open {
+                key_server_object_id,
+            } => {
+                let key = master_keys
+                    .get_key_for_key_server(key_server_object_id)
+                    .expect("checked already");
+                let pop = create_proof_of_possession(key, &key_server_object_id.into_bytes());
+                let mut map = HashMap::new();
+                map.insert(*key_server_object_id, pop);
+                map
+            }
+            ServerMode::Committee {
+                member_address,
+                committee_id,
+                next_committee_id: _,
+            } => {
+                info!("Committee mode - validating committee at startup");
+
+                // Create gRPC client for seal-committee helpers
+                let network = match options.network {
+                    Network::Mainnet => seal_committee::Network::Mainnet,
+                    Network::Testnet => seal_committee::Network::Testnet,
+                    _ => panic!("Unsupported network for Committee mode"),
+                };
+                let mut grpc_client = seal_committee::create_grpc_client(network)
+                    .expect("Failed to create gRPC client");
+
+                // Fetch and verify committee is finalized
+                let committee_addr = sui_sdk_types::Address::from_bytes(committee_id.as_ref())
+                    .unwrap_or_else(|e| panic!("Invalid committee ID: {:?}", e));
+                if !seal_committee::check_committee_finalized(&mut grpc_client, &committee_addr)
+                    .await
+                    .unwrap_or_else(|e| panic!("Failed to check committee finalized: {:?}", e))
+                {
+                    panic!("Committee {} is not finalized", committee_id);
+                }
+
+                // Fetch KeyServer from committee's dynamic field
+                let key_server_id =
+                    seal_committee::fetch_key_server_id(&mut grpc_client, &committee_addr)
+                        .await
+                        .unwrap_or_else(|e| {
+                            panic!("Failed to fetch KeyServer from committee: {:?}", e)
+                        });
+
+                let key_server_oid = ObjectID::new(key_server_id.into_inner());
+
+                // Fetch PartialKeyServer info for this member
+                let partial_key_server_info = seal_committee::fetch_partial_key_server_info(
+                    &mut grpc_client,
+                    &key_server_id,
+                    *member_address,
+                )
+                .await
+                .unwrap_or_else(|e| panic!("Failed to fetch PartialKeyServer: {:?}", e))
+                .unwrap_or_else(|| {
+                    panic!("No PartialKeyServer found for member {}", member_address)
+                });
+
+                // Sign PoP over: key_server_oid || party_id || partial_pk
+                let mut pop_message = Vec::new();
+                pop_message.extend_from_slice(&key_server_oid.into_bytes());
+                pop_message.extend_from_slice(&partial_key_server_info.party_id.to_le_bytes());
+                pop_message.extend_from_slice(&partial_key_server_info.partial_pk);
+
+                // Extract master_key from already-loaded MasterKeys
+                let master_key = match master_keys {
+                    MasterKeys::Open { master_key } => master_key,
+                    _ => panic!("Committee mode requires Open master key configuration"),
+                };
+                let pop = create_proof_of_possession(master_key, &pop_message);
+
+                info!(
+                    "Committee mode: KeyServer {} with party_id={} for POP with MASTER_KEY",
+                    key_server_oid, partial_key_server_info.party_id
+                );
+
+                // Use KeyServer object ID as the key since PartialKeyServer is stored inline
+                let mut map = HashMap::new();
+                map.insert(key_server_oid, pop);
+                map
+            }
+            ServerMode::Permissioned { client_configs } => client_configs
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.client_master_key,
+                        ClientKeyType::Derived { .. } | ClientKeyType::Imported { .. }
+                    )
+                })
+                .map(|c| {
+                    let key = master_keys
+                        .get_key_for_key_server(&c.key_server_object_id)
+                        .expect("checked already");
+                    let pop = create_proof_of_possession(key, &c.key_server_object_id.into_bytes());
+                    (c.key_server_object_id, pop)
+                })
+                .collect(),
         }
     }
 
