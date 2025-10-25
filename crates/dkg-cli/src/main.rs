@@ -182,7 +182,12 @@ async fn main() -> Result<()> {
             };
 
             // Fetch current committee from onchain.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let network_enum = match network.to_lowercase().as_str() {
+                "mainnet" => seal_committee::Network::Mainnet,
+                "testnet" => seal_committee::Network::Testnet,
+                _ => anyhow::bail!("Invalid network: {}. Use 'mainnet' or 'testnet'", network),
+            };
+            let mut grpc_client = create_grpc_client(network_enum)?;
             let committee = fetch_committee_data(&committee_id, &mut grpc_client).await?;
 
             // Validate committee state is in Init state and contains my address.

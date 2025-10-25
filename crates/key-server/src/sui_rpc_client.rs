@@ -73,7 +73,7 @@ impl RpcError {
     }
 
     /// Create a new RpcError with a message
-    fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: None,

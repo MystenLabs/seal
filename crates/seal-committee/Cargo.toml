@@ -16,3 +16,4 @@ sui-rpc = { workspace = true }
 sui-sdk-types.workspace = true
 sui_types.workspace = true
 tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
+tonic = { workspace = true }

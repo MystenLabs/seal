@@ -9,6 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -47,8 +48,12 @@ pub enum ServerMode {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
     },
+    Committee {
+        member_address: Address,
+        committee_id: ObjectID,
+        next_committee_id: Option<ObjectID>,
+    },
 }
-
 /// Configuration for the RPC client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcConfig {
@@ -197,6 +202,30 @@ impl KeyServerOptions {
             serde_yaml::to_string(self).expect("should serialize")
         );
 
+        // Validate Committee mode specific requirements
+        if let ServerMode::Committee {
+            next_committee_id, ..
+        } = &self.server_mode
+        {
+            // MASTER_KEY must always be present in Committee mode
+            if std::env::var("MASTER_KEY").is_err() {
+                return Err(anyhow!(
+                    "In Committee mode, MASTER_KEY environment variable must be set"
+                ));
+            }
+
+            let next_master_key_exists = std::env::var("NEXT_MASTER_KEY").is_ok();
+
+            // Both NEXT_MASTER_KEY and next_committee_id must be provided together or both absent
+            if next_master_key_exists != next_committee_id.is_some() {
+                return Err(anyhow!(
+                    "In Committee mode, NEXT_MASTER_KEY environment variable and next_committee_id must both be provided or both be absent. Found: NEXT_MASTER_KEY={}, next_committee_id={}",
+                    next_master_key_exists,
+                    next_committee_id.is_some()
+                ));
+            }
+        }
+
         if let ServerMode::Permissioned { client_configs } = &self.server_mode {
             let mut names = std::collections::HashSet::new();
             let mut derivation_indices = std::collections::HashSet::new();
@@ -256,12 +285,17 @@ impl KeyServerOptions {
         Ok(())
     }
 
-    pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
+    #[cfg(test)]
+    pub(crate) fn get_key_server_object_ids_for_testing(&self) -> Vec<ObjectID> {
         match &self.server_mode {
             ServerMode::Open {
                 key_server_object_id,
             } => {
                 vec![*key_server_object_id]
+            }
+            ServerMode::Committee { .. } => {
+                // Committee mode fetches key_server_id from chain
+                vec![]
             }
             ServerMode::Permissioned { client_configs } => client_configs
                 .iter()
@@ -354,6 +388,43 @@ server_mode: !Open
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
+
+    // test committee mode
+    let valid_configuration_committee = r#"
+network: Mainnet
+server_mode: !Committee
+  member_address: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  committee_id: '0x1'
+  next_committee_id: '0x2'
+"#;
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_committee)
+        .expect("Failed to parse valid configuration");
+    assert_eq!(
+        options.server_mode,
+        ServerMode::Committee {
+            member_address: Address::ZERO,
+            committee_id: ObjectID::from_str("0x1").unwrap(),
+            next_committee_id: Some(ObjectID::from_str("0x2").unwrap()),
+        }
+    );
+
+    // test committee mode without next_committee_id
+    let valid_configuration_committee_no_next = r#"
+network: Mainnet
+server_mode: !Committee
+  member_address: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  committee_id: '0x1'
+"#;
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_committee_no_next)
+        .expect("Failed to parse valid configuration");
+    assert_eq!(
+        options.server_mode,
+        ServerMode::Committee {
+            member_address: Address::ZERO,
+            committee_id: ObjectID::from_str("0x1").unwrap(),
+            next_committee_id: None,
+        }
+    );
 }
 
 #[test]
@@ -416,8 +487,9 @@ session_key_ttl_max: '60s'
     let options: KeyServerOptions =
         serde_yaml::from_str(valid_configuration).expect("Failed to parse valid configuration");
 
+    // Verify that the HashMap would contain keys for alice and bob (not carol since Exported)
     assert_eq!(
-        options.get_supported_key_server_object_ids(),
+        options.get_key_server_object_ids_for_testing(),
         vec![
             ObjectID::from_str(
                 "0xaaaa000000000000000000000000000000000000000000000000000000000001"

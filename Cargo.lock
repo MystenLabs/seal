@@ -4476,6 +4476,7 @@ dependencies = [
  "prost-types",
  "rand 0.8.5",
  "reqwest 0.12.15",
+ "seal-committee",
  "seal-sdk",
  "semver",
  "serde",
@@ -8045,6 +8046,7 @@ dependencies = [
  "sui-sdk-types 0.0.8",
  "sui-types",
  "tokio",
+ "tonic 0.13.1",
 ]
 
 [[package]]
