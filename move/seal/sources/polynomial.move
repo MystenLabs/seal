@@ -16,6 +16,9 @@ public struct Polynomial has copy, drop, store {
 
 /// Evaluate a polynomial at a given point.
 public fun evaluate(p: &Polynomial, x: u8): u8 {
+    if (p.coefficients.is_empty()) {
+        return 0
+    };
     let n = p.coefficients.length();
     let mut result = p.coefficients[n - 1];
     (n - 1).do!(|i| {
