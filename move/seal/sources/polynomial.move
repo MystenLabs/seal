@@ -55,10 +55,10 @@ fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
 }
 
 /// Same as interpolate, but the numerator product, \prod_i (x - x_i), is precomputed.
-fun interpolate_with_full_numerator(
+fun interpolate_with_numerators(
     x: &vector<u8>,
     y: &vector<u8>,
-    full_numerator: &Polynomial,
+    numerators: &vector<Polynomial>,
 ): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
@@ -73,7 +73,7 @@ fun interpolate_with_full_numerator(
         sum =
             add(
                 &sum,
-                &div_exact_by_monic_linear(full_numerator, x[j]).scale(
+                &numerators[j].scale(
                     gf256::div(y[j], denominator),
                 ),
             );
@@ -81,17 +81,22 @@ fun interpolate_with_full_numerator(
     sum
 }
 
+/// Compute the numerators of the Lagrange polynomials for the given x values.
+fun compute_numerators(x: &vector<u8>): vector<Polynomial> {
+    // The full numerator depends only on x, so we can compute it here
+    let mut full_numerator = Polynomial { coefficients: vector[1] };
+    x.length().do!(|j| {
+        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
+    });
+    x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
+}
+
 /// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
 /// Panics if the lengths of x and y are not the same.
 /// Panics if x contains duplicate values.
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
-    let n = x.length();
-    let mut full_numerator = Polynomial { coefficients: vector[1] };
-    n.do!(|j| {
-        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
-    });
-    interpolate_with_full_numerator(x, y, &full_numerator)
+    interpolate_with_numerators(x, y, &compute_numerators(x))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -102,15 +107,11 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
 
-    // The full numerator depends only on x, so we can compute it here
-    let mut full_numerator = Polynomial { coefficients: vector[1] };
-    x.length().do!(|j| {
-        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
-    });
-
+    // The numerators depend only on x, so we can compute them here
+    let numerators = compute_numerators(x);
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate_with_full_numerator(x, &yi, &full_numerator)
+        interpolate_with_numerators(x, &yi, &numerators)
     })
 }
 
