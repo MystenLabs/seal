@@ -29,10 +29,6 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
     else p.coefficients[0]
 }
 
-fun multiply_by_monic_linear(p: &Polynomial, x: u8): Polynomial {
-    p.mul(&monic_linear(&x))
-}
-
 // Divide a polynomial by the monic linear polynomial x + c.
 // This assumes that the polynomial is divisible by the monic linear polynomial,
 // and it's not clear what the result will be otherwise.
@@ -82,11 +78,10 @@ fun interpolate_with_numerators(
 }
 
 /// Compute the numerators of the Lagrange polynomials for the given x values.
-fun compute_numerators(x: &vector<u8>): vector<Polynomial> {
+fun compute_numerators(x: vector<u8>): vector<Polynomial> {
     // The full numerator depends only on x, so we can compute it here
-    let mut full_numerator = Polynomial { coefficients: vector[1] };
-    x.length().do!(|j| {
-        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
+    let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
+        product.mul(&monic_linear(&x_j))
     });
     x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
 }
@@ -96,7 +91,7 @@ fun compute_numerators(x: &vector<u8>): vector<Polynomial> {
 /// Panics if x contains duplicate values.
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
-    interpolate_with_numerators(x, y, &compute_numerators(x))
+    interpolate_with_numerators(x, y, &compute_numerators(*x))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -108,7 +103,7 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
 
     // The numerators depend only on x, so we can compute them here
-    let numerators = compute_numerators(x);
+    let numerators = compute_numerators(*x);
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
         interpolate_with_numerators(x, &yi, &numerators)
