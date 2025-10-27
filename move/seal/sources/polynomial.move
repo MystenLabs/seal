@@ -86,14 +86,6 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
     x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
 }
 
-/// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
-/// Panics if the lengths of x and y are not the same.
-/// Panics if x contains duplicate values.
-public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
-    assert!(x.length() == y.length(), EIncomatibleInputLengths);
-    interpolate_with_numerators(x, y, &compute_numerators(*x))
-}
-
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
 /// The length of the input vectors must be the same.
 /// The length of each vector in y must be the same (equal to the l above).
@@ -181,7 +173,7 @@ fun test_evaluate() {
 fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
-    let p = interpolate(&x, &y);
+    let p = interpolate_with_numerators(&x, &y, &compute_numerators(x));
     assert!(p.coefficients == x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
