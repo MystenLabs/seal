@@ -32,7 +32,7 @@ fun append_ref(bytes: &mut vector<u8>, value: &vector<u8>) {
 
 public(package) fun hash_to_g1_with_dst(id: &vector<u8>): Element<G1> {
     let mut bytes = DST_ID;
-    bytes.append(*id);
+    append_ref(&mut bytes, id);
     bls12381::hash_to_g1(&bytes)
 }
 
