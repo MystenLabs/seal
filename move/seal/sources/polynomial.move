@@ -143,7 +143,7 @@ fun scale(x: &Polynomial, s: u8): Polynomial {
     Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul(*c, s)) }
 }
 
-/// Return x - c (same as x + c since we)
+/// Return x - c (same as x + c since GF256 is a binary field)
 fun monic_linear(c: &u8): Polynomial {
     Polynomial { coefficients: vector[*c, 1] }
 }
