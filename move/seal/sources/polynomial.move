@@ -52,6 +52,7 @@ fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     Polynomial { coefficients }
 }
 
+/// Same as interpolate, but the numerator product, \prod_i (x - x_i), is precomputed.
 fun interpolate_with_full_numerator(x: &vector<u8>, y: &vector<u8>, full_numerator: &Polynomial): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
