@@ -33,7 +33,7 @@ fun multiply_by_monic_linear(p: &Polynomial, x: u8): Polynomial {
 }
 
 // Divide a polynomial by the monic linear polynomial x + c.
-// This assumes that the polynomial is divisible by the monic linear polynomial, 
+// This assumes that the polynomial is divisible by the monic linear polynomial,
 // and it's not clear what the result will be otherwise.
 fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     if (x.coefficients.is_empty()) {
@@ -53,7 +53,11 @@ fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
 }
 
 /// Same as interpolate, but the numerator product, \prod_i (x - x_i), is precomputed.
-fun interpolate_with_full_numerator(x: &vector<u8>, y: &vector<u8>, full_numerator: &Polynomial): Polynomial {
+fun interpolate_with_full_numerator(
+    x: &vector<u8>,
+    y: &vector<u8>,
+    full_numerator: &Polynomial,
+): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
@@ -64,7 +68,13 @@ fun interpolate_with_full_numerator(x: &vector<u8>, y: &vector<u8>, full_numerat
                 denominator = gf256::mul(denominator, gf256::sub(x[j], x[i]));
             };
         });
-        sum = add(&sum, &div_exact_by_monic_linear(full_numerator, x[j]).scale(gf256::div(y[j], denominator)));
+        sum =
+            add(
+                &sum,
+                &div_exact_by_monic_linear(full_numerator, x[j]).scale(
+                    gf256::div(y[j], denominator),
+                ),
+            );
     });
     sum
 }
