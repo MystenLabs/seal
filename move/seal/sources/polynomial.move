@@ -170,6 +170,16 @@ fun test_evaluate() {
     assert!(p.evaluate(1) == 0);
     assert!(p.evaluate(2) == 9);
     assert!(p.evaluate(3) == 8);
+
+    // Test zero polynomial
+    let p = Polynomial { coefficients: vector[] };
+    assert!(p.evaluate(0) == 0);
+
+    let p = Polynomial { coefficients: vector[3] };
+    assert!(p.evaluate(0) == 3);
+    assert!(p.evaluate(1) == 3);
+    assert!(p.evaluate(2) == 3);
+    assert!(p.evaluate(3) == 3);
 }
 
 #[test]
