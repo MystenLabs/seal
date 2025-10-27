@@ -4,6 +4,7 @@
 module seal::polynomial;
 
 use seal::gf256;
+use std::u64::range_do_eq;
 
 const EIncomatibleInputLengths: u64 = 1;
 
@@ -39,15 +40,16 @@ fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     if (x.coefficients.is_empty()) {
         return Polynomial { coefficients: vector[] }
     };
+    let n = x.coefficients.length();
     let mut coefficients = vector::empty();
-    let mut previous = x.coefficients[x.coefficients.length() - 1];
+
+    let mut previous = x.coefficients[n - 1];
     coefficients.push_back(previous);
-    let mut i = x.coefficients.length() - 2;
-    while (i > 0) {
-        previous = gf256::sub(x.coefficients[i], gf256::mul(previous, c));
+
+    range_do_eq!(1, n - 2, |i| {
+        previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
         coefficients.push_back(previous);
-        i = i - 1;
-    };
+    });
     coefficients.reverse();
     Polynomial { coefficients }
 }
