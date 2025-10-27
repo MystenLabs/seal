@@ -16,18 +16,14 @@ public(package) fun kdf(
     object_id: address,
     index: u8,
 ): vector<u8> {
-    let mut bytes = DST_KDF;
-    append_ref(&mut bytes, input.bytes());
-    append_ref(&mut bytes, nonce.bytes());
-    append_ref(&mut bytes, gid.bytes());
-    append_ref(&mut bytes, &object_id.to_bytes());
-    bytes.push_back(index);
-    sha3_256(bytes)
-}
-
-fun append_ref(bytes: &mut vector<u8>, value: &vector<u8>) {
-    // This is a bit faster than append since that reverses the input
-    value.do_ref!(|byte| bytes.push_back(*byte));
+    sha3_256(vector[
+        DST_KDF,
+        *input.bytes(),
+        *nonce.bytes(),
+        *gid.bytes(),
+        object_id.to_bytes(),
+        vector[index],
+    ].flatten())
 }
 
 public(package) fun hash_to_g1_with_dst(id: &vector<u8>): Element<G1> {
