@@ -8,7 +8,7 @@ use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
 use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto_lattice::falcon_util::falcon;
-use fastcrypto_lattice::ibe::IBE;
+use fastcrypto_lattice::ibe::{sample_polynomial, IBE};
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -174,12 +174,16 @@ pub fn seal_encrypt(
             if pks.len() != number_of_shares as usize {
                 return Err(InvalidInput);
             }
+            let n = 512;
+            let k = sample_polynomial(512, &mut rng, 0..=1);
+
+            let r =
+            let seed =
             let encrypted_shares = pks
                 .iter()
                 .zip(shares)
                 .map(|(pk, share)| {
-                    fastcrypto_lattice::ibe::FalconIBE::encrypt(
-                        &mut rng,
+                    fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
                         pk,
                         &fastcrypto_lattice::ibe::Plaintext::<32>(share),
                         &full_id,
