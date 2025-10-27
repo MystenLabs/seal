@@ -28,27 +28,57 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
     else p.coefficients[0]
 }
 
+fun multiply_by_monic_linear(p: &Polynomial, x: u8): Polynomial {
+    p.mul(&monic_linear(&x))
+}
+
+// Divide a polynomial by the monic linear polynomial x + c.
+// This assumes that the polynomial is divisible by the monic linear polynomial, 
+// and it's not clear what the result will be otherwise.
+fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
+    if (x.coefficients.is_empty()) {
+        return Polynomial { coefficients: vector[] }
+    };
+    let mut coefficients = vector::empty();
+    let mut previous = x.coefficients[x.coefficients.length() - 1];
+    coefficients.push_back(previous);
+    let mut i = x.coefficients.length() - 2;
+    while (i > 0) {
+        previous = gf256::sub(x.coefficients[i], gf256::mul(previous, c));
+        coefficients.push_back(previous);
+        i = i - 1;
+    };
+    coefficients.reverse();
+    Polynomial { coefficients }
+}
+
+fun interpolate_with_full_numerator(x: &vector<u8>, y: &vector<u8>, full_numerator: &Polynomial): Polynomial {
+    assert!(x.length() == y.length(), EIncomatibleInputLengths);
+    let n = x.length();
+    let mut sum = Polynomial { coefficients: vector[] };
+    n.do!(|j| {
+        let mut denominator = 1;
+        n.do!(|i| {
+            if (i != j) {
+                denominator = gf256::mul(denominator, gf256::sub(x[j], x[i]));
+            };
+        });
+        sum = add(&sum, &div_exact_by_monic_linear(full_numerator, x[j]).scale(gf256::div(y[j], denominator)));
+    });
+    sum
+}
+
 /// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
 /// Panics if the lengths of x and y are not the same.
 /// Panics if x contains duplicate values.
 public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
-    let mut sum = Polynomial { coefficients: vector[] };
+    let mut full_numerator = Polynomial { coefficients: vector[1] };
     n.do!(|j| {
-        let mut product = Polynomial { coefficients: vector[1] };
-        n.do!(|i| {
-            if (i != j) {
-                product =
-                    mul(
-                        &product,
-                        &div(&monic_linear(&x[i]), gf256::sub(x[j], x[i])),
-                    );
-            };
-        });
-        sum = add(&sum, &scale(&product, y[j]));
+        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
     });
-    sum
+    interpolate_with_full_numerator(x, y, &full_numerator)
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -58,9 +88,16 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
+
+    // The full numerator depends only on x, so we can compute it here
+    let mut full_numerator = Polynomial { coefficients: vector[1] };
+    x.length().do!(|j| {
+        full_numerator = multiply_by_monic_linear(&full_numerator, x[j]);
+    });
+
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate(x, &yi)
+        interpolate_with_full_numerator(x, &yi, &full_numerator)
     })
 }
 
@@ -101,17 +138,13 @@ fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
     Polynomial { coefficients }
 }
 
-fun div(x: &Polynomial, s: u8): Polynomial {
-    x.scale(gf256::div(1, s))
-}
-
 fun scale(x: &Polynomial, s: u8): Polynomial {
     Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul(*c, s)) }
 }
 
-/// Return x - c
+/// Return x - c (same as x + c since we)
 fun monic_linear(c: &u8): Polynomial {
-    Polynomial { coefficients: vector[gf256::sub(0, *c), 1] }
+    Polynomial { coefficients: vector[*c, 1] }
 }
 
 #[test]
@@ -154,4 +187,13 @@ fun test_interpolate_all() {
         assert!(ps[0].evaluate(x) == y[0]);
         assert!(ps[1].evaluate(x) == y[1]);
     });
+}
+
+#[test]
+fun test_div_exact_by_monic_linear() {
+    let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
+    let monic_linear = monic_linear(&2);
+    let y = mul(&x, &monic_linear);
+    let z = div_exact_by_monic_linear(&y, 2);
+    assert!(z == x);
 }
