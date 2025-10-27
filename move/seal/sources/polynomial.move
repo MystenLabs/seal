@@ -4,6 +4,7 @@
 module seal::polynomial;
 
 use seal::gf256;
+use std::u64::range_do_eq;
 
 const EIncomatibleInputLengths: u64 = 1;
 
@@ -15,10 +16,10 @@ public struct Polynomial has copy, drop, store {
 
 /// Evaluate a polynomial at a given point.
 public fun evaluate(p: &Polynomial, x: u8): u8 {
-    let mut result = 0;
     let n = p.coefficients.length();
-    n.do!(|i| {
-        result = gf256::add(gf256::mul(result, x), p.coefficients[n - i - 1]);
+    let mut result = p.coefficients[n - 1];
+    (n - 1).do!(|i| {
+        result = gf256::add(gf256::mul(result, x), p.coefficients[n - i - 2]);
     });
     result
 }
@@ -28,27 +29,61 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
     else p.coefficients[0]
 }
 
-/// Interpolate a polynomial p such that p(x_i) = y[i] for all i.
-/// Panics if the lengths of x and y are not the same.
-/// Panics if x contains duplicate values.
-public(package) fun interpolate(x: &vector<u8>, y: &vector<u8>): Polynomial {
+// Divide a polynomial by the monic linear polynomial x + c.
+// This assumes that the polynomial is divisible by the monic linear polynomial,
+// and it's not clear what the result will be otherwise.
+fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
+    if (x.coefficients.is_empty()) {
+        return Polynomial { coefficients: vector[] }
+    };
+    let n = x.coefficients.length();
+    let mut coefficients = vector::empty();
+
+    let mut previous = x.coefficients[n - 1];
+    coefficients.push_back(previous);
+
+    range_do_eq!(1, n - 2, |i| {
+        previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
+        coefficients.push_back(previous);
+    });
+    coefficients.reverse();
+    Polynomial { coefficients }
+}
+
+/// Same as interpolate, but the numerator product, \prod_i (x - x_i), is precomputed.
+fun interpolate_with_numerators(
+    x: &vector<u8>,
+    y: &vector<u8>,
+    numerators: &vector<Polynomial>,
+): Polynomial {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
-        let mut product = Polynomial { coefficients: vector[1] };
+        let mut denominator = 1;
         n.do!(|i| {
             if (i != j) {
-                product =
-                    mul(
-                        &product,
-                        &div(&monic_linear(&x[i]), gf256::sub(x[j], x[i])),
-                    );
+                denominator = gf256::mul(denominator, gf256::sub(x[j], x[i]));
             };
         });
-        sum = add(&sum, &scale(&product, y[j]));
+        sum =
+            add(
+                &sum,
+                &numerators[j].scale(
+                    gf256::div(y[j], denominator),
+                ),
+            );
     });
     sum
+}
+
+/// Compute the numerators of the Lagrange polynomials for the given x values.
+fun compute_numerators(x: vector<u8>): vector<Polynomial> {
+    // The full numerator depends only on x, so we can compute it here
+    let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
+        product.mul(&monic_linear(&x_j))
+    });
+    x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -58,9 +93,12 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
+
+    // The numerators depend only on x, so we can compute them here
+    let numerators = compute_numerators(*x);
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate(x, &yi)
+        interpolate_with_numerators(x, &yi, &numerators)
     })
 }
 
@@ -101,17 +139,13 @@ fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
     Polynomial { coefficients }
 }
 
-fun div(x: &Polynomial, s: u8): Polynomial {
-    x.scale(gf256::div(1, s))
-}
-
 fun scale(x: &Polynomial, s: u8): Polynomial {
     Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul(*c, s)) }
 }
 
-/// Return x - c
+/// Return x - c (same as x + c since GF256 is a binary field)
 fun monic_linear(c: &u8): Polynomial {
-    Polynomial { coefficients: vector[gf256::sub(0, *c), 1] }
+    Polynomial { coefficients: vector[*c, 1] }
 }
 
 #[test]
@@ -139,7 +173,7 @@ fun test_evaluate() {
 fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
-    let p = interpolate(&x, &y);
+    let p = interpolate_with_numerators(&x, &y, &compute_numerators(x));
     assert!(p.coefficients == x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
@@ -154,4 +188,13 @@ fun test_interpolate_all() {
         assert!(ps[0].evaluate(x) == y[0]);
         assert!(ps[1].evaluate(x) == y[1]);
     });
+}
+
+#[test]
+fun test_div_exact_by_monic_linear() {
+    let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
+    let monic_linear = monic_linear(&2);
+    let y = mul(&x, &monic_linear);
+    let z = div_exact_by_monic_linear(&y, 2);
+    assert!(z == x);
 }
