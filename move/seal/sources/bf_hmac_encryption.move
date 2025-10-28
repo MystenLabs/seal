@@ -134,10 +134,14 @@ public fun decrypt(
     assert!(given_indices.length() >= *threshold as u64, EInsufficientDerivedKeys);
 
     // Decrypt shares.
+    let gid = hash_to_g1_with_dst(
+        &create_full_id(encrypted_object.package_id, encrypted_object.id),
+    );
     let decrypted_shares = decrypt_shares_with_derived_keys(
         &indices_per_vdk,
         verified_derived_keys,
         encrypted_object,
+        &gid,
     );
 
     // Interpolate polynomials from the decrypted shares.
@@ -177,6 +181,7 @@ public fun decrypt(
         encrypted_object,
         &remaining_indices,
         &remaining_indices.map_ref!(|i| public_keys[public_keys_indices[*i]].pk),
+        &gid,
     );
 
     // Verify the consistency of the shares, eg. that they are all consistent with the polynomial interpolated from the shares decrypted from the given keys.
@@ -247,10 +252,8 @@ fun decrypt_shares_with_derived_keys(
     indices_per_vdk: &vector<vector<u64>>,
     derived_keys: &vector<VerifiedDerivedKey>,
     encrypted_object: &EncryptedObject,
+    gid: &Element<G1>,
 ): vector<vector<u8>> {
-    let gid = hash_to_g1_with_dst(
-        &create_full_id(encrypted_object.package_id, encrypted_object.id),
-    );
     indices_per_vdk.zip_map_ref!(derived_keys, |indices, vdk| {
         indices.map_ref!(|i| {
             xor(
@@ -258,7 +261,7 @@ fun decrypt_shares_with_derived_keys(
                 &kdf(
                     &pairing(&vdk.derived_key, &encrypted_object.nonce),
                     &encrypted_object.nonce,
-                    &gid,
+                    gid,
                     encrypted_object.services[*i],
                     encrypted_object.indices[*i],
                 ),
@@ -273,19 +276,17 @@ fun decrypt_remaining_shares_with_randomness(
     encrypted_object: &EncryptedObject,
     remaining_indices: &vector<u64>,
     public_keys: &vector<Element<G2>>,
+    gid: &Element<G1>,
 ): (vector<vector<u8>>) {
     assert!(remaining_indices.length() == public_keys.length(), EIncompatibleInputLengths);
-    let gid = hash_to_g1_with_dst(
-        &create_full_id(encrypted_object.package_id, encrypted_object.id),
-    );
-    let gid_r = g1_mul(randomness, &gid);
+    let gid_r = g1_mul(randomness, gid);
     remaining_indices.zip_map_ref!(public_keys, |i, pk| {
         xor(
             &encrypted_object.encrypted_shares[*i],
             &kdf(
                 &pairing(&gid_r, pk),
                 &encrypted_object.nonce,
-                &gid,
+                gid,
                 encrypted_object.services[*i],
                 encrypted_object.indices[*i],
             ),
