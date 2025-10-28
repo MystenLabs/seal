@@ -35,10 +35,8 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
 // Divide a polynomial by the monic linear polynomial x + c.
 // This assumes that the polynomial is divisible by the monic linear polynomial,
 // and it's not clear what the result will be otherwise.
+// Aborts if the polynomial is empty.
 fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
-    if (x.coefficients.is_empty()) {
-        return Polynomial { coefficients: vector[] }
-    };
     let n = x.coefficients.length();
     let mut coefficients = vector::empty();
 
