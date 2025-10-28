@@ -1,0 +1,54 @@
+name: Tag
+
+on:
+  repository_dispatch:
+    types: [tag-main]
+
+  workflow_call:
+    inputs:
+      seal_commit:
+        description: 'Seal repo commit to tag'
+        type: string
+        required: true
+      tag_name:
+        description: 'Tag Name'
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      seal_commit:
+        description: 'Seal repo commit to tag'
+        type: string
+        required: true
+      tag_name:
+        description: 'Tag Name'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  SEAL_COMMIT: "${{ github.event.client_payload.seal_commit || inputs.seal_commit }}"
+  TAG_NAME: "${{ github.event.client_payload.tag_name || inputs.tag_name }}"
+
+jobs:
+  tag:
+    name: Tag
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # Pin v4.1.1
+      with:
+        fetch-depth: 1
+        ref: ${{ env.SEAL_COMMIT }}
+
+    - name: Tag
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git tag -f "${{ env.TAG_NAME }}" "${{ env.SEAL_COMMIT }}"
+        git push origin -f "${{ env.TAG_NAME }}"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
