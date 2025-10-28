@@ -90,6 +90,7 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
 /// The length of the input vectors must be the same.
 /// The length of each vector in y must be the same (equal to the l above).
+/// Aborts if the input lengths are not compatible or if the vectors are empty.
 public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
     assert!(x.length() == y.length(), EIncomatibleInputLengths);
     let l = y[0].length();
