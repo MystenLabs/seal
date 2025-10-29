@@ -4,6 +4,8 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
+use crate::key_server_options::ServerMode;
+use crate::metrics::{call_with_duration, status_callback, Metrics};
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::CommitteeKeyState;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
@@ -11,9 +13,10 @@ use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
+use crate::time::current_epoch_time;
+use crate::time::{checked_duration_since, from_mins};
+use crate::types::{MasterKeyPOP, Network};
 use crate::time::from_mins;
-use crate::time::{checked_duration_since, current_epoch_time};
-use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -28,7 +31,6 @@ use crypto::ibe::create_proof_of_possession;
 use crypto::ibe::{self, public_key_from_master_key};
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
-use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
@@ -135,9 +137,6 @@ struct FetchKeyRequest {
 
     certificate: Certificate,
 }
-
-/// UNIX timestamp in milliseconds.
-type Timestamp = u64;
 
 #[derive(Clone)]
 struct Server {
@@ -599,34 +598,6 @@ impl Server {
         FetchKeyResponse { decryption_keys }
     }
 
-    /// Spawns a thread that fetches the latest checkpoint timestamp and sends it to a [Receiver] once per `update_interval`.
-    /// Returns the [Receiver].
-    async fn spawn_latest_checkpoint_timestamp_updater(
-        &self,
-        metrics: Option<&Metrics>,
-    ) -> (Receiver<Timestamp>, JoinHandle<()>) {
-        spawn_periodic_updater(
-            &self.sui_rpc_client,
-            self.options.checkpoint_update_interval,
-            get_latest_checkpoint_timestamp,
-            "latest checkpoint timestamp",
-            metrics.map(|m| {
-                observation_callback(&m.checkpoint_timestamp_delay, |ts| {
-                    let duration = duration_since_as_f64(ts);
-                    debug!("Latest checkpoint timestamp delay is {duration} ms");
-                    duration
-                })
-            }),
-            metrics.map(|m| {
-                observation_callback(&m.get_checkpoint_timestamp_duration, |d: Duration| {
-                    d.as_millis() as f64
-                })
-            }),
-            metrics.map(|m| status_callback(&m.get_checkpoint_timestamp_status)),
-        )
-        .await
-    }
-
     /// Spawns a thread that fetches RGP and sends it to a [Receiver] once per `update_interval`.
     /// Returns the [Receiver].
     async fn spawn_reference_gas_price_updater(
@@ -784,8 +755,6 @@ async fn handle_fetch_key_internal(
     req_id: Option<&str>,
     sdk_version: &str,
 ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
-    app_state.check_full_node_is_fresh()?;
-
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
 
     // Report the number of id's in the request to the metrics.
@@ -884,24 +853,10 @@ async fn handle_get_service(
 struct MyState {
     metrics: Arc<Metrics>,
     server: Arc<Server>,
-    latest_checkpoint_timestamp_receiver: Receiver<Timestamp>,
     reference_gas_price_receiver: Receiver<u64>,
 }
 
 impl MyState {
-    fn check_full_node_is_fresh(&self) -> Result<(), InternalError> {
-        // Compute the staleness of the latest checkpoint timestamp.
-        let staleness =
-            saturating_duration_since(*self.latest_checkpoint_timestamp_receiver.borrow());
-        if staleness > self.server.options.allowed_staleness {
-            return Err(InternalError::Failure(format!(
-                "Full node is stale. Latest checkpoint is {} ms old.",
-                staleness.as_millis()
-            )));
-        }
-        Ok(())
-    }
-
     fn reference_gas_price(&self) -> u64 {
         *self.reference_gas_price_receiver.borrow()
     }
@@ -984,7 +939,6 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 }
 
 /// Spawn server's background tasks:
-///  - background checkpoint downloader
 ///  - reference gas price updater.
 ///  - optional metrics pusher (if configured).
 ///
@@ -993,16 +947,7 @@ async fn start_server_background_tasks(
     server: Arc<Server>,
     metrics: Arc<Metrics>,
     registry: prometheus::Registry,
-) -> (
-    Receiver<Timestamp>,
-    Receiver<u64>,
-    JoinHandle<anyhow::Result<()>>,
-) {
-    // Spawn background checkpoint timestamp updater.
-    let (latest_checkpoint_timestamp_receiver, latest_checkpoint_timestamp_handle) = server
-        .spawn_latest_checkpoint_timestamp_updater(Some(&metrics))
-        .await;
-
+) -> (Receiver<u64>, JoinHandle<anyhow::Result<()>>) {
     // Spawn background reference gas price updater.
     let (reference_gas_price_receiver, reference_gas_price_handle) = server
         .spawn_reference_gas_price_updater(Some(&metrics))
@@ -1018,15 +963,6 @@ async fn start_server_background_tasks(
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
         tokio::select! {
-            result = latest_checkpoint_timestamp_handle => {
-                if let Err(e) = result {
-                    error!("Latest checkpoint timestamp updater panicked: {:?}", e);
-                    if e.is_panic() {
-                        std::panic::resume_unwind(e.into_panic());
-                    }
-                    return Err(e.into());
-                }
-            }
             result = reference_gas_price_handle => {
                 if let Err(e) = result {
                     error!("Reference gas price updater panicked: {:?}", e);
@@ -1050,11 +986,7 @@ async fn start_server_background_tasks(
         unreachable!("One of the background tasks should have returned an error");
     });
 
-    (
-        latest_checkpoint_timestamp_receiver,
-        reference_gas_price_receiver,
-        handle,
-    )
+    (reference_gas_price_receiver, handle)
 }
 
 #[tokio::main]
@@ -1143,13 +1075,12 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     options.validate()?;
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
-    let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
+    let (reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;
 
     let state = MyState {
         metrics,
         server,
-        latest_checkpoint_timestamp_receiver,
         reference_gas_price_receiver,
     };
 
