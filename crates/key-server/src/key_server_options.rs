@@ -124,13 +124,6 @@ pub struct KeyServerOptions {
     #[serde(default = "default_metrics_host_port")]
     pub metrics_host_port: u16,
 
-    /// The interval at which the latest checkpoint timestamp is updated.
-    #[serde(
-        default = "default_checkpoint_update_interval",
-        deserialize_with = "deserialize_duration"
-    )]
-    pub checkpoint_update_interval: Duration,
-
     /// The interval at which the reference gas price is updated.
     #[serde(
         default = "default_rgp_update_interval",
@@ -177,7 +170,6 @@ impl KeyServerOptions {
                 key_server_object_id,
             },
             metrics_host_port: default_metrics_host_port(),
-            checkpoint_update_interval: default_checkpoint_update_interval(),
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
@@ -196,7 +188,6 @@ impl KeyServerOptions {
                 key_server_object_id: ObjectID::random(),
             },
             metrics_host_port: default_metrics_host_port(),
-            checkpoint_update_interval: default_checkpoint_update_interval(),
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
@@ -313,10 +304,6 @@ fn default_seal_package(network: &Network) -> ObjectID {
     }
 }
 
-fn default_checkpoint_update_interval() -> Duration {
-    Duration::from_secs(10)
-}
-
 fn default_rgp_update_interval() -> Duration {
     Duration::from_secs(60)
 }
@@ -347,7 +334,6 @@ sdk_version_requirement: '>=0.2.7'
 metrics_host_port: 1234
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000002'
-checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'
@@ -368,8 +354,6 @@ seal_package: '0x01'
     };
     assert_eq!(options.server_mode, expected_server_mode);
 
-    assert_eq!(options.checkpoint_update_interval, Duration::from_secs(13));
-
     let valid_configuration_custom_network = r#"
 network: !Custom
   node_url: https://node.dk
@@ -381,7 +365,7 @@ seal_package: '0x01'
     let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
         .expect("Failed to parse valid configuration");
 
-    assert!(resolve_network(&options.network).unwrap() == Network::Testnet);
+    assert_eq!(resolve_network(&options.network).unwrap(), Network::Testnet);
     assert_eq!(
         options.network,
         Network::Custom {
@@ -445,7 +429,6 @@ server_mode: !Permissioned
       key_server_object_id: "0xcccc000000000000000000000000000000000000000000000000000000000003"
       package_ids:
       - "0x3333333333333333333333333333333333333333333333333333333333333333"
-checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'
