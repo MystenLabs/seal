@@ -137,6 +137,7 @@ impl SealTestCluster {
                         session_key_ttl_max: from_mins(30),
                         rpc_config: RpcConfig::default(),
                         metrics_push_config: None,
+                        seal_package: ObjectID::from_single_byte(0), // TODO
                     },
                 };
                 self.servers.push((key_server_object_id, server));

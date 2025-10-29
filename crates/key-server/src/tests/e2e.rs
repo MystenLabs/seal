@@ -529,6 +529,7 @@ async fn create_server(
         session_key_ttl_max: from_mins(30),
         rpc_config: RpcConfig::default(),
         metrics_push_config: None,
+        seal_package: ObjectID::from_single_byte(0),
     };
 
     let vars = vars

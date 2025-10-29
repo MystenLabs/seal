@@ -18,7 +18,6 @@ set this to false for mvr to resolve on testnet.
 # Example:
 network: Testnet
 
-
 # Server mode. The server can either work in Open/permissionless mode that 
 # supports all packages, or in Permissioned mode that only supports
 # whitelisted packages .

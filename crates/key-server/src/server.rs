@@ -256,6 +256,32 @@ impl Server {
             })
     }
 
+    fn add_staleness_check(&self, ptb: &mut ProgrammableTransaction) {
+        let now = current_epoch_time();
+        let now_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::from(now));
+
+        let allowed_delay = self.options.allowed_staleness.as_millis() as u64; // Two minutes
+        let allowed_delay_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::from(allowed_delay));
+
+        let clock_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::CLOCK_IMM);
+
+        let staleness_check = Command::move_call(
+            self.options.seal_package,
+            Identifier::from_str("time").unwrap(),
+            Identifier::from_str("check_duration_since").unwrap(),
+            vec![],
+            vec![
+                sui_types::transaction::Argument::Input(now_index as u16),
+                sui_types::transaction::Argument::Input(allowed_delay_index as u16),
+                sui_types::transaction::Argument::Input(clock_index as u16),
+            ]);
+
+        ptb.commands.insert(0, staleness_check);
+    }
+
     async fn check_policy(
         &self,
         sender: SuiAddress,
@@ -270,33 +296,8 @@ impl Server {
             req_id
         );
 
-        // TODO: Put in config
-        let seal_package = ObjectID::from_hex_literal("0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38").unwrap();
         let mut ptb = vptb.ptb().clone();
-        let now = current_epoch_time();
-        let now_index = ptb.inputs.len();
-        ptb.inputs.push(CallArg::from(now));
-
-        let allowed_delay = 120000u64; // Two minutes
-        let allowed_delay_index = ptb.inputs.len();
-        ptb.inputs.push(CallArg::from(allowed_delay));
-
-        let clock_index = ptb.inputs.len();
-        ptb.inputs.push(CallArg::CLOCK_IMM);
-
-        let staleness_check = Command::move_call(
-            seal_package,
-            Identifier::from_str("time").unwrap(),
-            Identifier::from_str("check_duration_since").unwrap(),
-            vec![],
-            vec![
-                sui_types::transaction::Argument::Input(now_index as u16),
-                sui_types::transaction::Argument::Input(allowed_delay_index as u16),
-                sui_types::transaction::Argument::Input(clock_index as u16),
-            ]);
-
-        // Put staleness_check first
-        ptb.commands.insert(0, staleness_check);
+        self.add_staleness_check(&mut ptb);
 
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
