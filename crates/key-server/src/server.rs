@@ -72,6 +72,7 @@ use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
+use sui_types::transaction::Argument::Input;
 use sui_types::transaction::{CallArg, Command, ObjectArg};
 use sui_types::SUI_CLOCK_OBJECT_ID;
 use sui_sdk_types::Address;
@@ -438,9 +439,9 @@ impl Server {
             Identifier::from_str("check_duration_since").unwrap(),
             vec![],
             vec![
-                sui_types::transaction::Argument::Input(now_index as u16),
-                sui_types::transaction::Argument::Input(allowed_staleness_index as u16),
-                sui_types::transaction::Argument::Input(clock_index as u16),
+                Input(now_index as u16),
+                Input(allowed_staleness_index as u16),
+                Input(clock_index as u16),
             ],
         );
 
@@ -461,6 +462,7 @@ impl Server {
             req_id
         );
 
+        // Add a staleness check as the first command in the PTB
         let mut ptb = vptb.ptb().clone();
         self.add_staleness_check_to_ptb(&mut ptb);
 
