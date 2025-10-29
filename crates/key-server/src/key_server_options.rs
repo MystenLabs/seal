@@ -161,6 +161,9 @@ pub struct KeyServerOptions {
     /// Optional configuration for pushing metrics to an external endpoint (e.g., seal-proxy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics_push_config: Option<MetricsPushConfig>,
+
+    /// Object ID for an instance of the Seal Move package.
+    pub seal_package: ObjectID,
 }
 
 impl KeyServerOptions {
@@ -169,7 +172,6 @@ impl KeyServerOptions {
         key_server_object_id: ObjectID,
     ) -> Self {
         Self {
-            network,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
@@ -181,13 +183,14 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
+            seal_package: default_seal_package(&network),
+            network,
         }
     }
 
     #[cfg(test)]
     pub fn new_for_testing(network: Network) -> Self {
         Self {
-            network,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
@@ -199,6 +202,8 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
+            seal_package: default_seal_package(&network),
+            network,
         }
     }
 
@@ -298,6 +303,13 @@ impl KeyServerOptions {
     }
 }
 
+fn default_seal_package(network: &Network) -> ObjectID {
+    match network {
+        Network::Testnet => ObjectID::from_hex_literal("0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38").unwrap(),
+        _ => ObjectID::from_hex_literal("0x").unwrap(), // TODO
+    }
+}
+
 fn default_checkpoint_update_interval() -> Duration {
     Duration::from_secs(10)
 }
@@ -336,6 +348,7 @@ checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'
+seal_package: '0x01'
 "#;
 
     let options: KeyServerOptions =
@@ -360,6 +373,7 @@ network: !Custom
   use_default_mainnet_for_mvr: false
 server_mode: !Open
   key_server_object_id: '0x0'
+seal_package: '0x01'
 "#;
     let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
         .expect("Failed to parse valid configuration");
@@ -385,6 +399,7 @@ fn test_parse_custom_network_with_env_var() {
 network: !Custom {}
 server_mode: !Open
   key_server_object_id: '0x0'
+seal_package: '0x01'
 "#;
 
     let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
@@ -431,6 +446,7 @@ checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'
+seal_package: '0x01'
 "#;
 
     let options: KeyServerOptions =
@@ -462,6 +478,7 @@ server_mode: !Permissioned
         derivation_index: 0
       key_server_object_id: "0xaaaa000000000000000000000000000000000000000000000000000000000001"
       package_ids:
+seal_package: '0x01'
 "#;
     let empty_pkg_expected_error = "Client configuration must have at least one package ID: alice";
 
@@ -482,6 +499,7 @@ server_mode: !Permissioned
       package_ids:
         - "0x2222222222222222222222222222222222222222222222222222222222222222"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+seal_package: '0x01'
 "#;
     let dup_ks_oid_expected_error =
         "Duplicate key server object ID: 0xaaaa000000000000000000000000000000000000000000000000000000000001";
@@ -503,6 +521,7 @@ server_mode: !Permissioned
       package_ids:
         - "0x1111111111111111111111111111111111111111111111111111111111111111"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+seal_package: '0x01'
 "#;
     let dup_pkg_id_expected_error =
         "Duplicate package ID: 0x1111111111111111111111111111111111111111111111111111111111111111";
@@ -525,6 +544,7 @@ server_mode: !Permissioned
       package_ids:
         - "0x2222222222222222222222222222222222222222222222222222222222222222"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+seal_package: '0x01'
 "#;
     let dup_env_var_expected_error = "Duplicate environment variable: BOB_BLS_KEY";
 
@@ -545,6 +565,7 @@ server_mode: !Permissioned
       package_ids:
         - "0x2222222222222222222222222222222222222222222222222222222222222222"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+seal_package: '0x01'
 "#;
     let dup_derivation_index_expected_error = "Duplicate derivation index: 0";
 
@@ -565,6 +586,7 @@ server_mode: !Permissioned
       package_ids:
         - "0x2222222222222222222222222222222222222222222222222222222222222222"
         - "0x2222222222222222222222222222222222222222222222222222222222222223"
+seal_package: '0x01'
 "#;
     let non_incrementing_index_expected_error =
         "Derivation indexes must be incremental, starting from 0";
