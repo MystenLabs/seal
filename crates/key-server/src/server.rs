@@ -61,7 +61,8 @@ use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
-use sui_types::transaction::{CallArg, Command};
+use sui_types::transaction::{CallArg, Command, ObjectArg};
+use sui_types::SUI_CLOCK_OBJECT_ID;
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -251,17 +252,31 @@ impl Server {
             })
     }
 
-    fn add_staleness_check(&self, ptb: &mut ProgrammableTransaction) {
+    fn add_staleness_check_to_ptb(&self, ptb: &mut ProgrammableTransaction) {
         let now = current_epoch_time();
-        let now_index = ptb.inputs.len();
         ptb.inputs.push(CallArg::from(now));
+        let now_index = ptb.inputs.len() - 1;
 
-        let allowed_delay = self.options.allowed_staleness.as_millis() as u64; // Two minutes
-        let allowed_delay_index = ptb.inputs.len();
-        ptb.inputs.push(CallArg::from(allowed_delay));
+        let allowed_staleness = self.options.allowed_staleness.as_millis() as u64; // Two minutes
+        ptb.inputs.push(CallArg::from(allowed_staleness));
+        let allowed_staleness_index = ptb.inputs.len() - 1;
 
-        let clock_index = ptb.inputs.len();
-        ptb.inputs.push(CallArg::CLOCK_IMM);
+        let clock_index = match ptb.inputs.iter().position(|arg| {
+            matches!(
+                arg,
+                CallArg::Object(ObjectArg::SharedObject {
+                    id: SUI_CLOCK_OBJECT_ID,
+                    ..
+                })
+            )
+        }) {
+            Some(i) => i, // Clock is given as input i
+            None => {
+                // Clock was not already part of the PTB, so we add it.
+                ptb.inputs.push(CallArg::CLOCK_IMM);
+                ptb.inputs.len() - 1
+            }
+        };
 
         let staleness_check = Command::move_call(
             self.options.seal_package,
@@ -270,7 +285,7 @@ impl Server {
             vec![],
             vec![
                 sui_types::transaction::Argument::Input(now_index as u16),
-                sui_types::transaction::Argument::Input(allowed_delay_index as u16),
+                sui_types::transaction::Argument::Input(allowed_staleness_index as u16),
                 sui_types::transaction::Argument::Input(clock_index as u16),
             ],
         );
@@ -293,7 +308,7 @@ impl Server {
         );
 
         let mut ptb = vptb.ptb().clone();
-        self.add_staleness_check(&mut ptb);
+        self.add_staleness_check_to_ptb(&mut ptb);
 
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
