@@ -130,7 +130,6 @@ impl SealTestCluster {
                             key_server_object_id,
                         },
                         metrics_host_port: 0,
-                        checkpoint_update_interval: Duration::from_secs(10),
                         rgp_update_interval: Duration::from_secs(60),
                         sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
                         allowed_staleness: Duration::from_secs(120),

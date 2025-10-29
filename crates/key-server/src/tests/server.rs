@@ -3,14 +3,10 @@
 
 use prometheus::Registry;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_test::traced_test;
 
-use crate::externals::get_latest_checkpoint_timestamp;
-use crate::key_server_options::RetryConfig;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
 
 use crate::signed_message::signed_request;
@@ -38,67 +34,10 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
 use tokio::net::TcpListener;
-
-#[tokio::test]
-async fn test_get_latest_checkpoint_timestamp() {
-    let tc = SealTestCluster::new(0).await;
-
-    let tolerance = 20000;
-    let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
-        tc.cluster.sui_client().clone(),
-        SuiGrpcClient::new(tc.cluster.fullnode_handle.rpc_url.clone())
-            .expect("Failed to create gRPC client"),
-        RetryConfig::default(),
-        None,
-    ))
-    .await
-    .unwrap();
-
-    let actual_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
-
-    let diff = actual_timestamp - timestamp;
-    assert!(diff < tolerance);
-}
-
-#[tokio::test]
-async fn test_timestamp_updater() {
-    let mut tc = SealTestCluster::new(0).await;
-    let (seal_package, _) = tc.publish("seal").await;
-    tc.add_open_server(seal_package).await;
-
-    let mut receiver = tc
-        .server()
-        .spawn_latest_checkpoint_timestamp_updater(None)
-        .await
-        .0;
-
-    let tolerance = 20000;
-
-    let timestamp = *receiver.borrow_and_update();
-    let actual_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
-
-    let diff = actual_timestamp - timestamp;
-    assert!(diff < tolerance);
-
-    // Get a new timestamp
-    receiver
-        .changed()
-        .await
-        .expect("Failed to get latest timestamp");
-    let new_timestamp = *receiver.borrow_and_update();
-    assert!(new_timestamp >= timestamp);
-}
 
 #[traced_test]
 #[tokio::test]
@@ -128,17 +67,16 @@ async fn test_server_background_task_monitor() {
     let metrics_registry = Registry::default();
     let metrics = Arc::new(Metrics::new(&metrics_registry));
 
-    let (latest_checkpoint_timestamp_receiver, _reference_gas_price_receiver, monitor_handle) =
-        start_server_background_tasks(
-            Arc::new(tc.server().clone()),
-            metrics.clone(),
-            metrics_registry.clone(),
-        )
-        .await;
+    let (reference_gas_price_receiver, monitor_handle) = start_server_background_tasks(
+        Arc::new(tc.server().clone()),
+        metrics.clone(),
+        metrics_registry.clone(),
+    )
+    .await;
 
     // Drop the receiver to trigger the panic in the background
     // spawn_latest_checkpoint_timestamp_updater task.
-    drop(latest_checkpoint_timestamp_receiver);
+    drop(reference_gas_price_receiver);
 
     // Wait for the monitor to exit with an error. This should happen in a timely manner.
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), monitor_handle)
