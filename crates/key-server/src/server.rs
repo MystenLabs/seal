@@ -270,9 +270,9 @@ impl Server {
                 })
             )
         }) {
-            Some(i) => i, // Clock is given as input i
+            Some(i) => i, // The clock is already given as input i
             None => {
-                // Clock was not already part of the PTB, so we add it.
+                // The clock is not already part of the PTB, so we add it
                 ptb.inputs.push(CallArg::CLOCK_IMM);
                 ptb.inputs.len() - 1
             }
