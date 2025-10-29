@@ -11,9 +11,8 @@ use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
+use crate::time::{checked_duration_since, current_epoch_time};
 use crate::sui_rpc_client::RpcError;
-use crate::time::checked_duration_since;
-use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use anyhow::{Context, Result};
@@ -56,6 +55,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
@@ -68,6 +68,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, Tran
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
+use sui_types::transaction::{CallArg, Command};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -415,9 +416,38 @@ impl Server {
             vptb.ptb(),
             req_id
         );
+
+        // TODO: Put in config
+        let seal_package = ObjectID::from_hex_literal("0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38").unwrap();
+        let mut ptb = vptb.ptb().clone();
+        let now = current_epoch_time();
+        let now_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::from(now));
+
+        let allowed_delay = 120000u64; // Two minutes
+        let allowed_delay_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::from(allowed_delay));
+
+        let clock_index = ptb.inputs.len();
+        ptb.inputs.push(CallArg::CLOCK_IMM);
+
+        let staleness_check = Command::move_call(
+            seal_package,
+            Identifier::from_str("time").unwrap(),
+            Identifier::from_str("check_duration_since").unwrap(),
+            vec![],
+            vec![
+                sui_types::transaction::Argument::Input(now_index as u16),
+                sui_types::transaction::Argument::Input(allowed_delay_index as u16),
+                sui_types::transaction::Argument::Input(clock_index as u16),
+            ]);
+
+        // Put staleness_check first
+        ptb.commands.insert(0, staleness_check);
+
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
-            TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            TransactionKind::ProgrammableTransaction(ptb),
             sender,
             vec![], // Empty gas payment for dry run
             GAS_BUDGET,
