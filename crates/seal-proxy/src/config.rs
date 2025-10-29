@@ -93,7 +93,7 @@ pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize + std::fm
     info!("Reading config from {:?}", path);
     // deserialize the config file and put it into a BearerTokenConfig
     let config: T = serde_yaml::from_reader(
-        std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
+        std::fs::File::open(path).context(format!("cannot open {path:?}"))?,
     )?;
     Ok(config)
 }

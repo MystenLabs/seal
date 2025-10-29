@@ -49,15 +49,14 @@ pub async fn fetch_key_server_urls(
         "testnet" => "https://fullnode.testnet.sui.io:443",
         _ => {
             return Err(FastCryptoError::GeneralError(format!(
-                "Invalid network: {}. Use 'mainnet' or 'testnet'",
-                network
+                "Invalid network: {network}. Use 'mainnet' or 'testnet'"
             )))
         }
     };
     let sui_client = SuiClientBuilder::default()
         .build(sui_rpc)
         .await
-        .map_err(|e| FastCryptoError::GeneralError(format!("Failed to build Sui client: {}", e)))?;
+        .map_err(|e| FastCryptoError::GeneralError(format!("Failed to build Sui client: {e}")))?;
     let mut key_servers = Vec::new();
     for object_id in key_server_ids {
         // Get the dynamic field object for version 1
@@ -83,23 +82,20 @@ pub async fn fetch_key_server_urls(
                             // Convert fields to JSON value for access
                             let fields_json = serde_json::to_value(fields).map_err(|e| {
                                 FastCryptoError::GeneralError(format!(
-                                    "Failed to serialize fields: {}",
-                                    e
+                                    "Failed to serialize fields: {e}"
                                 ))
                             })?;
 
                             // Extract URL and name from the nested 'value' field
                             let value_struct = fields_json.get("value").ok_or_else(|| {
                                 FastCryptoError::GeneralError(format!(
-                                    "Missing 'value' field for object {}",
-                                    object_id
+                                    "Missing 'value' field for object {object_id}"
                                 ))
                             })?;
 
                             let value_fields = value_struct.get("fields").ok_or_else(|| {
                                 FastCryptoError::GeneralError(format!(
-                                    "Missing 'fields' in value struct for object {}",
-                                    object_id
+                                    "Missing 'fields' in value struct for object {object_id}"
                                 ))
                             })?;
 
@@ -108,7 +104,7 @@ pub async fn fetch_key_server_urls(
                                     serde_json::Value::String(s) => Some(s.clone()),
                                     _ => None,
                                 })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {}", object_id)))?;
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {object_id}")))?;
 
                             let name = value_fields
                                 .get("name")
@@ -131,7 +127,7 @@ pub async fn fetch_key_server_urls(
                                     serde_json::Value::String(s) => Some(s.clone()),
                                     _ => None,
                                 })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {}", object_id)))?;
+                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {object_id}")))?;
 
                             key_servers.push(KeyServerInfo {
                                 object_id: *object_id,
@@ -141,27 +137,23 @@ pub async fn fetch_key_server_urls(
                             });
                         } else {
                             return Err(FastCryptoError::GeneralError(format!(
-                                "Unexpected content type for object {}",
-                                object_id
+                                "Unexpected content type for object {object_id}"
                             )));
                         }
                     } else {
                         return Err(FastCryptoError::GeneralError(format!(
-                            "No content found for object {}",
-                            object_id
+                            "No content found for object {object_id}"
                         )));
                     }
                 } else {
                     return Err(FastCryptoError::GeneralError(format!(
-                        "Object {} not found",
-                        object_id
+                        "Object {object_id} not found"
                     )));
                 }
             }
             Err(e) => {
                 return Err(FastCryptoError::GeneralError(format!(
-                    "Failed to fetch dynamic field for object {}: {}",
-                    object_id, e
+                    "Failed to fetch dynamic field for object {object_id}: {e}"
                 )));
             }
         }
@@ -520,7 +512,7 @@ async fn main() -> FastCryptoResult<()> {
             let key_server_infos = fetch_key_server_urls(&key_server_ids, &network)
                 .await
                 .map_err(|e| {
-                    FastCryptoError::GeneralError(format!("Failed to fetch key server info: {}", e))
+                    FastCryptoError::GeneralError(format!("Failed to fetch key server info: {e}"))
                 })?;
 
             // Parse public keys from fetched data
@@ -528,7 +520,7 @@ async fn main() -> FastCryptoResult<()> {
                 .iter()
                 .map(|info| -> Result<IBEPublicKey, FastCryptoError> {
                     let bytes = Hex::decode(&info.public_key).map_err(|e| {
-                        FastCryptoError::GeneralError(format!("Invalid public key hex: {}", e))
+                        FastCryptoError::GeneralError(format!("Invalid public key hex: {e}"))
                     })?;
                     let pk = IBEPublicKey::from_byte_array(&bytes.try_into().map_err(|_| {
                         FastCryptoError::GeneralError("Invalid public key length".to_string())
@@ -538,9 +530,10 @@ async fn main() -> FastCryptoResult<()> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Encrypt the secret
-            let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
-                FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
-            })?);
+            let package_id =
+                NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
+                    FastCryptoError::GeneralError(format!("Invalid package ID: {e}"))
+                })?);
             let mut encrypted_objects = Vec::new();
             for (id, secret) in ids.into_iter().zip(secrets.into_iter()) {
                 let (encrypted_object, _) = seal_encrypt(
@@ -554,7 +547,7 @@ async fn main() -> FastCryptoResult<()> {
                         aad: None,
                     },
                 )
-                .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {}", e)))?;
+                .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {e}")))?;
                 encrypted_objects.push(encrypted_object);
             }
             format!(
@@ -571,8 +564,7 @@ async fn main() -> FastCryptoResult<()> {
             // Parse fetch keys request.
             let request: FetchKeyRequest = bcs::from_bytes(&request.0).map_err(|e| {
                 FastCryptoError::GeneralError(format!(
-                    "Failed to parse FetchKeyRequest from BCS: {}",
-                    e
+                    "Failed to parse FetchKeyRequest from BCS: {e}"
                 ))
             })?;
 
@@ -582,7 +574,7 @@ async fn main() -> FastCryptoResult<()> {
             for server in &fetch_key_server_urls(&key_server_ids, &network)
                 .await
                 .map_err(|e| {
-                    FastCryptoError::GeneralError(format!("Failed to fetch key server URLs: {}", e))
+                    FastCryptoError::GeneralError(format!("Failed to fetch key server URLs: {e}"))
                 })?
             {
                 println!(
@@ -613,16 +605,16 @@ async fn main() -> FastCryptoResult<()> {
                                 .text()
                                 .await
                                 .unwrap_or_else(|_| "Unknown error".to_string());
-                            eprintln!("Server returned error: {}", error_text);
+                            eprintln!("Server returned error: {error_text}");
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed: {}", e);
+                        eprintln!("Failed: {e}");
                     }
                 }
 
                 if seal_responses.len() >= threshold as usize {
-                    println!("Reached threshold of {} responses", threshold);
+                    println!("Reached threshold of {threshold} responses");
                     break;
                 }
             }
@@ -642,7 +634,7 @@ async fn main() -> FastCryptoResult<()> {
             )
         }
     };
-    println!("{}", output);
+    println!("{output}");
     Ok(())
 }
 
@@ -684,8 +676,8 @@ fn serializable_to_string<T: Serialize>(t: &T) -> String {
 }
 
 pub fn parse_serializable<T: for<'a> Deserialize<'a>, E: Encoding>(s: &str) -> Result<T, String> {
-    let bytes = E::decode(s).map_err(|e| format!("{}", e))?;
-    bcs::from_bytes(&bytes).map_err(|e| format!("{}", e))
+    let bytes = E::decode(s).map_err(|e| format!("{e}"))?;
+    bcs::from_bytes(&bytes).map_err(|e| format!("{e}"))
 }
 
 impl Display for GenkeyOutput {
@@ -749,7 +741,7 @@ impl Display for ParseOutput {
         writeln!(f, "ID: {}", DefaultEncoding::encode(&self.0.id))?;
         writeln!(f, "Services: share index:")?;
         for (id, index) in &self.0.services {
-            writeln!(f, "  {}: {}", id, index)?;
+            writeln!(f, "  {id}: {index}")?;
         }
         writeln!(f, "Threshold: {}", self.0.threshold)?;
         writeln!(f, "Ciphertext:")?;

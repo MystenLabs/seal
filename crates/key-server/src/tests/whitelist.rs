@@ -54,7 +54,7 @@ async fn test_whitelist_with_upgrade() {
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id_1, upgrade_cap) = tc.publish_path(path).await;
-    println!("Old pkg: {}", package_id_1);
+    println!("Old pkg: {package_id_1}");
 
     let (whitelist, cap, initial_shared_version) =
         create_whitelist(tc.test_cluster(), package_id_1).await;

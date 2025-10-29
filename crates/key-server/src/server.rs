@@ -152,7 +152,7 @@ impl Server {
         );
         info!("Server started with network: {:?}", options.network);
         let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
-            panic!("Failed to load master keys: {}", e);
+            panic!("Failed to load master keys: {e}");
         });
 
         let key_server_oid_to_pop = options
@@ -300,8 +300,7 @@ impl Server {
                     }
                 }
                 InternalError::Failure(format!(
-                    "Dry run execution failed ({:?}) (req_id: {:?})",
-                    e, req_id
+                    "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
                 ))
             })?;
 

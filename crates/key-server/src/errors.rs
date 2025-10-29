@@ -34,7 +34,7 @@ impl IntoResponse for InternalError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             InternalError::InvalidPTB(ref inner) => {
-                (StatusCode::FORBIDDEN, format!("Invalid PTB: {}", inner))
+                (StatusCode::FORBIDDEN, format!("Invalid PTB: {inner}"))
             }
             InternalError::InvalidPackage => {
                 (StatusCode::FORBIDDEN, "Invalid package ID".to_string())
@@ -58,7 +58,7 @@ impl IntoResponse for InternalError {
             ),
             InternalError::MissingRequiredHeader(ref inner) => (
                 StatusCode::BAD_REQUEST,
-                format!("Missing required header: {}", inner).to_string(),
+                format!("Missing required header: {inner}").to_string(),
             ),
             InternalError::InvalidSessionSignature => (
                 StatusCode::FORBIDDEN,
