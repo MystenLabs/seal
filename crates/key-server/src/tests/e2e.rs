@@ -41,7 +41,8 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_e2e() {
     let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_servers(3).await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -113,9 +114,11 @@ async fn test_e2e() {
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
     let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_servers(3, seal_package).await;
 
     let (whitelist, cap, _initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
@@ -239,6 +242,7 @@ async fn test_e2e_permissioned() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -270,6 +274,7 @@ async fn test_e2e_permissioned() {
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
+        seal_package,
     )
     .await;
 
@@ -286,6 +291,7 @@ async fn test_e2e_permissioned() {
             package_ids: vec![ObjectID::random()],
         }],
         [("MASTER_KEY", [0u8; 32].as_slice())],
+        seal_package,
     )
     .await;
 
@@ -366,6 +372,8 @@ async fn test_e2e_imported_key() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+
     // Generate a key pair for the key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
@@ -386,6 +394,7 @@ async fn test_e2e_imported_key() {
             package_ids: vec![package_id],
         }],
         [("MASTER_KEY", seed.as_slice())],
+        seal_package,
     )
     .await;
 
@@ -463,6 +472,7 @@ async fn test_e2e_imported_key() {
             ),
             ("MASTER_KEY", [0u8; 32].as_slice()),
         ],
+        seal_package,
     )
     .await;
 
@@ -504,6 +514,7 @@ async fn test_e2e_imported_key() {
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
+        seal_package,
     )
     .await;
 
@@ -517,6 +528,7 @@ async fn create_server(
     sui_grpc_client: SuiGrpcClient,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
+    seal_package: ObjectID,
 ) -> Server {
     let options = KeyServerOptions {
         network: Network::TestCluster,
@@ -529,7 +541,7 @@ async fn create_server(
         session_key_ttl_max: from_mins(30),
         rpc_config: RpcConfig::default(),
         metrics_push_config: None,
-        seal_package: ObjectID::from_single_byte(0),
+        seal_package,
     };
 
     let vars = vars

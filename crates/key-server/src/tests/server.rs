@@ -71,7 +71,8 @@ async fn test_get_latest_checkpoint_timestamp() {
 #[tokio::test]
 async fn test_timestamp_updater() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_server(seal_package).await;
 
     let mut receiver = tc
         .server()
@@ -103,7 +104,10 @@ async fn test_timestamp_updater() {
 #[tokio::test]
 async fn test_rgp_updater() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_server(seal_package).await;
 
     let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await.0;
 
@@ -117,7 +121,9 @@ async fn test_rgp_updater() {
 #[tokio::test]
 async fn test_server_background_task_monitor() {
     let mut tc = SealTestCluster::new(0).await;
-    tc.add_open_server().await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_server(seal_package).await;
 
     let metrics_registry = Registry::default();
     let metrics = Arc::new(Metrics::new(&metrics_registry));

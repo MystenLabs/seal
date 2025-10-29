@@ -10,8 +10,8 @@ use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::time::{checked_duration_since, current_epoch_time};
 use crate::time::from_mins;
+use crate::time::{checked_duration_since, current_epoch_time};
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
 use anyhow::{Context, Result};
@@ -37,6 +37,7 @@ use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
+use move_core_types::identifier::Identifier;
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
@@ -53,7 +54,6 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use move_core_types::identifier::Identifier;
 use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
@@ -277,7 +277,8 @@ impl Server {
                 sui_types::transaction::Argument::Input(now_index as u16),
                 sui_types::transaction::Argument::Input(allowed_delay_index as u16),
                 sui_types::transaction::Argument::Input(clock_index as u16),
-            ]);
+            ],
+        );
 
         ptb.commands.insert(0, staleness_check);
     }

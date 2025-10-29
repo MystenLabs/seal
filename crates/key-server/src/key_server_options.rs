@@ -284,7 +284,10 @@ impl KeyServerOptions {
 
 fn default_seal_package(network: &Network) -> ObjectID {
     match network {
-        Network::Testnet => ObjectID::from_hex_literal("0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38").unwrap(),
+        Network::Testnet => ObjectID::from_hex_literal(
+            "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
+        )
+        .unwrap(),
         _ => ObjectID::from_hex_literal("0x").unwrap(), // TODO
     }
 }
