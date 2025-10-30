@@ -524,9 +524,10 @@ async fn main() -> FastCryptoResult<()> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Encrypt the secret
-            let package_id = NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
-                FastCryptoError::GeneralError(format!("Invalid package ID: {}", e))
-            })?);
+            let package_id =
+                NewObjectID::new(package_id.as_bytes().try_into().map_err(|e| {
+                    FastCryptoError::GeneralError(format!("Invalid package ID: {e}"))
+                })?);
             let (encrypted_object, _) = seal_encrypt(
                 package_id,
                 id.0.clone(),
@@ -538,7 +539,7 @@ async fn main() -> FastCryptoResult<()> {
                     aad: None,
                 },
             )
-            .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {}", e)))?;
+            .map_err(|e| FastCryptoError::GeneralError(format!("Encryption failed: {e}")))?;
 
             format!(
                 "Encoded encrypted object:\n{}",
