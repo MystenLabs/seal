@@ -2,7 +2,7 @@ module seal::time;
 
 use sui::clock;
 
-const EStaleFullnode: u64 = 1;
+const EStaleFullnode: u64 = 93492;
 
 /// Check that the state of the chain is not stale: Abort if the on-chain time is more than `allowed_staleness_in_ms` behind `now`.
 public fun check_staleness(now: u64, allowed_staleness_in_ms: u64, clock: &clock::Clock) {
