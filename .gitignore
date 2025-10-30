@@ -27,7 +27,7 @@ storage
 !crates/sui-framework/packages/deepbook/Move.lock
 .trace
 .coverage_map.mvcov
-
+/move/committee/Move.lock
 # Thumbnails
 ._*
 
