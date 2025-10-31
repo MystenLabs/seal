@@ -4,9 +4,7 @@
 pub mod grpc_helper;
 pub mod seal_move_types;
 pub mod types;
-pub mod utils;
 
 pub use grpc_helper::{create_grpc_client, fetch_committee_data};
 pub use seal_move_types::{CommitteeState, MemberInfo, ParsedMemberInfo, SealCommittee, VecMap};
 pub use types::Network;
-pub use utils::{build_new_to_old_map, format_pk_hex, KeysFile};
