@@ -8012,6 +8012,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "seal-committee"
+version = "0.5.13"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "prost-types",
+ "serde",
+ "sui-rpc 0.0.8",
+ "sui-sdk-types 0.0.8",
+ "sui-types",
+ "tokio",
+]
+
+[[package]]
 name = "seal-proxy"
 version = "0.5.13"
 dependencies = [
