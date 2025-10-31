@@ -16,6 +16,7 @@ use sui_types::base_types::ObjectID;
 use tracing::info;
 
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
+const NEXT_MASTER_KEY_ENV_VAR: &str = "NEXT_MASTER_KEY";
 
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
@@ -26,6 +27,12 @@ pub enum MasterKeys {
     Permissioned {
         pkg_id_to_key: HashMap<ObjectID, IbeMasterKey>,
         key_server_oid_to_key: HashMap<ObjectID, IbeMasterKey>,
+    },
+    /// In committee mode, the key server has a master key and optionally a next master key.
+    Committee {
+        master_key: IbeMasterKey,
+        #[allow(dead_code)]
+        next_master_key: Option<IbeMasterKey>,
     },
 }
 
@@ -41,6 +48,29 @@ impl MasterKeys {
                     Err(_) => crate::utils::decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
                 };
                 Ok(MasterKeys::Open { master_key })
+            }
+            ServerMode::Committee {
+                next_committee_id, ..
+            } => {
+                let master_key = match decode_master_key::<DefaultEncoding>(MASTER_KEY_ENV_VAR) {
+                    Ok(master_key) => master_key,
+                    Err(_) => crate::utils::decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
+                };
+
+                let next_master_key =
+                    decode_master_key::<DefaultEncoding>(NEXT_MASTER_KEY_ENV_VAR).ok();
+
+                if next_master_key.is_some() && next_committee_id.is_none()
+                    || next_master_key.is_none() && next_committee_id.is_some()
+                {
+                    return Err(anyhow!(
+                        "NEXT_MASTER_KEY and next_committee_id must be both provided or both absent"
+                    ));
+                }
+                Ok(MasterKeys::Committee {
+                    master_key,
+                    next_master_key,
+                })
             }
             ServerMode::Permissioned { client_configs } => {
                 let mut pkg_id_to_key = HashMap::new();
@@ -122,7 +152,9 @@ impl MasterKeys {
         package_id: &ObjectID,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
-            MasterKeys::Open { master_key } => Ok(master_key),
+            MasterKeys::Open { master_key } | MasterKeys::Committee { master_key, .. } => {
+                Ok(master_key)
+            }
             MasterKeys::Permissioned { pkg_id_to_key, .. } => pkg_id_to_key
                 .get(package_id)
                 .ok_or(InternalError::UnsupportedPackageId),
@@ -134,7 +166,9 @@ impl MasterKeys {
         key_server_object_id: &ObjectID,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
-            MasterKeys::Open { master_key } => Ok(master_key),
+            MasterKeys::Open { master_key } | MasterKeys::Committee { master_key, .. } => {
+                Ok(master_key)
+            }
             MasterKeys::Permissioned {
                 key_server_oid_to_key,
                 ..

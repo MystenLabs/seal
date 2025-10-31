@@ -4456,6 +4456,7 @@ dependencies = [
  "prost-types",
  "rand 0.8.5",
  "reqwest 0.12.15",
+ "seal-committee",
  "seal-sdk",
  "semver",
  "serde",

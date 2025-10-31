@@ -185,6 +185,11 @@ impl SuiRpcClient {
         &self.sui_client
     }
 
+    /// Returns a reference to the underlying gRPC client.
+    pub fn sui_grpc_client(&self) -> SuiGrpcClient {
+        self.sui_grpc_client.clone()
+    }
+
     /// Returns a clone of the metrics object.
     pub fn get_metrics(&self) -> Option<Arc<Metrics>> {
         self.metrics.clone()
