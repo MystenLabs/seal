@@ -5,7 +5,11 @@
 /// Refer usage at docs https://seal-docs.wal.app/UsingSeal/#on-chain-decryption
 module seal::bf_hmac_encryption;
 
-use seal::{hmac256ctr, kdf::{hash_to_g1_with_dst, kdf}, polynomial::{interpolate_all, Polynomial}};
+use seal::{
+    hmac256ctr,
+    kdf::{hash_to_g1_with_dst, kdf, append_ref},
+    polynomial::{interpolate_all, Polynomial}
+};
 use std::{hash::sha3_256, option::none};
 use sui::{
     bls12381::{
@@ -314,12 +318,12 @@ fun derive_key(
     encrypted_object: &EncryptedObject,
 ): vector<u8> {
     let tag = match (purpose) {
-        KeyPurpose::EncryptedRandomness => vector[0],
-        KeyPurpose::DEM => vector[1],
+        KeyPurpose::EncryptedRandomness => 0,
+        KeyPurpose::DEM => 1,
     };
     let mut bytes = DST_DERIVE_KEY;
-    bytes.append(*base_key);
-    bytes.append(tag);
+    append_ref(&mut bytes, base_key);
+    bytes.push_back(tag);
     bytes.push_back(encrypted_object.threshold);
     encrypted_object.encrypted_shares.do_ref!(|share| bytes.append(*share));
     encrypted_object.services.do_ref!(|key_server| bytes.append((*key_server).to_bytes()));

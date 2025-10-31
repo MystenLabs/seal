@@ -25,7 +25,7 @@ public(package) fun kdf(
     sha3_256(bytes)
 }
 
-fun append_ref(bytes: &mut vector<u8>, value: &vector<u8>) {
+public(package) fun append_ref(bytes: &mut vector<u8>, value: &vector<u8>) {
     value.do_ref!(|v| bytes.push_back(*v));
 }
 
