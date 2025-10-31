@@ -2467,6 +2467,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dkg-cli"
+version = "0.5.13"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "fastcrypto",
+ "fastcrypto-tbls",
+ "hex",
+ "rand 0.8.5",
+ "seal-committee",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.0.8",
+ "sui-types",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
