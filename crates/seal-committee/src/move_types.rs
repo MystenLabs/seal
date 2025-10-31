@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Move struct definitions matching the onchain Seal protocol types.
+//! Move struct definitions and parsers.
 
 use anyhow::{anyhow, Result};
 use fastcrypto::encoding::{Encoding, Hex};
@@ -50,12 +50,12 @@ pub struct SealCommittee {
 }
 
 impl SealCommittee {
-    /// Get party ID for a given member address.
+    /// Get party ID (index in the members list) for a given member address.
     pub fn get_party_id(&self, member_addr: &Address) -> Result<u16> {
         self.members
             .iter()
             .position(|addr| addr == member_addr)
-            .map(|idx| idx as u16)
+            .map(|idx| idx as u16) // safe because length is limited by u16.
             .ok_or_else(|| {
                 anyhow!(
                     "Member address {} not found in committee {}",
