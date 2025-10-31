@@ -4,7 +4,7 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::ServerMode;
+use crate::key_server_options::{ClientKeyType, ServerMode};
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
@@ -43,6 +43,8 @@ use mysten_service::package_name;
 use mysten_service::package_version;
 use mysten_service::serve;
 use rand::thread_rng;
+use seal_committee::fetch_committee_data;
+use seal_committee::grpc_helper::fetch_partial_key_server_info;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
@@ -137,7 +139,7 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
+    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Result<Self> {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -155,23 +157,91 @@ impl Server {
             panic!("Failed to load master keys: {e}");
         });
 
-        let key_server_oid_to_pop = options
-            .get_supported_key_server_object_ids()
-            .into_iter()
-            .map(|ks_oid| {
-                let key = master_keys
-                    .get_key_for_key_server(&ks_oid)
-                    .expect("checked already");
-                let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
-                (ks_oid, pop)
-            })
-            .collect();
+        let key_server_oid_to_pop = Self::build_key_server_pop_map(
+            &options,
+            &master_keys,
+            sui_rpc_client.sui_grpc_client(),
+        )
+        .await?;
 
-        Server {
+        Ok(Server {
             sui_rpc_client,
             master_keys,
             key_server_oid_to_pop,
             options,
+        })
+    }
+
+    /// Build the key_server_oid -> PoP HashMap for all server modes.
+    /// Handles fetching from chain for Committee mode.
+    async fn build_key_server_pop_map(
+        options: &KeyServerOptions,
+        master_keys: &MasterKeys,
+        mut grpc_client: SuiGrpcClient,
+    ) -> Result<HashMap<ObjectID, MasterKeyPOP>> {
+        match &options.server_mode {
+            ServerMode::Open {
+                key_server_object_id,
+            } => {
+                let key = master_keys
+                    .get_key_for_key_server(key_server_object_id)
+                    .expect("checked already");
+                let pop = create_proof_of_possession(key, &key_server_object_id.into_bytes());
+                Ok(HashMap::from([(*key_server_object_id, pop)]))
+            }
+            ServerMode::Permissioned { client_configs } => Ok(client_configs
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.client_master_key,
+                        ClientKeyType::Derived { .. } | ClientKeyType::Imported { .. }
+                    )
+                })
+                .map(|c| {
+                    let key = master_keys
+                        .get_key_for_key_server(&c.key_server_object_id)
+                        .expect("checked already");
+                    let pop = create_proof_of_possession(key, &c.key_server_object_id.into_bytes());
+                    (c.key_server_object_id, pop)
+                })
+                .collect()),
+
+            ServerMode::Committee {
+                member_address,
+                committee_id,
+                next_committee_id: _, // TODO: Handle next committee ID for rotation.
+            } => {
+                info!("Committee mode, validating address: {member_address}, committee ID: {committee_id}");
+
+                let committee = fetch_committee_data(committee_id, &mut grpc_client).await?;
+                committee.is_finalized()?;
+
+                // Fetch PartialKeyServer info for this member
+                let (key_server_id, partial_key_server_info) =
+                    fetch_partial_key_server_info(&mut grpc_client, &committee, member_address)
+                        .await?;
+                info!(
+                    "Committee mode: KeyServer {} with party_id={}",
+                    key_server_id, partial_key_server_info.party_id
+                );
+
+                // Sign PoP over: key_server_id || party_id || partial_pk
+                let mut pop_message = Vec::new();
+                pop_message.extend_from_slice(key_server_id.as_bytes());
+                pop_message.extend_from_slice(&partial_key_server_info.party_id.to_le_bytes());
+                pop_message.extend_from_slice(&partial_key_server_info.partial_pk);
+
+                // Extract master_key from already-loaded MasterKeys
+                let master_key = master_keys
+                    .get_key_for_key_server(&ObjectID::new(key_server_id.into_inner()))
+                    .expect("checked already");
+                let pop = create_proof_of_possession(master_key, &pop_message);
+
+                Ok(HashMap::from([(
+                    ObjectID::new(key_server_id.into_inner()),
+                    pop,
+                )]))
+            }
         }
     }
 
@@ -860,7 +930,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         format!("{}-{}", package_version!(), GIT_VERSION).as_str()
     );
     options.validate()?;
-    let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
+    let server = Arc::new(Server::new(options, Some(metrics.clone())).await?);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;

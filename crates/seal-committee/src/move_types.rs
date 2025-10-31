@@ -15,7 +15,68 @@ use sui_types::collection_types::VecSet;
 pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code)]
+pub struct KeyServerV2 {
+    pub name: String,
+    pub key_type: u8,
+    pub pk: Vec<u8>,
+    pub server_type: ServerType,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct KeyServer {
+    pub id: UID,
+    pub first_version: u64,
+    pub last_version: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum ServerType {
+    Independent {
+        url: String,
+    },
+    Committee {
+        threshold: u16,
+        partial_key_servers: VecMap<Address, PartialKeyServer>,
+    },
+}
+
+/// Move struct for PartialKeyServer.
+#[derive(Deserialize, Debug)]
+pub struct PartialKeyServer {
+    #[serde(deserialize_with = "deserialize_move_bytes")]
+    pub partial_pk: Vec<u8>,
+    pub url: String,
+    pub party_id: u16,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UID {
+    pub id: Address,
+}
+
+#[derive(Deserialize)]
+pub struct ID {
+    pub bytes: Address,
+}
+
+#[derive(Deserialize)]
+pub struct Wrapper<T> {
+    pub name: T,
+}
+
+#[derive(Deserialize)]
+pub struct Field<K, V> {
+    pub id: UID,
+    pub name: K,
+    pub value: V,
+}
+
+pub struct PartialKeyServerInfo {
+    pub party_id: u16,
+    pub partial_pk: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct MemberInfo {
     #[serde(deserialize_with = "deserialize_enc_pk")]
     pub enc_pk: PublicKey<G2Element>,
@@ -25,7 +86,6 @@ pub struct MemberInfo {
 }
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code)]
 pub enum CommitteeState {
     Init {
         members_info: VecMap<Address, MemberInfo>,
@@ -40,7 +100,7 @@ pub enum CommitteeState {
     Finalized,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 pub struct SealCommittee {
     pub id: Address,
     pub threshold: u16,
@@ -146,11 +206,21 @@ pub struct ParsedMemberInfo {
     pub signing_pk: G2Element,
 }
 
-/// Helper function to parse Move byte literal (x0x...) to decoded bytes.
+/// Helper function to parse Move byte literal (x"0x..." or x"...") to decoded bytes.
 fn parse_move_byte_literal(bytes: &[u8]) -> Result<Vec<u8>> {
     let str = String::from_utf8(bytes.to_vec())
         .map_err(|e| anyhow!("Failed to convert bytes to UTF-8 string: {}", e))?;
-    let hex_str = str.strip_prefix('x').unwrap_or(&str);
+
+    // Strip Move byte literal format: x"..." or just "..."
+    let hex_str = str
+        .strip_prefix("x\"")
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| str.strip_prefix('x'))
+        .unwrap_or(&str);
+
+    // Strip 0x prefix if present
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+
     Ok(Hex::decode(hex_str)?)
 }
 

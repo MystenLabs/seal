@@ -9,6 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -46,6 +47,11 @@ pub enum ServerMode {
     Permissioned {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
+    },
+    Committee {
+        member_address: Address,
+        committee_id: Address,
+        next_committee_id: Option<Address>,
     },
 }
 
@@ -255,26 +261,6 @@ impl KeyServerOptions {
         }
         Ok(())
     }
-
-    pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
-        match &self.server_mode {
-            ServerMode::Open {
-                key_server_object_id,
-            } => {
-                vec![*key_server_object_id]
-            }
-            ServerMode::Permissioned { client_configs } => client_configs
-                .iter()
-                .filter(|c| {
-                    matches!(
-                        c.client_master_key,
-                        ClientKeyType::Derived { .. } | ClientKeyType::Imported { .. }
-                    )
-                })
-                .map(|c| c.key_server_object_id)
-                .collect(),
-        }
-    }
 }
 
 fn default_checkpoint_update_interval() -> Duration {
@@ -378,9 +364,17 @@ server_mode: !Open
     }
 }
 
-#[test]
-fn test_parse_permissioned_config() {
+#[tokio::test]
+async fn test_parse_permissioned_config() {
+    use crate::master_keys::MasterKeys;
+    use crate::types::IbeMasterKey;
+    use crate::DefaultEncoding;
+    use crate::Server;
+    use fastcrypto::encoding::Encoding;
+    use fastcrypto::groups::GroupElement;
+    use seal_committee::create_grpc_client;
     use std::str::FromStr;
+    use temp_env::async_with_vars;
 
     let valid_configuration = r#"
 network: Mainnet
@@ -416,19 +410,38 @@ session_key_ttl_max: '60s'
     let options: KeyServerOptions =
         serde_yaml::from_str(valid_configuration).expect("Failed to parse valid configuration");
 
-    assert_eq!(
-        options.get_supported_key_server_object_ids(),
-        vec![
-            ObjectID::from_str(
-                "0xaaaa000000000000000000000000000000000000000000000000000000000001"
-            )
-            .unwrap(),
-            ObjectID::from_str(
-                "0xbbbb000000000000000000000000000000000000000000000000000000000002"
-            )
-            .unwrap(),
-        ]
-    );
+    // Set up environment variables for the test
+    let seed_encoded = DefaultEncoding::encode([1u8; 32]);
+    let bob_key = IbeMasterKey::generator();
+    let bob_key_encoded = DefaultEncoding::encode(bcs::to_bytes(&bob_key).unwrap());
+
+    async_with_vars(
+        [
+            ("MASTER_KEY", Some(&seed_encoded)),
+            ("BOB_BLS_KEY", Some(&bob_key_encoded)),
+        ],
+        async {
+            let master_keys = MasterKeys::load(&options).expect("Failed to load master keys");
+            let grpc_client = create_grpc_client(&seal_committee::Network::Testnet).unwrap();
+            let map = Server::build_key_server_pop_map(&options, &master_keys, grpc_client)
+                .await
+                .unwrap();
+            assert_eq!(map.keys().len(), 2);
+            assert!(map.contains_key(
+                &ObjectID::from_str(
+                    "0xaaaa000000000000000000000000000000000000000000000000000000000001"
+                )
+                .unwrap()
+            ));
+            assert!(map.contains_key(
+                &ObjectID::from_str(
+                    "0xbbbb000000000000000000000000000000000000000000000000000000000002"
+                )
+                .unwrap()
+            ));
+        },
+    )
+    .await;
 }
 
 #[test]
@@ -568,4 +581,71 @@ server_mode: !Permissioned
         assert!(result.is_err(), "Expected validation to fail for: {yaml}");
         assert_eq!(result.unwrap_err().to_string(), expected_error);
     }
+}
+
+#[test]
+fn test_committee_mode_master_keys() {
+    use crate::master_keys::MasterKeys;
+    use crate::types::IbeMasterKey;
+    use crate::DefaultEncoding;
+    use fastcrypto::encoding::Encoding;
+    use fastcrypto::groups::GroupElement;
+    use temp_env::with_vars;
+
+    // master_key and committee_id present, ok.
+    let config_no_next = r#"
+network: Mainnet
+server_mode: !Committee
+  member_address: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  committee_id: '0x1'
+"#;
+    let options: KeyServerOptions =
+        serde_yaml::from_str(config_no_next).expect("Failed to parse configuration");
+
+    let master_key = IbeMasterKey::generator();
+    let master_key_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_key).unwrap());
+
+    with_vars([("MASTER_KEY", Some(&master_key_encoded))], || {
+        assert!(MasterKeys::load(&options).is_ok());
+    });
+
+    // master_key, next_master_key, committee_id, and next_committee_id all present, ok.
+    let config_with_next = r#"
+network: Mainnet
+server_mode: !Committee
+  member_address: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  committee_id: '0x1'
+  next_committee_id: '0x2'
+"#;
+    let options_with_next: KeyServerOptions =
+        serde_yaml::from_str(config_with_next).expect("Failed to parse configuration");
+
+    let next_master_key = IbeMasterKey::generator();
+    let next_master_key_encoded = DefaultEncoding::encode(bcs::to_bytes(&next_master_key).unwrap());
+
+    with_vars(
+        [
+            ("MASTER_KEY", Some(&master_key_encoded)),
+            ("NEXT_MASTER_KEY", Some(&next_master_key_encoded)),
+        ],
+        || {
+            assert!(MasterKeys::load(&options_with_next).is_ok());
+        },
+    );
+
+    // next_master_key present but next_committee_id absent, fails.
+    with_vars(
+        [
+            ("MASTER_KEY", Some(&master_key_encoded)),
+            ("NEXT_MASTER_KEY", Some(&next_master_key_encoded)),
+        ],
+        || {
+            assert!(MasterKeys::load(&options).is_err());
+        },
+    );
+
+    // next_master_key absent but next_committee_id present, fails.
+    with_vars([("MASTER_KEY", Some(&master_key_encoded))], || {
+        assert!(MasterKeys::load(&options_with_next).is_err());
+    });
 }
