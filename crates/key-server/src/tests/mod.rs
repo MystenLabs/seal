@@ -92,19 +92,19 @@ impl SealTestCluster {
         &self.cluster
     }
 
-    pub async fn add_open_server(&mut self) {
+    pub async fn add_open_server(&mut self, seal_package: ObjectID) {
         let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
         let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name).await;
+        self.add_server(Open(master_key), &name, seal_package).await;
     }
 
-    pub async fn add_open_servers(&mut self, num_servers: usize) {
+    pub async fn add_open_servers(&mut self, num_servers: usize, seal_package: ObjectID) {
         for _ in 0..num_servers {
-            self.add_open_server().await;
+            self.add_open_server(seal_package).await;
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+    pub async fn add_server(&mut self, server: KeyServerType, name: &str, seal_package: ObjectID) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -130,13 +130,13 @@ impl SealTestCluster {
                             key_server_object_id,
                         },
                         metrics_host_port: 0,
-                        checkpoint_update_interval: Duration::from_secs(10),
                         rgp_update_interval: Duration::from_secs(60),
                         sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
                         allowed_staleness: Duration::from_secs(120),
                         session_key_ttl_max: from_mins(30),
                         rpc_config: RpcConfig::default(),
                         metrics_push_config: None,
+                        seal_package,
                     },
                 };
                 self.servers.push((key_server_object_id, server));
