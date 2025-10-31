@@ -31,10 +31,10 @@ serde_json.workspace = true
 serde_with = {workspace = true, features = ["base64"]}
 serde_yaml = "0.9"
 snap = "1.1.0"
-tokio = {version = "1.44", features = ["full"]}
-tokio-util = "0.7.13"
+tokio = {version = "1.48", features = ["full"]}
+tokio-util = "0.7.16"
 tower = "0.4"
 tower-http = {version = "0.6.6", features = ["trace", "timeout"]}
 tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
 tracing.workspace = true
-uuid = {version = "1.17.0", features = ["fast-rng", "macro-diagnostics", "v7"]}
+uuid = {version = "1.18.1", features = ["fast-rng", "macro-diagnostics", "v7"]}
