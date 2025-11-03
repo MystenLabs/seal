@@ -6,7 +6,7 @@ Command-line tool for Distributed Key Generation (DKG) and key rotation protocol
 
 #### Coordinator Runbook
 
-1. Deploy the `seal_committee` package in the Seal repo. Make sure you are on the right network with wallet with enough gas. Find the package ID in output, set it to env var. Share this with members later. 
+1. Deploy the `seal_committee` package in the Seal repo. Make sure you are on the right network with wallet with enough gas. Find the package ID in output, set it to env var `COMMITTEE_PKG`. Share this with members later. 
 
 ```bash
 NETWORK=testnet
@@ -20,8 +20,8 @@ COMMITTEE_PKG=0x4563316d2b647263737bbab1afb32495397bd36eefdcd3b1ca42c3c95ebb2fb3
 2. Gather all members' addresses. 
 3. Initialize the committee onchain. Notify members:
 
-- Committee package ID
-- Created committee object ID
+- Committee package ID (`COMMITTEE_PKG`)
+- Committee object ID (`COMMITTEE_ID`)
 
 Then announce phase 1. 
 
@@ -43,19 +43,19 @@ COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5
 5. Notify all members to run phase 2. 
 6. Watch the offchain storage until all members upload their messages. 
 7. Notify all members to run phase 3.
-8. Monitor the committee for finalized state when all members approves. 
+8. Monitor the committee onchain object for finalized state when all members approve.
 
 #### Member Runbook
 
-1. Share with the coordinator its address. This is the wallet used for the rest of the onchain commands. 
-2. Receive from coordinator the committee package ID and committee ID. Verify its parameters (members addresses and threshold) on Sui Explorer. Set environment variables. 
+1. Share with the coordinator your address. This is the wallet used for the rest of the onchain commands. 
+2. Receive from coordinator the committee package ID and committee object ID. Verify its parameters (members addresses and threshold) on Sui Explorer. Set environment variables. 
 
 ```bash
 COMMITTEE_PKG=0x4563316d2b647263737bbab1afb32495397bd36eefdcd3b1ca42c3c95ebb2fb3
 COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5
 ```
 
-3. Wait for the coordinator to announce phase 1. Run the CLI below to generate keys locally and register the public keys onchain. Notify the coordinator when finished. 
+3. Wait for the coordinator to announce phase 1. Run the CLI below to generate keys locally and register the public keys onchain. Make sure you are on the right network with wallet with enough gas. 
 
 ```bash
 # A file `.dkg.key` containing sensitive private keys is created locally. Keep it secure till DKG is completed. 
@@ -75,7 +75,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
   --args $COMMITTEE_ID x"$DKG_ENC_PK" x"$DKG_SIGNING_PK" "$YOUR_SERVER_URL"
 ```
 
-4. Wait for the coordinator to announce phase 2. Initialize the DKG state locally, create your message and upload it to offchain storage. 
+4. Wait for the coordinator to announce phase 2. Initialize the DKG state locally, create your message and upload it to the offchain storage. 
 
 ```bash
 # The `/dkg-state` directory is created, containing sensitive private keys. Keep it secure till DKG is completed. 
@@ -90,33 +90,17 @@ A key rotation process is needed when a committee wants to rotate a portion of i
 
 #### Coordinator Runbook
 
-1. Gather all members' addresses for the next committee, including continuing members and new members. 
-
-2. Initialize the next committee onchain with the current committee object ID. Notify members the next committee object ID and announce phase 1. 
+All steps are the same as the runbook for fresh DKG but step 2. Instead of calling `init_committee`, call `init_rotation`, where `CURRENT_COMMITTEE_ID` is the object ID of the current committee (e.g., `CURRENT_COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5`).
 
 ```bash
-THRESHOLD=3 # Replace with the new threshold. 
-ADDRESS_3=0x2aaadc85d1013bde04e7bff32aceaa03201627e43e3e3dd0b30521486b5c34cb # Replace with your members' addresses
-ADDRESS_4=0x8b4a608c002d969d29f1dd84bc8ac13e6c2481d6de45718e606cfc4450723ec2
-CURRENT_COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5 # Replace with the current committee ID. 
-
 sui client call --package $COMMITTEE_PKG --module seal_committee \
   --function init_rotation \
   --args $CURRENT_COMMITTEE_ID $THRESHOLD "[\"$ADDRESS_1\", \"$ADDRESS_0\", \"$ADDRESS_3\", \"$ADDRESS_4\"]"
-
-# Find the created next committee object in output and share this with members.
-COMMITTEE_ID=0x15c4b9560ffd4922b3de98ea48cca427a376236fea86828944b3eb7e8719f856
 ```
-
-4. Watch the onchain state until all members registered. 
-5. Notify all members to run phase 2. 
-6. Watch the offchain storage until all members upload their messages. 
-7. Notify all members to run phase 3.
-8. Monitor the committee for finalized state when all members approves. 
 
 #### Member Runbook
 
-1. Share with the coordinator its address. This is the wallet used for the rest of the onchain commands. 
+1. Share with the coordinator your address. This is the wallet used for the rest of the onchain commands. 
 2. Receive from coordinator the next committee ID. Verify its parameters (members addresses, threshold, the current committee ID) on Sui Explorer. Set environment variable.
 
 ```bash
@@ -146,7 +130,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 
 4. Wait for the coordinator to announce phase 2. 
 
-a. For continuing members, run the CLI below to initialize the local state, create your message and upload it to offchain storage. Must provide `--old-share` arg. 
+a. For continuing members, run the CLI below to initialize the local state, create your message and upload it to the offchain storage. Must provide `--old-share` arg. 
 
 ```bash
 cargo run --bin dkg-cli init --my-address $MY_ADDRESS --old-share $DKG_OLD_SHARE --committee-id $COMMITTEE_ID --network $NETWORK
