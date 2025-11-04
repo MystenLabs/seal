@@ -35,8 +35,8 @@ struct Cli {
 enum Commands {
     /// Generate ECIES and signing key pairs.
     GenerateKeys {
-        /// Path to write the secret keys file (default: ./.dkg.key).
-        #[arg(long, default_value = ".dkg.key")]
+        /// Path to write the secret keys file (default: ./dkg-state/dkg.key).
+        #[arg(long, default_value = "./dkg-state/dkg.key")]
         secret_keys_file: PathBuf,
     },
 
@@ -58,8 +58,8 @@ enum Commands {
         #[arg(long, default_value = "./dkg-state")]
         state_dir: PathBuf,
 
-        /// Path to the keys file (default: ./.dkg.key).
-        #[arg(long, default_value = ".dkg.key")]
+        /// Path to the keys file (default: ./dkg-state/dkg.key).
+        #[arg(long, default_value = "./dkg-state/dkg.key")]
         keys_file: PathBuf,
 
         /// Old share for key rotation (hex-encoded BCS, for continuing members only).

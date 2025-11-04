@@ -58,11 +58,11 @@ COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5
 3. Wait for the coordinator to announce phase 1. Run the CLI below to generate keys locally and register the public keys onchain. Make sure you are on the right network with wallet with enough gas. 
 
 ```bash
-# A file `.dkg.key` containing sensitive private keys is created locally. Keep it secure till DKG is completed. 
+# A directory (default to `./dkg-state/`) containing sensitive private keys is created. Keep it secure till DKG is completed.
 cargo run --bin dkg-cli generate-keys
 
-export DKG_ENC_PK=$(jq -r '.enc_pk' .dkg.key)
-export DKG_SIGNING_PK=$(jq -r '.signing_pk' .dkg.key)
+export DKG_ENC_PK=$(jq -r '.enc_pk' dkg-state/dkg.key)
+export DKG_SIGNING_PK=$(jq -r '.signing_pk' dkg-state/dkg.key)
 
 # Register onchain. 
 sui client switch --env $NETWORK
@@ -78,7 +78,6 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 4. Wait for the coordinator to announce phase 2. Initialize the DKG state locally, create your message and upload it to the offchain storage. 
 
 ```bash
-# The `/dkg-state` directory is created, containing sensitive private keys. Keep it secure till DKG is completed. 
 cargo run --bin dkg-cli init --my-address $MY_ADDRESS --committee-id $COMMITTEE_ID --network $NETWORK
 ```
 
@@ -111,11 +110,11 @@ COMMITTEE_ID=0x210f1a2157d76e5c32a5e585ae3733b51105d553dc17f67457132af5e2dae7a5
 3. Wait for the coordinator to announce phase 1. Run the CLI below to generate keys locally and register the public keys onchain. Make sure you are on the right network with wallet with enough gas. 
 
 ```bash
-# A file `.dkg.key` containing sensitive private keys is created locally. Keep it secure till DKG is completed. 
+# A directory (default to `./dkg-state/`) containing sensitive private keys is created. Keep it secure till DKG is completed.
 cargo run --bin dkg-cli generate-keys
 
-export DKG_ENC_PK=$(jq -r '.enc_pk' .dkg.key)
-export DKG_SIGNING_PK=$(jq -r '.signing_pk' .dkg.key)
+export DKG_ENC_PK=$(jq -r '.enc_pk' dkg-state/dkg.key)
+export DKG_SIGNING_PK=$(jq -r '.signing_pk' dkg-state/dkg.key)
 
 # Register onchain. 
 sui client switch --env $NETWORK
