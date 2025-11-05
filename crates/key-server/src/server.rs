@@ -66,7 +66,10 @@ use std::sync::Arc;
 use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_sdk::rpc_types::{
+    SuiExecutionStatus, SuiMoveAbort, SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI,
+    SuiTransactionBlockEffectsV1,
+};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
@@ -109,6 +112,8 @@ const GIT_VERSION: &str = utils::git_version!();
 
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
+
+const STALENESS_ERROR_CODE: u64 = 5; // TODO: Replace with actual error code when Seal package is deployed
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
@@ -427,7 +432,7 @@ impl Server {
         }) {
             Some(i) => i, // The clock is already given as input i
             None => {
-                // The clock is not already part of the PTB, so we add it
+                // The clock is not yet part of the PTB, so we add it
                 ptb.inputs.push(CallArg::CLOCK_IMM);
                 ptb.inputs.len() - 1
             }
@@ -519,11 +524,25 @@ impl Server {
 
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
         if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
-            debug!(
-                "Dry run execution asserted (req_id: {:?}) {:?}",
-                req_id, error
-            );
-            return Err(InternalError::NoAccess(error.clone()));
+            match dry_run_res.effects {
+                SuiTransactionBlockEffects::V1(SuiTransactionBlockEffectsV1 {
+                    abort_error:
+                        Some(SuiMoveAbort {
+                            error_code: Some(STALENESS_ERROR_CODE),
+                            ..
+                        }),
+                    ..
+                }) => {
+                    debug!("Stale key server!"); // TODO: Report metric and return meaningful error
+                }
+                _ => {
+                    debug!(
+                        "Dry run execution asserted (req_id: {:?}) {:?}",
+                        req_id, error
+                    );
+                    return Err(InternalError::NoAccess(error.clone()));
+                }
+            }
         }
 
         // all good!
