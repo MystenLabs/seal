@@ -1,5 +1,7 @@
 # DKG CLI Tool
 
+** WARNING: This is WIP. Do not use. **
+
 Command-line tool for Distributed Key Generation (DKG) and key rotation protocols. A DKG process involves a coordinator and a set of participating members. Here we describe the processes for both a fresh DKG and a DKG key rotation. 
 
 ### Fresh DKG Process
