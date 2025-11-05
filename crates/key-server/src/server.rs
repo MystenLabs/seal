@@ -412,7 +412,7 @@ impl Server {
         ptb.inputs.push(CallArg::from(now));
         let now_index = ptb.inputs.len() - 1;
 
-        let allowed_staleness = self.options.allowed_staleness.as_millis() as u64; // Two minutes
+        let allowed_staleness = self.options.allowed_staleness.as_millis() as u64;
         ptb.inputs.push(CallArg::from(allowed_staleness));
         let allowed_staleness_index = ptb.inputs.len() - 1;
 
