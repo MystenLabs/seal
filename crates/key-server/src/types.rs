@@ -55,7 +55,7 @@ impl Network {
             Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
-            Network::TestCluster(seal_package) => seal_package,
+            Network::TestCluster { seal_package } => seal_package,
         }
         .get_seal_package_id()
     }
