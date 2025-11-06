@@ -75,6 +75,7 @@ impl Network {
             Network::Custom { seal_package, .. } => {
                 seal_package.as_ref().unwrap_or(&SealPackage::Mainnet)
             }
+            #[cfg(test)]
             Network::TestCluster { seal_package } => seal_package,
         }
         .get_seal_package_id()

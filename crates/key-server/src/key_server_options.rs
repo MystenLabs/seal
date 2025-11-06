@@ -421,7 +421,11 @@ server_mode: !Open
     let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
         .expect("Failed to parse configuration without node_url");
 
-    assert!(resolve_network(&options.network).unwrap() == Network::Mainnet);
+    assert_eq!(resolve_network(&options.network).unwrap(), Network::Mainnet);
+    assert_eq!(
+        options.network.get_seal_package(),
+        SealPackage::Mainnet.get_seal_package_id()
+    );
     match options.network {
         Network::Custom { node_url, .. } => {
             assert_eq!(node_url, None);
