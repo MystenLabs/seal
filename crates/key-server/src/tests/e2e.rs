@@ -237,7 +237,8 @@ async fn test_e2e_decrypt_all_objects() {
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects_missing_servers() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    tc.add_open_servers(3).await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
