@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
 
             // Fetch current committee from onchain.
             let mut grpc_client = create_grpc_client(&network)?;
-            let committee = fetch_committee_data(&committee_id, &mut grpc_client).await?;
+            let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             // Validate committee state is in Init state and contains my address.
             committee.is_init()?;
@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
                     println!("Old committee ID: {old_committee_id}, performing key rotation.");
 
                     let old_committee =
-                        fetch_committee_data(&old_committee_id, &mut grpc_client).await?;
+                        fetch_committee_data(&mut grpc_client, &old_committee_id).await?;
                     let old_threshold = Some(old_committee.threshold);
                     let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
 
