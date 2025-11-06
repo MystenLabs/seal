@@ -21,7 +21,6 @@ pub enum InternalError {
     InvalidMVRName,
     InvalidServiceId,
     UnsupportedPackageId,
-    StaleFullnode,
     Failure(String), // Internal error, try again later. Debug message is for logging only.
 }
 
@@ -79,10 +78,6 @@ impl IntoResponse for InternalError {
                 StatusCode::BAD_REQUEST,
                 "Unsupported package ID".to_string(),
             ),
-            InternalError::StaleFullnode => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Fullnode is stale, please try again later".to_string(),
-            ),
             InternalError::Failure(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Internal server error, please try again later".to_string(),
@@ -114,7 +109,6 @@ impl InternalError {
             InternalError::InvalidMVRName => "InvalidMVRName",
             InternalError::InvalidServiceId => "InvalidServiceId",
             InternalError::UnsupportedPackageId => "UnsupportedPackageId",
-            InternalError::StaleFullnode => "StaleFullnode",
             InternalError::Failure(_) => "Failure",
         }
     }

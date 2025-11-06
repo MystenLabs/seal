@@ -48,6 +48,9 @@ pub(crate) struct Metrics {
 
     /// Dry run gas cost per package
     pub dry_run_gas_cost_per_package: HistogramVec,
+
+    /// Total number of requests failed due to stale FN
+    pub requests_failed_due_to_staleness: IntCounter,
 }
 
 impl Metrics {
@@ -135,6 +138,12 @@ impl Metrics {
                 "Dry run gas cost per package",
                 &["package"],
                 buckets(0.0, 500_000_000.0, 5_000_000.0),
+                registry
+            )
+            .unwrap(),
+            requests_failed_due_to_staleness: register_int_counter_with_registry!(
+                "requests_failed_due_to_staleness",
+                "Total number of requests that failed due to a stale fullnode",
                 registry
             )
             .unwrap(),
