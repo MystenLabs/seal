@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
+use crate::key_server_options::{
+    KeyServerOptions, RetryConfig, RpcConfig, SealPackage, ServerMode,
+};
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
@@ -127,7 +129,7 @@ impl SealTestCluster {
                     master_keys: MasterKeys::Open { master_key },
                     key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options: KeyServerOptions {
-                        network: Network::TestCluster,
+                        network: Network::TestCluster(SealPackage::Custom(seal_package)),
                         node_url: None,
                         server_mode: ServerMode::Open {
                             key_server_object_id,
@@ -139,7 +141,6 @@ impl SealTestCluster {
                         session_key_ttl_max: from_mins(30),
                         rpc_config: RpcConfig::default(),
                         metrics_push_config: None,
-                        seal_package,
                     },
                 };
                 self.servers.push((key_server_object_id, server));
