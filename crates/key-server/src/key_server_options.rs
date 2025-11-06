@@ -206,7 +206,6 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
-            network,
         }
     }
 
@@ -225,7 +224,6 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
-            network,
         }
     }
 
