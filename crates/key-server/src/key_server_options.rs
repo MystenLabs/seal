@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::key_server_options::SealPackage::Custom;
 use crate::metrics_push::MetricsPushConfig;
 use crate::time::from_mins;
 use crate::types::Network;
@@ -118,7 +117,7 @@ pub enum SealPackage {
 }
 
 impl SealPackage {
-    pub fn get_seal_package(&self) -> ObjectID {
+    pub fn get_seal_package_id(&self) -> ObjectID {
         match self {
             SealPackage::Testnet => ObjectID::from_hex_literal(
                 "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
@@ -380,7 +379,28 @@ server_mode: !Open
         Network::Custom {
             node_url: Some("https://node.dk".to_string()),
             use_default_mainnet_for_mvr: Some(false),
-            seal_package: Custom(ObjectID::from_single_byte(1))
+            seal_package: Some(SealPackage::Custom(ObjectID::from_single_byte(1)))
+        }
+    );
+
+    let valid_configuration_custom_network_mainnet_package = r#"
+network: !Custom
+  node_url: https://node.dk
+  use_default_mainnet_for_mvr: false
+  seal_package: !Mainnet
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+    let options: KeyServerOptions =
+        serde_yaml::from_str(valid_configuration_custom_network_mainnet_package)
+            .expect("Failed to parse valid configuration");
+    assert_eq!(resolve_network(&options.network).unwrap(), Network::Testnet);
+    assert_eq!(
+        options.network,
+        Network::Custom {
+            node_url: Some("https://node.dk".to_string()),
+            use_default_mainnet_for_mvr: Some(false),
+            seal_package: Some(SealPackage::Mainnet)
         }
     );
 
@@ -394,8 +414,6 @@ fn test_parse_custom_network_with_env_var() {
     // Test that NODE_URL can be omitted from config when not set in env
     let config_without_url = r#"
 network: !Custom
-  seal_package: !Custom
-    '0x1'
 server_mode: !Open
   key_server_object_id: '0x0'
 "#;

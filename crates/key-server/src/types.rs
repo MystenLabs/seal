@@ -15,22 +15,26 @@ pub type MasterKeyPOP = ibe::ProofOfPossession;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
-    Devnet(SealPackage),
+    Devnet {
+        seal_package: SealPackage,
+    },
     Testnet,
     Mainnet,
     Custom {
         node_url: Option<String>,
         use_default_mainnet_for_mvr: Option<bool>,
-        seal_package: SealPackage,
+        seal_package: Option<SealPackage>,
     },
     #[cfg(test)]
-    TestCluster(SealPackage),
+    TestCluster {
+        seal_package: SealPackage,
+    },
 }
 
 impl Network {
     pub fn node_url(&self) -> String {
         match self {
-            Network::Devnet(_) => "https://fullnode.devnet.sui.io:443".into(),
+            Network::Devnet { .. } => "https://fullnode.devnet.sui.io:443".into(),
             Network::Testnet => "https://fullnode.testnet.sui.io:443".into(),
             Network::Mainnet => "https://fullnode.mainnet.sui.io:443".into(),
             Network::Custom { node_url, .. } => node_url
@@ -38,23 +42,25 @@ impl Network {
                 .expect("Custom network must have node_url set")
                 .clone(),
             #[cfg(test)]
-            Network::TestCluster(_) => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
+            Network::TestCluster { .. } => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
         }
     }
 
     pub fn from_str(str: &str) -> Self {
         match str.to_ascii_lowercase().as_str() {
-            "devnet" => Network::Devnet(SealPackage::Custom(
-                ObjectID::from_str(&std::env::var("SEAL_PACKAGE").unwrap()).unwrap(),
-            )),
+            "devnet" => Network::Devnet {
+                seal_package: std::env::var("SEAL_PACKAGE")
+                    .map(|s| SealPackage::Custom(ObjectID::from_str(&s).unwrap()))
+                    .unwrap(),
+            },
             "testnet" => Network::Testnet,
             "mainnet" => Network::Mainnet,
             "custom" => Network::Custom {
                 node_url: std::env::var("NODE_URL").ok(),
                 use_default_mainnet_for_mvr: None,
-                seal_package: SealPackage::Custom(
-                    ObjectID::from_str(&std::env::var("SEAL_PACKAGE").unwrap()).unwrap(),
-                ),
+                seal_package: std::env::var("SEAL_PACKAGE")
+                    .map(|s| SealPackage::Custom(ObjectID::from_str(&s).unwrap()))
+                    .ok(),
             },
             _ => panic!("Unknown network: {str}"),
         }
@@ -62,12 +68,14 @@ impl Network {
 
     pub fn get_seal_package(&self) -> ObjectID {
         match self {
-            Network::Devnet(seal_package) => seal_package,
+            Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
-            Network::Custom { seal_package, .. } => seal_package,
-            Network::TestCluster(seal_package) => seal_package,
+            Network::Custom { seal_package, .. } => {
+                seal_package.as_ref().unwrap_or(&SealPackage::Testnet)
+            }
+            Network::TestCluster { seal_package } => seal_package,
         }
-        .get_seal_package()
+        .get_seal_package_id()
     }
 }
