@@ -117,7 +117,7 @@ pub enum SealPackage {
 }
 
 impl SealPackage {
-    pub fn get_seal_package_id(&self) -> ObjectID {
+    pub fn package_id(&self) -> ObjectID {
         match self {
             SealPackage::Testnet => ObjectID::from_hex_literal(
                 "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
@@ -387,6 +387,32 @@ server_mode: !Open
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
+}
+
+#[test]
+fn test_parse_custom_network_with_env_var() {
+    use crate::mvr::resolve_network;
+    // Test that NODE_URL can be omitted from config when not set in env
+    let config_without_url = r#"
+network: !Custom
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+
+    let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
+        .expect("Failed to parse configuration without node_url");
+
+    assert_eq!(resolve_network(&options.network).unwrap(), Network::Mainnet);
+    assert_eq!(
+        options.network.seal_package_id(),
+        SealPackage::Mainnet.package_id()
+    );
+    match options.network {
+        Network::Custom { node_url, .. } => {
+            assert_eq!(node_url, None);
+        }
+        _ => panic!("Expected Custom network"),
+    }
 }
 
 #[test]

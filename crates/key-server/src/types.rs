@@ -50,13 +50,13 @@ impl Network {
         }
     }
 
-    pub fn get_seal_package(&self) -> ObjectID {
+    pub fn seal_package_id(&self) -> ObjectID {
         match self {
             Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
             Network::TestCluster { seal_package } => seal_package,
         }
-        .get_seal_package_id()
+        .package_id()
     }
 }
