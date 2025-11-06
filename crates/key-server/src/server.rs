@@ -114,6 +114,8 @@ const GIT_VERSION: &str = utils::git_version!();
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
 const STALENESS_ERROR_CODE: u64 = 5; // TODO: Replace with actual error code when Seal package is deployed
+const STALENESS_MODULE: &str = "time";
+const STALENESS_FUNCTION: &str = "check_duration_since";
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
@@ -439,9 +441,9 @@ impl Server {
         };
 
         let staleness_check = Command::move_call(
-            self.options.seal_package,
-            Identifier::from_str("time").unwrap(),
-            Identifier::from_str("check_duration_since").unwrap(),
+            self.options.network.get_seal_package(),
+            Identifier::from_str(STALENESS_MODULE).unwrap(),
+            Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
             vec![
                 Input(now_index as u16),
@@ -522,31 +524,40 @@ impl Server {
             }
         }
 
+        // Handle errors in the dry run
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
-        if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
-            match dry_run_res.effects {
-                SuiTransactionBlockEffects::V1(SuiTransactionBlockEffectsV1 {
-                    abort_error:
-                        Some(SuiMoveAbort {
-                            error_code: Some(STALENESS_ERROR_CODE),
-                            ..
-                        }),
+        if let SuiTransactionBlockEffects::V1(SuiTransactionBlockEffectsV1 {
+            status: SuiExecutionStatus::Failure { error },
+            abort_error:
+                Some(SuiMoveAbort {
+                    module_id: Some(module_id),
+                    error_code: Some(error_code),
                     ..
-                }) => {
-                    debug!("Stale key server!"); // TODO: Report metric and return meaningful error
-                }
-                _ => {
-                    debug!(
-                        "Dry run execution asserted (req_id: {:?}) {:?}",
-                        req_id, error
-                    );
-                    return Err(InternalError::NoAccess(error.clone()));
-                }
+                }),
+            ..
+        }) = dry_run_res.effects
+        {
+            if module_id == self.staleness_module_id() && error_code == STALENESS_ERROR_CODE {
+                debug!("Fullnode is stale (req_id: {:?})", req_id);
+                return Err(InternalError::StaleFullnode);
             }
+            debug!(
+                "Dry run execution asserted (req_id: {:?}) {:?}",
+                req_id, error
+            );
+            return Err(InternalError::NoAccess(error.clone()));
         }
 
         // all good!
         Ok(())
+    }
+
+    fn staleness_module_id(&self) -> String {
+        format!(
+            "{}::{}",
+            self.options.network.get_seal_package(),
+            STALENESS_MODULE
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
