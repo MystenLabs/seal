@@ -117,7 +117,7 @@ pub enum SealPackage {
 }
 
 impl SealPackage {
-    pub fn get_seal_package_id(&self) -> ObjectID {
+    pub fn package_id(&self) -> ObjectID {
         match self {
             SealPackage::Testnet => ObjectID::from_hex_literal(
                 "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
@@ -423,8 +423,8 @@ server_mode: !Open
 
     assert_eq!(resolve_network(&options.network).unwrap(), Network::Mainnet);
     assert_eq!(
-        options.network.get_seal_package(),
-        SealPackage::Mainnet.get_seal_package_id()
+        options.network.seal_package_id(),
+        SealPackage::Mainnet.package_id()
     );
     match options.network {
         Network::Custom { node_url, .. } => {
