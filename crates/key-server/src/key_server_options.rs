@@ -123,10 +123,7 @@ impl SealPackage {
                 "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
             )
             .unwrap(),
-            SealPackage::Mainnet => ObjectID::from_hex_literal(
-                "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
-            )
-            .unwrap(),
+            SealPackage::Mainnet => ObjectID::from_hex_literal("0x1").unwrap(),
             SealPackage::Custom(seal_package) => *seal_package,
         }
     }
