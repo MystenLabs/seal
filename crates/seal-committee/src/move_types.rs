@@ -8,6 +8,7 @@ use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto_tbls::ecies_v1::PublicKey;
 use serde::Deserialize;
+use std::collections::HashMap;
 use sui_sdk_types::Address;
 use sui_types::collection_types::VecSet;
 
@@ -63,7 +64,7 @@ pub struct Field<K, V> {
 pub struct PartialKeyServerInfo {
     pub ks_obj_id: Address,
     pub party_id: u16,
-    pub partial_pk: Vec<u8>,
+    pub partial_pk: G2Element,
 }
 
 #[derive(Deserialize, Debug)]
@@ -144,8 +145,8 @@ impl SealCommittee {
         self.members.contains(member_addr)
     }
 
-    /// Extract members' party ID, address, enc_pk and signing_pk from Init state.
-    pub fn get_members_info(&self) -> Result<Vec<ParsedMemberInfo>> {
+    /// Extract members' info and return a HashMap mapping address to ParsedMemberInfo.
+    pub fn get_members_info(&self) -> Result<HashMap<Address, ParsedMemberInfo>> {
         // Extract candidate data from Init state
         let members_info = match &self.state {
             CommitteeState::Init { members_info } => members_info,
@@ -159,17 +160,19 @@ impl SealCommittee {
             }
         };
 
-        let mut members = Vec::new();
+        let info_map: HashMap<_, _> = members_info
+            .0
+            .contents
+            .iter()
+            .map(|entry| (&entry.key, &entry.value))
+            .collect();
 
         // Party ID is the index in self.members.
-        for (party_id, member_addr) in self.members.iter().enumerate() {
-            // Find member info entry for the address.
-            let entry = members_info
-                .0
-                .contents
-                .iter()
-                .find(|e| &e.key == member_addr)
-                .ok_or_else(|| {
+        self.members
+            .iter()
+            .enumerate()
+            .map(|(party_id, member_addr)| {
+                let info = info_map.get(member_addr).ok_or_else(|| {
                     anyhow!(
                         "Member {} not registered in committee {}. Do not init DKG before all members register.",
                         member_addr,
@@ -177,14 +180,17 @@ impl SealCommittee {
                     )
                 })?;
 
-            members.push(ParsedMemberInfo {
-                party_id: party_id as u16,
-                address: *member_addr,
-                enc_pk: entry.value.enc_pk.clone(),
-                signing_pk: entry.value.signing_pk,
-            });
-        }
-        Ok(members)
+                Ok((
+                    *member_addr,
+                    ParsedMemberInfo {
+                        party_id: party_id as u16,
+                        address: *member_addr,
+                        enc_pk: info.enc_pk.clone(),
+                        signing_pk: info.signing_pk,
+                    },
+                ))
+            })
+            .collect()
     }
 }
 

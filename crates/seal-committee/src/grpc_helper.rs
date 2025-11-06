@@ -103,21 +103,23 @@ pub async fn fetch_partial_key_server_info(
         ServerType::Committee {
             partial_key_servers,
             ..
-        } => Ok(partial_key_servers
+        } => partial_key_servers
             .0
             .contents
             .into_iter()
             .map(|entry| {
-                (
+                let partial_pk = bcs::from_bytes(&entry.value.partial_pk)
+                    .map_err(|e| anyhow!("Failed to deserialize partial PK: {}", e))?;
+                Ok((
                     entry.key,
                     PartialKeyServerInfo {
                         ks_obj_id,
                         party_id: entry.value.party_id,
-                        partial_pk: entry.value.partial_pk,
+                        partial_pk,
                     },
-                )
+                ))
             })
-            .collect()),
+            .collect(),
         _ => Err(anyhow!("KeyServer is not of type Committee")),
     }
 }
@@ -173,7 +175,15 @@ mod tests {
     use super::*;
     use crate::ParsedMemberInfo;
     use fastcrypto::encoding::{Encoding, Hex};
+    use fastcrypto::groups::bls12381::G2Element;
+    use fastcrypto_tbls::ecies_v1::PublicKey;
     use std::str::FromStr;
+
+    /// Helper to deserialize from hex string.
+    fn from_hex_bcs<T: serde::de::DeserializeOwned>(hex_str: &str) -> T {
+        let bytes = Hex::decode(hex_str).unwrap();
+        bcs::from_bytes(&bytes).unwrap()
+    }
 
     #[tokio::test]
     async fn test_fetch_committee_members() {
@@ -196,16 +206,20 @@ mod tests {
             Address::from_str("0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9")
                 .unwrap(),
         ];
+
+        let expected_enc_pk: PublicKey<G2Element> = from_hex_bcs("0xaf2ca44fd70f4e72d5ef6ad1bc8f5ab42850a36f75e1562f4f33ca2d25c5fee5fe780e164f17e0591a46a44d545e71f21447d316563899b77f34ee34d84ee70c70505f98dc4e7f5914b347cec49ef3a510efa9568416413cacd5361f42c8fa58");
+        let expected_signing_pk: G2Element = from_hex_bcs("0x89dcee7b2f5b6256eafe4eabcac4a2fa348ce52d10b6a994da6f2969eb76d87e54f0298d446ab72f0094dae0f0fb5e2018e1d2957cb1514837d0bdb6edab1f549638bdbdca7542f81b62d426a898c9efff50cdaa1958b8ed06cbc72208570b46");
+
         for ParsedMemberInfo {
             party_id,
             address,
             enc_pk,
             signing_pk,
-        } in members_info.iter()
+        } in members_info.values()
         {
             assert_eq!(addresses[*party_id as usize], *address);
-            assert_eq!(*enc_pk, bcs::from_bytes(&Hex::decode("0xaf2ca44fd70f4e72d5ef6ad1bc8f5ab42850a36f75e1562f4f33ca2d25c5fee5fe780e164f17e0591a46a44d545e71f21447d316563899b77f34ee34d84ee70c70505f98dc4e7f5914b347cec49ef3a510efa9568416413cacd5361f42c8fa58").unwrap()).unwrap());
-            assert_eq!(*signing_pk, bcs::from_bytes(&Hex::decode("0x89dcee7b2f5b6256eafe4eabcac4a2fa348ce52d10b6a994da6f2969eb76d87e54f0298d446ab72f0094dae0f0fb5e2018e1d2957cb1514837d0bdb6edab1f549638bdbdca7542f81b62d426a898c9efff50cdaa1958b8ed06cbc72208570b46").unwrap()).unwrap());
+            assert_eq!(enc_pk, &expected_enc_pk);
+            assert_eq!(signing_pk, &expected_signing_pk);
         }
 
         assert!(committee.is_init().is_ok());
@@ -251,8 +265,10 @@ mod tests {
             let expected_pk_bytes =
                 Hex::decode(expected_partial_pks[partial_key_server_info.party_id as usize])
                     .unwrap();
+            let expected_pk: fastcrypto::groups::bls12381::G2Element =
+                bcs::from_bytes(&expected_pk_bytes).unwrap();
             assert_eq!(
-                partial_key_server_info.partial_pk, expected_pk_bytes,
+                partial_key_server_info.partial_pk, expected_pk,
                 "Partial PK for party {} (member {}) should match",
                 partial_key_server_info.party_id, member
             );

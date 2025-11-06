@@ -144,8 +144,7 @@ async fn main() -> Result<()> {
             let members_info = committee.get_members_info()?;
 
             let my_member_info = members_info
-                .iter()
-                .find(|m| m.address == my_address)
+                .get(&my_address)
                 .ok_or_else(|| anyhow!("Address {} not found in committee members", my_address))?;
             let my_party_id = my_member_info.party_id;
             let registered_enc_pk = &my_member_info.enc_pk;
@@ -228,7 +227,7 @@ async fn main() -> Result<()> {
 
             // Create nodes for all parties with their enc_pks.
             let mut nodes = Vec::new();
-            for m in members_info {
+            for (_, m) in members_info {
                 nodes.push(Node {
                     id: m.party_id,
                     pk: m.enc_pk,
