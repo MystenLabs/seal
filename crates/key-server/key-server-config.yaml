@@ -23,9 +23,8 @@
 #   'Package id to use'
 # For Devnet, the parameter is mandatory.
 # For Custom, the parameter is optional, and if it is not set, the default Seal package
-# on Mainnet will be used by default.
-# The `seal_package` variable can either be set in this config file as described above,
-# or as an environment variable, SEAL_PACKAGE.
+# on Mainnet will be used by default. It can either be set in this config file or as an
+# environment variable, SEAL_PACKAGE.
 #
 # Example:
 network: Testnet
