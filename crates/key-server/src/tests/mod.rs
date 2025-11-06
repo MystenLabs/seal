@@ -129,7 +129,9 @@ impl SealTestCluster {
                     master_keys: MasterKeys::Open { master_key },
                     key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options: KeyServerOptions {
-                        network: Network::TestCluster(SealPackage::Custom(seal_package)),
+                        network: Network::TestCluster {
+                            seal_package: SealPackage::Custom(seal_package),
+                        },
                         node_url: None,
                         server_mode: ServerMode::Open {
                             key_server_object_id,

@@ -15,29 +15,35 @@ pub type MasterKeyPOP = ibe::ProofOfPossession;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
-    Devnet(SealPackage),
+    Devnet {
+        seal_package: SealPackage,
+    },
     Testnet,
     Mainnet,
     #[cfg(test)]
-    TestCluster(SealPackage),
+    TestCluster {
+        seal_package: SealPackage,
+    },
 }
 
 impl Network {
     pub fn default_node_url(&self) -> &str {
         match self {
-            Network::Devnet(_) => "https://fullnode.devnet.sui.io:443",
+            Network::Devnet { .. } => "https://fullnode.devnet.sui.io:443",
             Network::Testnet => "https://fullnode.testnet.sui.io:443",
             Network::Mainnet => "https://fullnode.mainnet.sui.io:443",
             #[cfg(test)]
-            Network::TestCluster(_) => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
+            Network::TestCluster { .. } => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
         }
     }
 
     pub fn from_str(str: &str) -> Self {
         match str.to_ascii_lowercase().as_str() {
-            "devnet" => Network::Devnet(SealPackage::Custom(
-                ObjectID::from_str(&std::env::var("SEAL_PACKAGE").unwrap()).unwrap(),
-            )),
+            "devnet" => Network::Devnet {
+                seal_package: std::env::var("SEAL_PACKAGE")
+                    .map(|s| SealPackage::Custom(ObjectID::from_str(&s).unwrap()))
+                    .unwrap(),
+            },
             "testnet" => Network::Testnet,
             "mainnet" => Network::Mainnet,
             _ => panic!("Unknown network: {str}"),
@@ -46,11 +52,11 @@ impl Network {
 
     pub fn get_seal_package(&self) -> ObjectID {
         match self {
-            Network::Devnet(seal_package) => seal_package,
+            Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
             Network::TestCluster(seal_package) => seal_package,
         }
-        .get_seal_package()
+        .get_seal_package_id()
     }
 }

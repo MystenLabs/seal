@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::key_server_options::SealPackage::Custom;
 use crate::metrics_push::MetricsPushConfig;
 use crate::time::from_mins;
 use crate::types::Network;
@@ -118,7 +117,7 @@ pub enum SealPackage {
 }
 
 impl SealPackage {
-    pub fn get_seal_package(&self) -> ObjectID {
+    pub fn get_seal_package_id(&self) -> ObjectID {
         match self {
             SealPackage::Testnet => ObjectID::from_hex_literal(
                 "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
@@ -381,7 +380,6 @@ network: Testnet
 node_url: https://node.dk
 server_mode: !Open
   key_server_object_id: '0x0'
-seal_package: '0x01'
 "#;
     let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_node_url)
         .expect("Failed to parse valid configuration");
