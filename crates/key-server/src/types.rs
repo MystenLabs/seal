@@ -71,8 +71,9 @@ impl Network {
             Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
+            // If no seal_package parameter is set, default to Mainnet
             Network::Custom { seal_package, .. } => {
-                seal_package.as_ref().unwrap_or(&SealPackage::Testnet)
+                seal_package.as_ref().unwrap_or(&SealPackage::Mainnet)
             }
             Network::TestCluster { seal_package } => seal_package,
         }
