@@ -375,6 +375,10 @@ server_mode: !Open
 
     assert_eq!(resolve_network(&options.network).unwrap(), Network::Testnet);
     assert_eq!(
+        options.network.seal_package_id(),
+        ObjectID::from_single_byte(1)
+    );
+    assert_eq!(
         options.network,
         Network::Custom {
             node_url: Some("https://node.dk".to_string()),
