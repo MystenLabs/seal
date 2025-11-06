@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::key_server_options::SealPackage;
+use crate::utils::decode_object_id;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -49,8 +50,8 @@ impl Network {
     pub fn from_str(str: &str) -> Self {
         match str.to_ascii_lowercase().as_str() {
             "devnet" => Network::Devnet {
-                seal_package: std::env::var("SEAL_PACKAGE")
-                    .map(|s| SealPackage::Custom(ObjectID::from_str(&s).unwrap()))
+                seal_package: decode_object_id("SEAL_PACKAGE")
+                    .map(SealPackage::Custom)
                     .unwrap(),
             },
             "testnet" => Network::Testnet,
@@ -60,7 +61,7 @@ impl Network {
                 use_default_mainnet_for_mvr: None,
                 seal_package: std::env::var("SEAL_PACKAGE")
                     .map(|s| SealPackage::Custom(ObjectID::from_str(&s).unwrap()))
-                    .ok(),
+                    .ok(), // None if env not set, panic if object ID is invalid
             },
             _ => panic!("Unknown network: {str}"),
         }
