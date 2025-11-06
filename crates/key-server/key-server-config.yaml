@@ -15,8 +15,8 @@
 # 1. Set the `node_url` in this config file
 # 2. OR omit `node_url` here and set the NODE_URL environment variable
 #
-# The optional `seal_package` parameter for Custom and Devnet should point to what
-# Seal package deployment to use. This must be one of:
+# The `seal_package` parameter for Custom and Devnet should point to what Seal package
+# deployment to use. This must be one of:
 # seal_package: Mainnet
 # seal_package: Testnet
 # seal_package: !Custom
