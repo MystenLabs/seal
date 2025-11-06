@@ -120,7 +120,7 @@ impl SealPackage {
     pub fn package_id(&self) -> ObjectID {
         match self {
             SealPackage::Testnet => ObjectID::from_hex_literal(
-                "0x1b89aca0d34b1179c0a742de8a7d7c40af457053c7103b0622f55f1b8c9a6c38",
+                "0xe569e21df29a563c69296ba0ebdf00e618e8615956e3745736d709ca1df59b3d",
             )
             .unwrap(),
             SealPackage::Mainnet => ObjectID::from_hex_literal("0x1").unwrap(),

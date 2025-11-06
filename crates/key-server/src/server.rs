@@ -115,7 +115,7 @@ const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
 const STALENESS_ERROR_CODE: u64 = 5; // TODO: Replace with actual error code when Seal package is deployed
 const STALENESS_MODULE: &str = "time";
-const STALENESS_FUNCTION: &str = "check_duration_since";
+const STALENESS_FUNCTION: &str = "check_staleness";
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
@@ -539,7 +539,10 @@ impl Server {
         {
             if module_id == self.staleness_module_id() && error_code == STALENESS_ERROR_CODE {
                 debug!("Fullnode is stale (req_id: {:?})", req_id);
-                return Err(InternalError::StaleFullnode);
+                if let Some(m) = metrics {
+                    m.requests_failed_due_to_staleness.inc();
+                }
+                return Err(InternalError::Failure("Fullnode is stale".to_string()));
             }
             debug!(
                 "Dry run execution asserted (req_id: {:?}) {:?}",
