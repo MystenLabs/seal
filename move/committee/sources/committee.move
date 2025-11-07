@@ -294,7 +294,7 @@ fun try_finalize_for_rotation(
                 members_info,
                 partial_pks,
             );
-            key_server.set_partial_key_servers(partial_key_servers);
+            key_server.update_partial_key_servers(partial_key_servers);
             let committee_id = object::id(committee);
             dof::add<ID, KeyServer>(&mut committee.id, committee_id, key_server);
             committee.state = State::Finalized;

@@ -63,6 +63,7 @@ public enum ServerType has drop, store {
         url: String,
     },
     Committee {
+        version: u16,
         threshold: u16,
         partial_key_servers: VecMap<address, PartialKeyServer>,
     },
@@ -98,7 +99,7 @@ public fun create_committee_v2(
         name,
         key_type: KeyTypeBonehFranklinBLS12381,
         pk,
-        server_type: ServerType::Committee { threshold, partial_key_servers },
+        server_type: ServerType::Committee { version: 0, threshold, partial_key_servers },
     };
 
     df::add(&mut key_server.id, 2, key_server_v2);
@@ -137,8 +138,8 @@ public fun create_partial_key_server(
     }
 }
 
-/// Set the VecMap of partial key servers for a committee based KeyServerV2.
-public fun set_partial_key_servers(
+/// Update the VecMap of partial key servers for a committee based KeyServerV2 and increment version.
+public fun update_partial_key_servers(
     s: &mut KeyServer,
     partial_key_servers: VecMap<address, PartialKeyServer>,
 ) {
@@ -146,8 +147,9 @@ public fun set_partial_key_servers(
     s.assert_committee_server_v2();
     let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
     match (&mut v2.server_type) {
-        ServerType::Committee { partial_key_servers: value, .. } => {
+        ServerType::Committee { partial_key_servers: value, version: v, .. } => {
             *value = partial_key_servers;
+            *v = *v + 1;
         },
         _ => abort EInvalidServerType,
     }
@@ -155,7 +157,7 @@ public fun set_partial_key_servers(
 
 /// Update URL for a member's partial key server in a committee based KeyServerV2.
 public fun update_member_url(s: &mut KeyServer, url: String, member: address) {
-    assert_committee_server_v2(s);
+    s.assert_committee_server_v2();
     let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
     match (&mut v2.server_type) {
         ServerType::Committee { partial_key_servers, .. } => {
@@ -341,6 +343,17 @@ public fun partial_ks_pk(partial: &PartialKeyServer): vector<u8> {
 #[test_only]
 public fun partial_ks_party_id(partial: &PartialKeyServer): u16 {
     partial.party_id
+}
+
+/// Get the committee version for a committee-based KeyServer.
+#[test_only]
+public fun committee_version(s: &KeyServer): u16 {
+    s.assert_committee_server_v2();
+    let v2: &KeyServerV2 = df::borrow(&s.id, 2);
+    match (&v2.server_type) {
+        ServerType::Committee { version, .. } => *version,
+        _ => abort EInvalidServerType,
+    }
 }
 
 #[test_only]
