@@ -41,7 +41,7 @@ $ sui client switch --env <NETWORK>
 $ sui client active-address # fund this if necessary
 $ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 
-# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID>
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID> (may output additional objects)
 ```
 
 To start the key server in `Open` mode, run the command `cargo run --bin key-server`, but before running the server, set the following environment variables:
@@ -130,7 +130,7 @@ Follow these steps to add every new client to a `Permissioned` key server:
 
 $ sui client call --function create_and_transfer_v1 --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_<INDEX>>
 
-# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>>
+# outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>> (may output additional objects)
 ```
 
 - Add an entry in config file:
