@@ -6,7 +6,7 @@ module seal::polynomial;
 use seal::gf256;
 use std::u64::range_do_eq;
 
-const EIncomatibleInputLengths: u64 = 1;
+const EIncompatibleInputLengths: u64 = 1;
 
 /// This represents a polynomial over GF(2^8).
 /// The first coefficient is the constant term.
@@ -54,7 +54,7 @@ fun interpolate_with_numerators(
     y: &vector<u8>,
     numerators: &vector<Polynomial>,
 ): Polynomial {
-    assert!(x.length() == y.length(), EIncomatibleInputLengths);
+    assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
@@ -89,9 +89,9 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
 /// The length of each vector in y must be the same (equal to the l above).
 /// Aborts if the input lengths are not compatible or if the vectors are empty.
 public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
-    assert!(x.length() == y.length(), EIncomatibleInputLengths);
+    assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let l = y[0].length();
-    assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
+    assert!(y.all!(|yi| yi.length() == l), EIncompatibleInputLengths);
 
     // The numerators depend only on x, so we can compute them here
     let numerators = compute_numerators(*x);
