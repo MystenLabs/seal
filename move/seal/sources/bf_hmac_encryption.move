@@ -496,49 +496,61 @@ fun test_parse_encrypted_object() {
         x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96b7d726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3fcdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a977b02008812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e036315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b010de6062eb2dcb2f86bca32f83c9301200000000000000000000000000000000000000000000000000000000000000001184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9";
 
     let object = parse_encrypted_object(encoded);
-    assert!(object.package_id == @0x0);
-    assert!(
-        object.services == vector[@0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96, @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3, @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97],
+    assert_eq!(object.package_id, @0x0);
+    assert_eq!(
+        object.services,
+        vector[
+            @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96,
+            @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3,
+            @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97,
+        ],
     );
-    assert!(object.threshold == 2);
-    assert!(
-        object.nonce == g2_from_bytes(&x"8812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e"),
+    assert_eq!(object.threshold, 2);
+    assert_eq!(
+        object.nonce,
+        g2_from_bytes(
+            &x"8812277be43199222d173eed91b480ce4c8cda5aea008ef884e77c990311136486a7daf8e2d99c0389ae40319714ffef1212ffcb456f0de08a7fa1bb185c936f9efe86fb5e32232d5e433230d04b1f2b27614b3b5b13f04db7d5c3b995e7e02e",
+        ),
     );
-    assert!(object.indices == x"b7fc7b");
+    assert_eq!(object.indices, x"b7fc7b");
 
-    assert!(object.services.length() == 3);
-    assert!(
-        object.services[0] == @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96,
+    assert_eq!(object.services.length(), 3);
+    assert_eq!(
+        object.services[0],
+        @0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96,
     );
-    assert!(
-        object.services[1] == @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3,
+    assert_eq!(
+        object.services[1],
+        @0xd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3,
     );
-    assert!(
-        object.services[2] == @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97,
-    );
-
-    assert!(object.encrypted_shares.length() == 3);
-    assert!(
-        object.encrypted_shares[0] == x"6315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878",
-    );
-    assert!(
-        object.encrypted_shares[1] == x"bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1",
-    );
-    assert!(
-        object.encrypted_shares[2] == x"e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722",
+    assert_eq!(
+        object.services[2],
+        @0xdba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97,
     );
 
-    assert!(
-        object.encrypted_randomness == x"b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b",
+    assert_eq!(object.encrypted_shares.length(), 3);
+    assert_eq!(
+        object.encrypted_shares[0],
+        x"6315d5a9515d050595ea15b326ebcd510baf50463afd6517b5895d0756e39878",
     );
-    assert!(object.blob == x"e6062eb2dcb2f86bca32f83c93");
+    assert_eq!(
+        object.encrypted_shares[1],
+        x"bd656bd98418df11556d1ced740c7f839d97b81ee60238b3221fb45adfb0a5d1",
+    );
+    assert_eq!(
+        object.encrypted_shares[2],
+        x"e4aec4f777271e5674bd7ded20421aa929755426501ba8366e465f5ebb861722",
+    );
 
-    assert!(
-        object
-            .aad
-            .is_some_and!(
-                |x| x == x"0000000000000000000000000000000000000000000000000000000000000001",
-            ),
+    assert_eq!(
+        object.encrypted_randomness,
+        x"b2909e5ac2e8608abd885014f2fb6006dd5896ab76ea243dea0d6d6ff4c3396b",
+    );
+    assert_eq!(object.blob, x"e6062eb2dcb2f86bca32f83c93");
+
+    assert_eq!(
+        object.aad.destroy_some(),
+        x"0000000000000000000000000000000000000000000000000000000000000001",
     );
     assert!(object.mac == x"184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9");
 }
@@ -859,8 +871,8 @@ fun test_decryption_invalid_usk() {
         new_public_key(parsed_encrypted_object.services[2].to_id(), pk2),
     ];
 
-    let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks);
-    assert!(decrypted.borrow() == b"Hello, World!");
+    let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks).destroy_some();
+    assert_eq!(decrypted, b"Hello, World!");
 
     // Use a usk derived from a different key pair but for the same object id
     let other_pk0 =
@@ -958,13 +970,11 @@ fun test_safe_scalar_from_bytes() {
 
     // 0
     let zero = x"0000000000000000000000000000000000000000000000000000000000000000";
-    assert!(safe_scalar_from_bytes(&zero).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(0)));
+    assert_eq!(safe_scalar_from_bytes(&zero).destroy_some(), sui::bls12381::scalar_from_u64(0));
 
     // 7
     let seven = x"0000000000000000000000000000000000000000000000000000000000000007";
-    assert!(
-        safe_scalar_from_bytes(&seven).is_some_and!(|v| v == sui::bls12381::scalar_from_u64(7)),
-    );
+    assert_eq!(safe_scalar_from_bytes(&seven).destroy_some(), sui::bls12381::scalar_from_u64(7));
 
     // 2^256 - 1
     let invalid_bytes = x"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
@@ -1113,8 +1123,8 @@ fun test_decryption_weighted_different_keys() {
         parsed_encrypted_object.id,
         &pks_1,
     );
-    let decrypted_1 = decrypt(&parsed_encrypted_object, &vdks_1, &all_pks);
-    assert!(decrypted_1.destroy_some() == b"Hello, World!");
+    let decrypted_1 = decrypt(&parsed_encrypted_object, &vdks_1, &all_pks).destroy_some();
+    assert_eq!(decrypted_1, b"Hello, World!");
 
     // Keyserver 1 and 2 has weight 3 combined, so also enough to decrypt
     let pks_2 = vector[
