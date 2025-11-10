@@ -33,21 +33,18 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
 }
 
 // Divide a polynomial by the monic linear polynomial x + c.
-// This assumes that the polynomial is divisible by the monic linear polynomial,
-// and it's not clear what the result will be otherwise.
-// Aborts if the polynomial is empty.
-fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
+fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
     let mut coefficients = vector::empty();
-
-    let mut previous = x.coefficients[n - 1];
-    coefficients.push_back(previous);
-
-    range_do_eq!(1, n - 2, |i| {
-        previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
+    if (n > 0) {
+        let mut previous = x.coefficients[n - 1];
         coefficients.push_back(previous);
-    });
-    coefficients.reverse();
+        range_do_eq!(1, n - 2, |i| {
+            previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
+            coefficients.push_back(previous);
+        });
+        coefficients.reverse();
+    };
     Polynomial { coefficients }
 }
 
@@ -84,7 +81,7 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
     let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
         product.mul(&monic_linear(&x_j))
     });
-    x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
+    x.map_ref!(|x_j| div_by_monic_linear(&full_numerator, *x_j))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -207,6 +204,6 @@ fun test_div_exact_by_monic_linear() {
     let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
     let monic_linear = monic_linear(&2);
     let y = mul(&x, &monic_linear);
-    let z = div_exact_by_monic_linear(&y, 2);
+    let z = div_by_monic_linear(&y, 2);
     assert!(z == x);
 }
