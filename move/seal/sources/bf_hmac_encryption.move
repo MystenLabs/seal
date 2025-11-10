@@ -394,6 +394,7 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
     });
     assert!(services.length() == indices.length(), EInvalidEncryptedObject);
     assert_all_unique(&indices, EInvalidEncryptedObject);
+    indices.do_ref!(|index| assert!(*index > 0, EInvalidEncryptedObject));
     let threshold = bcs.peel_u8();
     assert!(threshold > 0 && threshold <= indices.length() as u8, EInvalidEncryptedObject);
 
