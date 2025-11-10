@@ -6,6 +6,9 @@ module seal::polynomial;
 use seal::gf256;
 use std::u64::range_do_eq;
 
+#[test_only]
+use std::unit_test::assert_eq;
+
 const EIncompatibleInputLengths: u64 = 1;
 
 /// This represents a polynomial over GF(2^8).
@@ -152,9 +155,9 @@ fun test_arithmetic() {
     let x = Polynomial { coefficients: vector[1, 2, 3] };
     let y = Polynomial { coefficients: vector[4, 5] };
     let z = Polynomial { coefficients: vector[2] };
-    assert!(x.add(&y).coefficients == vector[5, 7, 3]);
-    assert!(x.mul(&z).coefficients == vector[2, 4, 6]);
-    assert!(x.mul(&y).coefficients == x"040d060f");
+    assert_eq!(x.add(&y).coefficients, vector[5, 7, 3]);
+    assert_eq!(x.mul(&z).coefficients, vector[2, 4, 6]);
+    assert_eq!(x.mul(&y).coefficients, x"040d060f");
 }
 
 #[test]
@@ -162,20 +165,20 @@ fun test_evaluate() {
     let p = Polynomial { coefficients: vector[1, 2, 3] }; // 3x^2 + 2x + 1
 
     // Test vector computed externally using https://github.com/jonas-lj/Ruffini/
-    assert!(p.evaluate(0) == 1);
-    assert!(p.evaluate(1) == 0);
-    assert!(p.evaluate(2) == 9);
-    assert!(p.evaluate(3) == 8);
+    assert_eq!(p.evaluate(0), 1);
+    assert_eq!(p.evaluate(1), 0);
+    assert_eq!(p.evaluate(2), 9);
+    assert_eq!(p.evaluate(3), 8);
 
     // Test zero polynomial
     let p = Polynomial { coefficients: vector[] };
-    assert!(p.evaluate(0) == 0);
+    assert_eq!(p.evaluate(0), 0);
 
     let p = Polynomial { coefficients: vector[3] };
-    assert!(p.evaluate(0) == 3);
-    assert!(p.evaluate(1) == 3);
-    assert!(p.evaluate(2) == 3);
-    assert!(p.evaluate(3) == 3);
+    assert_eq!(p.evaluate(0), 3);
+    assert_eq!(p.evaluate(1), 3);
+    assert_eq!(p.evaluate(2), 3);
+    assert_eq!(p.evaluate(3), 3);
 }
 
 #[test]
@@ -183,7 +186,7 @@ fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
     let p = interpolate_with_numerators(&x, &y, &compute_numerators(x));
-    assert!(p.coefficients == x"1d150f");
+    assert_eq!(p.coefficients, x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
 
@@ -192,10 +195,10 @@ fun test_interpolate_all() {
     let x = vector[1, 2, 3];
     let y = vector[vector[7, 8], vector[11, 12], vector[17, 18]];
     let ps = interpolate_all(&x, &y);
-    assert!(ps.length() == 2);
+    assert_eq!(ps.length(), 2);
     x.zip_do!(y, |x, y| {
-        assert!(ps[0].evaluate(x) == y[0]);
-        assert!(ps[1].evaluate(x) == y[1]);
+        assert_eq!(ps[0].evaluate(x), y[0]);
+        assert_eq!(ps[1].evaluate(x), y[1]);
     });
 }
 
@@ -205,5 +208,5 @@ fun test_div_exact_by_monic_linear() {
     let monic_linear = monic_linear(&2);
     let y = mul(&x, &monic_linear);
     let z = div_by_monic_linear(&y, 2);
-    assert!(z == x);
+    assert_eq!(z, x);
 }

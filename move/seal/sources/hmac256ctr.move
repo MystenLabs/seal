@@ -7,6 +7,9 @@ use seal::kdf::append_ref;
 use std::bcs;
 use sui::hmac::hmac_sha3_256;
 
+#[test_only]
+use std::unit_test::assert_eq;
+
 const ENC_TAG: vector<u8> = b"HMAC-CTR-ENC";
 const MAC_TAG: vector<u8> = b"HMAC-CTR-MAC";
 
@@ -50,8 +53,8 @@ fun test_decrypt() {
     let ciphertext = x"711ec5be4348c6194475dd2a45";
     let mac = x"a94c5de42a5a0219fcd6871d379df4870c35e6406ebdfb7a51594fc18a1192bd";
     let aux = b"something";
-    let decrypted = decrypt(&ciphertext, &mac, &aux, &key).borrow();
-    assert!(decrypted == b"Hello, world!");
+    let decrypted = decrypt(&ciphertext, &mac, &aux, &key).destroy_some();
+    assert_eq!(decrypted, b"Hello, world!");
 }
 
 #[test]
@@ -60,7 +63,7 @@ fun test_decrypt_fail() {
     let ciphertext = x"98bf8da0ccbb35b6cf41effc83";
     let mac = x"6c3d7fdb9b3a16a552b43a3300d6493f328e97aebf0697645cd35348ac926ec2";
     let aux = b"something else";
-    assert!(decrypt(&ciphertext, &mac, &aux, &key) == option::none());
+    assert!(decrypt(&ciphertext, &mac, &aux, &key).is_none());
 }
 
 #[test]
@@ -70,8 +73,9 @@ fun test_decrypt_long() {
         x"feadb8c8f781036f86b6a9f436cac6f9f68ba8fc8b8444f0331a5820f78580f32034f698f7ce15f25defae1749f0131c0a8b8c5e751b96aacf507d0dbd4d7790440d196a339fcb8498ca7dd236014e353729b7aa2cf524284a8d2305d2378494eadd6f";
     let mac = x"85d498365972c3dc7a53f94232f9cb10dcc94eff064d6835d41d7a7536b47b51";
     let aux = b"Mark Twain";
-    let decrypted = decrypt(&ciphertext, &mac, &aux, &key).borrow();
-    assert!(
-        decrypted == b"The difference between a Miracle and a Fact is exactly the difference between a mermaid and a seal.",
+    let decrypted = decrypt(&ciphertext, &mac, &aux, &key).destroy_some();
+    assert_eq!(
+        decrypted,
+        b"The difference between a Miracle and a Fact is exactly the difference between a mermaid and a seal.",
     );
 }

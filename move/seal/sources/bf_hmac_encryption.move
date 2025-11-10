@@ -26,6 +26,9 @@ use sui::{
     group_ops::Element
 };
 
+#[test_only]
+use std::unit_test::assert_eq;
+
 const EWrongVerifiedKeys: u64 = 0;
 const EWrongPublicKeys: u64 = 1;
 const EIncompatibleInputLengths: u64 = 2;
@@ -540,7 +543,7 @@ fun test_parse_encrypted_object() {
     assert!(object.mac == x"184b788b4f5168aff51c0e6da7e2970caa02386c4dc179666ef4c6296807cda9");
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EInvalidEncryptedObject)]
 fun test_parse_encrypted_object_duplicate_indices_rejected() {
     // a encoded object with duplicate indices [183, 183, 123]
     let encoded =
@@ -612,10 +615,10 @@ fun test_verify_derived_keys() {
         &vector[public_key_1, public_key_2, public_key_3],
     );
 
-    assert!(verfied_derived_keys.length() == 3);
+    assert_eq!(verfied_derived_keys.length(), 3);
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EInvalidVerifiedKey)]
 fun test_verify_invalid_derived_keys() {
     let public_key_1 = new_public_key(
         @0x0.to_id(),
@@ -743,7 +746,7 @@ fun test_decryption() {
     ];
 
     let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks);
-    assert!(decrypted.borrow() == b"Hello, world!");
+    assert_eq!(decrypted.destroy_some(), b"Hello, world!");
 }
 
 #[test]
@@ -780,7 +783,7 @@ fun test_decryption_one_server() {
     assert!(decrypted.borrow() == b"Hello, world!");
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EInsufficientDerivedKeys)]
 fun test_decryption_too_few_shares() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -886,7 +889,7 @@ fun test_decryption_invalid_usk() {
     assert!(decrypt(&parsed_encrypted_object, &vdks, &all_pks).is_none());
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EInvalidEncryptedObject)]
 fun test_zero_threshold() {
     parse_encrypted_object(
         x"00571ce2217b77605970898d1ddb29e235ed46d0768c6d32e28509ed0678f678080401020304000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010d48656c6c6f2c20576f726c64210109736f6d657468696e670000000000000000000000000000000000000000000000000000000000000000",
@@ -928,7 +931,7 @@ fun test_decryption_from_sdk() {
     );
 
     let decrypted = decrypt(&parsed_encrypted_object, &vdks, &pks);
-    assert!(decrypted.borrow() == x"010203");
+    assert_eq!(decrypted.destroy_some(), x"010203");
 }
 
 #[test, expected_failure]
@@ -1016,10 +1019,10 @@ fun test_decryption_weighted() {
     ];
 
     let decrypted = decrypt(&parsed_encrypted_object, &vdks, &all_pks);
-    assert!(decrypted.borrow() == b"Hello, world!");
+    assert_eq!(decrypted.destroy_some(), b"Hello, world!");
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EInsufficientDerivedKeys)]
 fun test_decryption_weighted_to_few_keys() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1126,10 +1129,10 @@ fun test_decryption_weighted_different_keys() {
         &pks_2,
     );
     let decrypted_2 = decrypt(&parsed_encrypted_object, &vdks_2, &all_pks);
-    assert!(decrypted_2.destroy_some() == b"Hello, World!");
+    assert_eq!(decrypted_2.destroy_some(), b"Hello, World!");
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EWrongPublicKeys)]
 fun test_decryption_duplicate_pks() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1172,7 +1175,7 @@ fun test_decryption_duplicate_pks() {
     decrypt(&parsed_encrypted_object, &vdks, &all_pks_with_duplicate);
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EWrongPublicKeys)]
 fun test_decryption_invalid_vdk() {
     use sui::bls12381::{g1_from_bytes};
 
@@ -1229,7 +1232,7 @@ fun test_decryption_invalid_vdk() {
     decrypt(&parsed_encrypted_object, &vdks, &all_pks);
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = EWrongPublicKeys)]
 fun test_decryption_invalid_pk() {
     use sui::bls12381::{g1_from_bytes};
 

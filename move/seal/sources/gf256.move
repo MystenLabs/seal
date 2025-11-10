@@ -5,6 +5,9 @@
 /// This is the field used in AES.
 module seal::gf256;
 
+#[test_only]
+use std::unit_test::assert_eq;
+
 const ELogOfZero: u64 = 1;
 const EDivideByZero: u64 = 2;
 
@@ -87,8 +90,8 @@ fun test_field_ops() {
     // Test vector, partly from https://en.wikipedia.org/wiki/Finite_field_arithmetic#Rijndael's_(AES)_finite_field
     let a = 0x53;
     let b = 0xca;
-    assert!(add(a, b) == 0x99);
-    assert!(sub(a, b) == 0x99);
-    assert!(mul(a, b) == 0x01);
-    assert!(div(a, b) == 0xb5);
+    assert_eq!(add(a, b), 0x99);
+    assert_eq!(sub(a, b), 0x99);
+    assert_eq!(mul(a, b), 0x01);
+    assert_eq!(div(a, b), 0xb5);
 }
