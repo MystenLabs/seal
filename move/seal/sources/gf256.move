@@ -51,12 +51,12 @@ const LOG: vector<u8> = vector[
 #[allow(implicit_const_copy)]
 fun log(x: u8): u16 {
     assert!(x != 0, ELogOfZero);
-    *LOG.borrow((x - 1) as u64) as u16
+    LOG[(x - 1) as u64] as u16
 }
 
 #[allow(implicit_const_copy)]
 fun exp(x: u16): u8 {
-    *EXP.borrow((x % 255) as u64)
+    EXP[(x % 255) as u64]
 }
 
 public(package) fun add(x: u8, y: u8): u8 {
