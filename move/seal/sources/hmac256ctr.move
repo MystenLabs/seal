@@ -3,6 +3,7 @@
 
 module seal::hmac256ctr;
 
+use seal::kdf::append_ref;
 use std::bcs;
 use sui::hmac::hmac_sha3_256;
 
@@ -37,9 +38,9 @@ public(package) fun decrypt(
 
 fun mac(key: &vector<u8>, aux: &vector<u8>, ciphertext: &vector<u8>): vector<u8> {
     let mut mac_input = MAC_TAG;
-    mac_input.append(bcs::to_bytes(&aux.length()));
-    mac_input.append(*aux);
-    mac_input.append(*ciphertext);
+    append_ref(&mut mac_input, &bcs::to_bytes(&aux.length()));
+    append_ref(&mut mac_input, aux);
+    append_ref(&mut mac_input, ciphertext);
     hmac_sha3_256(key, &mac_input)
 }
 

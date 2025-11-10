@@ -299,9 +299,8 @@ fun decrypt_remaining_shares_with_randomness(
 }
 
 fun create_full_id(package_id: address, id: vector<u8>): vector<u8> {
-    let mut full_id = vector::empty();
-    full_id.append(package_id.to_bytes());
-    full_id.append(id);
+    let mut full_id = package_id.to_bytes();
+    append_ref(&mut full_id, &id);
     full_id
 }
 
@@ -325,8 +324,10 @@ fun derive_key(
     append_ref(&mut bytes, base_key);
     bytes.push_back(tag);
     bytes.push_back(encrypted_object.threshold);
-    encrypted_object.encrypted_shares.do_ref!(|share| bytes.append(*share));
-    encrypted_object.services.do_ref!(|key_server| bytes.append((*key_server).to_bytes()));
+    encrypted_object.encrypted_shares.do_ref!(|share| append_ref(&mut bytes, share));
+    encrypted_object
+        .services
+        .do_ref!(|key_server| append_ref(&mut bytes, &((*key_server).to_bytes())));
     sha3_256(bytes)
 }
 
