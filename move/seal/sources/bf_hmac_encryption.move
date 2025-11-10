@@ -90,7 +90,6 @@ public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
 /// If some key servers are weighted, each derived key contributes the weight of the key server to the threshold.
 /// The public keys can be in any order and there should be exactly one per key server.
 /// The provided verified derived keys can be in any order, but there should be at most one per key server.
-#[allow(unused_variable)]
 public fun decrypt(
     encrypted_object: &EncryptedObject,
     verified_derived_keys: &vector<VerifiedDerivedKey>,
@@ -105,7 +104,7 @@ public fun decrypt(
         mac,
         aad,
         indices,
-        encrypted_shares,
+        encrypted_shares: _encrypted_shares,
         encrypted_randomness,
         services,
     } = encrypted_object;
@@ -167,7 +166,7 @@ public fun decrypt(
     let randomness = randomness.destroy_some();
 
     // Use the randomness to verify the nonce.
-    if (!verify_nonce(&randomness, &encrypted_object.nonce)) {
+    if (!verify_nonce(&randomness, nonce)) {
         return none()
     };
 
