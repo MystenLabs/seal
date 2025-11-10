@@ -63,7 +63,8 @@ public enum ServerType has drop, store {
         url: String,
     },
     Committee {
-        version: u16,
+        /// Incremented on every rotation of the committee.
+        version: u32,
         threshold: u16,
         partial_key_servers: VecMap<address, PartialKeyServer>,
     },
@@ -347,7 +348,7 @@ public fun partial_ks_party_id(partial: &PartialKeyServer): u16 {
 
 /// Get the committee version for a committee-based KeyServer.
 #[test_only]
-public fun committee_version(s: &KeyServer): u16 {
+public fun committee_version(s: &KeyServer): u32 {
     s.assert_committee_server_v2();
     let v2: &KeyServerV2 = df::borrow(&s.id, 2);
     match (&v2.server_type) {

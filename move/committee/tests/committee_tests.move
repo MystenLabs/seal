@@ -764,7 +764,7 @@ public macro fun assert_partial_key_server(
 }
 
 /// Helper macro to assert key server version.
-public macro fun assert_key_server_version($key_server: &KeyServer, $expected_version: u16) {
+public macro fun assert_key_server_version($key_server: &KeyServer, $expected_version: u32) {
     let key_server = $key_server;
     let expected_version = $expected_version;
 
