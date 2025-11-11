@@ -12,15 +12,15 @@ license = "Apache-2.0"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b", features = ["aes"] }
 fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b" }
 bcs = "0.1.6"
-serde = "1.0.210"
-serde_json = "1.0.138"
+serde = "1.0.228"
+serde_json = "1.0.145"
 itertools = { version = "0.14.0" }
 anyhow = "1.0"
 rand = "0.8.5"
 hex = "0.4"
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.51", features = ["derive"] }
 tracing = "0.1.37"
-serde_with = "3.13.0"
+serde_with = "3.15.1"
 prost-types = "0.13"
 sui-rpc = "0.0.8"
 tonic = "0.13"
