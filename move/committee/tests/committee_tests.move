@@ -52,6 +52,8 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         let committee = scenario.take_shared_by_id<Committee>(old_committee_id);
         let key_server = committee.borrow_key_server();
 
+        assert_key_server_version!(key_server, 0);
+
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
         assert_partial_key_server!(key_server, ALICE, b"https://url0.com", b"partial_pk_0", 0);
         assert_partial_key_server!(key_server, BOB, b"https://url1.com", b"partial_pk_1", 1);
@@ -158,6 +160,9 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         // New committee has the key server as df.
         let new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
         let key_server = new_committee.borrow_key_server();
+
+        // Version incremented to 1.
+        assert_key_server_version!(key_server, 1);
 
         // Verify each member's URL, partial PK, and party ID (BOB=party0, ALICE=party1, DAVE=party2, EVE=party3).
         assert_partial_key_server!(key_server, BOB, b"https://new_url1.com", b"pk1", 0);
@@ -268,6 +273,9 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         // Third committee has the key server as df.
         let third_committee = scenario.take_shared_by_id<Committee>(third_committee_id);
         let key_server = third_committee.borrow_key_server();
+
+        // Version incremented to 2.
+        assert_key_server_version!(key_server, 2);
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
         assert_partial_key_server!(key_server, EVE, b"https://eve_url_3.com", b"eve_pk_3", 0);
@@ -753,4 +761,12 @@ public macro fun assert_partial_key_server(
     assert!(partial_ks.partial_ks_url() == string::utf8(expected_url));
     assert!(partial_ks.partial_ks_pk() == expected_partial_pk);
     assert!(partial_ks.partial_ks_party_id() == expected_party_id);
+}
+
+/// Helper macro to assert key server version.
+public macro fun assert_key_server_version($key_server: &KeyServer, $expected_version: u32) {
+    let key_server = $key_server;
+    let expected_version = $expected_version;
+
+    assert!(key_server.committee_version() == expected_version);
 }
