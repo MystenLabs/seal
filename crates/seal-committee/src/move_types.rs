@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto_tbls::ecies_v1::PublicKey;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_sdk_types::Address;
 use sui_types::collection_types::VecSet;
@@ -49,7 +49,7 @@ pub struct PartialKeyServer {
     pub party_id: u16,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Wrapper<T> {
     pub name: T,
 }

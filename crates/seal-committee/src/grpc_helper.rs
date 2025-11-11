@@ -11,10 +11,9 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use sui_rpc::client::v2::Client;
-use sui_sdk_types::{Address, Object};
+use sui_sdk_types::{Address, Object, StructTag, TypeTag};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
-const PAGE_SIZE: u32 = 1000;
 
 /// Create gRPC client for a given network.
 pub fn create_grpc_client(network: &Network) -> Result<Client> {
@@ -28,7 +27,7 @@ pub fn create_grpc_client(network: &Network) -> Result<Client> {
 /// Fetch an object's BCS data and deserialize as type T.
 async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
     grpc_client: &mut Client,
-    object_id: &str,
+    object_id: &Address,
     error_context: &str,
 ) -> Result<T> {
     let mut ledger_client = grpc_client.ledger_client();
@@ -63,8 +62,7 @@ pub async fn fetch_committee_data(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<SealCommittee> {
-    fetch_and_deserialize_move_object(grpc_client, &committee_id.to_string(), "Committee object")
-        .await
+    fetch_and_deserialize_move_object(grpc_client, committee_id, "Committee object").await
 }
 
 /// Fetch partial key server info for all committee members.
@@ -73,22 +71,38 @@ pub async fn fetch_partial_key_server_info(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<HashMap<Address, PartialKeyServerInfo>> {
-    // Find dynamic object field with name = committee.id to get KeyServer object ID.
-    let field_name_bcs = bcs::to_bytes(&committee_id)?;
-    let field_wrapper_id_str =
-        find_dynamic_field(grpc_client, committee_id, &field_name_bcs).await?;
-    let field_wrapper: Field<Wrapper<Address>, Address> = fetch_and_deserialize_move_object(
-        grpc_client,
-        &field_wrapper_id_str,
-        "Field wrapper object",
-    )
-    .await?;
+    // Derive dynamic object field wrapper id.
+    let wrapper_key = Wrapper {
+        name: *committee_id,
+    };
+    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
+
+    let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag {
+        address: Address::TWO,
+        module: "dynamic_object_field".parse().unwrap(),
+        name: "Wrapper".parse().unwrap(),
+        type_params: vec![TypeTag::Struct(Box::new(StructTag {
+            address: Address::TWO,
+            module: "object".parse().unwrap(),
+            name: "ID".parse().unwrap(),
+            type_params: vec![],
+        }))],
+    }));
+
+    let field_wrapper_id =
+        committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
+
+    let field_wrapper: Field<Wrapper<Address>, Address> =
+        fetch_and_deserialize_move_object(grpc_client, &field_wrapper_id, "Field wrapper object")
+            .await?;
     let ks_obj_id = field_wrapper.value;
 
-    // Find KeyServerV2 dynamic field on KeyServer object.
+    // Derive KeyServerV2 dynamic field ID on KeyServer object.
+    // This is a regular dynamic_field, not dynamic_object_field.
+    // Key type: u64, Key value: EXPECTED_KEY_SERVER_VERSION
     let v2_field_name_bcs = bcs::to_bytes(&EXPECTED_KEY_SERVER_VERSION)?;
     let key_server_v2_field_id =
-        find_dynamic_field(grpc_client, &ks_obj_id, &v2_field_name_bcs).await?;
+        ks_obj_id.derive_dynamic_child_id(&sui_sdk_types::TypeTag::U64, &v2_field_name_bcs);
 
     // Fetch and deserialize the Field<u64, KeyServerV2> object.
     let field: Field<u64, KeyServerV2> = fetch_and_deserialize_move_object(
@@ -122,52 +136,6 @@ pub async fn fetch_partial_key_server_info(
             .collect(),
         _ => Err(anyhow!("KeyServer is not of type Committee")),
     }
-}
-
-/// Find dynamic field by BCS-encoded name with pagination support.
-async fn find_dynamic_field(
-    grpc_client: &mut Client,
-    parent_id: &Address,
-    field_name_bcs: &[u8],
-) -> Result<String> {
-    let mut page_token: Option<Vec<u8>> = None;
-    let mut client = grpc_client.state_client();
-
-    loop {
-        let mut request = sui_rpc::proto::sui::rpc::v2::ListDynamicFieldsRequest::default();
-        request.parent = Some(parent_id.to_string());
-        request.read_mask = Some(prost_types::FieldMask {
-            paths: vec!["field_id".to_string(), "name".to_string()],
-        });
-        request.page_size = Some(PAGE_SIZE);
-        request.page_token = page_token.as_ref().map(|t| t.clone().into());
-
-        let list_response = client
-            .list_dynamic_fields(request)
-            .await
-            .map(|r| r.into_inner())?;
-
-        // Search for matching field in this page.
-        for field in list_response.dynamic_fields {
-            if let Some(name) = field.name {
-                if let Some(value) = name.value {
-                    if value.as_ref() == field_name_bcs {
-                        return field
-                            .field_id
-                            .ok_or_else(|| anyhow!("Field has no object ID"));
-                    }
-                }
-            }
-        }
-
-        // Continue to next page if available.
-        match list_response.next_page_token {
-            Some(token) if !token.is_empty() => page_token = Some(token.to_vec()),
-            _ => break,
-        }
-    }
-
-    Err(anyhow!("Dynamic field not found for object {}", parent_id))
 }
 
 #[cfg(test)]
