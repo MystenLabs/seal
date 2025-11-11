@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
 
             // Fetch current committee from onchain.
             let mut grpc_client = create_grpc_client(&network)?;
-            let committee = fetch_committee_data(&committee_id, &mut grpc_client).await?;
+            let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             // Validate committee state is in Init state and contains my address.
             committee.is_init()?;
@@ -144,8 +144,7 @@ async fn main() -> Result<()> {
             let members_info = committee.get_members_info()?;
 
             let my_member_info = members_info
-                .iter()
-                .find(|m| m.address == my_address)
+                .get(&my_address)
                 .ok_or_else(|| anyhow!("Address {} not found in committee members", my_address))?;
             let my_party_id = my_member_info.party_id;
             let registered_enc_pk = &my_member_info.enc_pk;
@@ -186,7 +185,7 @@ async fn main() -> Result<()> {
                     println!("Old committee ID: {old_committee_id}, performing key rotation.");
 
                     let old_committee =
-                        fetch_committee_data(&old_committee_id, &mut grpc_client).await?;
+                        fetch_committee_data(&mut grpc_client, &old_committee_id).await?;
                     let old_threshold = Some(old_committee.threshold);
                     let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
 
@@ -228,7 +227,7 @@ async fn main() -> Result<()> {
 
             // Create nodes for all parties with their enc_pks.
             let mut nodes = Vec::new();
-            for m in members_info {
+            for (_, m) in members_info {
                 nodes.push(Node {
                     id: m.party_id,
                     pk: m.enc_pk,
