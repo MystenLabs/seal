@@ -163,9 +163,9 @@ mod tests {
                     "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16"
                         .to_string()
                 );
-                println!("First address: {:?}", first);
+                println!("First address: {first:?}");
             }
-            Err(e) => panic!("Test failed with error: {:?}", e),
+            Err(e) => panic!("Test failed with error: {e:?}"),
         }
     }
 

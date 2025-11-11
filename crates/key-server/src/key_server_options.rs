@@ -565,7 +565,7 @@ server_mode: !Permissioned
         let options: KeyServerOptions =
             serde_yaml::from_str(yaml).expect("Failed to parse valid configuration");
         let result = options.validate();
-        assert!(result.is_err(), "Expected validation to fail for: {}", yaml);
+        assert!(result.is_err(), "Expected validation to fail for: {yaml}");
         assert_eq!(result.unwrap_err().to_string(), expected_error);
     }
 }

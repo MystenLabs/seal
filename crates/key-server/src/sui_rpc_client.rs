@@ -67,7 +67,7 @@ impl RpcError {
     /// Helper to convert gRPC errors to RpcError
     fn from_grpc(e: tonic::Status) -> Self {
         Self {
-            message: format!("gRPC error: {}", e),
+            message: format!("gRPC error: {e}"),
             code: Some(e.code()),
         }
     }
@@ -378,7 +378,7 @@ mod tests {
         if call_count <= fail_count {
             Err(error_type)
         } else {
-            Ok(format!("Success on attempt {}", call_count))
+            Ok(format!("Success on attempt {call_count}"))
         }
     }
 
@@ -546,9 +546,7 @@ mod tests {
         let expected_min_duration = Duration::from_millis(2500);
         assert!(
             elapsed >= expected_min_duration,
-            "Expected at least {:?} but got {:?}",
-            expected_min_duration,
-            elapsed
+            "Expected at least {expected_min_duration:?} but got {elapsed:?}"
         );
     }
 }

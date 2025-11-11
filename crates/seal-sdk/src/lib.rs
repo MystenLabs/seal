@@ -84,15 +84,13 @@ pub fn seal_decrypt_all_objects(
     for (server_id, seal_response) in seal_responses.iter() {
         if !processed_servers.insert(*server_id) {
             return Err(FastCryptoError::GeneralError(format!(
-                "Duplicate server_id {} in seal_responses",
-                server_id
+                "Duplicate server_id {server_id} in seal_responses"
             )));
         }
 
         let public_key = server_pk_map.get(server_id).ok_or_else(|| {
             FastCryptoError::GeneralError(format!(
-                "No public key configured for server {}",
-                server_id
+                "No public key configured for server {server_id}"
             ))
         })?;
 
@@ -123,18 +121,13 @@ pub fn seal_decrypt_all_objects(
         let mut usks = HashMap::new();
         let mut pks = Vec::with_capacity(encrypted_object.services.len());
         for (server_id, _index) in encrypted_object.services.iter() {
-            let user_secret_key = keys_for_id.get(server_id).ok_or_else(|| {
-                FastCryptoError::GeneralError(format!(
-                    "Object requires key from server {} but no response was provided from that server",
-                    server_id
-                ))
-            })?;
-            usks.insert(*server_id, *user_secret_key);
+            if let Some(user_secret_key) = keys_for_id.get(server_id) {
+                usks.insert(*server_id, *user_secret_key);
+            }
 
             let pk = server_pk_map.get(server_id).ok_or_else(|| {
                 FastCryptoError::GeneralError(format!(
-                    "No public key configured for server {}",
-                    server_id
+                    "No public key configured for server {server_id}"
                 ))
             })?;
             pks.push(*pk);

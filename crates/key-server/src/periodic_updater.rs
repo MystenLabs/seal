@@ -68,6 +68,6 @@ where
     receiver
         .changed()
         .await
-        .unwrap_or_else(|_| panic!("Failed to get {}", value_name));
+        .unwrap_or_else(|_| panic!("Failed to get {value_name}"));
     (receiver, handle)
 }

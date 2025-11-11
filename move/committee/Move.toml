@@ -1,0 +1,13 @@
+[package]
+name = "seal_committee"
+edition = "2024.beta"
+
+[dependencies]
+seal_testnet = { local = "../seal_testnet" }
+
+[addresses]
+seal_committee = "0x0"
+
+[dev-dependencies]
+
+[dev-addresses]

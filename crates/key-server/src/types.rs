@@ -47,7 +47,7 @@ impl Network {
                 node_url: std::env::var("NODE_URL").ok(),
                 use_default_mainnet_for_mvr: None,
             },
-            _ => panic!("Unknown network: {}", str),
+            _ => panic!("Unknown network: {str}"),
         }
     }
 }

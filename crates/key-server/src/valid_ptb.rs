@@ -29,8 +29,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
         if ptb.commands.len() > MAX_COMMANDS {
             return_err!(
                 InternalError::InvalidPTB(format!(
-                    "Too many commands in PTB (more than {})",
-                    MAX_COMMANDS
+                    "Too many commands in PTB (more than {MAX_COMMANDS})"
                 )),
                 "Too many commands in PTB: {:?}",
                 ptb
