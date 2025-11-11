@@ -4,6 +4,7 @@
 //! Move struct definitions and parsers.
 
 use anyhow::{anyhow, Result};
+use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto_tbls::ecies_v1::PublicKey;
@@ -36,6 +37,7 @@ pub enum ServerType {
         url: String,
     },
     Committee {
+        version: u32,
         threshold: u16,
         partial_key_servers: VecMap<Address, PartialKeyServer>,
     },
@@ -72,7 +74,7 @@ pub struct MemberInfo {
     #[serde(deserialize_with = "deserialize_enc_pk")]
     pub enc_pk: PublicKey<G2Element>,
     #[serde(deserialize_with = "deserialize_signing_pk")]
-    pub signing_pk: G2Element,
+    pub signing_pk: BLS12381PublicKey,
     pub url: String,
 }
 
@@ -186,7 +188,7 @@ impl SealCommittee {
                         party_id: party_id as u16,
                         address: *member_addr,
                         enc_pk: info.enc_pk.clone(),
-                        signing_pk: info.signing_pk,
+                        signing_pk: info.signing_pk.clone(),
                     },
                 ))
             })
@@ -199,7 +201,7 @@ pub struct ParsedMemberInfo {
     pub party_id: u16,
     pub address: Address,
     pub enc_pk: PublicKey<G2Element>,
-    pub signing_pk: G2Element,
+    pub signing_pk: BLS12381PublicKey,
 }
 
 /// Helper function to parse Move byte literal (x"0x..." or x"...") to decoded bytes.
@@ -247,4 +249,4 @@ macro_rules! move_bytes_deserializer {
 
 move_bytes_deserializer!(deserialize_move_bytes, Vec<u8>);
 move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G2Element>);
-move_bytes_deserializer!(deserialize_signing_pk, G2Element);
+move_bytes_deserializer!(deserialize_signing_pk, BLS12381PublicKey);
