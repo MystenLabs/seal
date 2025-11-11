@@ -67,7 +67,7 @@ A key server may be used multiple times to enable weighting, which allows the ap
 !!! info
     Anyone can create an onchain `KeyServer` object that references a known URL (such as `seal.mystenlabs.com`) but uses a different public key. To prevent impersonation, the SDK may perform a verification step: it fetches the object ID from the server’s `/v1/service` endpoint and compares it with the object ID registered onchain.
 
-Apps can define a list of Seal key server object IDs from the [verified key servers](Pricing.md#verified-key-servers) available in each environment. You can use any `Open` mode key servers directly. For `Permissioned` mode servers, contact the key server operator to register your package ID and receive the corresponding object ID.
+Apps can define a list of Seal key server object IDs from the [verified key servers](Pricing.md#verified-key-servers) available in each environment. You can use any `Open` mode key server directly. For a `Permissioned` mode key server, contact the key server provider to register your access policy package ID and receive the corresponding object ID.
 
 Next, the app should create a `SealClient` object for the selected key servers.
 
@@ -87,9 +87,22 @@ const client = new SealClient({
   verifyKeyServers: false,
 });
 ```
-The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1. The config object may contain also the fields `apiKeyName` and `apiKey` for sending the HTTP header `apiKeyName: apiKey` in case a key server expects an API key.
+The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1.
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described above. Note that enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
+
+!!! tip
+    A key server **may** require an API key for requests. If so, include the fields `apiKeyName` and `apiKey` in the server configuration object. The SDK sends these as an HTTP header in the format `apiKeyName: apiKey`. 
+    For example, if a key server expects the header `x-api-key: my123api456key`, configure the server object as follows:
+    ```typescript
+    {
+      objectId: id,
+      weight: 1,
+      apiKeyName: "x-api-key",
+      apiKey: "my123api456key"
+    }
+    ```
+    Different key servers may use different header names. Confirm the header name and API key value with each such key server provider before you include it in your threshold configuration.
 
 Next, the app can call the `encrypt` method on the `client` instance. This function requires the following parameters:
 
