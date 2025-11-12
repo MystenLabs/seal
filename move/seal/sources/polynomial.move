@@ -6,7 +6,10 @@ module seal::polynomial;
 use seal::gf256;
 use std::u64::range_do_eq;
 
-const EIncomatibleInputLengths: u64 = 1;
+#[test_only]
+use std::unit_test::assert_eq;
+
+const EIncompatibleInputLengths: u64 = 1;
 
 /// This represents a polynomial over GF(2^8).
 /// The first coefficient is the constant term.
@@ -33,21 +36,18 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
 }
 
 // Divide a polynomial by the monic linear polynomial x + c.
-// This assumes that the polynomial is divisible by the monic linear polynomial,
-// and it's not clear what the result will be otherwise.
-// Aborts if the polynomial is empty.
-fun div_exact_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
+fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
     let mut coefficients = vector::empty();
-
-    let mut previous = x.coefficients[n - 1];
-    coefficients.push_back(previous);
-
-    range_do_eq!(1, n - 2, |i| {
-        previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
+    if (n > 1) {
+        let mut previous = x.coefficients[n - 1];
         coefficients.push_back(previous);
-    });
-    coefficients.reverse();
+        range_do_eq!(1, n - 2, |i| {
+            previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul(previous, c));
+            coefficients.push_back(previous);
+        });
+        coefficients.reverse();
+    };
     Polynomial { coefficients }
 }
 
@@ -57,7 +57,7 @@ fun interpolate_with_numerators(
     y: &vector<u8>,
     numerators: &vector<Polynomial>,
 ): Polynomial {
-    assert!(x.length() == y.length(), EIncomatibleInputLengths);
+    assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
@@ -84,7 +84,7 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
     let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
         product.mul(&monic_linear(&x_j))
     });
-    x.map_ref!(|x_j| div_exact_by_monic_linear(&full_numerator, *x_j))
+    x.map_ref!(|x_j| div_by_monic_linear(&full_numerator, *x_j))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -92,9 +92,9 @@ fun compute_numerators(x: vector<u8>): vector<Polynomial> {
 /// The length of each vector in y must be the same (equal to the l above).
 /// Aborts if the input lengths are not compatible or if the vectors are empty.
 public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
-    assert!(x.length() == y.length(), EIncomatibleInputLengths);
+    assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let l = y[0].length();
-    assert!(y.all!(|yi| yi.length() == l), EIncomatibleInputLengths);
+    assert!(y.all!(|yi| yi.length() == l), EIncompatibleInputLengths);
 
     // The numerators depend only on x, so we can compute them here
     let numerators = compute_numerators(*x);
@@ -155,9 +155,9 @@ fun test_arithmetic() {
     let x = Polynomial { coefficients: vector[1, 2, 3] };
     let y = Polynomial { coefficients: vector[4, 5] };
     let z = Polynomial { coefficients: vector[2] };
-    assert!(x.add(&y).coefficients == vector[5, 7, 3]);
-    assert!(x.mul(&z).coefficients == vector[2, 4, 6]);
-    assert!(x.mul(&y).coefficients == x"040d060f");
+    assert_eq!(x.add(&y).coefficients, vector[5, 7, 3]);
+    assert_eq!(x.mul(&z).coefficients, vector[2, 4, 6]);
+    assert_eq!(x.mul(&y).coefficients, x"040d060f");
 }
 
 #[test]
@@ -165,20 +165,20 @@ fun test_evaluate() {
     let p = Polynomial { coefficients: vector[1, 2, 3] }; // 3x^2 + 2x + 1
 
     // Test vector computed externally using https://github.com/jonas-lj/Ruffini/
-    assert!(p.evaluate(0) == 1);
-    assert!(p.evaluate(1) == 0);
-    assert!(p.evaluate(2) == 9);
-    assert!(p.evaluate(3) == 8);
+    assert_eq!(p.evaluate(0), 1);
+    assert_eq!(p.evaluate(1), 0);
+    assert_eq!(p.evaluate(2), 9);
+    assert_eq!(p.evaluate(3), 8);
 
     // Test zero polynomial
     let p = Polynomial { coefficients: vector[] };
-    assert!(p.evaluate(0) == 0);
+    assert_eq!(p.evaluate(0), 0);
 
     let p = Polynomial { coefficients: vector[3] };
-    assert!(p.evaluate(0) == 3);
-    assert!(p.evaluate(1) == 3);
-    assert!(p.evaluate(2) == 3);
-    assert!(p.evaluate(3) == 3);
+    assert_eq!(p.evaluate(0), 3);
+    assert_eq!(p.evaluate(1), 3);
+    assert_eq!(p.evaluate(2), 3);
+    assert_eq!(p.evaluate(3), 3);
 }
 
 #[test]
@@ -186,7 +186,7 @@ fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
     let p = interpolate_with_numerators(&x, &y, &compute_numerators(x));
-    assert!(p.coefficients == x"1d150f");
+    assert_eq!(p.coefficients, x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
 
@@ -195,10 +195,10 @@ fun test_interpolate_all() {
     let x = vector[1, 2, 3];
     let y = vector[vector[7, 8], vector[11, 12], vector[17, 18]];
     let ps = interpolate_all(&x, &y);
-    assert!(ps.length() == 2);
+    assert_eq!(ps.length(), 2);
     x.zip_do!(y, |x, y| {
-        assert!(ps[0].evaluate(x) == y[0]);
-        assert!(ps[1].evaluate(x) == y[1]);
+        assert_eq!(ps[0].evaluate(x), y[0]);
+        assert_eq!(ps[1].evaluate(x), y[1]);
     });
 }
 
@@ -207,6 +207,6 @@ fun test_div_exact_by_monic_linear() {
     let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
     let monic_linear = monic_linear(&2);
     let y = mul(&x, &monic_linear);
-    let z = div_exact_by_monic_linear(&y, 2);
-    assert!(z == x);
+    let z = div_by_monic_linear(&y, 2);
+    assert_eq!(z, x);
 }
