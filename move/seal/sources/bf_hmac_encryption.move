@@ -93,6 +93,7 @@ public fun get_public_key(key_server: &seal::key_server::KeyServer): PublicKey {
 /// If some key servers are weighted, each derived key contributes the weight of the key server to the threshold.
 /// The public keys can be in any order and there should be exactly one per key server.
 /// The provided verified derived keys can be in any order, but there should be at most one per key server.
+/// It is up to the caller to ensure that the given public keys are from the correct key servers.
 public fun decrypt(
     encrypted_object: &EncryptedObject,
     verified_derived_keys: &vector<VerifiedDerivedKey>,
@@ -339,7 +340,8 @@ fun xor(a: &vector<u8>, b: &vector<u8>): vector<u8> {
     a.zip_map_ref!(b, |a, b| *a ^ *b)
 }
 
-/// Returns a vector of `VerifiedDerivedKey`s, asserting that all derived_keys are valid for the given full ID and key servers.
+/// Returns a vector of `VerifiedDerivedKey`s, asserting that all derived_keys are valid for the given full ID and public keys.
+/// It is up to the caller to ensure that the given public keys are from the correct key servers.
 /// The order of the derived keys and the public keys must match.
 /// Aborts if the number of key servers does not match the number of derived keys.
 public fun verify_derived_keys(
@@ -1294,4 +1296,12 @@ fun test_decryption_invalid_pk() {
 
     // But decrypt should fail because the vdk for pk2 is not used in the encryption
     decrypt(&parsed_encrypted_object, &vdks, &all_pks);
+}
+
+#[test]
+#[expected_failure(abort_code = EInvalidEncryptedObject)]
+fun test_zero_index() {
+    let encrypted_object =
+        x"000000000000000000000000000000000000000000000000000000000000000000040102030403000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000201000000000000000000000000000000000000000000000000000000000000000302020099c6cb593df84708ef4aad86c70c6daf08f4d32b1718fc8a6a9837a127d8c13dd36785d94a80fde73feecaa86d7d9aa50d0bb8b93d5420785dd38857767eb4b980483dd1c9acf20fa9b1297082fe06affb9afdef449b4a9fe5a167d2d3c52944036fa57743a90f01e0d0eb566cbd2f5d7040262241be51b8a9e34d889162e808bc3c393b844e8de5cde6d28286a315d220494f20556c45d22dba66a63b51d8b98704a00331b9fa10d6d958236af6e9cd5add7dff83410a7830ff9efbea7a9a14c3e07cea42b96c8cf80c704ef89f21b6d98de9c5a4d48185f036112e168f7c7d7f011704191015aff28b80290585f1ddafd9ff2baf9d6837617b010401020304f316f4c2f79358a759f7a2602db32c84699a4305cd22e4912cf5e7c2ba0d0f68";
+    parse_encrypted_object(encrypted_object);
 }
