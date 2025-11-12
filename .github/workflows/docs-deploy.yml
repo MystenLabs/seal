@@ -2,6 +2,13 @@ name: Docs Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'ws-resources.json'
 
 concurrency:
   group: docs-deploy-${{ github.ref }}
@@ -167,3 +174,25 @@ jobs:
           done
 
 
+  notify-failure:
+    name: Notify failure to slack channel
+    needs: [build-and-deploy]
+    if: ${{ always() && needs.build-and-deploy.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: dispatch failure notification to slack
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
+        with:
+          repository: MystenLabs/sui-operations
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          event-type: seal-doc-deploy
+          client-payload: >-
+            {"source_repo":"${{ github.repository }}",
+             "sha":"${{ github.sha }}",
+             "ref":"${{ github.ref }}",
+             "actor":"${{ github.actor }}",
+             "run_id":"${{ github.run_id }}",
+             "run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+             "channel":"#seal-secret-mgmt",
+             "status":"failure"}
