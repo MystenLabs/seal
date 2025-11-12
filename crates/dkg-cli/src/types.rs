@@ -4,8 +4,10 @@
 //! Type definitions for DKG CLI.
 
 use anyhow::Result;
+use fastcrypto::bls12381::min_sig::{BLS12381PrivateKey, BLS12381PublicKey, BLS12381Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::{G2Element, Scalar as G2Scalar};
+use fastcrypto::traits::{Signer, VerifyingKey};
 use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMessages};
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::Nodes;
@@ -42,8 +44,8 @@ macro_rules! json_hex_serde_module {
 
 json_hex_serde_module!(enc_sk_serde, PrivateKey<G2Element>);
 json_hex_serde_module!(enc_pk_serde, PublicKey<G2Element>);
-json_hex_serde_module!(signing_sk_serde, G2Scalar);
-json_hex_serde_module!(signing_pk_serde, G2Element);
+json_hex_serde_module!(signing_sk_serde, BLS12381PrivateKey);
+json_hex_serde_module!(signing_pk_serde, BLS12381PublicKey);
 
 /// Keys file structure for JSON serialization/deserialization.
 #[derive(Serialize, Deserialize)]
@@ -53,9 +55,19 @@ pub struct KeysFile {
     #[serde(with = "enc_pk_serde")]
     pub enc_pk: PublicKey<G2Element>,
     #[serde(with = "signing_sk_serde")]
-    pub signing_sk: G2Scalar,
+    pub signing_sk: BLS12381PrivateKey,
     #[serde(with = "signing_pk_serde")]
-    pub signing_pk: G2Element,
+    pub signing_pk: BLS12381PublicKey,
+}
+
+impl KeysFile {
+    /// Load keys from a JSON file.
+    pub fn load(path: &Path) -> Result<Self> {
+        let keys_content = fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read keys file {}: {}", path.display(), e))?;
+        serde_json::from_str(&keys_content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse keys file: {}", e))
+    }
 }
 
 /// Initialized party configuration.
@@ -63,16 +75,14 @@ pub struct KeysFile {
 pub struct InitializedConfig {
     /// My party ID for this committee.
     pub my_party_id: u16,
-    /// ECIES private key.
-    pub enc_sk: PrivateKey<G2Element>,
-    /// Signing key.
-    pub signing_sk: G2Scalar,
     /// All nodes in the protocol.
     pub nodes: Nodes<G2Element>,
     /// This committee ID, used for random oracle.
     pub committee_id: Address,
     /// Threshold for this committee.
     pub threshold: u16,
+    /// Signing public keys for all parties in this committee.
+    pub signing_pks: HashMap<u16, BLS12381PublicKey>,
     /// Threshold for old committee, for key rotation.
     pub old_threshold: Option<u16>,
     /// Mapping from new party ID to old party ID, for key rotation.
@@ -107,19 +117,60 @@ pub struct DkgState {
 
 impl DkgState {
     /// Save state to the given directory.
-    pub fn save(&self, state_dir: &Path) -> Result<()> {
+    pub(crate) fn save(&self, state_dir: &Path) -> Result<()> {
         fs::create_dir_all(state_dir)?;
         let path = state_dir.join("state.json");
         let json = serde_json::to_string_pretty(self)?;
         fs::write(path, json)?;
         Ok(())
     }
+
+    pub(crate) fn load(state_dir: &Path) -> Result<Self> {
+        let path = state_dir.join("state.json");
+        let json = fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&json)?)
+    }
+}
+
+/// Signed message struct.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SignedMessage {
+    pub(crate) message: Message<G2Element, G2Element>,
+    pub(crate) signature: BLS12381Signature,
+}
+
+impl std::str::FromStr for SignedMessage {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        use fastcrypto::encoding::{Base64, Encoding};
+        let bytes = Base64::decode(s)?;
+        Ok(bcs::from_bytes(&bytes)?)
+    }
+}
+
+/// Create BLS signature for signed message.
+pub(crate) fn sign_message(
+    message: Message<G2Element, G2Element>,
+    sk: &BLS12381PrivateKey,
+) -> SignedMessage {
+    let message_bytes = bcs::to_bytes(&message).expect("Serialization failed");
+    let signature = sk.sign(&message_bytes);
+    SignedMessage { message, signature }
+}
+
+/// Verify BLS signature for signed message.
+pub(crate) fn verify_signature(signed_msg: &SignedMessage, pk: &BLS12381PublicKey) -> Result<()> {
+    let message_bytes = bcs::to_bytes(&signed_msg.message)?;
+    pk.verify(&message_bytes, &signed_msg.signature)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fastcrypto::groups::{GroupElement, Scalar as _};
+    use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
+    use fastcrypto::traits::KeyPair;
     use rand::thread_rng;
 
     #[test]
@@ -128,12 +179,14 @@ mod tests {
         let mut rng = thread_rng();
         let enc_sk = PrivateKey::<G2Element>::new(&mut rng);
         let enc_pk = PublicKey::from_private_key(&enc_sk);
-        let signing_sk = G2Scalar::rand(&mut rng);
-        let signing_pk = G2Element::generator() * signing_sk;
+
+        let signing_kp = BLS12381KeyPair::generate(&mut rng);
+        let signing_pk = signing_kp.public().clone();
+        let signing_sk = signing_kp.private();
 
         let keys = KeysFile {
-            enc_sk: enc_sk.clone(),
-            enc_pk: enc_pk.clone(),
+            enc_sk,
+            enc_pk,
             signing_sk,
             signing_pk,
         };
