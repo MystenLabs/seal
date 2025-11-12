@@ -39,7 +39,7 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
 fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
     let mut coefficients = vector::empty();
-    if (n > 0) {
+    if (n > 1) {
         let mut previous = x.coefficients[n - 1];
         coefficients.push_back(previous);
         range_do_eq!(1, n - 2, |i| {
