@@ -262,12 +262,12 @@ fun decrypt_shares_with_derived_keys(
     gid: &Element<G1>,
 ): vector<vector<u8>> {
     indices_per_vdk.zip_map_ref!(derived_keys, |indices, vdk| {
-        let pairing = pairing(&vdk.derived_key, &encrypted_object.nonce);
+        let target_element = pairing(&vdk.derived_key, &encrypted_object.nonce);
         indices.map_ref!(|i| {
             xor(
                 &encrypted_object.encrypted_shares[*i],
                 &kdf(
-                    &pairing,
+                    &target_element,
                     &encrypted_object.nonce,
                     gid,
                     encrypted_object.services[*i],
