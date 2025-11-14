@@ -9,6 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -46,6 +47,14 @@ pub enum ServerMode {
     Permissioned {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
+    },
+    Committee {
+        member_address: Address,
+        key_server_obj_id: Address,
+        /// The target key server version set during rotation. During rotation, this can be exactly
+        /// 1 greater than the current version. When rotation completes and the current version
+        /// matches this version, MASTER_SHARE_V{target_key_server_version} will be used.
+        target_key_server_version: u32,
     },
 }
 
@@ -255,7 +264,6 @@ impl KeyServerOptions {
         }
         Ok(())
     }
-
     pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
         match &self.server_mode {
             ServerMode::Open {
@@ -273,6 +281,9 @@ impl KeyServerOptions {
                 })
                 .map(|c| c.key_server_object_id)
                 .collect(),
+            ServerMode::Committee {
+                key_server_obj_id, ..
+            } => vec![ObjectID::new(key_server_obj_id.into_inner())],
         }
     }
 }
@@ -378,10 +389,9 @@ server_mode: !Open
     }
 }
 
-#[test]
-fn test_parse_permissioned_config() {
+#[tokio::test]
+async fn test_parse_permissioned_config() {
     use std::str::FromStr;
-
     let valid_configuration = r#"
 network: Mainnet
 sdk_version_requirement: '>=0.2.7'

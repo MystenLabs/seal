@@ -63,8 +63,8 @@ pub struct Field<K, V> {
     pub value: V,
 }
 
+#[derive(Clone)]
 pub struct PartialKeyServerInfo {
-    pub ks_obj_id: Address,
     pub party_id: u16,
     pub partial_pk: G2Element,
 }

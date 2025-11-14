@@ -83,7 +83,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 ```bash
 cargo run --bin dkg-cli create-message --my-address $MY_ADDRESS --committee-id $COMMITTEE_ID --network $NETWORK
 
-# This creates a file: ./message_X.json (where X is your party ID).
+# This creates a file: ./message_P.json (where P is your party ID).
 ```
 
 5. Wait for the coordinator to announce phase 3 and share a directory `./dkg-messages` containing all messages. Process the directory locally.
@@ -98,9 +98,9 @@ PARTY_0_PARTIAL_PK=0x8ef79f15defb1ea58b5644aa1fccc79f6235d3fff425ebe9140c3fda8e4
 PARTY_1_PARTIAL_PK=0x810b3577cb1e6dd011f1f8e2561f0e4f3c05eb0918f388817156de1a87a00b2b43f1e892da1efd09192fa85d62f83c1308b04beba3ed4d42ce01865bbd4eed24942a9504df90dce40575b05014a7b953ca4ec17530fe4367c1815cb7aca10261
 PARTY_2_PARTIAL_PK=0x92bb786ec791646fe63e99917b88c33966c9380b61dac70e4518d4a95834b42cc9163eb2cb6d067279525400bc59d91b05e52d19846bdd55a143e2d7cc7365355563a0a4d2004c6d5511da2d102d64bf0b4a518597b01af1984bfe69e2f13da5
 
-# Outputs new share, use it for MASTER_SHARE environment variable for step 7. 
+# Outputs new share, use it for MASTER_SHARE_V0 environment variable for step 7.
 ============YOUR PARTIAL KEY SHARE, KEEP SECRET=====================
-MASTER_SHARE=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036
+MASTER_SHARE_V0=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036
 ```
 
 6. Propose the committee onchain with locally finalized key server public key and partial public keys. 
@@ -111,28 +111,31 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
     --args $COMMITTEE_ID "[x\"$PARTY_0_PARTIAL_PK\", x\"$PARTY_1_PARTIAL_PK\", x\"$PARTY_2_PARTIAL_PK\"]" x"$KEY_SERVER_PK"
 ```
 
-7. WIP TODO: Wait for the coordinator to announce that the DKG process is completed and the created key server object ID. Update `key-server-config.yaml` containing `MY_ADDRESS` and `KEY_SERVER_OBJ_ID` and start the server with `MASTER_SHARE`.
+7. Wait for the coordinator to announce that the DKG process is completed and share the created key server object ID `KEY_SERVER_OBJ_ID`. Update `key-server-config.yaml` containing `MY_ADDRESS` and `KEY_SERVER_OBJ_ID` and start the server with `MASTER_SHARE_V0` (version 0 for fresh DKG).
 
-Example config file: 
+Example config file:
 ```yaml
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-  key_server_version: 0
+  target_key_server_version: 0
 ```
 
-Example command to start server: 
+Example command to start server:
 ```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036 cargo run --bin key-server
+CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036 cargo run --bin key-server
 ```
 
 ### Key Rotation Process
 
 A key rotation process is needed when a committee wants to rotate a portion of its members. The continuing members (in both current and next committee) must meet the threshold of the current committee. 
 
+Assuming the key server committee mode version onchain is currently X and it is being rotated to X+1. 
+
 #### Coordinator Runbook
 
-All steps are the same as the runbook for fresh DKG but step 2. Instead of calling `init_committee`, call `init_rotation`, where `CURRENT_COMMITTEE_ID` is the object ID of the current committee (e.g., `CURRENT_COMMITTEE_ID=0xaf2962d702d718f7b968eddc262da28418a33c296786cd356a43728a858faf80`).
+All steps are the same as the runbook for fresh DKG. Except:
+- Modified step 2: Instead of calling `init_committee`, call `init_rotation`, where `CURRENT_COMMITTEE_ID` is the object ID of the current committee (e.g., `CURRENT_COMMITTEE_ID=0xaf2962d702d718f7b968eddc262da28418a33c296786cd356a43728a858faf80`).
 
 ```bash
 # Example new members for rotation, along with ADDRESS_1, ADDRESS_0. Replace with your own. 
@@ -147,6 +150,8 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 # New committee ID, share with all members. 
 COMMITTEE_ID=0x82283c1056bb18832428034d20e0af5ed098bc58f8815363c33eb3a9b3fba867
 ```
+
+- Added step 9: Monitor onchain that the new committee is finalized. Then announce DKG rotation is completed. 
 
 #### Member Runbook
 
@@ -180,12 +185,12 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 
 4. Wait for the coordinator to announce phase 2.
 
-a. For continuing members, run the CLI below to initialize the local state and create your message file. Must provide `--old-share` arg. Share the output file with the coordinator.
+a. For continuing members, run the CLI below to initialize the local state and create your message file. Must provide `--old-share` arg with your current version `X` master share. Share the output file with the coordinator.
 
 ```bash
-cargo run --bin dkg-cli create-message --my-address $MY_ADDRESS --committee-id $COMMITTEE_ID --network $NETWORK --old-share $MASTER_SHARE
+cargo run --bin dkg-cli create-message --my-address $MY_ADDRESS --committee-id $COMMITTEE_ID --network $NETWORK --old-share $MASTER_SHARE_VX
 
-# This creates a file: ./message_X.json (where X is your party ID).
+# This creates a file: ./message_P.json (where P is your party ID).
 ```
 
 b. For new members, run the CLI below that initializes the local state. Do not provide old share.
@@ -201,14 +206,14 @@ cargo run --bin dkg-cli create-message --my-address $MY_ADDRESS --committee-id $
 ```bash
 cargo run --bin dkg-cli process-all --messages-dir ./dkg-messages
 
-# Outputs partial public keys, used for onchain proposal. 
+# Outputs partial public keys, used for onchain proposal.
 PARTY_0_PARTIAL_PK=<...>
 PARTY_1_PARTIAL_PK=<...>
 PARTY_2_PARTIAL_PK=<...>
 PARTY_3_PARTIAL_PK=<...>
 
-# Outputs new share, use it for NEXT_MASTER_SHARE environment variable for step 7. 
-MASTER_SHARE=0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9
+# Outputs new share (version X+1), to be used to start server at step 7.
+MASTER_SHARE_VX+1=0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9
 ```
 
 6. Propose the committee onchain with locally finalized partial public keys. 
@@ -219,17 +224,41 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
     --args $COMMITTEE_ID "[x\"$PARTY_0_PARTIAL_PK\", x\"$PARTY_1_PARTIAL_PK\", x\"$PARTY_2_PARTIAL_PK\", x\"$PARTY_3_PARTIAL_PK\"]" $CURRENT_COMMITTEE_ID
 ```
 
-7. WIP TODO: Update `key-server-config.yaml` to increment `KEY_SERVER_VERSION`. Start the server with existing `MASTER_SHARE` and `NEXT_MASTER_SHARE` (new share from the locally finalized DKG).
+7. Increment the version in `key-server-config.yaml` by 1, from `X` to `X+1`. 
 
-Example config file: 
+Example config file:
 ```yaml
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-  key_server_version: <KEY_SERVER_VERSION>
+  target_key_server_version: <X+1>
 ```
 
-Example command to start server: 
+a. For continuing members:
+
+i. Restart server with both versioned keys (the current version onchain is still `X`, target is `X+1`). During this transition, the server watches for the current version onchain: If it is still `X`, serve request with `MASTER_SHARE_VX`. If onchain transitions to `X+1`, serve request with `MASTER_SHARE_VX+1`. 
+
 ```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036 NEXT_MASTER_SHARE=0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9 cargo run --bin key-server
+CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_SHARE_VX=<MASTER_SHARE_VX> \
+  MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1_OUTPUT_FROM_STEP_5> \
+  cargo run --bin key-server
+```
+
+ii. Wait for coordinator to announce the DKG rotation is completed. Since now onchain version is indeed `X+1`, restart with only the version `X+1` key is sufficient:
+
+```bash
+CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1_OUTPUT_FROM_STEP_5> \
+  cargo run --bin key-server
+```
+
+iii. Delete the old key `MASTER_SHARE_VX` from storage permanently.
+
+b. For new members, since `X+1` is the first known key, so just need to start the server with it: 
+
+```bash
+CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1_OUTPUT_FROM_STEP_5> \
+  cargo run --bin key-server
 ```

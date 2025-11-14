@@ -65,9 +65,44 @@ pub async fn fetch_committee_data(
     fetch_and_deserialize_move_object(grpc_client, committee_id, "Committee object").await
 }
 
+/// Fetch KeyServerV2 data directly from a KeyServer object ID.
+/// Returns the KeyServerV2 data.
+pub async fn fetch_key_server_by_id(
+    grpc_client: &mut Client,
+    ks_obj_id: &Address,
+) -> Result<KeyServerV2> {
+    // Derive KeyServerV2 dynamic field ID on KeyServer object.
+    // This is a regular dynamic_field, not dynamic_object_field.
+    // Key type: u64, Key value: EXPECTED_KEY_SERVER_VERSION
+    let v2_field_name_bcs = bcs::to_bytes(&EXPECTED_KEY_SERVER_VERSION)?;
+    let key_server_v2_field_id =
+        ks_obj_id.derive_dynamic_child_id(&sui_sdk_types::TypeTag::U64, &v2_field_name_bcs);
+
+    // Fetch and deserialize the Field<u64, KeyServerV2> object.
+    let field: Field<u64, KeyServerV2> = fetch_and_deserialize_move_object(
+        grpc_client,
+        &key_server_v2_field_id,
+        "KeyServerV2 Field object",
+    )
+    .await?;
+
+    Ok(field.value)
+}
+
+pub async fn fetch_committee_server_version(
+    grpc_client: &mut Client,
+    ks_obj_id: &Address,
+) -> Result<u32> {
+    let key_server_v2 = fetch_key_server_by_id(grpc_client, ks_obj_id).await?;
+    match key_server_v2.server_type {
+        ServerType::Committee { version, .. } => Ok(version),
+        _ => Err(anyhow!("KeyServer is not of type Committee")),
+    }
+}
+
 /// Fetch the KeyServer object and KeyServerV2 data for a given committee.
 /// Returns the KeyServer object ID and the KeyServerV2 data.
-pub async fn fetch_key_server(
+pub async fn fetch_key_server_by_committee(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<(Address, KeyServerV2)> {
@@ -97,33 +132,36 @@ pub async fn fetch_key_server(
             .await?;
     let ks_obj_id = field_wrapper.value;
 
-    // Derive KeyServerV2 dynamic field ID on KeyServer object.
-    // This is a regular dynamic_field, not dynamic_object_field.
-    // Key type: u64, Key value: EXPECTED_KEY_SERVER_VERSION
-    let v2_field_name_bcs = bcs::to_bytes(&EXPECTED_KEY_SERVER_VERSION)?;
-    let key_server_v2_field_id =
-        ks_obj_id.derive_dynamic_child_id(&sui_sdk_types::TypeTag::U64, &v2_field_name_bcs);
+    let key_server_v2 = fetch_key_server_by_id(grpc_client, &ks_obj_id).await?;
 
-    // Fetch and deserialize the Field<u64, KeyServerV2> object.
-    let field: Field<u64, KeyServerV2> = fetch_and_deserialize_move_object(
-        grpc_client,
-        &key_server_v2_field_id,
-        "KeyServerV2 Field object",
-    )
-    .await?;
-
-    Ok((ks_obj_id, field.value))
+    Ok((ks_obj_id, key_server_v2))
 }
 
-/// Fetch partial key server info for all committee members.
-/// Returns a HashMap mapping member addresses to their partial key server info.
+/// Fetch partial key server information for a specific committee member from onchain KeyServer object.
+/// Returns the PartialKeyServerInfo for the specified member address.
+pub async fn get_partial_key_server_for_member(
+    grpc_client: &mut Client,
+    key_server_obj_id: &Address,
+    member_address: &Address,
+) -> Result<PartialKeyServerInfo> {
+    let partial_key_servers = fetch_partial_key_server_info(grpc_client, key_server_obj_id).await?;
+
+    partial_key_servers
+        .get(member_address)
+        .cloned()
+        .ok_or_else(|| {
+            anyhow!(
+                "PartialKeyServerInfo not found for member {}",
+                member_address
+            )
+        })
+}
+
 pub async fn fetch_partial_key_server_info(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<HashMap<Address, PartialKeyServerInfo>> {
-    let (ks_obj_id, key_server_v2) = fetch_key_server(grpc_client, committee_id).await?;
-
-    // Extract partial key servers from ServerType::Committee.
+    let (_, key_server_v2) = fetch_key_server_by_committee(grpc_client, committee_id).await?;
     match key_server_v2.server_type {
         ServerType::Committee {
             partial_key_servers,
@@ -138,7 +176,6 @@ pub async fn fetch_partial_key_server_info(
                 Ok((
                     entry.key,
                     PartialKeyServerInfo {
-                        ks_obj_id,
                         party_id: entry.value.party_id,
                         partial_pk,
                     },
@@ -148,7 +185,6 @@ pub async fn fetch_partial_key_server_info(
         _ => Err(anyhow!("KeyServer is not of type Committee")),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,7 +258,7 @@ mod tests {
         let mut grpc_client = Client::new(Client::TESTNET_FULLNODE).unwrap();
 
         // Assert that the old committee has no key server object (should fail).
-        let old_result = fetch_partial_key_server_info(&mut grpc_client, &old_committee_id).await;
+        let old_result = fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await;
         assert!(
             old_result.is_err(),
             "Old committee should not have a key server object after rotation"
@@ -243,14 +279,16 @@ mod tests {
             "0x8d942a02eb6a3bf78d27ec8ee27b9a8721b07fe22866bb4f6614f78978e394c9ddc8b87712ddbc3fa2f0386bc3b68ccc18dd0f05f2ca5345bf19433933a5d77bf56cd2563a2e872f82b16495529b47086212466f903f84949b15153d7eab6848",
             "0x94eba091a424bed60ad920855706ee476d23c2d9d4763ab5a4f832b3e57c38eb7d81013ea8f5b4790b4db6cd1ad2fd051633e6c8e9a25f302b5b4382724c5e83c40e487dba39910df2829c09f7d38ee2d37e0a8a1bdc2a71486c5fb6e508c069",
         ];
+
         let partial_key_servers = fetch_partial_key_server_info(&mut grpc_client, &committee_id)
             .await
             .unwrap();
 
         // Fetch KeyServerV2 to check the version field.
-        let (_ks_obj_id, key_server_v2) = fetch_key_server(&mut grpc_client, &committee_id)
-            .await
-            .unwrap();
+        let (ks_obj_id, key_server_v2) =
+            fetch_key_server_by_committee(&mut grpc_client, &committee_id)
+                .await
+                .unwrap();
 
         // Assert that the version field is 1.
         match key_server_v2.server_type {
@@ -260,13 +298,14 @@ mod tests {
             _ => panic!("KeyServer should be of type Committee"),
         }
 
+        // Verify the key server object ID matches expected.
+        assert_eq!(
+            ks_obj_id, expected_key_server,
+            "Key server address should match"
+        );
+
         for member in &committee.members {
             let partial_key_server_info = partial_key_servers.get(member).unwrap();
-
-            assert_eq!(
-                partial_key_server_info.ks_obj_id, expected_key_server,
-                "Key server address should match for member {member}"
-            );
 
             let expected_pk_bytes =
                 Hex::decode(expected_partial_pks[partial_key_server_info.party_id as usize])

@@ -15,10 +15,8 @@ use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
 use rand::thread_rng;
-use seal_committee::{
-    build_new_to_old_map, create_grpc_client, fetch_committee_data, fetch_partial_key_server_info,
-    Network,
-};
+use seal_committee::grpc_helper::fetch_partial_key_server_info;
+use seal_committee::{build_new_to_old_map, create_grpc_client, fetch_committee_data, Network};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;

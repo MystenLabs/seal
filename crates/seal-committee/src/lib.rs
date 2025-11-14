@@ -7,7 +7,7 @@ pub mod types;
 pub mod utils;
 
 pub use grpc_helper::{
-    create_grpc_client, fetch_committee_data, fetch_key_server, fetch_partial_key_server_info,
+    create_grpc_client, fetch_committee_data, fetch_key_server_by_committee, fetch_key_server_by_id,
 };
 pub use move_types::{
     CommitteeState, KeyServerV2, MemberInfo, ParsedMemberInfo, PartialKeyServerInfo, SealCommittee,

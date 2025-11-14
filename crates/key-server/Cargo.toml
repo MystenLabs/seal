@@ -50,6 +50,7 @@ hyper-util = "0.1.10"
 http-body-util = "0.1.2"
 futures = "0.3"
 seal-sdk = { path = "../seal-sdk" }
+seal-committee = { path = "../seal-committee" }
 
 # sui grpc dep
 sui-rpc = { workspace = true }
@@ -61,3 +62,4 @@ tracing-test = "0.2.5"
 test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
+fastcrypto-tbls = { workspace = true }
