@@ -6,8 +6,7 @@
 # network: Devnet
 # network: !Custom
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
-#   use_default_mainnet_for_mvr: true # Optional, default to true if not present, 
-set this to false for mvr to resolve on testnet. 
+#   use_default_mainnet_for_mvr: true # Optional, default to true if not present, set this to false for mvr to resolve on testnet. 
 #
 # Use Custom for production deployments. You must provide the node URL
 # in exactly one of these ways:
@@ -19,10 +18,12 @@ set this to false for mvr to resolve on testnet.
 network: Testnet
 
 
-# Server mode. The server can either work in Open/permissionless mode that 
-# supports all packages, or in Permissioned mode that only supports
-# whitelisted packages .
+# Server mode:
+#   1) Open: Supports all policy packages. 
+#   2) Permissioned: Supports only allowed policy packages. 
+#   3) Committee: Supports all packages. Requires DKG setup for master key share.
 #
+# #### OPEN MODE ####
 # For the Open mode, set the registered key server object ID to be used, e.g.,:
 # server_mode: !Open
 #   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
@@ -31,7 +32,7 @@ network: Testnet
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-#
+# #### PERMISSIONED MODE ####
 # For the Permissioned mode, set the allowed clients and their configurations.
 # A client config contains:
 # - Client name - for debugging purposes only, can always be modified.
@@ -75,6 +76,33 @@ server_mode: !Open
 #       package_ids:
 #         - "0x3333333333333333333333333333333333333333333333333333333333333333"
 
+# #### COMMITTEE MODE ####
+# See step 7 in the member runbook for fresh DKG and key rotation in details.
+#
+# Environment variables use versioned naming: MASTER_SHARE_VX
+#
+# - For active mode (onchain version = target version = X):
+#   Must provide MASTER_SHARE_VX where X matches both onchain and target versions.
+#   Example: For version 0, set MASTER_SHARE_V0, other versioned shares will be ignored.
+#
+# - For rotation mode (onchain version = X, target version = X+1):
+#   Must provide MASTER_SHARE_VX and MASTER_SHARE_VX+1.
+#   The server uses MASTER_SHARE_VX and automatically switches to MASTER_SHARE_VX+1
+#   when the onchain version updates to X+1.
+#   Example: For rotation from v1 to v2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
+#
+# Example for a fresh DKG (MASTER_SHARE_V0 is set as environment variable):
+# server_mode: !Committee
+#   member_address: '<MY_ADDRESS>'
+#   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
+#   target_key_server_version: 0
+#
+# Example for key rotation when onchain version is 1. (Both MASTER_SHARE_V1 and MASTER_SHARE_V2 are
+# set in environment variables):
+# server_mode: !Committee
+#   member_address: '<MY_ADDRESS>'
+#   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
+#   target_key_server_version: 2
 
 #### Optional advanced configurations ####
 #

@@ -73,7 +73,7 @@ impl RpcError {
     }
 
     /// Create a new RpcError with a message
-    fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: None,
@@ -183,6 +183,11 @@ impl SuiRpcClient {
     /// Returns a reference to the underlying SuiClient.
     pub fn sui_client(&self) -> &SuiClient {
         &self.sui_client
+    }
+
+    /// Returns a reference to the underlying gRPC client.
+    pub fn sui_grpc_client(&self) -> SuiGrpcClient {
+        self.sui_grpc_client.clone()
     }
 
     /// Returns a clone of the metrics object.
