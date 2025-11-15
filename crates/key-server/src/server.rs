@@ -5,14 +5,13 @@ use crate::errors::InternalError::{
 };
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::ServerMode;
-use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
+use crate::metrics::{call_with_duration, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::time::checked_duration_since;
-use crate::time::from_mins;
-use crate::time::{duration_since_as_f64, saturating_duration_since};
+use crate::time::current_epoch_time;
+use crate::time::{checked_duration_since, from_mins};
 use crate::types::{MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -27,7 +26,6 @@ use crypto::ibe;
 use crypto::ibe::create_proof_of_possession;
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
-use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
@@ -37,6 +35,7 @@ use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
+use move_core_types::identifier::Identifier;
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
@@ -51,16 +50,23 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_sdk::rpc_types::{
+    SuiExecutionStatus, SuiMoveAbort, SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI,
+    SuiTransactionBlockEffectsV1,
+};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
+use sui_types::transaction::Argument::Input;
+use sui_types::transaction::{CallArg, Command, ObjectArg};
+use sui_types::SUI_CLOCK_OBJECT_ID;
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -95,6 +101,10 @@ const GIT_VERSION: &str = utils::git_version!();
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
+const STALENESS_ERROR_CODE: u64 = 5; // TODO: Replace with actual error code when Seal package is deployed
+const STALENESS_MODULE: &str = "time";
+const STALENESS_FUNCTION: &str = "check_staleness";
+
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
@@ -124,9 +134,6 @@ struct FetchKeyRequest {
 
     certificate: Certificate,
 }
-
-/// UNIX timestamp in milliseconds.
-type Timestamp = u64;
 
 #[derive(Clone)]
 struct Server {
@@ -253,6 +260,47 @@ impl Server {
             })
     }
 
+    fn add_staleness_check_to_ptb(&self, ptb: &mut ProgrammableTransaction) {
+        let now = current_epoch_time();
+        ptb.inputs.push(CallArg::from(now));
+        let now_index = ptb.inputs.len() - 1;
+
+        let allowed_staleness = self.options.allowed_staleness.as_millis() as u64;
+        ptb.inputs.push(CallArg::from(allowed_staleness));
+        let allowed_staleness_index = ptb.inputs.len() - 1;
+
+        let clock_index = match ptb.inputs.iter().position(|arg| {
+            matches!(
+                arg,
+                CallArg::Object(ObjectArg::SharedObject {
+                    id: SUI_CLOCK_OBJECT_ID,
+                    ..
+                })
+            )
+        }) {
+            Some(i) => i, // The clock is already given as input i
+            None => {
+                // The clock is not yet part of the PTB, so we add it
+                ptb.inputs.push(CallArg::CLOCK_IMM);
+                ptb.inputs.len() - 1
+            }
+        };
+
+        let staleness_check = Command::move_call(
+            self.options.network.seal_package_id(),
+            Identifier::from_str(STALENESS_MODULE).unwrap(),
+            Identifier::from_str(STALENESS_FUNCTION).unwrap(),
+            vec![],
+            vec![
+                Input(now_index as u16),
+                Input(allowed_staleness_index as u16),
+                Input(clock_index as u16),
+            ],
+        );
+
+        ptb.commands.insert(0, staleness_check);
+    }
+
     async fn check_policy(
         &self,
         sender: SuiAddress,
@@ -266,9 +314,14 @@ impl Server {
             vptb.ptb(),
             req_id
         );
+
+        // Add a staleness check as the first command in the PTB
+        let mut ptb = vptb.ptb().clone();
+        self.add_staleness_check_to_ptb(&mut ptb);
+
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
-            TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            TransactionKind::ProgrammableTransaction(ptb),
             sender,
             vec![], // Empty gas payment for dry run
             GAS_BUDGET,
@@ -317,8 +370,26 @@ impl Server {
             }
         }
 
+        // Handle errors in the dry run
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
-        if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
+        if let SuiTransactionBlockEffects::V1(SuiTransactionBlockEffectsV1 {
+            status: SuiExecutionStatus::Failure { error },
+            abort_error:
+                Some(SuiMoveAbort {
+                    module_id: Some(module_id),
+                    error_code: Some(error_code),
+                    ..
+                }),
+            ..
+        }) = dry_run_res.effects
+        {
+            if module_id == self.staleness_module_id() && error_code == STALENESS_ERROR_CODE {
+                debug!("Fullnode is stale (req_id: {:?})", req_id);
+                if let Some(m) = metrics {
+                    m.requests_failed_due_to_staleness.inc();
+                }
+                return Err(InternalError::Failure("Fullnode is stale".to_string()));
+            }
             debug!(
                 "Dry run execution asserted (req_id: {:?}) {:?}",
                 req_id, error
@@ -328,6 +399,14 @@ impl Server {
 
         // all good!
         Ok(())
+    }
+
+    fn staleness_module_id(&self) -> String {
+        format!(
+            "{}::{}",
+            self.options.network.seal_package_id(),
+            STALENESS_MODULE
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -415,34 +494,6 @@ impl Server {
         FetchKeyResponse { decryption_keys }
     }
 
-    /// Spawns a thread that fetches the latest checkpoint timestamp and sends it to a [Receiver] once per `update_interval`.
-    /// Returns the [Receiver].
-    async fn spawn_latest_checkpoint_timestamp_updater(
-        &self,
-        metrics: Option<&Metrics>,
-    ) -> (Receiver<Timestamp>, JoinHandle<()>) {
-        spawn_periodic_updater(
-            &self.sui_rpc_client,
-            self.options.checkpoint_update_interval,
-            get_latest_checkpoint_timestamp,
-            "latest checkpoint timestamp",
-            metrics.map(|m| {
-                observation_callback(&m.checkpoint_timestamp_delay, |ts| {
-                    let duration = duration_since_as_f64(ts);
-                    debug!("Latest checkpoint timestamp delay is {duration} ms");
-                    duration
-                })
-            }),
-            metrics.map(|m| {
-                observation_callback(&m.get_checkpoint_timestamp_duration, |d: Duration| {
-                    d.as_millis() as f64
-                })
-            }),
-            metrics.map(|m| status_callback(&m.get_checkpoint_timestamp_status)),
-        )
-        .await
-    }
-
     /// Spawns a thread that fetches RGP and sends it to a [Receiver] once per `update_interval`.
     /// Returns the [Receiver].
     async fn spawn_reference_gas_price_updater(
@@ -501,8 +552,6 @@ async fn handle_fetch_key_internal(
     req_id: Option<&str>,
     sdk_version: &str,
 ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
-    app_state.check_full_node_is_fresh()?;
-
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
 
     // Report the number of id's in the request to the metrics.
@@ -599,24 +648,10 @@ async fn handle_get_service(
 struct MyState {
     metrics: Arc<Metrics>,
     server: Arc<Server>,
-    latest_checkpoint_timestamp_receiver: Receiver<Timestamp>,
     reference_gas_price_receiver: Receiver<u64>,
 }
 
 impl MyState {
-    fn check_full_node_is_fresh(&self) -> Result<(), InternalError> {
-        // Compute the staleness of the latest checkpoint timestamp.
-        let staleness =
-            saturating_duration_since(*self.latest_checkpoint_timestamp_receiver.borrow());
-        if staleness > self.server.options.allowed_staleness {
-            return Err(InternalError::Failure(format!(
-                "Full node is stale. Latest checkpoint is {} ms old.",
-                staleness.as_millis()
-            )));
-        }
-        Ok(())
-    }
-
     fn reference_gas_price(&self) -> u64 {
         *self.reference_gas_price_receiver.borrow()
     }
@@ -699,7 +734,6 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 }
 
 /// Spawn server's background tasks:
-///  - background checkpoint downloader
 ///  - reference gas price updater.
 ///  - optional metrics pusher (if configured).
 ///
@@ -708,16 +742,7 @@ async fn start_server_background_tasks(
     server: Arc<Server>,
     metrics: Arc<Metrics>,
     registry: prometheus::Registry,
-) -> (
-    Receiver<Timestamp>,
-    Receiver<u64>,
-    JoinHandle<anyhow::Result<()>>,
-) {
-    // Spawn background checkpoint timestamp updater.
-    let (latest_checkpoint_timestamp_receiver, latest_checkpoint_timestamp_handle) = server
-        .spawn_latest_checkpoint_timestamp_updater(Some(&metrics))
-        .await;
-
+) -> (Receiver<u64>, JoinHandle<anyhow::Result<()>>) {
     // Spawn background reference gas price updater.
     let (reference_gas_price_receiver, reference_gas_price_handle) = server
         .spawn_reference_gas_price_updater(Some(&metrics))
@@ -729,15 +754,6 @@ async fn start_server_background_tasks(
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
         tokio::select! {
-            result = latest_checkpoint_timestamp_handle => {
-                if let Err(e) = result {
-                    error!("Latest checkpoint timestamp updater panicked: {:?}", e);
-                    if e.is_panic() {
-                        std::panic::resume_unwind(e.into_panic());
-                    }
-                    return Err(e.into());
-                }
-            }
             result = reference_gas_price_handle => {
                 if let Err(e) = result {
                     error!("Reference gas price updater panicked: {:?}", e);
@@ -761,11 +777,7 @@ async fn start_server_background_tasks(
         unreachable!("One of the background tasks should have returned an error");
     });
 
-    (
-        latest_checkpoint_timestamp_receiver,
-        reference_gas_price_receiver,
-        handle,
-    )
+    (reference_gas_price_receiver, handle)
 }
 
 #[tokio::main]
@@ -862,13 +874,12 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     options.validate()?;
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
-    let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
+    let (reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;
 
     let state = MyState {
         metrics,
         server,
-        latest_checkpoint_timestamp_receiver,
         reference_gas_price_receiver,
     };
 

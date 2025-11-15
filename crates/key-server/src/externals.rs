@@ -4,9 +4,9 @@
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
+use crate::mvr_forward_resolution;
 use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
-use crate::{mvr_forward_resolution, Timestamp};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
@@ -100,18 +100,6 @@ pub(crate) fn insert_mvr_cache(mvr_name: &str, package_id: ObjectID) {
 
 pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
     MVR_CACHE.get(&mvr_name.to_string())
-}
-
-/// Returns the timestamp for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(
-    sui_rpc_client: SuiRpcClient,
-) -> RpcResult<Timestamp> {
-    let latest_checkpoint_sequence_number = sui_rpc_client
-        .get_latest_checkpoint_sequence_number()
-        .await?;
-    sui_rpc_client
-        .get_checkpoint_time(latest_checkpoint_sequence_number)
-        .await
 }
 
 pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> RpcResult<u64> {

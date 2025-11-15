@@ -4,7 +4,9 @@
 # network: Testnet
 # network: Mainnet
 # network: Devnet
+#   seal_package: # What deployment of the Seal package to use - see below
 # network: !Custom
+#   seal_package: # Optional: What deployment of the Seal package to use - see below
 #   node_url: 'url_to_node_endpoint'  # Optional - see below
 #   use_default_mainnet_for_mvr: true # Optional, default to true if not present, 
 set this to false for mvr to resolve on testnet. 
@@ -14,6 +16,16 @@ set this to false for mvr to resolve on testnet.
 # 1. Set the `node_url` in this config file
 # 2. OR omit `node_url` here and set the NODE_URL environment variable
 #
+# The `seal_package` parameter for Custom and Devnet should point to what Seal package
+# deployment to use. This must be one of:
+# seal_package: Mainnet
+# seal_package: Testnet
+# seal_package: !Custom
+#   'Package id to use'
+# For Devnet, the parameter is mandatory.
+# For Custom, the parameter is optional, and if it is not set, the default Seal package
+# on Mainnet will be used by default. It can either be set in this config file or as an
+# environment variable, SEAL_PACKAGE.
 #
 # Example:
 network: Testnet
