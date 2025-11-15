@@ -21,6 +21,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_rpc::client::v2::Client as SuiGrpcClient;
@@ -123,7 +124,7 @@ impl SealTestCluster {
                         None,
                     ),
                     master_keys: MasterKeys::Open { master_key },
-                    key_server_oid_to_pop: HashMap::new(),
+                    key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options: KeyServerOptions {
                         network: Network::TestCluster,
                         server_mode: ServerMode::Open {
