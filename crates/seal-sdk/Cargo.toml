@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-chrono = "0.4.39"
+chrono = "0.4.42"
 serde = { workspace = true }
 serde_json = { workspace = true }
 fastcrypto = { workspace = true }
