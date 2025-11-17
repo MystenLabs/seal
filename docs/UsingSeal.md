@@ -17,7 +17,7 @@ Packages should define `seal_approve*` functions in their modules to control acc
 See [Example patterns](./ExamplePatterns.md) for additional examples and high-level patterns.
 
 As `seal_approve*` functions are standard Move functions, they can be tested locally using Move tests.
-Building and publishing the code can be done using the [`Sui CLI`](https://docs.sui.io/references/cli), e.g.,:
+Building and publishing the code can be done using the [`Sui CLI`](https://docs.sui.io/references/cli), e.g.:
  
 ```shell
 $ cd examples/move
@@ -35,9 +35,8 @@ When using `seal_approve*` functions, keep the following in mind:
 - `seal_approve*` functions are not evaluated atomically across all key servers. Avoid relying on frequently changing state to determine access, as different full nodes may observe different versions of the chain.
 - Do not rely on invariants that depend on the relative order of transactions within a checkpoint. For example, the following code assumes a specific ordering of increment operations, but full nodes may observe different intermediate counter values due to interleaved execution.
 
-```rust
-
-struct Counter {
+```move
+public struct Counter has key {
     id: UID,
     count: u64,
 }
@@ -116,8 +115,11 @@ The `encrypt` function returns two values: the encrypted object, and the symmetr
 ```typescript
 const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt({
     threshold: 2,
-    packageId: fromHEX(packageId),
-    id: fromHEX(id),
+    // The contract corresponding to this `packageId` should be the original version.
+    packageId: originalPackageId,
+    // Use `objectId` as the requested identity.
+    // When decrypting this encryptedData, need to pass the same `objectId` as the first parameter.
+    id: objectId,
     data,
 });
 ```
@@ -143,7 +145,8 @@ Once initialized, the session key can be used to retrieve multiple decryption ke
 ```typescript
 const sessionKey = await SessionKey.create({
     address: suiAddress,
-    packageId: fromHEX(packageId),
+    // The contract corresponding to this `packageId` should be the original version.
+    packageId: originalPackageId,
     ttlMin: 10, // TTL of 10 minutes
     suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
 });
@@ -168,13 +171,15 @@ The simplest way to perform decryption is to call the client’s `decrypt` funct
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
 tx.moveCall({
+    // If the contract has been upgraded, can pass the latest packageId here.
     target: `${packageId}::${moduleName}::seal_approve`, 
     arguments: [
-        tx.pure.vector("u8", fromHEX(id)),
+        // The first parameter is the requested identity without prefix.
+        tx.pure.vector("u8", fromHex(id)),
         // other arguments
    ]
  });  
-const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true })
+const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true });
 const decryptedBytes = await client.decrypt({
     data: encryptedBytes,
     sessionKey,
