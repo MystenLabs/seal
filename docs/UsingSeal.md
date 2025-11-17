@@ -78,12 +78,12 @@ const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
 
 const client = new SealClient({
-  suiClient,
-  serverConfigs: serverObjectIds.map((id) => ({
-    objectId: id,
-    weight: 1,
-  })),
-  verifyKeyServers: false,
+    suiClient,
+    serverConfigs: serverObjectIds.map((id) => ({
+        objectId: id,
+        weight: 1,
+    })),
+    verifyKeyServers: false,
 });
 ```
 The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1.
@@ -254,68 +254,68 @@ const encryptedObject = EncryptedObject.parse(encryptedBytes);
 
 // 2. Get derived keys from key servers for the encrypted object's ID. 
 const derivedKeys = await client.getDerivedKeys({
-  id: encryptedObject.id,
-  txBytes,
-  sessionKey,
-  threshold: encryptedObject.threshold,
+    id: encryptedObject.id,
+    txBytes,
+    sessionKey,
+    threshold: encryptedObject.threshold,
 });
 
 // 3. Get the public keys corresponding to the derived keys.
 // In practice, this should should be done only during the app initialization.
 const publicKeys = await client.getPublicKeys(encryptedObject.services.map(([service, _]) => service));
 const correspondingPublicKeys = derivedKeys.keys().map((objectId) => {
-  const index = encryptedObject.services.findIndex(([s, _]) => s === objectId);
-  return tx.moveCall({
-    target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
-    arguments: [
-      tx.pure.address(objectId),
-      tx.pure.vector("u8", publicKeys[index].toBytes())
-    ],
-  });
+    const index = encryptedObject.services.findIndex(([s, _]) => s === objectId);
+    return tx.moveCall({
+        target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
+        arguments: [
+            tx.pure.address(objectId),
+            tx.pure.vector("u8", publicKeys[index].toBytes())
+        ],
+    });
 }).toArray();
 
 // 4. Convert the derived keys to G1 elements.
 const derivedKeysAsG1Elements = Array.from(derivedKeys).map(([_, value]) =>
-tx.moveCall({
-  target: `0x2::bls12381::g1_from_bytes`,
-  arguments: [ tx.pure.vector("u8", fromHex(value.toString())) ],
-})
+    tx.moveCall({
+        target: `0x2::bls12381::g1_from_bytes`,
+        arguments: [ tx.pure.vector("u8", fromHex(value.toString())) ],
+    })
 );
 
 // 5. Call the Move function verify_derived_keys. This should be cached if decryption for the same ID is performed again. 
 const verifiedDerivedKeys = tx.moveCall({
-  target: `${seal_package_id}::bf_hmac_encryption::verify_derived_keys`,
-  arguments: [
-  tx.makeMoveVec({ elements: derivedKeysAsG1Elements, type: '0x2::group_ops::Element<0x2::bls12381::G1>' }),
-  tx.pure.address(encryptedObject.packageId),
-  tx.pure.vector("u8", fromHex(encryptedObject.id)),
-    tx.makeMoveVec({ elements: correspondingPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
-  ],
+    target: `${seal_package_id}::bf_hmac_encryption::verify_derived_keys`,
+    arguments: [
+        tx.makeMoveVec({ elements: derivedKeysAsG1Elements, type: '0x2::group_ops::Element<0x2::bls12381::G1>' }),
+        tx.pure.address(encryptedObject.packageId),
+        tx.pure.vector("u8", fromHex(encryptedObject.id)),
+        tx.makeMoveVec({ elements: correspondingPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
+    ],
 });
 
 // 6. Construct the parsed encrypted object onchain.
 const parsedEncryptedObject = tx.moveCall({
-  target: `${seal_package_id}::bf_hmac_encryption::parse_encrypted_object`,
-  arguments: [tx.pure.vector("u8", encryptedBytes)],
+    target: `${seal_package_id}::bf_hmac_encryption::parse_encrypted_object`,
+    arguments: [tx.pure.vector("u8", encryptedBytes)],
 });
 
 // 7. Construct a list of public key objects. 
 const allPublicKeys = publicKeys.map((publicKey, i) => tx.moveCall({
-  target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
-  arguments: [
-    tx.pure.address(encryptedObject.services[i][0]),
-    tx.pure.vector("u8", publicKey.toBytes())
-  ],
+    target: `${seal_package_id}::bf_hmac_encryption::new_public_key`,
+    arguments: [
+        tx.pure.address(encryptedObject.services[i][0]),
+        tx.pure.vector("u8", publicKey.toBytes())
+    ],
 }));
 
 // 7. Perform decryption with verified derived keys. 
 const decrypted = tx.moveCall({
-  target: `${seal_package_id}::bf_hmac_encryption::decrypt`,
-  arguments: [
-    parsedEncryptedObject,
-    verifiedDerivedKeys,
-    tx.makeMoveVec({ elements: allPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
-  ],
+    target: `${seal_package_id}::bf_hmac_encryption::decrypt`,
+    arguments: [
+        parsedEncryptedObject,
+        verifiedDerivedKeys,
+        tx.makeMoveVec({ elements: allPublicKeys, type: `${SEAL_PACKAGE_ID}::bf_hmac_encryption::PublicKey` }),
+    ],
 });
 
 // The decryption result is in an option to be consumed if successful, `none` otherwise. 
