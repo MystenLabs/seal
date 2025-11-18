@@ -15,8 +15,11 @@ use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
 use rand::thread_rng;
-use seal_committee::grpc_helper::fetch_partial_key_server_info;
-use seal_committee::{build_new_to_old_map, create_grpc_client, fetch_committee_data, Network};
+use seal_committee::grpc_helper::to_partial_key_servers;
+use seal_committee::{
+    build_new_to_old_map, create_grpc_client, fetch_committee_data, fetch_key_server_by_committee,
+    Network,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -214,8 +217,9 @@ async fn main() -> Result<()> {
                     let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
 
                     // Fetch partial key server info from the old committee's key server object.
-                    let old_partial_key_infos =
-                        fetch_partial_key_server_info(&mut grpc_client, &old_committee_id).await?;
+                    let (_, ks) =
+                        fetch_key_server_by_committee(&mut grpc_client, &committee_id).await?;
+                    let old_partial_key_infos = to_partial_key_servers(&ks).await?;
 
                     // Build mapping from old party ID to partial public key.
                     let expected_old_pks: HashMap<u16, G2Element> = old_partial_key_infos

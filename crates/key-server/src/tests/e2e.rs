@@ -2,17 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError::UnsupportedPackageId;
-use crate::key_server_options::{
-    ClientConfig, ClientKeyType, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
-};
+use crate::key_server_options::{ClientConfig, ClientKeyType};
 use crate::master_keys::MasterKeys;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
+use crate::tests::test_utils::{create_committee_servers, create_server};
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
-use crate::time::from_mins;
-use crate::types::Network;
-use crate::{DefaultEncoding, Server};
 use crypto::elgamal::encrypt;
 use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
 use crypto::{
@@ -35,6 +30,7 @@ use semver::VersionReq;
 use std::collections::HashMap;
 use std::num::NonZeroU16;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
@@ -48,7 +44,7 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_e2e() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
@@ -120,7 +116,7 @@ async fn test_e2e() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
@@ -237,7 +233,7 @@ async fn test_e2e_decrypt_all_objects() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects_missing_servers() {
-    let mut tc = SealTestCluster::new(1).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
     tc.add_open_servers(3).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
@@ -659,7 +655,7 @@ async fn test_e2e_imported_key() {
 
 #[traced_test]
 #[tokio::test]
-async fn test_committee_mode_with_rotation() {
+async fn test_e2e_committee_mode_with_rotation() {
     // Create a test cluster.
     let cluster = TestClusterBuilder::new()
         .with_num_validators(1)
@@ -672,23 +668,20 @@ async fn test_committee_mode_with_rotation() {
         .await
         .0;
 
-    let key_server_object_id = ObjectID::ZERO;
-
-    // Fresh DKG shares from parties 0, 1, 2 (threshold=2).
+    // Fresh DKG shares from parties 0, 1, 2 (t=2).
     let master_shares = [
-        "0x2c8e06a3ba09ff64b841d39df9534e35cee33605033003a634fe6ca2a90c216d", // party 0
-        "0x69802da036d15184daa8e444a97e2390d2ab370d94a37f29209006546d61be0d", // party 1
-        "0x3284ad4989fb265cc9d61ce3500720e682b5941326189ead0c21a00731b75aac", // party 2
+        "0x2c8e06a3ba09ff64b841d39df9534e35cee33605033003a634fe6ca2a90c216d",
+        "0x69802da036d15184daa8e444a97e2390d2ab370d94a37f29209006546d61be0d",
+        "0x3284ad4989fb265cc9d61ce3500720e682b5941326189ead0c21a00731b75aac",
     ];
 
-    // Rotated shares for parties 0, 1, 3, 4 (threshold=3 after rotation).
-    // Party 2 is leaving and doesn't have a next share.
+    // Rotated shares for parties 0, 1, 3, 4 (t=3 after rotation). Party 2 is leaving.
     let next_master_shares = [
-        Some("0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9"), // party 0
-        Some("0x11761fd7d8719dc4297418768ffd3578ecc348e516cbbe2d9de36b6965353182"), // party 1
-        None, // party 2 (leaving committee)
-        Some("0x39c3df31bf3e5082e2ae825aa35c53f478bed3a0c9bdbffb95ff2788b6ca3cd3"), // party 3
-        Some("0x40375e5b0adc12c2084f96bf6fe6b5d1e3124a73d7a08bbf39a44b2f87e09b6f"), // party 4
+        Some("0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9"),
+        Some("0x11761fd7d8719dc4297418768ffd3578ecc348e516cbbe2d9de36b6965353182"),
+        None,
+        Some("0x39c3df31bf3e5082e2ae825aa35c53f478bed3a0c9bdbffb95ff2788b6ca3cd3"),
+        Some("0x40375e5b0adc12c2084f96bf6fe6b5d1e3124a73d7a08bbf39a44b2f87e09b6f"),
     ];
 
     // Committee member addresses for parties 0, 1, 2, 3, 4.
@@ -701,62 +694,14 @@ async fn test_committee_mode_with_rotation() {
     ]
     .map(|addr| NewObjectID::from_str(addr).unwrap());
 
-    // Aggregated public key finalized from the DKG process.
+    // Key server aggregated public key finalized from DKG.
     let aggregated_pk_bytes = Hex::decode("0x95a35c03681de93032e9a0544b9b8533ffd7fabe1e70b29a844030237e84789c0c34c0e5a5b12a33e345599ba90f096f17ddd3a8586a4a0de28c13e249c3767026a4bbdb4343885b50115931f8e8a77d735d269ac5a5eca05787d0b91c4a5ffb").unwrap();
     let aggregated_pk =
         ibe::PublicKey::from_byte_array(&aggregated_pk_bytes.try_into().unwrap()).unwrap();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![aggregated_pk]);
 
-    // Create initial committee servers (parties 0, 1, 2).
-    // Parties 0, 1: current_version=0, target_version=1 (rotation in progress).
-    // Party 2: current_version=0, target_version=0 (leaving committee, not participating in rotation).
-    let mut servers = Vec::new();
-
-    // Parties 0 and 1: participating in rotation
-    servers.extend(
-        create_committee_servers(
-            cluster.sui_client().clone(),
-            grpc_client.clone(),
-            key_server_object_id,
-            member_addresses[0..2].to_vec(),
-            vec![
-                // Party 0: both v0 and v1 shares (during rotation).
-                vec![
-                    ("MASTER_SHARE_V0", Hex::decode(master_shares[0]).unwrap()),
-                    (
-                        "MASTER_SHARE_V1",
-                        Hex::decode(next_master_shares[0].unwrap()).unwrap(),
-                    ),
-                ],
-                // Party 1: both v0 and v1 shares (during rotation).
-                vec![
-                    ("MASTER_SHARE_V0", Hex::decode(master_shares[1]).unwrap()),
-                    (
-                        "MASTER_SHARE_V1",
-                        Hex::decode(next_master_shares[1].unwrap()).unwrap(),
-                    ),
-                ],
-            ],
-            1, // target_version = 1
-        )
-        .await,
-    );
-
-    // Party 2: leaving committee, only has v0 share
-    servers.extend(
-        create_committee_servers(
-            cluster.sui_client().clone(),
-            grpc_client.clone(),
-            key_server_object_id,
-            vec![member_addresses[2]],
-            vec![vec![(
-                "MASTER_SHARE_V0",
-                Hex::decode(master_shares[2]).unwrap(),
-            )]],
-            0, // target_version = 0 (not participating in rotation)
-        )
-        .await,
-    );
+    // Use a random key server object ID (not registered on-chain for this test).
+    let key_server_object_id = NewObjectID::new(ObjectID::random().into_bytes());
 
     // Create test user and add to whitelist.
     let (address, user_keypair) = get_key_pair_from_rng(&mut thread_rng());
@@ -770,7 +715,7 @@ async fn test_committee_mode_with_rotation() {
     let encryption = seal_encrypt(
         NewObjectID::new(package_id.into_bytes()),
         whitelist.to_vec(),
-        vec![NewObjectID::new(key_server_object_id.into_bytes())],
+        vec![key_server_object_id],
         &pks,
         1, // Always use 1 for committee mode.
         EncryptionInput::Aes256Gcm {
@@ -781,10 +726,59 @@ async fn test_committee_mode_with_rotation() {
     .unwrap()
     .0;
 
-    // Fresh DKG committee: parties 0, 1, 2.
-    let old_committee = [&servers[0], &servers[1], &servers[2]];
+    // Create initial committee servers (parties 0, 1, 2).
+    let mut servers = Vec::new();
 
-    // Randomly select 2 out of 3 parties before rotation.
+    // Parties 0, 1: current_version=0, target_version=1 (rotation in progress, both shares).
+    servers.extend(
+        create_committee_servers(
+            cluster.sui_client().clone(),
+            grpc_client.clone(),
+            key_server_object_id,
+            member_addresses[0..2].to_vec(),
+            vec![
+                vec![
+                    ("MASTER_SHARE_V0", Hex::decode(master_shares[0]).unwrap()),
+                    (
+                        "MASTER_SHARE_V1",
+                        Hex::decode(next_master_shares[0].unwrap()).unwrap(),
+                    ),
+                ],
+                vec![
+                    ("MASTER_SHARE_V0", Hex::decode(master_shares[1]).unwrap()),
+                    (
+                        "MASTER_SHARE_V1",
+                        Hex::decode(next_master_shares[1].unwrap()).unwrap(),
+                    ),
+                ],
+            ],
+            0, // onchain_version
+            1, // target_key_server_version
+        )
+        .await,
+    );
+
+    // Party 2: current_version=0, target_version=0 (leaving committee, just v0 share).
+    servers.extend(
+        create_committee_servers(
+            cluster.sui_client().clone(),
+            grpc_client.clone(),
+            key_server_object_id,
+            vec![member_addresses[2]],
+            vec![vec![(
+                "MASTER_SHARE_V0",
+                Hex::decode(master_shares[2]).unwrap(),
+            )]],
+            0, // onchain_version
+            0, // target_key_server_version
+        )
+        .await,
+    );
+
+    // Fresh DKG committee: parties 0, 1, 2.
+    let committee = [&servers[0], &servers[1], &servers[2]];
+
+    // Randomly select 2 out of 3 parties.
     let mut rng = thread_rng();
     let party_ids: Vec<u8> = vec![0, 1, 2];
     let selected_party_ids: Vec<u8> = party_ids.choose_multiple(&mut rng, 2).copied().collect();
@@ -794,7 +788,7 @@ async fn test_committee_mode_with_rotation() {
         join_all(selected_party_ids.iter().map(|&party_id| {
             let ptb = ptb.clone();
             let user_keypair = Arc::clone(&user_keypair);
-            let server = old_committee[party_id as usize];
+            let server = committee[party_id as usize];
             async move {
                 let usk = get_key(server, &package_id, ptb, &user_keypair)
                     .await
@@ -814,19 +808,19 @@ async fn test_committee_mode_with_rotation() {
     );
     assert_eq!(decryption, message);
 
-    // Simulate rotation complete: manually update current version = target version.
+    // Manually update current version = target version.
     servers.iter().for_each(|server| {
-        if let crate::master_keys::MasterKeys::Committee {
+        if let MasterKeys::Committee {
             current_key_server_version,
             ..
         } = &server.master_keys
         {
-            current_key_server_version.store(1, std::sync::atomic::Ordering::Relaxed);
+            current_key_server_version.store(1, Ordering::Relaxed);
         }
     });
 
     // Add party 3 and 4 with only MASTER_SHARE_V1 from the dkg rotation.
-    // Onchain version is 1, target version is 1 (rotation complete).
+    // Rotation completes, current = 1, target = 1.
     let new_servers = create_committee_servers(
         cluster.sui_client().clone(),
         grpc_client.clone(),
@@ -842,12 +836,13 @@ async fn test_committee_mode_with_rotation() {
                 Hex::decode(next_master_shares[4].unwrap()).unwrap(),
             )],
         ],
-        1, // target_version = 1
+        1, // onchain_version
+        1, // target_key_server_version
     )
     .await;
 
-    let new_committee: Vec<&Server> =
-        vec![&servers[1], &servers[0], &new_servers[0], &new_servers[1]];
+    // Set up new committee. Parties 0,1 from old committee (swapped), parties 3,4 new.
+    let new_committee = [&servers[1], &servers[0], &new_servers[0], &new_servers[1]];
 
     // Randomly select 3 out of 4 parties.
     let selected_new_party_ids: Vec<u8> =
@@ -877,14 +872,13 @@ async fn test_committee_mode_with_rotation() {
         &pks,
     );
     assert_eq!(new_decryption, message);
-    // TODO: add test to refresh_committee_server and verify before and after pop.
 }
 
 /// Helper function to perform threshold aggregation and decryption with party IDs.
 fn decrypt_with_threshold_and_party_ids(
     threshold: u16,
     usks_with_party_ids: Vec<(u8, G1Element)>,
-    key_server_object_id: ObjectID,
+    key_server_object_id: NewObjectID,
     encryption: &EncryptedObject,
     pks: &IBEPublicKeys,
 ) -> Vec<u8> {
@@ -899,12 +893,9 @@ fn decrypt_with_threshold_and_party_ids(
     let aggregated_usk =
         ThresholdBls12381MinSig::aggregate(threshold, partial_usks.iter()).unwrap();
 
-    let usks_map: HashMap<_, _> = vec![(
-        NewObjectID::new(key_server_object_id.into_bytes()),
-        aggregated_usk,
-    )]
-    .into_iter()
-    .collect();
+    let usks_map: HashMap<_, _> = vec![(key_server_object_id, aggregated_usk)]
+        .into_iter()
+        .collect();
 
     seal_decrypt(
         encryption,
@@ -912,130 +903,4 @@ fn decrypt_with_threshold_and_party_ids(
         Some(pks),
     )
     .unwrap()
-}
-
-/// Helper function to create a test server with any ServerMode.
-async fn create_test_server(
-    sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
-    server_mode: ServerMode,
-    vars: impl AsRef<[(&str, &[u8])]>,
-) -> Server {
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode,
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-        rpc_config: RpcConfig::default(),
-        metrics_push_config: None,
-    };
-
-    let sui_rpc_client = SuiRpcClient::new(
-        sui_client,
-        sui_grpc_client.clone(),
-        RetryConfig::default(),
-        None,
-    );
-
-    // Determine onchain_version for Committee mode tests based on which shares are present.
-    let onchain_version = if let ServerMode::Committee {
-        target_key_server_version,
-        ..
-    } = &options.server_mode
-    {
-        let target_version = *target_key_server_version;
-        let vars_map: std::collections::HashMap<&str, &[u8]> =
-            vars.as_ref().iter().map(|(k, v)| (*k, *v)).collect();
-
-        let target_share_key = format!("MASTER_SHARE_V{target_version}");
-        let prev_share_key = if target_version > 0 {
-            Some(format!("MASTER_SHARE_V{}", target_version - 1))
-        } else {
-            None
-        };
-
-        let has_target_share = vars_map.contains_key(target_share_key.as_str());
-        let has_prev_share = prev_share_key
-            .as_ref()
-            .is_some_and(|k| vars_map.contains_key(k.as_str()));
-
-        // Rotation mode: both shares present → onchain = target - 1
-        // Active mode: only target share → onchain = target
-        Some(if has_target_share && has_prev_share {
-            target_version - 1
-        } else if has_target_share {
-            target_version
-        } else {
-            panic!("No master shares found in vars for Committee mode");
-        })
-    } else {
-        None
-    };
-
-    // Use MasterKeys::load() for all modes.
-    let vars_encoded = vars
-        .as_ref()
-        .iter()
-        .map(|(k, v)| (k.to_string(), Some(DefaultEncoding::encode(v))))
-        .collect::<Vec<_>>();
-
-    let master_keys =
-        temp_env::with_vars(vars_encoded, || MasterKeys::load(&options, onchain_version)).unwrap();
-
-    Server {
-        sui_rpc_client,
-        master_keys,
-        key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
-        options,
-    }
-}
-
-/// Helper function to create a permissioned server.
-async fn create_server(
-    sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
-    client_configs: Vec<ClientConfig>,
-    vars: impl AsRef<[(&str, &[u8])]>,
-) -> Server {
-    create_test_server(
-        sui_client,
-        sui_grpc_client,
-        ServerMode::Permissioned { client_configs },
-        vars,
-    )
-    .await
-}
-
-/// Helper function to create a list of committee mode servers.
-async fn create_committee_servers(
-    sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
-    key_server_obj_id: ObjectID,
-    member_addresses: Vec<NewObjectID>,
-    vars_list: Vec<Vec<(&str, Vec<u8>)>>,
-    target_version: u32,
-) -> Vec<Server> {
-    let mut servers = Vec::new();
-
-    for (member_address, vars) in member_addresses.into_iter().zip(vars_list.into_iter()) {
-        let vars_refs: Vec<(&str, &[u8])> = vars.iter().map(|(k, v)| (*k, v.as_slice())).collect();
-        let server = create_test_server(
-            sui_client.clone(),
-            sui_grpc_client.clone(),
-            ServerMode::Committee {
-                member_address,
-                key_server_obj_id: NewObjectID::new(key_server_obj_id.into_bytes()),
-                target_key_server_version: target_version,
-            },
-            vars_refs,
-        )
-        .await;
-        servers.push(server);
-    }
-
-    servers
 }

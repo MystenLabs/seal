@@ -144,7 +144,8 @@ pub async fn get_partial_key_server_for_member(
     key_server_obj_id: &Address,
     member_address: &Address,
 ) -> Result<PartialKeyServerInfo> {
-    let partial_key_servers = fetch_partial_key_server_info(grpc_client, key_server_obj_id).await?;
+    let ks = fetch_key_server_by_id(grpc_client, key_server_obj_id).await?;
+    let partial_key_servers = to_partial_key_servers(&ks).await?;
 
     partial_key_servers
         .get(member_address)
@@ -157,19 +158,17 @@ pub async fn get_partial_key_server_for_member(
         })
 }
 
-pub async fn fetch_partial_key_server_info(
-    grpc_client: &mut Client,
-    committee_id: &Address,
+pub async fn to_partial_key_servers(
+    key_server_v2: &KeyServerV2,
 ) -> Result<HashMap<Address, PartialKeyServerInfo>> {
-    let (_, key_server_v2) = fetch_key_server_by_committee(grpc_client, committee_id).await?;
-    match key_server_v2.server_type {
+    match &key_server_v2.server_type {
         ServerType::Committee {
             partial_key_servers,
             ..
         } => partial_key_servers
             .0
             .contents
-            .into_iter()
+            .iter()
             .map(|entry| {
                 let partial_pk = bcs::from_bytes(&entry.value.partial_pk)
                     .map_err(|e| anyhow!("Failed to deserialize partial PK: {}", e))?;
@@ -280,15 +279,11 @@ mod tests {
             "0x94eba091a424bed60ad920855706ee476d23c2d9d4763ab5a4f832b3e57c38eb7d81013ea8f5b4790b4db6cd1ad2fd051633e6c8e9a25f302b5b4382724c5e83c40e487dba39910df2829c09f7d38ee2d37e0a8a1bdc2a71486c5fb6e508c069",
         ];
 
-        let partial_key_servers = fetch_partial_key_server_info(&mut grpc_client, &committee_id)
-            .await
-            .unwrap();
-
-        // Fetch KeyServerV2 to check the version field.
         let (ks_obj_id, key_server_v2) =
             fetch_key_server_by_committee(&mut grpc_client, &committee_id)
                 .await
                 .unwrap();
+        let partial_key_servers = to_partial_key_servers(&key_server_v2).await.unwrap();
 
         // Assert that the version field is 1.
         match key_server_v2.server_type {

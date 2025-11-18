@@ -193,7 +193,7 @@ impl Server {
     }
 
     /// Update committee version to target and refresh PoP when rotation completes.
-    async fn refresh_committee_server(&self) -> Result<()> {
+    pub(crate) async fn refresh_committee_server(&self) -> Result<()> {
         let (current_version_arc, target_version, member_address, key_server_obj_id) =
             match (&self.master_keys, &self.options.server_mode) {
                 (
@@ -275,7 +275,7 @@ impl Server {
     }
 
     /// Build the key_server_oid -> PoP HashMap for all server modes.
-    async fn build_key_server_pop_map(
+    pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
         grpc_client: SuiGrpcClient,
