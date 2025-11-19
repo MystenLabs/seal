@@ -5,17 +5,20 @@ pub mod types;
 
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
+use crypto::create_full_id;
 use crypto::elgamal::decrypt as elgamal_decrypt;
 use crypto::ibe::verify_user_secret_key;
 use crypto::ibe::UserSecretKey;
 use crypto::{seal_decrypt, IBEPublicKeys, IBEUserSecretKeys, ObjectID};
 use fastcrypto::ed25519::Ed25519PublicKey;
+use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::FastCryptoError;
 use fastcrypto::error::FastCryptoResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_sdk_types::ProgrammableTransaction;
 use tracing::debug;
+
 // Re-exported for seal_sdk
 pub use crypto::elgamal::genkey;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
@@ -60,8 +63,8 @@ pub fn signed_request(
     bcs::to_bytes(&req).expect("should serialize")
 }
 
-/// Given the ElGamalSecretKey, elgamal decrypt and verify all user secret keys from multiple seal responses.
-/// Returns a nested map: full_id -> (server_id -> UserSecretKey)
+/// Given the ElGamalSecretKey, elgamal decrypt and verify all user secret keys from multiple seal
+/// responses. Returns a nested map: full_id -> (server_id -> UserSecretKey).
 pub fn decrypt_seal_responses(
     enc_secret: &ElGamalSecretKey,
     seal_responses: &[(ObjectID, FetchKeyResponse)],
@@ -97,8 +100,6 @@ pub fn seal_decrypt_object(
     cached_keys: &HashMap<Vec<u8>, HashMap<ObjectID, UserSecretKey>>,
     server_pk_map: &HashMap<ObjectID, IBEPublicKey>,
 ) -> FastCryptoResult<Vec<u8>> {
-    use crypto::create_full_id;
-
     // Compute the full_id for this encrypted object
     let full_id = create_full_id(
         &encrypted_object.package_id.into_inner(),
@@ -107,7 +108,6 @@ pub fn seal_decrypt_object(
 
     // Get the keys for this full_id
     let keys_for_id = cached_keys.get(&full_id).ok_or_else(|| {
-        use fastcrypto::encoding::{Encoding, Hex};
         FastCryptoError::GeneralError(format!(
             "No keys available for object with full_id {}",
             Hex::encode(&full_id)
