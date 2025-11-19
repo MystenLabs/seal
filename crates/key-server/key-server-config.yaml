@@ -77,19 +77,19 @@ server_mode: !Open
 #         - "0x3333333333333333333333333333333333333333333333333333333333333333"
 
 # #### COMMITTEE MODE ####
-# See step 7 in the member runbook for fresh DKG and key rotation in details.
+# See the runbook for fresh DKG and key rotation in details.
 #
 # Environment variables use versioned naming: MASTER_SHARE_VX
 #
 # - For active mode (onchain version = target version = X):
-#   Must provide MASTER_SHARE_VX where X matches both onchain and target versions.
+#   Must set the env variable MASTER_SHARE_VX where X matches the onchain version.
 #   Example: For version 0, set MASTER_SHARE_V0, other versioned shares will be ignored.
 #
 # - For rotation mode (onchain version = X, target version = X+1):
 #   Must provide MASTER_SHARE_VX and MASTER_SHARE_VX+1.
 #   The server uses MASTER_SHARE_VX and automatically switches to MASTER_SHARE_VX+1
 #   when the onchain version updates to X+1.
-#   Example: For rotation from v1 to v2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
+#   Example: Example: For rotation from version 1 to 2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
 #
 # Example for a fresh DKG (MASTER_SHARE_V0 is set as environment variable):
 # server_mode: !Committee
