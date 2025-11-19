@@ -38,7 +38,7 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;

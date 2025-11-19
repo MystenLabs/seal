@@ -132,7 +132,7 @@ mod tests {
     use fastcrypto::secp256r1::Secp256r1KeyPair;
     use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
-    use sui_rpc::client::v2::Client as SuiGrpcClient;
+    use sui_rpc::client::Client as SuiGrpcClient;
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
