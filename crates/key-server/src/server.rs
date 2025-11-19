@@ -159,7 +159,7 @@ impl Server {
         info!("Server started with network: {:?}", options.network);
 
         // Fetch current version onchain.
-        let current_version = match &options.server_mode {
+        let committee_version = match &options.server_mode {
             ServerMode::Committee {
                 key_server_obj_id, ..
             } => {
@@ -173,7 +173,7 @@ impl Server {
             _ => None,
         };
 
-        let master_keys = MasterKeys::load(&options, current_version).unwrap_or_else(|e| {
+        let master_keys = MasterKeys::load(&options, committee_version).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {e}");
         });
 

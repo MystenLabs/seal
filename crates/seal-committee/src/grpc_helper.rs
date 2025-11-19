@@ -74,7 +74,8 @@ pub async fn fetch_key_server_by_id(
     // Derive KeyServerV2 dynamic field ID on KeyServer object.
     // This is a regular dynamic_field, not dynamic_object_field.
     // Key type: u64, Key value: EXPECTED_KEY_SERVER_VERSION
-    let v2_field_name_bcs = bcs::to_bytes(&EXPECTED_KEY_SERVER_VERSION).expect("BCS serialization failed");
+    let v2_field_name_bcs =
+        bcs::to_bytes(&EXPECTED_KEY_SERVER_VERSION).expect("BCS serialization failed");
     let key_server_v2_field_id =
         ks_obj_id.derive_dynamic_child_id(&sui_sdk_types::TypeTag::U64, &v2_field_name_bcs);
 

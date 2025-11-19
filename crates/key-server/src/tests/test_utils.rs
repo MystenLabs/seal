@@ -21,7 +21,7 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::rpc_types::{ObjectChange, SuiTransactionBlockResponse};
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;

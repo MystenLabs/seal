@@ -79,7 +79,8 @@ server_mode: !Open
 # #### COMMITTEE MODE ####
 # See the runbook for fresh DKG and key rotation in details.
 #
-# Environment variables use versioned naming: MASTER_SHARE_VX
+# Environment variables use versioned naming: MASTER_SHARE_VX where X is a version of the committee 
+# (e.g. 1). 
 #
 # - For active mode (onchain version = target version = X):
 #   Must set the env variable MASTER_SHARE_VX where X matches the onchain version.
