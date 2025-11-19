@@ -24,12 +24,12 @@ use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
-use seal_sdk::{genkey, seal_decrypt_all_objects};
+use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use semver::VersionReq;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
@@ -213,13 +213,17 @@ async fn test_e2e_decrypt_all_objects() {
 
     let encrypted_objects = vec![encryption1, encryption2];
 
-    let decrypted =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
-            .unwrap();
+    // Decrypt all keys from all servers at once
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
 
-    assert_eq!(decrypted.len(), 2);
-    assert_eq!(decrypted[0], message1);
-    assert_eq!(decrypted[1], message2);
+    // Decrypt each object using the cached keys
+    let decrypted1 =
+        seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map).unwrap();
+    let decrypted2 =
+        seal_decrypt_object(&encrypted_objects[1], &cached_keys, &server_pk_map).unwrap();
+
+    assert_eq!(decrypted1, message1);
+    assert_eq!(decrypted2, message2);
 }
 
 #[traced_test]
@@ -324,27 +328,33 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
         server_pk_map.insert(service_id_sdk, public_key);
     }
 
-    // Scenario A - One server is missing, but threshold is reached
+    // Scenario A - One server is missing, but threshold (=2) is still reached
     seal_responses.remove(0);
 
     let encrypted_objects = vec![encryption1.clone(), encryption2.clone()];
 
-    let decrypted =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
-            .unwrap();
+    // Decrypt all keys from remaining servers at once
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
 
-    assert_eq!(decrypted.len(), 2);
-    assert_eq!(decrypted[0], message1);
-    assert_eq!(decrypted[1], message2);
+    // Decrypt each object using the cached keys
+    let decrypted1 =
+        seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map).unwrap();
+    let decrypted2 =
+        seal_decrypt_object(&encrypted_objects[1], &cached_keys, &server_pk_map).unwrap();
+
+    assert_eq!(decrypted1, message1);
+    assert_eq!(decrypted2, message2);
 
     // Scenario B - A second server is missing, threshold no longer reached
-
     seal_responses.remove(0);
 
     let encrypted_objects = vec![encryption1, encryption2];
 
-    let decrypted_result =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map);
+    // Only 1 server remaining - not enough for threshold=2
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
+
+    // Try to decrypt object - should fail due to insufficient keys (threshold=2 but only 1 server)
+    let decrypted_result = seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map);
 
     assert!(decrypted_result.is_err());
 }

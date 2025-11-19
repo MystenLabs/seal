@@ -27,7 +27,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_sdk::SuiClientBuilder;
 use sui_types::base_types::ObjectID;
@@ -240,7 +240,7 @@ mod tests {
     use crate::types::Network;
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
-    use sui_rpc::client::v2::Client as SuiGrpcClient;
+    use sui_rpc::client::Client as SuiGrpcClient;
     use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
     #[tokio::test]

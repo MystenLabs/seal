@@ -21,9 +21,9 @@ hex = "0.4"
 clap = { version = "4.5.40", features = ["derive"] }
 tracing = "0.1.37"
 serde_with = "3.13.0"
-prost-types = "0.13"
-sui-rpc = "0.0.8"
-tonic = "0.13"
+prost-types = "0.14"
+sui-rpc = "0.1.0"
+tonic = "0.14"
 
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
@@ -35,8 +35,7 @@ prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "
 sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-move-build" }
 test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "test-cluster" }
 
-# this matches the sdk version used by mvr-types dep: https://github.com/MystenLabs/mvr
-sui-sdk-types = { version = "0.0.8", features = ["serde"] }
+sui-sdk-types = { version = "0.1.0", features = ["serde"] }
 
 [profile.release]
 panic = 'abort'

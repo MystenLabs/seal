@@ -10,7 +10,7 @@ use crate::{
     Network,
 };
 use anyhow::{anyhow, Result};
-use sui_rpc::client::v2::Client;
+use sui_rpc::client::Client;
 use sui_sdk_types::{Address, Object, StructTag, TypeTag};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
@@ -77,17 +77,17 @@ pub async fn fetch_key_server(
     };
     let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
 
-    let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag {
-        address: Address::TWO,
-        module: "dynamic_object_field".parse().unwrap(),
-        name: "Wrapper".parse().unwrap(),
-        type_params: vec![TypeTag::Struct(Box::new(StructTag {
-            address: Address::TWO,
-            module: "object".parse().unwrap(),
-            name: "ID".parse().unwrap(),
-            type_params: vec![],
-        }))],
-    }));
+    let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag::new(
+        Address::TWO,
+        "dynamic_object_field".parse().unwrap(),
+        "Wrapper".parse().unwrap(),
+        vec![TypeTag::Struct(Box::new(StructTag::new(
+            Address::TWO,
+            "object".parse().unwrap(),
+            "ID".parse().unwrap(),
+            vec![],
+        )))],
+    )));
 
     let field_wrapper_id =
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);

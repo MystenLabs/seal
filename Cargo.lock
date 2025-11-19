@@ -924,9 +924,9 @@ dependencies = [
 
 [[package]]
 name = "base64ct"
-version = "1.6.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
+checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
 name = "bb8"
@@ -1260,6 +1260,12 @@ name = "bnum"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50202def95bf36cb7d1d7a7962cea1c36a3f8ad42425e5d2b71d7acb8041b5b8"
+
+[[package]]
+name = "bnum"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "119771309b95163ec7aaf79810da82f7cd0599c19722d48b9c03894dca833966"
 
 [[package]]
 name = "brotli"
@@ -1738,7 +1744,7 @@ checksum = "8030735ecb0d128428b64cd379809817e620a40e5001c54465b99ec5feec2857"
 dependencies = [
  "futures-core",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "tonic 0.12.3",
  "tracing-core",
 ]
@@ -1757,7 +1763,7 @@ dependencies = [
  "humantime",
  "hyper-util",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "serde",
  "serde_json",
  "thread_local",
@@ -1957,7 +1963,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "typenum",
 ]
@@ -2098,6 +2104,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cdf337090841a411e2a7f3deb9187445851f91b309c0c0a29e05f74a00a48c0"
+dependencies = [
+ "darling_core 0.21.3",
+ "darling_macro 0.21.3",
+]
+
+[[package]]
 name = "darling_core"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2126,6 +2142,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling_core"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1247195ecd7e3c85f83c8d2a366e4210d588e802133e1e355180a9870b517ea4"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim 0.11.1",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "darling_macro"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2143,6 +2173,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d336a2a514f6ccccaa3e09b02d41d35330c07ddf03a62165fcec10bb561c7806"
 dependencies = [
  "darling_core 0.20.10",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
+dependencies = [
+ "darling_core 0.21.3",
  "quote",
  "syn 2.0.90",
 ]
@@ -2480,7 +2521,7 @@ dependencies = [
  "seal-committee",
  "serde",
  "serde_json",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "tokio",
  "tracing",
@@ -3722,7 +3763,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots",
+ "webpki-roots 0.26.7",
 ]
 
 [[package]]
@@ -4473,7 +4514,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prometheus-closure-metric",
- "prost-types",
+ "prost-types 0.14.1",
  "rand 0.8.5",
  "reqwest 0.12.15",
  "seal-sdk",
@@ -4485,15 +4526,15 @@ dependencies = [
  "shared-crypto",
  "snap",
  "sui-move-build",
- "sui-rpc 0.0.8",
+ "sui-rpc 0.1.0",
  "sui-sdk",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "tap",
  "temp-env",
  "test-cluster",
  "tokio",
- "tonic 0.13.1",
+ "tonic 0.14.2",
  "tower-http 0.6.6",
  "tracing",
  "tracing-test",
@@ -7014,6 +7055,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7231bd9b3d3d33c86b58adbac74b5ec0ad9f496b19d22801d773636feaa95f3d"
+dependencies = [
+ "bytes",
+ "prost-derive 0.14.1",
+]
+
+[[package]]
 name = "prost-build"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7027,7 +7078,7 @@ dependencies = [
  "petgraph 0.6.5",
  "prettyplease",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "regex",
  "syn 2.0.90",
  "tempfile",
@@ -7060,12 +7111,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-derive"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
+dependencies = [
+ "anyhow",
+ "itertools 0.14.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc2f1e56baa61e93533aebc21af4d2134b70f66275e0fcdf3cbe43d77ff7e8fc"
 dependencies = [
  "prost 0.13.4",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
+dependencies = [
+ "prost 0.14.1",
 ]
 
 [[package]]
@@ -7576,7 +7649,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots",
+ "webpki-roots 0.26.7",
  "windows-registry",
 ]
 
@@ -7630,6 +7703,16 @@ name = "roaring"
 version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a652edd001c53df0b3f96a36a8dc93fce6866988efc16808235653c6bcac8bf2"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+]
+
+[[package]]
+name = "roaring"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f08d6a905edb32d74a5d5737a0c9d7e950c312f3c46cb0ca0a2ca09ea11878a0"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -7985,6 +8068,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9558e172d4e8533736ba97870c4b2cd63f84b382a3d6eb063da41b91cce17289"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "schemars_derive"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8026,7 +8121,7 @@ dependencies = [
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "sui-sdk",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "tokio",
 ]
@@ -8039,10 +8134,10 @@ dependencies = [
  "bcs",
  "fastcrypto",
  "fastcrypto-tbls",
- "prost-types",
+ "prost-types 0.14.1",
  "serde",
- "sui-rpc 0.0.8",
- "sui-sdk-types 0.0.8",
+ "sui-rpc 0.1.0",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "tokio",
 ]
@@ -8064,7 +8159,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prost 0.12.6",
- "prost-types",
+ "prost-types 0.14.1",
  "protobuf",
  "reqwest 0.12.15",
  "serde",
@@ -8093,7 +8188,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "sui-types",
  "tracing",
 ]
@@ -8192,9 +8287,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.227"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80ece43fc6fbed4eb5392ab50c07334d3e577cbf40997ee896fe7af40bba4245"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -8253,18 +8348,18 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.227"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a576275b607a2c86ea29e410193df32bc680303c82f31e275bbfcafe8b33be5"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.227"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e694923b8824cf0e9b382adf0f60d4e05f348f357b38833a3fa5ed7c2ede04"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8284,15 +8379,16 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.140"
+version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
+checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
 dependencies = [
  "indexmap 2.11.4",
  "itoa",
  "memchr",
  "ryu",
  "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -8339,9 +8435,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.13.0"
+version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf65a400f8f66fb7b0552869ad70157166676db75ed8181f8104ea91cf9d0b42"
+checksum = "10574371d41b0d9b2cff89418eda27da52bcaff2cc8741db26382a77c29131f1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -8349,8 +8445,8 @@ dependencies = [
  "indexmap 1.9.3",
  "indexmap 2.11.4",
  "schemars 0.9.0",
- "serde",
- "serde_derive",
+ "schemars 1.1.0",
+ "serde_core",
  "serde_json",
  "serde_with_macros",
  "time",
@@ -8358,11 +8454,11 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.13.0"
+version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81679d9ed988d5e9a5e6531dc3f2c28efbd639cbd1dfb628df08edea6004da77"
+checksum = "08a72d8216842fdd57820dc78d840bef99248e35fb2554ff923319e60f2d686b"
 dependencies = [
- "darling 0.20.10",
+ "darling 0.21.3",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -9153,7 +9249,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "reqwest 0.12.15",
- "roaring",
+ "roaring 0.10.10",
  "scopeguard",
  "serde",
  "serde_json",
@@ -9202,7 +9298,7 @@ dependencies = [
  "ark-snark",
  "ark-std",
  "base64ct",
- "bnum",
+ "bnum 0.12.0",
  "ed25519-dalek",
  "itertools 0.13.0",
  "k256 0.13.4",
@@ -10032,7 +10128,7 @@ dependencies = [
  "tokio-postgres-rustls",
  "tracing",
  "url",
- "webpki-roots",
+ "webpki-roots 0.26.7",
 ]
 
 [[package]]
@@ -10085,7 +10181,7 @@ dependencies = [
  "futures",
  "http 1.3.1",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "serde",
  "serde_json",
  "sui-sdk-types 0.0.7",
@@ -10096,23 +10192,24 @@ dependencies = [
 
 [[package]]
 name = "sui-rpc"
-version = "0.0.8"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0619337910d280dc5baa8e7e0dd5a6b01141e453e795f9bdea3c1ef8dc42a14a"
+checksum = "a931ef96b890a118f12b6fa1dda727b8b6df82af3bdb5568c5257078a54c5ba8"
 dependencies = [
  "base64 0.22.1",
  "bcs",
  "bytes",
  "futures",
  "http 1.3.1",
- "prost 0.13.4",
- "prost-types",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
  "serde",
  "serde_json",
- "sui-sdk-types 0.0.8",
+ "sui-sdk-types 0.1.0",
  "tap",
  "tokio",
- "tonic 0.13.1",
+ "tonic 0.14.2",
+ "tonic-prost",
 ]
 
 [[package]]
@@ -10136,9 +10233,9 @@ dependencies = [
  "mysten-network",
  "prometheus",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "rand 0.8.5",
- "roaring",
+ "roaring 0.10.10",
  "serde",
  "serde_json",
  "serde_with",
@@ -10202,10 +10299,10 @@ version = "0.0.2"
 source = "git+https://github.com/mystenlabs/sui-rust-sdk?rev=86a9e06#86a9e06cde84671e96e776d926a85fc1f229314d"
 dependencies = [
  "base64ct",
- "bnum",
+ "bnum 0.12.0",
  "bs58 0.5.1",
  "hex",
- "roaring",
+ "roaring 0.10.10",
  "winnow 0.6.20",
 ]
 
@@ -10217,12 +10314,12 @@ dependencies = [
  "base64ct",
  "bcs",
  "blake2",
- "bnum",
+ "bnum 0.12.0",
  "bs58 0.5.1",
  "bytes",
  "bytestring",
  "itertools 0.13.0",
- "roaring",
+ "roaring 0.10.10",
  "serde",
  "serde_derive",
  "serde_json",
@@ -10232,19 +10329,19 @@ dependencies = [
 
 [[package]]
 name = "sui-sdk-types"
-version = "0.0.8"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b43c85a0d7f0e349f79a32a620d82648997f1681107389b178f34c4e460a23a2"
+checksum = "df9497600faf5a1fb07a2db85902515867ad30474abf959de1a7d1fa473c4a28"
 dependencies = [
  "base64ct",
  "bcs",
  "blake2",
- "bnum",
+ "bnum 0.13.0",
  "bs58 0.5.1",
  "bytes",
  "bytestring",
- "itertools 0.13.0",
- "roaring",
+ "itertools 0.14.0",
+ "roaring 0.11.2",
  "serde",
  "serde_derive",
  "serde_json",
@@ -10547,9 +10644,9 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "rand 0.8.5",
- "roaring",
+ "roaring 0.10.10",
  "rustls-pemfile 2.2.0",
  "schemars 0.8.21",
  "serde",
@@ -11388,7 +11485,39 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "webpki-roots",
+ "webpki-roots 0.26.7",
+ "zstd 0.13.2",
+]
+
+[[package]]
+name = "tonic"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb7613188ce9f7df5bfe185db26c5814347d110db17920415cf2fbcad85e7203"
+dependencies = [
+ "async-trait",
+ "axum 0.8.4",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.7",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.6.0",
+ "hyper-timeout",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "socket2 0.6.0",
+ "sync_wrapper 1.0.2",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+ "webpki-roots 1.0.4",
  "zstd 0.13.2",
 ]
 
@@ -11401,7 +11530,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "prost-build",
- "prost-types",
+ "prost-types 0.13.4",
  "quote",
  "syn 2.0.90",
 ]
@@ -11419,13 +11548,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic-prost"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
+dependencies = [
+ "bytes",
+ "prost 0.14.1",
+ "tonic 0.14.2",
+]
+
+[[package]]
 name = "tonic-reflection"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9687bd5bfeafebdded2356950f278bba8226f0b32109537c4253406e09aafe1"
 dependencies = [
  "prost 0.13.4",
- "prost-types",
+ "prost-types 0.13.4",
  "tokio",
  "tokio-stream",
  "tonic 0.13.1",
@@ -12257,6 +12397,15 @@ name = "webpki-roots"
 version = "0.26.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d642ff16b7e79272ae451b7322067cdc17cadf68c23264be9d94a32319efe7e"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
 dependencies = [
  "rustls-pki-types",
 ]
