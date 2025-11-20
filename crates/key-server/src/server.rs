@@ -4,7 +4,8 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::ServerMode;
+use crate::key_server_options::{CommitteeState, ServerMode};
+use crate::master_keys::CommitteeKeyState;
 use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
@@ -158,7 +159,7 @@ impl Server {
         );
         info!("Server started with network: {:?}", options.network);
 
-        // Fetch current version onchain.
+        // Fetch current committee version onchain for committee server.
         let committee_version = match &options.server_mode {
             ServerMode::Committee {
                 key_server_obj_id, ..
@@ -194,13 +195,12 @@ impl Server {
 
     /// Update committee version to target and refresh PoP when rotation completes.
     pub(crate) async fn refresh_committee_server(&self) -> Result<()> {
-        let (current_version_arc, target_version, member_address, key_server_obj_id) =
+        let (committee_version_arc, target_version, member_address, key_server_obj_id) =
             match (&self.master_keys, &self.options.server_mode) {
                 (
                     MasterKeys::Committee {
-                        current_key_server_version,
-                        target_key_server_version,
-                        ..
+                        committee_version,
+                        key_state: CommitteeKeyState::Rotation { target_version, .. },
                     },
                     ServerMode::Committee {
                         member_address,
@@ -208,16 +208,16 @@ impl Server {
                         ..
                     },
                 ) => (
-                    current_key_server_version,
-                    *target_key_server_version,
+                    committee_version,
+                    *target_version,
                     member_address,
                     key_server_obj_id,
                 ),
-                _ => anyhow::bail!("refresh_committee_server called in non-Committee mode"),
+                _ => anyhow::bail!("refresh_committee_server called in non-Rotation mode"),
             };
 
         // Update current version.
-        current_version_arc.store(target_version, Ordering::Relaxed);
+        committee_version_arc.store(target_version, Ordering::Relaxed);
         info!("Updated committee version to {target_version}");
 
         // Refresh PoP with new master share.
@@ -636,49 +636,43 @@ impl Server {
     /// the current version in MasterKeys. Only spawns a task if in Committee mode during rotation.
     /// The task self-manages its lifecycle and exits when rotation completes or on error.
     async fn spawn_committee_version_updater(&self) {
-        // Load target version from committee server config.
+        // Load committee state from config.
         let ServerMode::Committee {
             member_address: _,
             key_server_obj_id,
-            target_key_server_version: target_version,
+            committee_state,
         } = &self.options.server_mode
         else {
             return;
         };
 
+        // Check if we're in rotation mode.
+        let target_version = match committee_state {
+            CommitteeState::Active => {
+                info!("Active mode: no rotation needed. Do not start version monitor.");
+                return;
+            }
+            CommitteeState::Rotation { target_version } => *target_version,
+        };
+
         // Load current version from MasterKeys. This is initialized during MasterKeys::load().
         let current_version = match &self.master_keys {
             MasterKeys::Committee {
-                current_key_server_version,
-                ..
-            } => current_key_server_version.load(Ordering::Relaxed),
+                committee_version, ..
+            } => committee_version.load(Ordering::Relaxed),
             _ => return,
         };
 
-        info!(
-            "Initial current version: {current_version}, config target version: {target_version}"
-        );
-
-        // If current version matches target, no need to spawn updater (active mode).
-        if current_version == *target_version {
-            info!("Active mode: current version {current_version} matches target. Do not start version monitor.");
+        if current_version == target_version {
+            info!("Rotation already completed. Do not start version monitor.");
             return;
         }
 
-        // Check for potential underflow before subtraction.
-        if *target_version == 0 {
-            panic!(
-                "Invalid config: target_version is 0 but current onchain version is {current_version}. \
-                For fresh DKG, set target_version to 0 and provide only MASTER_SHARE_V0. \
-                For rotation from v{current_version}, set target_version to {}.",
-                current_version + 1
-            );
-        }
+        info!(
+            "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
+        );
 
-        // If current version is target-1, spawn updater (rotation mode).
-        if current_version == *target_version - 1 {
-            info!("Rotation mode: current version {current_version} is behind target {target_version}. Starting version monitor.");
-
+        {
             // Define the fetch function for the periodic updater.
             let key_server_obj_id_clone = *key_server_obj_id;
             let fetch_fn = move |client: SuiRpcClient| async move {
@@ -702,7 +696,6 @@ impl Server {
             .await;
 
             let mut receiver_clone = receiver;
-            let target_version = *target_version;
             let server = self.clone();
 
             // Spawn the background task to monitor version changes.
@@ -738,18 +731,7 @@ impl Server {
                     }
                 }
             });
-
-            return;
         }
-
-        // Onchain current version must be 1 behind target or equal to target version.
-        panic!(
-            "Version mismatch: current onchain version {current_version} does not match target {target_version}. \
-            Expected either {target_version} (active mode) or {} (rotation mode). \
-            Check your config target_key_server_version and ensure MASTER_SHARE_V{} is set.",
-            target_version - 1,
-            target_version
-        );
     }
 }
 

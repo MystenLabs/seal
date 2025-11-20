@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError;
-use crate::key_server_options::{ClientConfig, ClientKeyType, KeyServerOptions, ServerMode};
+use crate::key_server_options::{
+    ClientConfig, ClientKeyType, CommitteeState, KeyServerOptions, ServerMode,
+};
 use crate::types::IbeMasterKey;
 use crate::utils::{decode_byte_array, decode_master_key};
 use crate::DefaultEncoding;
@@ -24,6 +26,12 @@ fn master_share_env_var(version: u32) -> String {
     format!("MASTER_SHARE_V{version}")
 }
 
+/// Load a master share from environment variable.
+fn load_master_share(version: u32) -> anyhow::Result<IbeMasterKey> {
+    decode_master_key::<DefaultEncoding>(&master_share_env_var(version))
+        .map_err(|e| anyhow!("Expected MASTER_SHARE_V{}: {}", version, e))
+}
+
 /// Represents the set of master keys held by a key server.
 #[derive(Clone)]
 pub enum MasterKeys {
@@ -36,12 +44,12 @@ pub enum MasterKeys {
     },
     /// In committee mode, there are active mode where there is one master share and rotation mode
     /// where there are two. In active mode, master_share is always used. In rotation mode, the
-    /// master_share is used when current version is 1 behind target, and next_master_share is used
-    /// when they are equal. The current version is periodically fetched from onchain.
+    /// master_share is used when current version is behind target, and next_master_share is used
+    /// when they are equal.
     Committee {
         key_state: CommitteeKeyState,
-        current_key_server_version: Arc<AtomicU32>,
-        target_key_server_version: u32,
+        /// The current version, atomically updated when rotation completes.
+        committee_version: Arc<AtomicU32>,
     },
 }
 
@@ -53,6 +61,7 @@ pub(crate) enum CommitteeKeyState {
     Rotation {
         master_share: IbeMasterKey,
         next_master_share: IbeMasterKey,
+        target_version: u32,
     },
 }
 
@@ -63,7 +72,7 @@ impl MasterKeys {
     /// If onchain_version == target_version - 1, loads both shares in Rotation mode.
     pub(crate) fn load(
         options: &KeyServerOptions,
-        onchain_version: Option<u32>,
+        committee_version: Option<u32>,
     ) -> anyhow::Result<Self> {
         info!("Loading keys from env variables");
         match &options.server_mode {
@@ -72,61 +81,54 @@ impl MasterKeys {
                     Ok(master_key) => master_key,
 
                     // TODO: Fallback to Base64 encoding for backward compatibility.
-                    Err(_) => crate::utils::decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
+                    Err(_) => decode_master_key::<Base64>(MASTER_KEY_ENV_VAR)?,
                 };
                 Ok(MasterKeys::Open { master_key })
             }
             ServerMode::Committee {
-                target_key_server_version,
-                ..
+                committee_state, ..
             } => {
-                let target_version = *target_key_server_version;
+                let committee_version =
+                    committee_version.expect("Onchain committee version must be loaded.");
 
-                let current_version = onchain_version.ok_or_else(|| {
-                    anyhow!("onchain_version must be provided for Committee mode")
-                })?;
-
-                let key_state = if target_version == current_version {
-                    // Active mode: current matches target. Require MASTER_SHARE_V{target_version}.
-                    // Others are ignored.
-                    let master_share = decode_master_key::<DefaultEncoding>(&master_share_env_var(target_version))
-                        .map_err(|e| anyhow!(
-                            "Current version {} equals target version {}. Expected MASTER_SHARE_V{}: {}",
-                            current_version, target_version, target_version, e
-                        ))?;
-                    CommitteeKeyState::Active { master_share }
-                } else if target_version == current_version + 1 {
-                    // Rotation mode: target version = current version + 1. Require both
-                    // MASTER_SHARE_V{current_version} and MASTER_SHARE_V{target_version}.
-                    let master_share = decode_master_key::<DefaultEncoding>(&master_share_env_var(current_version))
-                        .map_err(|e| anyhow!(
-                            "Current version {} is behind target version {}. Expected MASTER_SHARE_V{}: {}",
-                            current_version, target_version, current_version, e
-                        ))?;
-
-                    let next_master_share = decode_master_key::<DefaultEncoding>(&master_share_env_var(target_version))
-                        .map_err(|e| anyhow!(
-                            "Current version {} is behind target version {}. Expected MASTER_SHARE_V{}: {}",
-                            current_version, target_version, target_version, e
-                        ))?;
-
-                    CommitteeKeyState::Rotation {
-                        master_share,
-                        next_master_share,
+                let key_state = match committee_state {
+                    CommitteeState::Active => {
+                        let master_share = load_master_share(committee_version)?;
+                        CommitteeKeyState::Active { master_share }
                     }
-                } else {
-                    return Err(anyhow!(
-                        "Invalid version configuration: current version {} does not match target version {} or target-1 {}. \
-                        Valid configurations:\n\
-                        1. current=X, target=X: require MASTER_SHARE_VX\n\
-                        2. current=X, target=X+1: require MASTER_SHARE_VX and MASTER_SHARE_VX+1",
-                        current_version, target_version, target_version.saturating_sub(1)
-                    ));
+                    CommitteeState::Rotation { target_version } => {
+                        let target = *target_version;
+                        if target == 0 {
+                            anyhow::bail!("Invalid rotation config: target_version cannot be 0");
+                        }
+
+                        if committee_version == target {
+                            // Rotation completed, just load MASTER_SHARE_V{target} and ignore others.
+                            let master_share = load_master_share(target)?;
+                            CommitteeKeyState::Active { master_share }
+                        } else if committee_version == target - 1 {
+                            // Rotation in progress, load both shares.
+                            let master_share = load_master_share(committee_version)?;
+                            let next_master_share = load_master_share(target)?;
+                            CommitteeKeyState::Rotation {
+                                master_share,
+                                next_master_share,
+                                target_version: target,
+                            }
+                        } else {
+                            anyhow::bail!(
+                                "Rotation mode mismatch: version {} doesn't match {} or {}",
+                                committee_version,
+                                target - 1,
+                                target
+                            );
+                        }
+                    }
                 };
+
                 Ok(MasterKeys::Committee {
                     key_state,
-                    current_key_server_version: Arc::new(AtomicU32::new(current_version)),
-                    target_key_server_version: target_version,
+                    committee_version: Arc::new(AtomicU32::new(committee_version)),
                 })
             }
             ServerMode::Permissioned { client_configs } => {
@@ -232,31 +234,31 @@ impl MasterKeys {
                 .ok_or(InternalError::InvalidServiceId),
         }
     }
-    /// Load onchain version to determine which master share to use for committee key server.
+    /// Load committee version to determine which master share to use.
     pub(crate) fn get_committee_server_master_share(
         &self,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
             MasterKeys::Committee {
                 key_state,
-                current_key_server_version,
-                target_key_server_version,
+                committee_version,
             } => match key_state {
                 CommitteeKeyState::Active { master_share } => Ok(master_share),
                 CommitteeKeyState::Rotation {
                     master_share,
                     next_master_share,
+                    target_version,
                 } => {
-                    if current_key_server_version.load(Ordering::Relaxed)
-                        == *target_key_server_version
-                    {
+                    if committee_version.load(Ordering::Relaxed) == *target_version {
                         Ok(next_master_share)
                     } else {
                         Ok(master_share)
                     }
                 }
             },
-            _ => Err(InternalError::InvalidServiceId),
+            _ => Err(InternalError::Failure(
+                "Invalid master key type for committee".to_string(),
+            )),
         }
     }
 }
@@ -381,20 +383,20 @@ fn test_master_keys_committee_mode() {
     use sui_sdk_types::Address;
     use temp_env::with_vars;
 
-    let target_version = 5;
-    let mut options =
-        KeyServerOptions::new_open_server_with_default_values(Network::Testnet, ObjectID::ZERO);
-    options.server_mode = ServerMode::Committee {
-        member_address: Address::ZERO,
-        key_server_obj_id: Address::TWO,
-        target_key_server_version: target_version,
-    };
-
     use fastcrypto::groups::bls12381::Scalar;
     let master_share_v4 = Scalar::from(4u128);
     let master_share_v5 = Scalar::from(5u128);
     let master_share_v4_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v4).unwrap());
     let master_share_v5_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v5).unwrap());
+
+    // Test Rotation mode.
+    let mut options =
+        KeyServerOptions::new_open_server_with_default_values(Network::Testnet, ObjectID::ZERO);
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Rotation { target_version: 5 },
+    };
 
     with_vars(
         [
@@ -402,20 +404,19 @@ fn test_master_keys_committee_mode() {
             ("MASTER_SHARE_V5", Some(&master_share_v5_encoded)),
         ],
         || {
-            // Onchain is behind target by 1, V4 is used.
-            let mk = MasterKeys::load(&options, Some(target_version - 1)).unwrap();
+            // Rotation mode: onchain is 4, target is 5, V4 is used.
+            let mk = MasterKeys::load(&options, Some(4)).unwrap();
             assert_eq!(
                 mk.get_committee_server_master_share().unwrap(),
                 &master_share_v4
             );
 
             if let MasterKeys::Committee {
-                current_key_server_version,
-                ..
+                committee_version, ..
             } = &mk
             {
-                // After updating current version, active mode, V5 is used.
-                current_key_server_version.store(target_version, Ordering::Relaxed);
+                // After updating current version to target, V5 is used.
+                committee_version.store(5, Ordering::Relaxed);
                 assert_eq!(
                     mk.get_committee_server_master_share().unwrap(),
                     &master_share_v5
@@ -424,20 +425,44 @@ fn test_master_keys_committee_mode() {
         },
     );
 
-    // Error for missing MASTER_SHARE_V{target} in Active mode.
+    // Test Active mode.
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Active,
+    };
+
+    with_vars(
+        [("MASTER_SHARE_V5", Some(&master_share_v5_encoded))],
+        || {
+            // Active mode: onchain version is 5, use V5.
+            let mk = MasterKeys::load(&options, Some(5)).unwrap();
+            assert_eq!(
+                mk.get_committee_server_master_share().unwrap(),
+                &master_share_v5
+            );
+        },
+    );
+
+    // Error for missing MASTER_SHARE_V{onchain} in Active mode.
     with_vars(
         [("MASTER_SHARE_V4", Some(&master_share_v4_encoded))],
         || {
-            let result = MasterKeys::load(&options, Some(target_version));
+            let result = MasterKeys::load(&options, Some(5));
             assert!(result.is_err());
         },
     );
 
     // Error for missing MASTER_SHARE_V{target-1} in Rotation mode.
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Rotation { target_version: 5 },
+    };
     with_vars(
         [("MASTER_SHARE_V5", Some(&master_share_v5_encoded))],
         || {
-            let result = MasterKeys::load(&options, Some(target_version - 1));
+            let result = MasterKeys::load(&options, Some(4));
             assert!(result.is_err());
         },
     );

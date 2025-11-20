@@ -118,7 +118,7 @@ Example config file:
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-  target_key_server_version: 0
+  committee_state: !Active
 ```
 
 Example command to start server:
@@ -224,19 +224,20 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
     --args $COMMITTEE_ID "[x\"$PARTY_0_PARTIAL_PK\", x\"$PARTY_1_PARTIAL_PK\", x\"$PARTY_2_PARTIAL_PK\", x\"$PARTY_3_PARTIAL_PK\"]" $CURRENT_COMMITTEE_ID
 ```
 
-7. Increment the version in `key-server-config.yaml` by 1, from `X` to `X+1`. 
+7. Update `key-server-config.yaml` to Rotation mode with target version `X+1`.
 
 Example config file:
 ```yaml
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-  target_key_server_version: <X+1>
+  committee_state: !Rotation
+    target_version: <X+1>
 ```
 
 a. For continuing members:
 
-i. Restart server with both versioned keys (the current version onchain is still `X`, target is `X+1`). During this transition, the server watches for the current version onchain: If it is still `X`, serve request with `MASTER_SHARE_VX`. If onchain transitions to `X+1`, serve request with `MASTER_SHARE_VX+1`. 
+i. Restart server with both versioned keys (the current version onchain is still `X`, target is `X+1`). During this transition, the server watches for the current version onchain: If it is still `X`, serve request with `MASTER_SHARE_VX`. If onchain transitions to `X+1`, serve request with `MASTER_SHARE_VX+1`.
 
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \

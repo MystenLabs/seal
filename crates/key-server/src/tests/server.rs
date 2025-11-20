@@ -4,14 +4,14 @@
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto::groups::GroupElement;
 use prometheus::Registry;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use tracing_test::traced_test;
 
 use crate::externals::get_latest_checkpoint_timestamp;
-use crate::key_server_options::{RetryConfig, ServerMode};
+use crate::key_server_options::{CommitteeState, RetryConfig, ServerMode};
 use crate::master_keys::MasterKeys;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
@@ -428,14 +428,14 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
     let key_server_version = key_server_obj.data.as_ref().unwrap().version;
     let key_server_digest = key_server_obj.data.as_ref().unwrap().digest;
 
-    // Initialize a server with the ks object id, onchain version 0, target version 1, and v0 and v1 master shares.
+    // Initialize a server with the ks object id, rotation mode (current=0, target=1), and v0 and v1 master shares.
     let server = create_test_server(
         tc.test_cluster().sui_client().clone(),
         SuiGrpcClient::new(&tc.test_cluster().fullnode_handle.rpc_url).unwrap(),
         ServerMode::Committee {
             member_address: Address::new(member_address.to_inner()),
             key_server_obj_id: Address::new(key_server_id.into_bytes()),
-            target_key_server_version: 1,
+            committee_state: CommitteeState::Rotation { target_version: 1 },
         },
         Some(0), // onchain_version starts at 0
         [
@@ -446,12 +446,11 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
     .await;
 
     // Extract current_version pointer.
-    let current_version: Arc<std::sync::atomic::AtomicU32> = if let MasterKeys::Committee {
-        current_key_server_version,
-        ..
+    let current_version: Arc<AtomicU32> = if let MasterKeys::Committee {
+        committee_version, ..
     } = &server.master_keys
     {
-        Arc::clone(current_key_server_version)
+        Arc::clone(committee_version)
     } else {
         panic!("Expected Committee master keys");
     };

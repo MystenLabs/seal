@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    key_server_options::{ClientConfig, KeyServerOptions, RetryConfig, RpcConfig, ServerMode},
+    key_server_options::{
+        ClientConfig, CommitteeState, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
+    },
     master_keys::MasterKeys,
     sui_rpc_client::SuiRpcClient,
     tests::SealTestCluster,
@@ -102,7 +104,7 @@ pub(crate) async fn create_committee_servers(
     member_addresses: Vec<Address>,
     vars_list: Vec<Vec<(&str, Vec<u8>)>>,
     onchain_version: u32,
-    target_key_server_version: u32,
+    committee_state: CommitteeState,
 ) -> Vec<Server> {
     let mut servers = Vec::new();
 
@@ -114,7 +116,7 @@ pub(crate) async fn create_committee_servers(
             ServerMode::Committee {
                 member_address,
                 key_server_obj_id,
-                target_key_server_version,
+                committee_state: committee_state.clone(),
             },
             Some(onchain_version),
             vars_refs,

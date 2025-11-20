@@ -37,6 +37,17 @@ pub struct ClientConfig {
     pub package_ids: Vec<ObjectID>,     // first versions only
 }
 
+/// State of the committee key server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CommitteeState {
+    /// Active mode: the key server is operating with one master share. Version is determined from
+    /// the onchain key server object.
+    Active,
+    /// Rotation mode: the key server is rotating to a new version. Target version is read from the
+    /// the config, and the current is target - 1.
+    Rotation { target_version: u32 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ServerMode {
     Open {
@@ -51,10 +62,8 @@ pub enum ServerMode {
     Committee {
         member_address: Address,
         key_server_obj_id: Address,
-        /// The target key server version set during rotation. During rotation, this can be exactly
-        /// 1 greater than the current version. When rotation completes and the current version
-        /// matches this version, MASTER_SHARE_V{target_key_server_version} will be used.
-        target_key_server_version: u32,
+        /// The state of the committee: Active or Rotation.
+        committee_state: CommitteeState,
     },
 }
 

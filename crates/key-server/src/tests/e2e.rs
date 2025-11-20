@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError::UnsupportedPackageId;
-use crate::key_server_options::{ClientConfig, ClientKeyType};
+use crate::key_server_options::{ClientConfig, ClientKeyType, CommitteeState};
 use crate::master_keys::MasterKeys;
 use crate::tests::externals::get_key;
 use crate::tests::test_utils::{create_committee_servers, create_server};
@@ -697,7 +697,7 @@ async fn test_e2e_committee_mode_with_rotation() {
         ibe::PublicKey::from_byte_array(&aggregated_pk_bytes.try_into().unwrap()).unwrap();
     let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![aggregated_pk]);
 
-    // Use a random key server object ID (not registered on-chain for this test).
+    // Use a test key server object id.
     let key_server_object_id = NewObjectID::new(ObjectID::random().into_bytes());
 
     // Create test user and add to whitelist.
@@ -726,7 +726,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     // Create initial committee servers (parties 0, 1, 2).
     let mut servers = Vec::new();
 
-    // Parties 0, 1: current_version=0, target_version=1 (rotation in progress, both shares).
+    // Parties 0, 1: rotation in progress (current=0, target=1), both have two shares.
     servers.extend(
         create_committee_servers(
             cluster.sui_client().clone(),
@@ -750,12 +750,12 @@ async fn test_e2e_committee_mode_with_rotation() {
                 ],
             ],
             0, // onchain_version
-            1, // target_key_server_version
+            CommitteeState::Rotation { target_version: 1 },
         )
         .await,
     );
 
-    // Party 2: current_version=0, target_version=0 (leaving committee, just v0 share).
+    // Party 2: Active mode at version 0 (leaving committee, just v0 share).
     servers.extend(
         create_committee_servers(
             cluster.sui_client().clone(),
@@ -767,7 +767,7 @@ async fn test_e2e_committee_mode_with_rotation() {
                 Hex::decode(master_shares[2]).unwrap(),
             )]],
             0, // onchain_version
-            0, // target_key_server_version
+            CommitteeState::Active,
         )
         .await,
     );
@@ -805,19 +805,17 @@ async fn test_e2e_committee_mode_with_rotation() {
     );
     assert_eq!(decryption, message);
 
-    // Manually update current version = target version.
+    // Manually update current version = target version for party 0 and 1 servers.
     servers.iter().for_each(|server| {
         if let MasterKeys::Committee {
-            current_key_server_version,
-            ..
+            committee_version, ..
         } = &server.master_keys
         {
-            current_key_server_version.store(1, Ordering::Relaxed);
+            committee_version.store(1, Ordering::Relaxed);
         }
     });
 
     // Add party 3 and 4 with only MASTER_SHARE_V1 from the dkg rotation.
-    // Rotation completes, current = 1, target = 1.
     let new_servers = create_committee_servers(
         cluster.sui_client().clone(),
         grpc_client.clone(),
@@ -834,11 +832,11 @@ async fn test_e2e_committee_mode_with_rotation() {
             )],
         ],
         1, // onchain_version
-        1, // target_key_server_version
+        CommitteeState::Active,
     )
     .await;
 
-    // Set up new committee. Parties 0,1 from old committee (swapped), parties 3,4 new.
+    // Set up new committee. Parties 0,1 from old committee (swapped), parties 3,4 new, all at version 1.
     let new_committee = [&servers[1], &servers[0], &new_servers[0], &new_servers[1]];
 
     // Randomly select 3 out of 4 parties.

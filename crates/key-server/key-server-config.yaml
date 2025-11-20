@@ -79,31 +79,32 @@ server_mode: !Open
 # #### COMMITTEE MODE ####
 # See the runbook for fresh DKG and key rotation in details.
 #
-# Environment variables use versioned naming: MASTER_SHARE_VX where X is a version of the committee 
-# (e.g. 1). 
+# Environment variables use versioned naming: MASTER_SHARE_VX where X is a version of the committee
+# (e.g. 1).
 #
-# - For active mode (onchain version = target version = X):
-#   Must set the env variable MASTER_SHARE_VX where X matches the onchain version.
-#   Example: For version 0, set MASTER_SHARE_V0, other versioned shares will be ignored.
+# Committee state can be:
+# - Active: Server is operating with one active master share. Version determined from onchain key 
+#   server object. Must set MASTER_SHARE_VX where X matches the onchain version.
+#   Example: For version 0, set MASTER_SHARE_V0.
 #
-# - For rotation mode (onchain version = X, target version = X+1):
-#   Must provide MASTER_SHARE_VX and MASTER_SHARE_VX+1.
-#   The server uses MASTER_SHARE_VX and automatically switches to MASTER_SHARE_VX+1
-#   when the onchain version updates to X+1.
-#   Example: Example: For rotation from version 1 to 2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
+# - Rotation: Server is rotating to a new version.
+#   target_version specifies the new version (current = target - 1).
+#   Must set both MASTER_SHARE_VX and MASTER_SHARE_V{X+1}.
+#   Server uses current share and switches to next when onchain updates.
+#   Example: For rotation from 1 to 2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
 #
-# Example for a fresh DKG (MASTER_SHARE_V0 is set as environment variable):
+# Example for Active mode (fresh DKG or after rotation completes):
 # server_mode: !Committee
 #   member_address: '<MY_ADDRESS>'
 #   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-#   target_key_server_version: 0
+#   committee_state: !Active
 #
-# Example for key rotation when onchain version is 1. (Both MASTER_SHARE_V1 and MASTER_SHARE_V2 are
-# set in environment variables):
+# Example for Rotation mode (when onchain version is 1, rotating to 2):
 # server_mode: !Committee
 #   member_address: '<MY_ADDRESS>'
 #   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
-#   target_key_server_version: 2
+#   committee_state: !Rotation
+#     target_version: 2
 
 #### Optional advanced configurations ####
 #
