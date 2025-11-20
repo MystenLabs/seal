@@ -15,7 +15,7 @@ use crate::time::checked_duration_since;
 use crate::time::from_mins;
 use crate::time::{duration_since_as_f64, saturating_duration_since};
 use crate::types::{MasterKeyPOP, Network};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
@@ -144,7 +144,7 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Result<Self> {
+    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -168,7 +168,8 @@ impl Server {
                     &mut sui_rpc_client.sui_grpc_client(),
                     key_server_obj_id,
                 )
-                .await?;
+                .await
+                .expect("Failed to fetch committee server version");
                 Some(version)
             }
             _ => None,
@@ -183,18 +184,18 @@ impl Server {
             &master_keys,
             sui_rpc_client.sui_grpc_client(),
         )
-        .await?;
+        .await;
 
-        Ok(Server {
+        Server {
             sui_rpc_client,
             master_keys,
             key_server_oid_to_pop: Arc::new(RwLock::new(key_server_oid_to_pop)),
             options,
-        })
+        }
     }
 
     /// Update committee version to target and refresh PoP when rotation completes.
-    pub(crate) async fn refresh_committee_server(&self) -> Result<()> {
+    pub(crate) async fn refresh_committee_server(&self) {
         let (committee_version_arc, target_version, member_address, key_server_obj_id) =
             match (&self.master_keys, &self.options.server_mode) {
                 (
@@ -213,10 +214,10 @@ impl Server {
                     member_address,
                     key_server_obj_id,
                 ),
-                _ => anyhow::bail!("refresh_committee_server called in non-Rotation mode"),
+                _ => panic!("refresh_committee_server called in non-Rotation mode"),
             };
 
-        // Update current version.
+        // Update version first so build_committee_server_pop uses the new key.
         committee_version_arc.store(target_version, Ordering::Relaxed);
         info!("Updated committee version to {target_version}");
 
@@ -227,38 +228,40 @@ impl Server {
             member_address,
             key_server_obj_id,
         )
-        .await?;
+        .await;
 
         *self
             .key_server_oid_to_pop
             .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock on PoP map: {}", e))? =
+            .expect("Failed to acquire write lock on PoP map") =
             HashMap::from([(key_server_oid, new_pop)]);
-
         info!("Committee PoP refreshed successfully.");
-        Ok(())
     }
 
     /// Helper function to build the PoP for Committee mode. First fetch member info for partial pk
     /// and party ID from onchain and creates proof of possession. Returns (key_server_oid, pop) tuple.
+    /// Panics on failure since server cannot operate without valid PoP.
     async fn build_committee_server_pop(
         master_keys: &MasterKeys,
         mut grpc_client: SuiGrpcClient,
         member_address: &Address,
         key_server_obj_id: &Address,
-    ) -> Result<(ObjectID, MasterKeyPOP)> {
+    ) -> (ObjectID, MasterKeyPOP) {
         let member_info =
             get_partial_key_server_for_member(&mut grpc_client, key_server_obj_id, member_address)
-                .await?;
+                .await
+                .expect("Failed to fetch member info from chain");
 
         let key_server_oid = ObjectID::new(key_server_obj_id.into_inner());
         let master_key = master_keys
             .get_key_for_key_server(&key_server_oid)
             .expect("checked already");
 
-        if member_info.partial_pk != public_key_from_master_key(master_key) {
-            anyhow::bail!("Public key mismatch for member address");
-        }
+        assert_eq!(
+            member_info.partial_pk,
+            public_key_from_master_key(master_key),
+            "Public key mismatch for member address"
+        );
 
         info!(
             "Committee mode: KeyServer {} with party_id={}",
@@ -271,30 +274,28 @@ impl Server {
         pop_message.extend_from_slice(&member_info.party_id.to_le_bytes());
         let pop = create_proof_of_possession(master_key, &pop_message);
 
-        Ok((key_server_oid, pop))
+        (key_server_oid, pop)
     }
 
     /// Build the key_server_oid -> PoP HashMap for all server modes.
+    /// Panics on failure since server cannot start without valid PoP.
     pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
         grpc_client: SuiGrpcClient,
-    ) -> Result<HashMap<ObjectID, MasterKeyPOP>> {
+    ) -> HashMap<ObjectID, MasterKeyPOP> {
         match &options.server_mode {
-            ServerMode::Open { .. } | ServerMode::Permissioned { .. } => {
-                let res = options
-                    .get_supported_key_server_object_ids()
-                    .into_iter()
-                    .map(|ks_oid| {
-                        let key = master_keys
-                            .get_key_for_key_server(&ks_oid)
-                            .expect("checked already");
-                        let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
-                        (ks_oid, pop)
-                    })
-                    .collect();
-                Ok(res)
-            }
+            ServerMode::Open { .. } | ServerMode::Permissioned { .. } => options
+                .get_supported_key_server_object_ids()
+                .into_iter()
+                .map(|ks_oid| {
+                    let key = master_keys
+                        .get_key_for_key_server(&ks_oid)
+                        .expect("checked already");
+                    let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                    (ks_oid, pop)
+                })
+                .collect(),
 
             ServerMode::Committee {
                 member_address,
@@ -307,9 +308,9 @@ impl Server {
                     member_address,
                     key_server_obj_id,
                 )
-                .await?;
+                .await;
 
-                Ok(HashMap::from([(key_server_oid, pop)]))
+                HashMap::from([(key_server_oid, pop)])
             }
         }
     }
@@ -707,22 +708,17 @@ impl Server {
 
                             // Rotation completes, refresh committee server version and PoP.
                             if version == target_version {
-                                if let Err(e) = server.refresh_committee_server().await {
-                                    error!("CRITICAL: Failed to refresh committee server at version {version}: {e}. Exiting version monitor.");
-                                    break;
-                                }
+                                server.refresh_committee_server().await;
                                 info!("Rotation complete at version {version}. Exiting version monitor.");
                                 break;
                             } else if target_version == version + 1 {
                                 continue; // Still in rotation, keep monitoring.
                             } else {
                                 // Unexpected version state - onchain version skipped or went backwards.
-                                error!(
-                                    "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {}). \
-                                    Exiting version monitor.",
+                                panic!(
+                                    "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
                                     target_version - 1
                                 );
-                                break;
                             }
                         }
                         Err(e) => {
@@ -1107,7 +1103,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         format!("{}-{}", package_version!(), GIT_VERSION).as_str()
     );
     options.validate()?;
-    let server = Arc::new(Server::new(options, Some(metrics.clone())).await?);
+    let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
     let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;

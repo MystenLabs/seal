@@ -486,7 +486,7 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
     execute_programmable_transaction(&tc, member_address, builder.finish()).await;
 
     // Refresh server.
-    server.refresh_committee_server().await.unwrap();
+    server.refresh_committee_server().await;
 
     // Verify PoP for new partial key server (party_id_1, partial_pk_1).
     let pop_map = server.key_server_oid_to_pop.read().unwrap();
