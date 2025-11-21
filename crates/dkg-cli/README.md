@@ -111,7 +111,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
     --args $COMMITTEE_ID "[x\"$PARTY_0_PARTIAL_PK\", x\"$PARTY_1_PARTIAL_PK\", x\"$PARTY_2_PARTIAL_PK\"]" x"$KEY_SERVER_PK"
 ```
 
-7. Wait for the coordinator to announce that the DKG process is completed and share the created key server object ID `KEY_SERVER_OBJ_ID`. Update `key-server-config.yaml` containing `MY_ADDRESS` and `KEY_SERVER_OBJ_ID` and start the server with `MASTER_SHARE_V0` (version 0 for fresh DKG).
+7. Wait for the coordinator to announce that the DKG process is completed and share the created key server object ID `KEY_SERVER_OBJ_ID`. Create `key-server-config.yaml` with `MY_ADDRESS` and `KEY_SERVER_OBJ_ID` and set Active mode. Start the server with `MASTER_SHARE_V0` (version 0 for fresh DKG).
 
 Example config file:
 ```yaml
@@ -151,7 +151,7 @@ sui client call --package $COMMITTEE_PKG --module seal_committee \
 COMMITTEE_ID=0x82283c1056bb18832428034d20e0af5ed098bc58f8815363c33eb3a9b3fba867
 ```
 
-- Added step 9: Monitor onchain that the new committee is finalized. Then announce DKG rotation is completed. 
+- Added step 9: Monitor onchain that the new committee is finalized. Then announce DKG rotation is completed, so members can restart with Active mode server. 
 
 #### Member Runbook
 
@@ -237,7 +237,7 @@ server_mode: !Committee
 
 a. For continuing members:
 
-i. Restart server with both versioned keys (the current version onchain is still `X`, target is `X+1`). During this transition, the server watches for the current version onchain: If it is still `X`, serve request with `MASTER_SHARE_VX`. If onchain transitions to `X+1`, serve request with `MASTER_SHARE_VX+1`.
+i. Restart server with both `MASTER_SHARE_VX` and `MASTER_SHARE_VX+1`:
 
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
@@ -246,7 +246,15 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-ii. Wait for coordinator to announce the DKG rotation is completed. Since now onchain version is indeed `X+1`, restart with only the version `X+1` key is sufficient:
+ii. Wait for coordinator to announce the DKG rotation is completed. Update the config to Active mode
+ and restart with only `MASTER_SHARE_VX+1`:
+
+```yaml
+server_mode: !Committee
+  member_address: '<MY_ADDRESS>'
+  key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
+  committee_state: !Active
+```
 
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
@@ -254,7 +262,7 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-iii. Delete the old key `MASTER_SHARE_VX` from storage permanently.
+TODO: Discuss what to do with old share. 
 
 b. For new members, since `X+1` is the first known key, so just need to start the server with it: 
 

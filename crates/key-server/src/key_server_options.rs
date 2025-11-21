@@ -255,6 +255,7 @@ impl KeyServerOptions {
                         config.key_server_object_id
                     ));
                 }
+
                 for pkg_id in &config.package_ids {
                     if !obj_ids.insert(*pkg_id) {
                         return Err(anyhow!("Duplicate package ID: {}", pkg_id));
@@ -398,8 +399,8 @@ server_mode: !Open
     }
 }
 
-#[tokio::test]
-async fn test_parse_permissioned_config() {
+#[test]
+fn test_parse_permissioned_config() {
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet

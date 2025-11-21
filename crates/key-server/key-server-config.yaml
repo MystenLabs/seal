@@ -79,27 +79,25 @@ server_mode: !Open
 # #### COMMITTEE MODE ####
 # See the runbook for fresh DKG and key rotation in details.
 #
-# Environment variables use versioned naming: MASTER_SHARE_VX where X is a version of the committee
-# (e.g. 1).
+# Environment variables MASTER_SHARE_VX where X is the key server committee version (e.g. 1).
 #
 # Committee state can be:
 # - Active: Server is operating with one active master share. Version determined from onchain key 
-#   server object. Must set MASTER_SHARE_VX where X matches the onchain version.
-#   Example: For version 0, set MASTER_SHARE_V0.
-#
-# - Rotation: Server is rotating to a new version.
-#   target_version specifies the new version (current = target - 1).
-#   Must set both MASTER_SHARE_VX and MASTER_SHARE_V{X+1}.
-#   Server uses current share and switches to next when onchain updates.
-#   Example: For rotation from 1 to 2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
-#
-# Example for Active mode (fresh DKG or after rotation completes):
+#   server object. Must set MASTER_SHARE_VX where X matches the onchain version. 
+# 
+# Example: For version 0, set MASTER_SHARE_V0.
+# Config example:
 # server_mode: !Committee
 #   member_address: '<MY_ADDRESS>'
 #   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
 #   committee_state: !Active
 #
-# Example for Rotation mode (when onchain version is 1, rotating to 2):
+# - Rotation: Server is rotating to a new version. Current version is X and target version is X+1.
+#   Must set both MASTER_SHARE_VX and MASTER_SHARE_V{X+1}. Server uses current share and switches 
+#   to next when onchain updates.
+# 
+# Example: For rotation from 1 to 2, set both MASTER_SHARE_V1 and MASTER_SHARE_V2.
+# Config example:
 # server_mode: !Committee
 #   member_address: '<MY_ADDRESS>'
 #   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'

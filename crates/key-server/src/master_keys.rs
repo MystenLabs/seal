@@ -21,14 +21,9 @@ use tracing::info;
 
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
 
-/// Generate the environment variable name for a versioned master share.
-fn master_share_env_var(version: u32) -> String {
-    format!("MASTER_SHARE_V{version}")
-}
-
-/// Load a master share from environment variable.
+/// Load a master share from environment variable of the version.
 fn load_master_share(version: u32) -> anyhow::Result<IbeMasterKey> {
-    decode_master_key::<DefaultEncoding>(&master_share_env_var(version))
+    decode_master_key::<DefaultEncoding>(&format!("MASTER_SHARE_V{version}"))
         .map_err(|e| anyhow!("Expected MASTER_SHARE_V{}: {}", version, e))
 }
 
@@ -42,10 +37,7 @@ pub enum MasterKeys {
         pkg_id_to_key: HashMap<ObjectID, IbeMasterKey>,
         key_server_oid_to_key: HashMap<ObjectID, IbeMasterKey>,
     },
-    /// In committee mode, there are active mode where there is one master share and rotation mode
-    /// where there are two. In active mode, master_share is always used. In rotation mode, the
-    /// master_share is used when current version is behind target, and next_master_share is used
-    /// when they are equal.
+    /// In committee mode, contains key state and current onchain committee version.
     Committee {
         key_state: CommitteeKeyState,
         /// The current version, atomically updated when rotation completes.
@@ -53,6 +45,10 @@ pub enum MasterKeys {
     },
 }
 
+/// Represents the state of committee master keys.
+/// 1) Active state: master_share is always used.
+/// 2) Rotation state: the master_share is used when current version is 1 behind target, and
+///    next_master_share is used when they are equal.
 #[derive(Clone)]
 pub(crate) enum CommitteeKeyState {
     Active {
@@ -67,9 +63,9 @@ pub(crate) enum CommitteeKeyState {
 
 impl MasterKeys {
     /// Load master keys from environment variables.
-    /// For Committee mode, onchain_version must be provided (fetched from blockchain by caller).
-    /// If onchain_version == target_version, loads only MASTER_SHARE_V{target_version} in Active mode.
-    /// If onchain_version == target_version - 1, loads both shares in Rotation mode.
+    /// For Committee mode, committee_version must be provided (fetched from blockchain by caller).
+    /// If committee_version == target_version, loads only MASTER_SHARE_V{target_version} in Active mode.
+    /// If committee_version == target_version - 1, loads both shares in Rotation mode.
     pub(crate) fn load(
         options: &KeyServerOptions,
         committee_version: Option<u32>,
@@ -256,9 +252,7 @@ impl MasterKeys {
                     }
                 }
             },
-            _ => Err(InternalError::Failure(
-                "Invalid master key type for committee".to_string(),
-            )),
+            _ => panic!("get_committee_server_master_share called on non-Committee mode"),
         }
     }
 }
