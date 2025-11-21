@@ -13,6 +13,11 @@ use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
+const TESTNET_PACKAGE_ID: &str =
+    "0x3617c0ee3ec5a4575fdd0726337301cdcce1d7af317e0ea9d241fac22dbec9f1";
+const MAINNET_PACKAGE_ID: &str =
+    "0xcb83a248bda5f7a0a431e6bf9e96d184e604130ec5218696e3f1211113b447b7";
+
 /// ClientKeyType for a permissioned client.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ClientKeyType {
@@ -119,11 +124,8 @@ pub enum SealPackage {
 impl SealPackage {
     pub fn package_id(&self) -> ObjectID {
         match self {
-            SealPackage::Testnet => ObjectID::from_hex_literal(
-                "0x3617c0ee3ec5a4575fdd0726337301cdcce1d7af317e0ea9d241fac22dbec9f1",
-            )
-            .unwrap(),
-            SealPackage::Mainnet => ObjectID::from_hex_literal("0x1").unwrap(),
+            SealPackage::Testnet => ObjectID::from_hex_literal(TESTNET_PACKAGE_ID).unwrap(),
+            SealPackage::Mainnet => ObjectID::from_hex_literal(MAINNET_PACKAGE_ID).unwrap(),
             SealPackage::Custom(seal_package) => *seal_package,
         }
     }
