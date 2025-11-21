@@ -9,6 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -36,6 +37,17 @@ pub struct ClientConfig {
     pub package_ids: Vec<ObjectID>,     // first versions only
 }
 
+/// State of the committee key server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CommitteeState {
+    /// Active mode: the key server is operating with one master share. Version is determined from
+    /// the onchain key server object.
+    Active,
+    /// Rotation mode: the key server is rotating to a new version. Target version is read from the
+    /// the config, and the current is target - 1.
+    Rotation { target_version: u32 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ServerMode {
     Open {
@@ -46,6 +58,12 @@ pub enum ServerMode {
     Permissioned {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
+    },
+    Committee {
+        member_address: Address,
+        key_server_obj_id: Address,
+        /// The state of the committee: Active or Rotation.
+        committee_state: CommitteeState,
     },
 }
 
@@ -237,6 +255,7 @@ impl KeyServerOptions {
                         config.key_server_object_id
                     ));
                 }
+
                 for pkg_id in &config.package_ids {
                     if !obj_ids.insert(*pkg_id) {
                         return Err(anyhow!("Duplicate package ID: {}", pkg_id));
@@ -255,7 +274,6 @@ impl KeyServerOptions {
         }
         Ok(())
     }
-
     pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
         match &self.server_mode {
             ServerMode::Open {
@@ -273,6 +291,9 @@ impl KeyServerOptions {
                 })
                 .map(|c| c.key_server_object_id)
                 .collect(),
+            ServerMode::Committee {
+                key_server_obj_id, ..
+            } => vec![ObjectID::new(key_server_obj_id.into_inner())],
         }
     }
 }
@@ -381,7 +402,6 @@ server_mode: !Open
 #[test]
 fn test_parse_permissioned_config() {
     use std::str::FromStr;
-
     let valid_configuration = r#"
 network: Mainnet
 sdk_version_requirement: '>=0.2.7'

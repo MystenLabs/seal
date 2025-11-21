@@ -21,6 +21,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
 use sui_rpc::client::Client as SuiGrpcClient;
@@ -38,6 +39,7 @@ mod tle;
 pub(crate) mod whitelist;
 
 mod server;
+mod test_utils;
 
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
@@ -64,12 +66,12 @@ pub enum KeyServerType {
 
 impl SealTestCluster {
     /// Create a new SealTestCluster with the given number users. To add servers, use the `add_server` method.
-    pub async fn new(users: usize) -> Self {
+    pub async fn new(users: usize, module: &str) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
             .build()
             .await;
-        let registry = Self::publish_internal(&cluster, "seal").await;
+        let registry = Self::publish_internal(&cluster, module).await;
         Self {
             cluster,
             servers: vec![],
@@ -123,7 +125,7 @@ impl SealTestCluster {
                         None,
                     ),
                     master_keys: MasterKeys::Open { master_key },
-                    key_server_oid_to_pop: HashMap::new(),
+                    key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options: KeyServerOptions {
                         network: Network::TestCluster,
                         server_mode: ServerMode::Open {
@@ -362,7 +364,7 @@ impl SealTestCluster {
 
 #[tokio::test]
 async fn test_pkg_upgrade() {
-    let mut setup = SealTestCluster::new(0).await;
+    let mut setup = SealTestCluster::new(0, "seal").await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id, upgrade_cap) = setup.publish_path(path).await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");
