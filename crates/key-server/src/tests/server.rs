@@ -6,12 +6,10 @@ use fastcrypto::groups::GroupElement;
 use prometheus::Registry;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use tracing_test::traced_test;
 
-use crate::externals::get_latest_checkpoint_timestamp;
-use crate::key_server_options::{CommitteeState, RetryConfig, ServerMode};
+use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::MasterKeys;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
@@ -329,6 +327,7 @@ async fn test_fetch_key() {
 #[tokio::test]
 async fn test_committee_server_hot_reload_and_verify_pop() {
     let tc = SealTestCluster::new(0, "seal_testnet").await;
+    let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc.registry;
 
     // Test data for master share before rotation, party 0.
