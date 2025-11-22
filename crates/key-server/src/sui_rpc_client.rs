@@ -4,9 +4,7 @@
 use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::Metrics};
-use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc::proto::proto_to_timestamp_ms;
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},

@@ -4,19 +4,16 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::ServerMode;
-use crate::metrics::{call_with_duration, status_callback, Metrics};
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::CommitteeKeyState;
-use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
+use crate::metrics::{call_with_duration, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
+use crate::sui_rpc_client::RpcError;
 use crate::time::current_epoch_time;
 use crate::time::{checked_duration_since, from_mins};
-use crate::types::{MasterKeyPOP, Network};
-use crate::time::from_mins;
 use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -62,8 +59,6 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
-use std::sync::Arc;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{
@@ -75,10 +70,10 @@ use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
+use sui_sdk_types::Address;
 use sui_types::transaction::Argument::Input;
 use sui_types::transaction::{CallArg, Command, ObjectArg};
 use sui_types::SUI_CLOCK_OBJECT_ID;
-use sui_sdk_types::Address;
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -113,7 +108,7 @@ const GIT_VERSION: &str = utils::git_version!();
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
-const STALENESS_ERROR_CODE: u64 = 5; // TODO: Replace with actual error code when Seal package is deployed
+const STALENESS_ERROR_CODE: u64 = 93492;
 const STALENESS_MODULE: &str = "time";
 const STALENESS_FUNCTION: &str = "check_staleness";
 
