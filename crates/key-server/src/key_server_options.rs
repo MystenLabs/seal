@@ -14,7 +14,7 @@ use sui_types::base_types::ObjectID;
 use tracing::info;
 
 const TESTNET_PACKAGE_ID: &str =
-    "0x3617c0ee3ec5a4575fdd0726337301cdcce1d7af317e0ea9d241fac22dbec9f1";
+    "0x4016869413374eaa71df2a043d1660ed7bc927ab7962831f8b07efbc7efdb2c3";
 const MAINNET_PACKAGE_ID: &str =
     "0xcb83a248bda5f7a0a431e6bf9e96d184e604130ec5218696e3f1211113b447b7";
 
