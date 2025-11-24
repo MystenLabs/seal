@@ -15,17 +15,22 @@ use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
 use crate::tests::SealTestCluster;
 
+use crate::errors::InternalError::Failure;
 use crate::signed_message::signed_request;
+use crate::tests::externals::get_key;
 use crate::tests::test_utils::{
     build_partial_key_servers, create_committee_key_server_onchain, create_test_server,
     execute_programmable_transaction,
 };
+use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
 use crypto::ibe::generate_key_pair;
 use crypto::ibe::{self, MasterKey, ProofOfPossession};
-use crypto::{elgamal, DST_POP};
+use crypto::{
+    elgamal, DST_POP,
+};
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::ed25519::Ed25519PrivateKey;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
@@ -47,6 +52,7 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
+use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -470,4 +476,55 @@ pub fn verify_pop(
     } else {
         Err(InvalidInput)
     }
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_staleness_check() {
+    let mut tc = SealTestCluster::new(1, "seal").await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(1))
+        .await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    // Create test users
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+
+    // Calling get_key should work
+    assert!(get_key(
+        &tc.servers[0].1,
+        &examples_package_id,
+        ptb.clone(),
+        &tc.users[0].keypair,
+    )
+    .await
+    .is_ok());
+
+    // But if we stop validators and wait a few seconds, the fullnode will be stale
+    tc.cluster.stop_all_validators().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert_eq!(
+        get_key(
+            &tc.servers[0].1,
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await,
+        Err(Failure("Fullnode is stale".to_string()))
+    );
 }

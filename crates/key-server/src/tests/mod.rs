@@ -102,13 +102,34 @@ impl SealTestCluster {
         self.add_server(Open(master_key), &name, seal_package).await;
     }
 
+    pub async fn add_open_server_with_allowed_staleness(
+        &mut self,
+        seal_package: ObjectID,
+        allowed_staleness: Duration,
+    ) {
+        let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
+        let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
+        self.add_server_with_allowed_staleness(
+            Open(master_key),
+            &name,
+            seal_package,
+            allowed_staleness,
+        )
+        .await;
+    }
+
     pub async fn add_open_servers(&mut self, num_servers: usize, seal_package: ObjectID) {
         for _ in 0..num_servers {
             self.add_open_server(seal_package).await;
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str, seal_package: ObjectID) {
+    pub async fn add_server_with_options(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        options: KeyServerOptions,
+    ) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -128,7 +149,28 @@ impl SealTestCluster {
                     ),
                     master_keys: MasterKeys::Open { master_key },
                     key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
-                    options: KeyServerOptions {
+                    options,
+                };
+                self.servers.push((key_server_object_id, server));
+            }
+            _ => panic!(),
+        };
+    }
+
+    pub async fn add_server(&mut self, server: KeyServerType, name: &str, seal_package: ObjectID) {
+        match server {
+            Open(master_key) => {
+                let key_server_object_id = self
+                    .register_key_server(
+                        name,
+                        "http://localhost:8080", // Dummy URL, not used in this test
+                        public_key_from_master_key(&master_key),
+                    )
+                    .await;
+                self.add_server_with_options(
+                    server,
+                    name,
+                    KeyServerOptions {
                         network: Network::TestCluster {
                             seal_package: SealPackage::Custom(seal_package),
                         },
@@ -144,11 +186,52 @@ impl SealTestCluster {
                         rpc_config: RpcConfig::default(),
                         metrics_push_config: None,
                     },
-                };
-                self.servers.push((key_server_object_id, server));
+                )
+                .await;
             }
             _ => panic!(),
-        };
+        }
+    }
+
+    pub async fn add_server_with_allowed_staleness(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        seal_package: ObjectID,
+        allowed_staleness: Duration,
+    ) {
+        match server {
+            Open(master_key) => {
+                let key_server_object_id = self
+                    .register_key_server(
+                        name,
+                        "http://localhost:8080", // Dummy URL, not used in this test
+                        public_key_from_master_key(&master_key),
+                    )
+                    .await;
+                self.add_server_with_options(
+                    server,
+                    name,
+                    KeyServerOptions {
+                        network: Network::TestCluster {
+                            seal_package: SealPackage::Custom(seal_package),
+                        },
+                        server_mode: ServerMode::Open {
+                            key_server_object_id,
+                        },
+                        metrics_host_port: 0,
+                        rgp_update_interval: Duration::from_secs(60),
+                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                        allowed_staleness,
+                        session_key_ttl_max: from_mins(30),
+                        rpc_config: RpcConfig::default(),
+                        metrics_push_config: None,
+                    },
+                )
+                .await;
+            }
+            _ => panic!(),
+        }
     }
 
     pub fn server(&self) -> &Server {
