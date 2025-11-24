@@ -103,6 +103,7 @@ pub(crate) async fn create_server(
 }
 
 /// Helper function to create a list of committee mode servers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_committee_servers(
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,

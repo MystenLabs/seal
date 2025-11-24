@@ -409,7 +409,10 @@ impl Server {
             })
     }
 
-    fn add_staleness_check_to_ptb(&self, ptb: &mut ProgrammableTransaction) {
+    fn add_staleness_check_to_ptb(
+        &self,
+        mut ptb: ProgrammableTransaction,
+    ) -> ProgrammableTransaction {
         let now = current_epoch_time();
         ptb.inputs.push(CallArg::from(now));
         let now_index = ptb.inputs.len() - 1;
@@ -418,22 +421,23 @@ impl Server {
         ptb.inputs.push(CallArg::from(allowed_staleness));
         let allowed_staleness_index = ptb.inputs.len() - 1;
 
-        let clock_index = match ptb.inputs.iter().position(|arg| {
-            matches!(
-                arg,
-                CallArg::Object(ObjectArg::SharedObject {
-                    id: SUI_CLOCK_OBJECT_ID,
-                    ..
-                })
-            )
-        }) {
-            Some(i) => i, // The clock is already given as input i
-            None => {
+        let clock_index = ptb
+            .inputs
+            .iter()
+            .position(|arg| {
+                matches!(
+                    arg,
+                    CallArg::Object(ObjectArg::SharedObject {
+                        id: SUI_CLOCK_OBJECT_ID,
+                        ..
+                    })
+                )
+            })
+            .unwrap_or_else(|| {
                 // The clock is not yet part of the PTB, so we add it
                 ptb.inputs.push(CallArg::CLOCK_IMM);
                 ptb.inputs.len() - 1
-            }
-        };
+            });
 
         let staleness_check = Command::move_call(
             self.options.network.seal_package_id(),
@@ -448,6 +452,7 @@ impl Server {
         );
 
         ptb.commands.insert(0, staleness_check);
+        ptb
     }
 
     async fn check_policy(
@@ -465,8 +470,7 @@ impl Server {
         );
 
         // Add a staleness check as the first command in the PTB
-        let mut ptb = vptb.ptb().clone();
-        self.add_staleness_check_to_ptb(&mut ptb);
+        let ptb = self.add_staleness_check_to_ptb(vptb.ptb().clone());
 
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
@@ -478,7 +482,7 @@ impl Server {
         );
         let dry_run_res = self
             .sui_rpc_client
-            .dry_run_transaction_block(tx_data.clone())
+            .dry_run_transaction_block(tx_data)
             .await
             .map_err(|e| {
                 if let Error::RpcError(ClientError::Call(ref e)) = e {
@@ -532,18 +536,22 @@ impl Server {
             ..
         }) = dry_run_res.effects
         {
-            if module_id == self.staleness_module_id() && error_code == STALENESS_ERROR_CODE {
-                debug!("Fullnode is stale (req_id: {:?})", req_id);
-                if let Some(m) = metrics {
-                    m.requests_failed_due_to_staleness.inc();
+            return match error_code {
+                STALENESS_ERROR_CODE if module_id == self.staleness_module_id() => {
+                    debug!("Fullnode is stale (req_id: {:?})", req_id);
+                    if let Some(m) = metrics {
+                        m.requests_failed_due_to_staleness.inc()
+                    }
+                    Err(InternalError::Failure("Fullnode is stale".to_string()))
                 }
-                return Err(InternalError::Failure("Fullnode is stale".to_string()));
-            }
-            debug!(
-                "Dry run execution asserted (req_id: {:?}) {:?}",
-                req_id, error
-            );
-            return Err(InternalError::NoAccess(error.clone()));
+                _ => {
+                    debug!(
+                        "Dry run execution asserted (req_id: {:?}) {:?}",
+                        req_id, error
+                    );
+                    Err(InternalError::NoAccess(error.clone()))
+                }
+            };
         }
 
         // all good!
