@@ -833,6 +833,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     let new_servers = create_committee_servers(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         key_server_object_id,
         vec![member_addresses[3], member_addresses[4]],
         vec![
