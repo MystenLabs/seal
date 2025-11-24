@@ -7,7 +7,6 @@ use crate::key_server_options::{
 };
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
-use crate::tests::KeyServerType::Open;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
@@ -97,9 +96,14 @@ impl SealTestCluster {
     }
 
     pub async fn add_open_server(&mut self, seal_package: ObjectID) {
-        let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
-        let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name, seal_package).await;
+        self.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(120))
+            .await;
+    }
+
+    pub async fn add_open_servers(&mut self, num_servers: usize, seal_package: ObjectID) {
+        for _ in 0..num_servers {
+            self.add_open_server(seal_package).await;
+        }
     }
 
     pub async fn add_open_server_with_allowed_staleness(

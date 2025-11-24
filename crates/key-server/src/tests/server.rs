@@ -503,7 +503,7 @@ async fn test_staleness_check() {
 
     // Calling get_key should work
     assert!(get_key(
-        &tc.servers[0].1,
+        tc.server(),
         &examples_package_id,
         ptb.clone(),
         &tc.users[0].keypair,
@@ -517,7 +517,7 @@ async fn test_staleness_check() {
 
     assert_eq!(
         get_key(
-            &tc.servers[0].1,
+            tc.server(),
             &examples_package_id,
             ptb.clone(),
             &tc.users[0].keypair,
