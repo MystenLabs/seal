@@ -394,6 +394,7 @@ async fn test_e2e_permissioned() {
     let server1 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![
             ClientConfig {
                 name: "Client 1 on server 1".to_string(),
@@ -413,7 +414,6 @@ async fn test_e2e_permissioned() {
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
-        seal_package,
     )
     .await;
 
@@ -421,6 +421,7 @@ async fn test_e2e_permissioned() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -430,7 +431,6 @@ async fn test_e2e_permissioned() {
             package_ids: vec![ObjectID::random()],
         }],
         [("MASTER_KEY", [0u8; 32].as_slice())],
-        seal_package,
     )
     .await;
 
@@ -596,6 +596,7 @@ async fn test_e2e_imported_key() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![ClientConfig {
             name: "Key server client 2".to_string(),
             client_master_key: ClientKeyType::Imported {
@@ -611,7 +612,6 @@ async fn test_e2e_imported_key() {
             ),
             ("MASTER_KEY", [0u8; 32].as_slice()),
         ],
-        seal_package,
     )
     .await;
 
@@ -634,6 +634,7 @@ async fn test_e2e_imported_key() {
     let server3 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![
             ClientConfig {
                 name: "Key server client 3.0".to_string(),
@@ -653,7 +654,6 @@ async fn test_e2e_imported_key() {
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
-        seal_package,
     )
     .await;
 
