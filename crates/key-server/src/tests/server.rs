@@ -28,9 +28,7 @@ use axum::body::Body;
 use axum::extract::Request;
 use crypto::ibe::generate_key_pair;
 use crypto::ibe::{self, MasterKey, ProofOfPossession};
-use crypto::{
-    elgamal, DST_POP,
-};
+use crypto::{elgamal, DST_POP};
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::ed25519::Ed25519PrivateKey;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
