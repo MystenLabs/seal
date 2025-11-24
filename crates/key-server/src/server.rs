@@ -460,16 +460,13 @@ impl Server {
         debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
 
         // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
-        if let Some(m) = metrics {
-            if matches!(
-                self.options.server_mode,
-                ServerMode::Permissioned { client_configs: _ }
-            ) {
-                let package = vptb.pkg_id().to_hex_uncompressed();
-                m.dry_run_gas_cost_per_package
-                    .with_label_values(&[&package])
-                    .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
-            }
+        if let Some(m) = metrics
+            && matches!(self.options.server_mode, ServerMode::Permissioned { .. })
+        {
+            let package = vptb.pkg_id().to_hex_uncompressed();
+            m.dry_run_gas_cost_per_package
+                .with_label_values(&[&package])
+                .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
         }
 
         // Check if the staleness check failed
