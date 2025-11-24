@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError::UnsupportedPackageId;
-use crate::key_server_options::{ClientConfig, ClientKeyType};
+use crate::key_server_options::{ClientConfig, ClientKeyType, CommitteeState};
 use crate::master_keys::MasterKeys;
 use crate::tests::externals::get_key;
 use crate::tests::test_utils::{create_committee_servers, create_server};
@@ -24,7 +24,6 @@ use fastcrypto_tbls::{
 use futures::future::join_all;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use seal_committee::CommitteeState;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use std::collections::HashMap;

@@ -384,6 +384,7 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
             key_server_obj_id: Address::new(key_server_id.into_bytes()),
             committee_state: CommitteeState::Rotation { target_version: 1 },
         },
+        seal_package,
         Some(0), // onchain_version starts at 0
         [
             ("MASTER_SHARE_V0", master_share_0_bytes.as_slice()),
