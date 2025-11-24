@@ -431,30 +431,33 @@ impl Server {
             .dry_run_transaction_block(tx_data)
             .await
             .map_err(|e| {
-                if let Error::RpcError(ClientError::Call(ref e)) = e {
-                    match e.code() {
-                        INVALID_PARAMS_CODE => {
-                            // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
-                            // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                            debug!("Invalid parameter: {}", e.message());
-                            return InternalError::InvalidParameter(e.message().to_string());
-                        }
-                        METHOD_NOT_FOUND_CODE => {
-                            // This means that the seal_approve function is not found on the given module.
-                            debug!("Function not found: {:?}", e);
-                            return InternalError::InvalidPTB(
-                                "The seal_approve function was not found on the module".to_string(),
-                            );
-                        }
-                        _ => {}
+                match e {
+                    Error::RpcError(ClientError::Call(ref e))
+                        if e.code() == INVALID_PARAMS_CODE =>
+                    {
+                        // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
+                        // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
+                        // There are other possible reasons, so we return the entire message to the user to allow debugging.
+                        // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
+                        debug!("Invalid parameter: {}", e.message());
+                        InternalError::InvalidParameter(e.message().to_string())
                     }
+                    Error::RpcError(ClientError::Call(ref e))
+                        if e.code() == METHOD_NOT_FOUND_CODE =>
+                    {
+                        // This means that the seal_approve function is not found on the given module.
+                        debug!("Function not found: {:?}", e);
+                        InternalError::InvalidPTB(
+                            "The seal_approve function was not found on the module".to_string(),
+                        )
+                    }
+                    _ => InternalError::Failure(format!(
+                        "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
+                    )),
                 }
-                InternalError::Failure(format!(
-                    "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
-                ))
             })?;
+
+        debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
 
         // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
         if let Some(m) = metrics {
@@ -468,8 +471,6 @@ impl Server {
                     .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
             }
         }
-
-        debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
 
         // Check if the staleness check failed
         if self
