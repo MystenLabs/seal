@@ -384,8 +384,25 @@ server_mode: !Open
     assert_eq!(options.network, Network::Testnet);
     assert_eq!(options.node_url, Some("https://node.dk".to_string()),);
 
-    let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
-    assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
+    let valid_configuration_custom_network_package = r#"
+network: !Custom
+  node_url: https://node.dk
+  use_default_mainnet_for_mvr: false
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+    let options: KeyServerOptions =
+        serde_yaml::from_str(valid_configuration_custom_network_package)
+            .expect("Failed to parse valid configuration");
+    assert_eq!(resolve_network(&options.network).unwrap(), Network::Testnet);
+    assert_eq!(
+        options.network,
+        Network::Custom {
+            node_url: Some("https://node.dk".to_string()),
+            use_default_mainnet_for_mvr: Some(false),
+            seal_package: None,
+        }
+    );
 }
 
 #[test]
