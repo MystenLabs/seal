@@ -148,12 +148,12 @@ impl Server {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
-                .build(&options.network.node_url())
+                .build(&options.node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(options.network.node_url()).expect("Failed to create SuiGrpcClient"),
+            SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics,
         );
@@ -1052,29 +1052,21 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             .expect("Failed to parse configuration file");
 
             // Handle Custom network NODE_URL configuration
-            if let Network::Custom {
-                ref mut node_url, ..
-            } = opts.network
-            {
-                let env_node_url = env::var("NODE_URL").ok();
-
-                match (node_url.as_ref(), env_node_url.as_ref()) {
-                    (Some(_), Some(_)) => {
-                        panic!("NODE_URL cannot be provided in both config file and environment variable. Please use only one source.");
-                    }
-                    (None, Some(url)) => {
-                        info!("Using NODE_URL from environment variable: {}", url);
-                        *node_url = Some(url.clone());
-                    }
-                    (Some(url), None) => {
-                        info!("Using NODE_URL from config file: {}", url);
-                    }
-                    (None, None) => {
-                        panic!("Custom network requires NODE_URL to be set either in config file or as environment variable");
-                    }
+            match (&opts.node_url, env::var("NODE_URL").ok()) {
+                (Some(_), Some(_)) => {
+                    panic!("NODE_URL cannot be provided in both config file and environment variable. Please use only one source.");
+                }
+                (None, Some(url)) => {
+                    info!("Using NODE_URL from environment variable: {}", url);
+                    opts.node_url = Some(url.clone());
+                }
+                (Some(_), None) => {
+                    info!("Using NODE_URL from config file: {}", opts.node_url());
+                }
+                (None, None) => {
+                    info!("Using default NODE_URL: {}", opts.node_url());
                 }
             }
-
             opts
         }
         Err(_) => {
