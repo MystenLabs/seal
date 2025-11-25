@@ -8,7 +8,7 @@
 # Example:
 network: Testnet
 
-# You can provide a custom node URL in exactly one of these ways:
+# You can provide a custom full node URL in exactly one of these ways:
 # 1. Set the `node_url` in this config file
 # 2. OR omit `node_url` here and set the NODE_URL environment variable
 #
