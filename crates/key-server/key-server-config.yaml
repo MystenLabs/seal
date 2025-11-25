@@ -4,19 +4,18 @@
 # network: Testnet
 # network: Mainnet
 # network: Devnet
-# network: !Custom
-#   node_url: 'url_to_node_endpoint'  # Optional - see below
-#   use_default_mainnet_for_mvr: true # Optional, default to true if not present, set this to false for mvr to resolve on testnet. 
-#
-# Use Custom for production deployments. You must provide the node URL
-# in exactly one of these ways:
-# 1. Set the `node_url` in this config file
-# 2. OR omit `node_url` here and set the NODE_URL environment variable
-#
 #
 # Example:
 network: Testnet
 
+# You can provide a custom node URL in exactly one of these ways:
+# 1. Set the `node_url` in this config file
+# 2. OR omit `node_url` here and set the NODE_URL environment variable
+#
+# If the `node_url` is not set in either place, a default URL will be used for the given network.
+#
+# Example:
+node_url: https://fullnode.testnet.sui.io:443
 
 # Server mode:
 #   1) Open: Supports all policy packages. 
