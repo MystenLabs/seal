@@ -41,7 +41,7 @@ impl Network {
             "devnet" => Network::Devnet {
                 seal_package: decode_object_id("SEAL_PACKAGE")
                     .map(SealPackage::Custom)
-                    .unwrap(),
+                    .expect("Seal package ID must be set as env var SEAL_PACKAGE"),
             },
             "testnet" => Network::Testnet,
             "mainnet" => Network::Mainnet,
