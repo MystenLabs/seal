@@ -43,6 +43,7 @@ pub(crate) async fn create_test_server(
 ) -> Server {
     let options = KeyServerOptions {
         network: Network::TestCluster,
+        node_url: None,
         server_mode,
         metrics_host_port: 0,
         checkpoint_update_interval: Duration::from_secs(10),

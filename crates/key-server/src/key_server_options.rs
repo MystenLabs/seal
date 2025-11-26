@@ -114,6 +114,9 @@ pub struct KeyServerOptions {
     /// The network this key server is running on.
     pub network: Network,
 
+    /// A custom node URL. If not set, the default for the given network is used.
+    pub node_url: Option<String>,
+
     /// If the server is open or permissioned.
     pub server_mode: ServerMode,
 
@@ -164,12 +167,19 @@ pub struct KeyServerOptions {
 }
 
 impl KeyServerOptions {
+    pub fn node_url(&self) -> &str {
+        self.node_url
+            .as_deref()
+            .unwrap_or_else(|| self.network.default_node_url())
+    }
+
     pub fn new_open_server_with_default_values(
         network: Network,
         key_server_object_id: ObjectID,
     ) -> Self {
         Self {
             network,
+            node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
@@ -188,6 +198,7 @@ impl KeyServerOptions {
     pub fn new_for_testing(network: Network) -> Self {
         Self {
             network,
+            node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
@@ -324,7 +335,6 @@ fn default_sdk_version_requirement() -> VersionReq {
 
 #[test]
 fn test_parse_open_config() {
-    use crate::mvr::resolve_network;
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet
@@ -354,49 +364,20 @@ session_key_ttl_max: '60s'
 
     assert_eq!(options.checkpoint_update_interval, Duration::from_secs(13));
 
-    let valid_configuration_custom_network = r#"
-network: !Custom
-  node_url: https://node.dk
-  use_default_mainnet_for_mvr: false
+    let valid_configuration_custom_node_url = r#"
+network: Testnet
+node_url: https://node.dk
 server_mode: !Open
   key_server_object_id: '0x0'
 "#;
-    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_node_url)
         .expect("Failed to parse valid configuration");
 
-    assert!(resolve_network(&options.network).unwrap() == Network::Testnet);
-    assert_eq!(
-        options.network,
-        Network::Custom {
-            node_url: Some("https://node.dk".to_string()),
-            use_default_mainnet_for_mvr: Some(false),
-        }
-    );
+    assert_eq!(options.network, Network::Testnet);
+    assert_eq!(options.node_url, Some("https://node.dk".to_string()),);
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
-}
-
-#[test]
-fn test_parse_custom_network_with_env_var() {
-    use crate::mvr::resolve_network;
-    // Test that NODE_URL can be omitted from config when not set in env
-    let config_without_url = r#"
-network: !Custom {}
-server_mode: !Open
-  key_server_object_id: '0x0'
-"#;
-
-    let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
-        .expect("Failed to parse configuration without node_url");
-
-    assert!(resolve_network(&options.network).unwrap() == Network::Mainnet);
-    match options.network {
-        Network::Custom { node_url, .. } => {
-            assert_eq!(node_url, None);
-        }
-        _ => panic!("Expected Custom network"),
-    }
 }
 
 #[test]

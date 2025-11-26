@@ -146,12 +146,12 @@ mod tests {
         .unwrap();
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
-                .build(&Network::Testnet.node_url())
+                .build(&Network::Testnet.default_node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Testnet.node_url())
+            SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,
@@ -174,12 +174,12 @@ mod tests {
         let invalid_address = ObjectID::ZERO;
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
-                .build(&Network::Mainnet.node_url())
+                .build(&Network::Mainnet.default_node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Mainnet.node_url())
+            SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,
