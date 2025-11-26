@@ -22,15 +22,6 @@ pub(crate) struct Metrics {
     /// Total number of internal errors by type
     errors: IntCounterVec,
 
-    /// Delay of timestamp of the latest checkpoint
-    pub checkpoint_timestamp_delay: Histogram,
-
-    /// Duration of getting the latest checkpoint timestamp
-    pub get_checkpoint_timestamp_duration: Histogram,
-
-    /// Status of requests of getting the latest checkpoint timestamp
-    pub get_checkpoint_timestamp_status: IntCounterVec,
-
     /// Status of requests of getting the reference gas price
     pub get_reference_gas_price_status: IntCounterVec,
 
@@ -57,6 +48,9 @@ pub(crate) struct Metrics {
 
     /// Dry run gas cost per package
     pub dry_run_gas_cost_per_package: HistogramVec,
+
+    /// Total number of requests failed due to stale FN
+    pub requests_failed_due_to_staleness: IntCounter,
 }
 
 impl Metrics {
@@ -79,27 +73,6 @@ impl Metrics {
                 "service_requests",
                 "Total number of service requests received",
                 registry
-            )
-            .unwrap(),
-            checkpoint_timestamp_delay: register_histogram_with_registry!(
-                "checkpoint_timestamp_delay",
-                "Delay of timestamp of the latest checkpoint",
-                buckets(0.0, 150000.0, 1000.0),
-                registry
-            )
-            .unwrap(),
-            get_checkpoint_timestamp_duration: register_histogram_with_registry!(
-                "checkpoint_timestamp_duration",
-                "Duration of getting the latest checkpoint timestamp",
-                default_external_call_duration_buckets(),
-                registry
-            )
-            .unwrap(),
-            get_checkpoint_timestamp_status: register_int_counter_vec_with_registry!(
-                "checkpoint_timestamp_status",
-                "Status of request to get the latest timestamp",
-                &["status"],
-                registry,
             )
             .unwrap(),
             fetch_pkg_ids_duration: register_histogram_with_registry!(
@@ -168,6 +141,12 @@ impl Metrics {
                 registry
             )
             .unwrap(),
+            requests_failed_due_to_staleness: register_int_counter_with_registry!(
+                "requests_failed_due_to_staleness",
+                "Total number of requests that failed due to a stale fullnode",
+                registry
+            )
+            .unwrap(),
         }
     }
 
@@ -186,17 +165,6 @@ pub(crate) fn call_with_duration<T>(metrics: Option<&Histogram>, closure: impl F
         result
     } else {
         closure()
-    }
-}
-
-/// Create a callback function which when called will add the input transformed by f to the histogram.
-pub(crate) fn observation_callback<T, U: Fn(T) -> f64>(
-    histogram: &Histogram,
-    f: U,
-) -> impl Fn(T) + use<T, U> {
-    let histogram = histogram.clone();
-    move |t| {
-        histogram.observe(f(t));
     }
 }
 
@@ -220,10 +188,6 @@ fn buckets(start: f64, end: f64, step: f64) -> Vec<f64> {
     }
     buckets.push(end);
     buckets
-}
-
-fn default_external_call_duration_buckets() -> Vec<f64> {
-    buckets(50.0, 2000.0, 50.0)
 }
 
 fn default_fast_call_duration_buckets() -> Vec<f64> {

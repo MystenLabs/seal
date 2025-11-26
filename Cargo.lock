@@ -4496,7 +4496,6 @@ dependencies = [
  "anyhow",
  "axum 0.8.4",
  "bcs",
- "chrono",
  "crypto",
  "duration-str",
  "fastcrypto",

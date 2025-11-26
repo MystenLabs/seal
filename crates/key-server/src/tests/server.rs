@@ -6,23 +6,23 @@ use fastcrypto::groups::GroupElement;
 use prometheus::Registry;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use tracing_test::traced_test;
 
-use crate::externals::get_latest_checkpoint_timestamp;
-use crate::key_server_options::{CommitteeState, RetryConfig, ServerMode};
+use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::MasterKeys;
 use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::SealTestCluster;
 
+use crate::errors::InternalError::Failure;
 use crate::signed_message::signed_request;
+use crate::tests::externals::get_key;
 use crate::tests::test_utils::{
     build_partial_key_servers, create_committee_key_server_onchain, create_test_server,
     execute_programmable_transaction,
 };
+use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
@@ -50,6 +50,7 @@ use serde_json::Value;
 use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
+use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -57,66 +58,14 @@ use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
 use tokio::net::TcpListener;
 
-#[tokio::test]
-async fn test_get_latest_checkpoint_timestamp() {
-    let tc = SealTestCluster::new(0, "seal").await;
-
-    let tolerance = 20000;
-    let timestamp = get_latest_checkpoint_timestamp(SuiRpcClient::new(
-        tc.cluster.sui_client().clone(),
-        SuiGrpcClient::new(tc.cluster.fullnode_handle.rpc_url.clone())
-            .expect("Failed to create gRPC client"),
-        RetryConfig::default(),
-        None,
-    ))
-    .await
-    .unwrap();
-
-    let actual_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
-
-    let diff = actual_timestamp - timestamp;
-    assert!(diff < tolerance);
-}
-
-#[tokio::test]
-async fn test_timestamp_updater() {
-    let mut tc = SealTestCluster::new(0, "seal").await;
-    tc.add_open_server().await;
-
-    let mut receiver = tc
-        .server()
-        .spawn_latest_checkpoint_timestamp_updater(None)
-        .await
-        .0;
-
-    let tolerance = 20000;
-
-    let timestamp = *receiver.borrow_and_update();
-    let actual_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
-
-    let diff = actual_timestamp - timestamp;
-    assert!(diff < tolerance);
-
-    // Get a new timestamp
-    receiver
-        .changed()
-        .await
-        .expect("Failed to get latest timestamp");
-    let new_timestamp = *receiver.borrow_and_update();
-    assert!(new_timestamp >= timestamp);
-}
-
 #[traced_test]
 #[tokio::test]
 async fn test_rgp_updater() {
     let mut tc = SealTestCluster::new(0, "seal").await;
-    tc.add_open_server().await;
+
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_server(seal_package).await;
 
     let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await.0;
 
@@ -130,22 +79,23 @@ async fn test_rgp_updater() {
 #[tokio::test]
 async fn test_server_background_task_monitor() {
     let mut tc = SealTestCluster::new(0, "seal").await;
-    tc.add_open_server().await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_server(seal_package).await;
 
     let metrics_registry = Registry::default();
     let metrics = Arc::new(Metrics::new(&metrics_registry));
 
-    let (latest_checkpoint_timestamp_receiver, _reference_gas_price_receiver, monitor_handle) =
-        start_server_background_tasks(
-            Arc::new(tc.server().clone()),
-            metrics.clone(),
-            metrics_registry.clone(),
-        )
-        .await;
+    let (reference_gas_price_receiver, monitor_handle) = start_server_background_tasks(
+        Arc::new(tc.server().clone()),
+        metrics.clone(),
+        metrics_registry.clone(),
+    )
+    .await;
 
     // Drop the receiver to trigger the panic in the background
     // spawn_latest_checkpoint_timestamp_updater task.
-    drop(latest_checkpoint_timestamp_receiver);
+    drop(reference_gas_price_receiver);
 
     // Wait for the monitor to exit with an error. This should happen in a timely manner.
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), monitor_handle)
@@ -381,6 +331,7 @@ async fn test_fetch_key() {
 #[tokio::test]
 async fn test_committee_server_hot_reload_and_verify_pop() {
     let tc = SealTestCluster::new(0, "seal_testnet").await;
+    let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc.registry;
 
     // Test data for master share before rotation, party 0.
@@ -432,6 +383,7 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
     let server = create_test_server(
         tc.test_cluster().sui_client().clone(),
         SuiGrpcClient::new(&tc.test_cluster().fullnode_handle.rpc_url).unwrap(),
+        seal_package,
         ServerMode::Committee {
             member_address: Address::new(member_address.to_inner()),
             key_server_obj_id: Address::new(key_server_id.into_bytes()),
@@ -522,4 +474,55 @@ pub fn verify_pop(
     } else {
         Err(InvalidInput)
     }
+}
+
+#[traced_test]
+#[tokio::test]
+async fn test_staleness_check() {
+    let mut tc = SealTestCluster::new(1, "seal").await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(2))
+        .await;
+
+    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (whitelist, cap, initial_shared_version) =
+        create_whitelist(tc.test_cluster(), examples_package_id).await;
+
+    // Create test users
+    let user_address = tc.users[0].address;
+    add_user_to_whitelist(
+        tc.test_cluster(),
+        examples_package_id,
+        whitelist,
+        cap,
+        user_address,
+    )
+    .await;
+
+    let ptb = whitelist_create_ptb(examples_package_id, whitelist, initial_shared_version);
+
+    // Calling get_key should work
+    assert!(get_key(
+        tc.server(),
+        &examples_package_id,
+        ptb.clone(),
+        &tc.users[0].keypair,
+    )
+    .await
+    .is_ok());
+
+    // But if we stop validators and wait a few seconds, the fullnode will be stale
+    tc.cluster.stop_all_validators().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert_eq!(
+        get_key(
+            tc.server(),
+            &examples_package_id,
+            ptb.clone(),
+            &tc.users[0].keypair,
+        )
+        .await,
+        Err(Failure("Fullnode is stale".to_string()))
+    );
 }

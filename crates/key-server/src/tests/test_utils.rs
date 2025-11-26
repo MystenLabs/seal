@@ -37,16 +37,16 @@ use test_cluster::TestCluster;
 pub(crate) async fn create_test_server(
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
+    seal_package: ObjectID,
     server_mode: ServerMode,
     onchain_version: Option<u32>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     let options = KeyServerOptions {
-        network: Network::TestCluster,
+        network: Network::TestCluster { seal_package },
         node_url: None,
         server_mode,
         metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
         rgp_update_interval: Duration::from_secs(60),
         sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
         allowed_staleness: Duration::from_secs(120),
@@ -84,12 +84,14 @@ pub(crate) async fn create_test_server(
 pub(crate) async fn create_server(
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
+    seal_package: ObjectID,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     create_test_server(
         sui_client,
         sui_grpc_client,
+        seal_package,
         ServerMode::Permissioned { client_configs },
         None,
         vars,
@@ -98,9 +100,11 @@ pub(crate) async fn create_server(
 }
 
 /// Helper function to create a list of committee mode servers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_committee_servers(
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
+    seal_package: ObjectID,
     key_server_obj_id: Address,
     member_addresses: Vec<Address>,
     vars_list: Vec<Vec<(&str, Vec<u8>)>>,
@@ -114,6 +118,7 @@ pub(crate) async fn create_committee_servers(
         let server = create_test_server(
             sui_client.clone(),
             sui_grpc_client.clone(),
+            seal_package,
             ServerMode::Committee {
                 member_address,
                 key_server_obj_id,

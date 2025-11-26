@@ -42,7 +42,8 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_e2e() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    tc.add_open_servers(3).await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -114,9 +115,10 @@ async fn test_e2e() {
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    tc.add_open_servers(3).await;
-
     let (examples_package_id, _) = tc.publish("patterns").await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_servers(3, seal_package).await;
 
     let (whitelist, cap, _initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
@@ -231,7 +233,8 @@ async fn test_e2e_decrypt_all_objects() {
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects_missing_servers() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    tc.add_open_servers(3).await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -377,6 +380,7 @@ async fn test_e2e_permissioned() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -389,6 +393,7 @@ async fn test_e2e_permissioned() {
     let server1 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![
             ClientConfig {
                 name: "Client 1 on server 1".to_string(),
@@ -415,6 +420,7 @@ async fn test_e2e_permissioned() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -504,6 +510,8 @@ async fn test_e2e_imported_key() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+
     // Generate a key pair for the key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
@@ -515,6 +523,7 @@ async fn test_e2e_imported_key() {
     let server1 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![ClientConfig {
             name: "Key server client 1".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -586,6 +595,7 @@ async fn test_e2e_imported_key() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![ClientConfig {
             name: "Key server client 2".to_string(),
             client_master_key: ClientKeyType::Imported {
@@ -623,6 +633,7 @@ async fn test_e2e_imported_key() {
     let server3 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![
             ClientConfig {
                 name: "Key server client 3.0".to_string(),
@@ -664,6 +675,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
 
     // Fresh DKG shares from parties 0, 1, 2 (t=2).
     let master_shares = [
@@ -731,6 +743,7 @@ async fn test_e2e_committee_mode_with_rotation() {
         create_committee_servers(
             cluster.sui_client().clone(),
             grpc_client.clone(),
+            seal_package,
             key_server_object_id,
             member_addresses[0..2].to_vec(),
             vec![
@@ -760,6 +773,7 @@ async fn test_e2e_committee_mode_with_rotation() {
         create_committee_servers(
             cluster.sui_client().clone(),
             grpc_client.clone(),
+            seal_package,
             key_server_object_id,
             vec![member_addresses[2]],
             vec![vec![(
@@ -819,6 +833,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     let new_servers = create_committee_servers(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         key_server_object_id,
         vec![member_addresses[3], member_addresses[4]],
         vec![

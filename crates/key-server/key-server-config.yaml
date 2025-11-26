@@ -3,7 +3,12 @@
 # Network to use. Should be one of:
 # network: Testnet
 # network: Mainnet
-# network: Devnet
+# network: !Devnet
+#
+# For Devnet, you need to specify the package ID for the Seal package, e.g.,
+# network: !Devnet
+#   seal_package: '0x0000000000000000000000000000000000000000000000000000000000000000'
+# For Testnet and Mainnet, the default deployments of the Seal package will be used.
 #
 # Example:
 network: Testnet
@@ -112,7 +117,6 @@ server_mode: !Open
 # sdk_version_requirement: '>=0.4.5'
 #
 # Update intervals and timeouts for various operations. Example values are shown below.
-# checkpoint_update_interval: '10s'
 # rgp_update_interval: '60s'
 # allowed_staleness: '2m'
 # session_key_ttl_max: '30m'
