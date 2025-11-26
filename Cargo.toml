@@ -18,8 +18,8 @@ itertools = { version = "0.14.0" }
 anyhow = "1.0"
 rand = "0.8.5"
 hex = "0.4"
-clap = { version = "4.5.40", features = ["derive"] }
-tracing = "0.1.37"
+clap = { version = "4.5.53", features = ["derive"] }
+tracing = "0.1.42"
 serde_with = "3.13.0"
 prost-types = "0.14"
 sui-rpc = "0.1.0"
