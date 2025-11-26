@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::seal_package::SealPackage;
 use crate::{
     key_server_options::{
         ClientConfig, CommitteeState, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
@@ -44,9 +43,7 @@ pub(crate) async fn create_test_server(
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     let options = KeyServerOptions {
-        network: Network::TestCluster {
-            seal_package: SealPackage::Custom(seal_package),
-        },
+        network: Network::TestCluster { seal_package },
         node_url: None,
         server_mode,
         metrics_host_port: 0,

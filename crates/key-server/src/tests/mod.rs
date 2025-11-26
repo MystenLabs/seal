@@ -4,7 +4,6 @@
 use crate::externals::{add_package, add_upgraded_package};
 use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
 use crate::master_keys::MasterKeys;
-use crate::seal_package::SealPackage;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
 use crate::time::from_mins;
@@ -175,9 +174,7 @@ impl SealTestCluster {
                     server,
                     name,
                     KeyServerOptions {
-                        network: Network::TestCluster {
-                            seal_package: SealPackage::Custom(seal_package),
-                        },
+                        network: Network::TestCluster { seal_package },
                         node_url: None,
                         server_mode: ServerMode::Open {
                             key_server_object_id,

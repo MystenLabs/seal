@@ -5,6 +5,7 @@ use crate::seal_package::SealPackage;
 use crate::utils::decode_object_id;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
+use sui_types::base_types::ObjectID;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
@@ -15,13 +16,13 @@ pub type MasterKeyPOP = ibe::ProofOfPossession;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
     Devnet {
-        seal_package: SealPackage,
+        seal_package: ObjectID,
     },
     Testnet,
     Mainnet,
     #[cfg(test)]
     TestCluster {
-        seal_package: SealPackage,
+        seal_package: ObjectID,
     },
 }
 
@@ -40,7 +41,6 @@ impl Network {
         match str.to_ascii_lowercase().as_str() {
             "devnet" => Network::Devnet {
                 seal_package: decode_object_id("SEAL_PACKAGE")
-                    .map(SealPackage::Custom)
                     .expect("Seal package ID must be set as env var SEAL_PACKAGE"),
             },
             "testnet" => Network::Testnet,
@@ -49,13 +49,13 @@ impl Network {
         }
     }
 
-    pub fn seal_package(&self) -> &SealPackage {
+    pub fn seal_package(&self) -> SealPackage {
         match self {
-            Network::Devnet { seal_package } => seal_package,
-            Network::Testnet => &SealPackage::Testnet,
-            Network::Mainnet => &SealPackage::Mainnet,
+            Network::Devnet { seal_package } => SealPackage::Custom(*seal_package),
+            Network::Testnet => SealPackage::Testnet,
+            Network::Mainnet => SealPackage::Mainnet,
             #[cfg(test)]
-            Network::TestCluster { seal_package } => seal_package,
+            Network::TestCluster { seal_package } => SealPackage::Custom(*seal_package),
         }
     }
 }

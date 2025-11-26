@@ -359,6 +359,21 @@ server_mode: !Open
 
     assert_eq!(options.network, Network::Testnet);
     assert_eq!(options.node_url, Some("https://node.dk".to_string()));
+
+    let valid_configuration_devnet = r#"
+network: !Devnet
+  seal_package: '0x7'
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_devnet)
+        .expect("Failed to parse valid configuration");
+    assert!(matches!(options.network, Network::Devnet { .. }));
+    assert_eq!(
+        options.network.seal_package().package_id(),
+        ObjectID::from_str("0x7").unwrap()
+    );
+
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
     assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
 }
