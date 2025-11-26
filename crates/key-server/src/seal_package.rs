@@ -1,10 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::error::FastCryptoError;
-use fastcrypto::error::FastCryptoError::InvalidInput;
-use std::fmt::Display;
-use std::str::FromStr;
 use sui_types::base_types::ObjectID;
 
 const TESTNET_PACKAGE_ID: &str =
@@ -22,22 +18,6 @@ pub enum SealPackage {
     Testnet,
     Mainnet,
     Custom(ObjectID),
-}
-
-impl FromStr for SealPackage {
-    type Err = FastCryptoError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        ObjectID::from_str(s)
-            .map_err(|_| InvalidInput)
-            .map(Self::Custom)
-    }
-}
-
-impl Display for SealPackage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.package_id())
-    }
 }
 
 impl SealPackage {
