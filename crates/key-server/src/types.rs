@@ -5,7 +5,6 @@ use crate::seal_package::SealPackage;
 use crate::utils::decode_object_id;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
-use sui_types::base_types::ObjectID;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
@@ -50,7 +49,7 @@ impl Network {
         }
     }
 
-    pub fn seal_package_id(&self) -> ObjectID {
+    pub fn seal_package(&self) -> &SealPackage {
         match self {
             Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
@@ -58,6 +57,5 @@ impl Network {
             #[cfg(test)]
             Network::TestCluster { seal_package } => seal_package,
         }
-        .package_id()
     }
 }

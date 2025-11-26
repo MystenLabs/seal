@@ -481,7 +481,7 @@ pub fn verify_pop(
 async fn test_staleness_check() {
     let mut tc = SealTestCluster::new(1, "seal").await;
     let (seal_package, _) = tc.publish("seal").await;
-    tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(1))
+    tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(2))
         .await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;

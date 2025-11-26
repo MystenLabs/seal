@@ -47,6 +47,7 @@ use rand::thread_rng;
 use seal_committee::grpc_helper::{
     fetch_committee_server_version, get_partial_key_server_for_member,
 };
+use seal_package::{STALENESS_FUNCTION, STALENESS_MODULE};
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
@@ -108,11 +109,6 @@ const GIT_VERSION: &str = utils::git_version!();
 
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
-
-/// This should be equal to the corresponding error code from the staleness Seal Move package.
-const STALENESS_ERROR_CODE: u64 = 93492;
-const STALENESS_MODULE: &str = "time";
-const STALENESS_FUNCTION: &str = "check_staleness";
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
@@ -442,7 +438,7 @@ impl Server {
             });
 
         let staleness_check = Command::move_call(
-            self.options.network.seal_package_id(),
+            self.options.network.seal_package().package_id(),
             Identifier::from_str(STALENESS_MODULE).unwrap(),
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
@@ -539,7 +535,9 @@ impl Server {
         }) = dry_run_res.effects
         {
             return match error_code {
-                STALENESS_ERROR_CODE if module_id == self.staleness_module_id() => {
+                seal_package::STALENESS_ERROR_CODE
+                    if module_id == self.options.network.seal_package().staleness_module() =>
+                {
                     debug!("Fullnode is stale (req_id: {:?})", req_id);
                     if let Some(m) = metrics {
                         m.requests_failed_due_to_staleness.inc()
@@ -558,14 +556,6 @@ impl Server {
 
         // all good!
         Ok(())
-    }
-
-    fn staleness_module_id(&self) -> String {
-        format!(
-            "{}::{}",
-            self.options.network.seal_package_id(),
-            STALENESS_MODULE
-        )
     }
 
     #[allow(clippy::too_many_arguments)]
