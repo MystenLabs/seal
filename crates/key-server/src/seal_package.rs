@@ -3,7 +3,6 @@
 
 use fastcrypto::error::FastCryptoError;
 use fastcrypto::error::FastCryptoError::InvalidInput;
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 use sui_types::base_types::ObjectID;
@@ -18,7 +17,7 @@ pub const STALENESS_ERROR_CODE: u64 = 93492;
 pub const STALENESS_MODULE: &str = "time";
 pub const STALENESS_FUNCTION: &str = "check_staleness";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug)]
 pub enum SealPackage {
     Testnet,
     Mainnet,
