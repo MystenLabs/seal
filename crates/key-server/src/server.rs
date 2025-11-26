@@ -108,6 +108,7 @@ const GIT_VERSION: &str = utils::git_version!();
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
+/// This should be equal to the corresponding error code from the staleness Seal Move package.
 const STALENESS_ERROR_CODE: u64 = 93492;
 const STALENESS_MODULE: &str = "time";
 const STALENESS_FUNCTION: &str = "check_staleness";
