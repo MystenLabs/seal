@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{
-    KeyServerOptions, RetryConfig, RpcConfig, SealPackage, ServerMode,
-};
+use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
 use crate::master_keys::MasterKeys;
+use crate::seal_package::SealPackage;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
 use crate::time::from_mins;

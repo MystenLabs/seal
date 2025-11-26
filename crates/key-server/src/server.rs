@@ -98,6 +98,7 @@ mod metrics;
 mod metrics_push;
 mod mvr;
 mod periodic_updater;
+mod seal_package;
 #[cfg(test)]
 pub mod tests;
 mod time;

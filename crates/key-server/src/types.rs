@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::key_server_options::SealPackage;
+use crate::seal_package::SealPackage;
 use crate::utils::decode_object_id;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
