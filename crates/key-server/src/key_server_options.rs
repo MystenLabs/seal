@@ -370,8 +370,6 @@ session_key_ttl_max: '60s'
     };
     assert_eq!(options.server_mode, expected_server_mode);
 
-    assert_eq!(options.checkpoint_update_interval, Duration::from_secs(13));
-
     let valid_configuration_custom_node_url = r#"
 network: Testnet
 node_url: https://node.dk
@@ -382,53 +380,9 @@ server_mode: !Open
         .expect("Failed to parse valid configuration");
 
     assert_eq!(options.network, Network::Testnet);
-    assert_eq!(options.node_url, Some("https://node.dk".to_string()),);
-
-    let valid_configuration_custom_network_package = r#"
-network: !Custom
-  node_url: https://node.dk
-  use_default_mainnet_for_mvr: false
-server_mode: !Open
-  key_server_object_id: '0x0'
-"#;
-    let options: KeyServerOptions =
-        serde_yaml::from_str(valid_configuration_custom_network_package)
-            .expect("Failed to parse valid configuration");
-    assert_eq!(resolve_network(&options.network).unwrap(), Network::Testnet);
-    assert_eq!(
-        options.network,
-        Network::Custom {
-            node_url: Some("https://node.dk".to_string()),
-            use_default_mainnet_for_mvr: Some(false),
-            seal_package: None,
-        }
-    );
-}
-
-#[test]
-fn test_parse_custom_network_with_env_var() {
-    use crate::mvr::resolve_network;
-    // Test that NODE_URL can be omitted from config when not set in env
-    let config_without_url = r#"
-network: !Custom
-server_mode: !Open
-  key_server_object_id: '0x0'
-"#;
-
-    let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
-        .expect("Failed to parse configuration without node_url");
-
-    assert_eq!(resolve_network(&options.network).unwrap(), Network::Mainnet);
-    assert_eq!(
-        options.network.seal_package_id(),
-        SealPackage::Mainnet.package_id()
-    );
-    match options.network {
-        Network::Custom { node_url, .. } => {
-            assert_eq!(node_url, None);
-        }
-        _ => panic!("Expected Custom network"),
-    }
+    assert_eq!(options.node_url, Some("https://node.dk".to_string()));
+    let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
+    assert!(serde_yaml::from_str::<KeyServerOptions>(unknown_option).is_err());
 }
 
 #[test]

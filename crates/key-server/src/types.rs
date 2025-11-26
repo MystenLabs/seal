@@ -5,7 +5,6 @@ use crate::key_server_options::SealPackage;
 use crate::utils::decode_object_id;
 use crypto::ibe;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use sui_types::base_types::ObjectID;
 
 /// The Identity-based encryption types.
@@ -56,6 +55,7 @@ impl Network {
             Network::Devnet { seal_package } => seal_package,
             Network::Testnet => &SealPackage::Testnet,
             Network::Mainnet => &SealPackage::Mainnet,
+            #[cfg(test)]
             Network::TestCluster { seal_package } => seal_package,
         }
         .package_id()

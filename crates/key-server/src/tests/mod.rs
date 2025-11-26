@@ -7,6 +7,7 @@ use crate::key_server_options::{
 };
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
+use crate::tests::KeyServerType::Open;
 use crate::time::from_mins;
 use crate::types::Network;
 use crate::{DefaultEncoding, Server};
@@ -122,12 +123,6 @@ impl SealTestCluster {
         .await;
     }
 
-    pub async fn add_open_servers(&mut self, num_servers: usize, seal_package: ObjectID) {
-        for _ in 0..num_servers {
-            self.add_open_server(seal_package).await;
-        }
-    }
-
     pub async fn add_server_with_options(
         &mut self,
         server: KeyServerType,
@@ -161,42 +156,6 @@ impl SealTestCluster {
         };
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str, seal_package: ObjectID) {
-        match server {
-            Open(master_key) => {
-                let key_server_object_id = self
-                    .register_key_server(
-                        name,
-                        "http://localhost:8080", // Dummy URL, not used in this test
-                        public_key_from_master_key(&master_key),
-                    )
-                    .await;
-                self.add_server_with_options(
-                    server,
-                    name,
-                    KeyServerOptions {
-                        network: Network::TestCluster {
-                            seal_package: SealPackage::Custom(seal_package),
-                        },
-                        node_url: None,
-                        server_mode: ServerMode::Open {
-                            key_server_object_id,
-                        },
-                        metrics_host_port: 0,
-                        rgp_update_interval: Duration::from_secs(60),
-                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-                        allowed_staleness: Duration::from_secs(120),
-                        session_key_ttl_max: from_mins(30),
-                        rpc_config: RpcConfig::default(),
-                        metrics_push_config: None,
-                    },
-                )
-                .await;
-            }
-            _ => panic!(),
-        }
-    }
-
     pub async fn add_server_with_allowed_staleness(
         &mut self,
         server: KeyServerType,
@@ -220,6 +179,7 @@ impl SealTestCluster {
                         network: Network::TestCluster {
                             seal_package: SealPackage::Custom(seal_package),
                         },
+                        node_url: None,
                         server_mode: ServerMode::Open {
                             key_server_object_id,
                         },
