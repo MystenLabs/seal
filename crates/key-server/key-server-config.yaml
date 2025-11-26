@@ -117,7 +117,6 @@ server_mode: !Open
 # sdk_version_requirement: '>=0.4.5'
 #
 # Update intervals and timeouts for various operations. Example values are shown below.
-# checkpoint_update_interval: '10s'
 # rgp_update_interval: '60s'
 # allowed_staleness: '2m'
 # session_key_ttl_max: '30m'
