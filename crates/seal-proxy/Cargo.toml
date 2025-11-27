@@ -33,7 +33,7 @@ serde_yaml = "0.9"
 snap = "1.1.0"
 tokio = {version = "1.44", features = ["full"]}
 tokio-util = "0.7.13"
-tower = "0.4"
+tower = "0.5"
 tower-http = {version = "0.6.6", features = ["trace", "timeout"]}
 tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
 tracing.workspace = true
