@@ -6,6 +6,7 @@ pub mod types;
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
 use crypto::create_full_id;
+use crypto::elgamal;
 use crypto::elgamal::decrypt as elgamal_decrypt;
 use crypto::ibe::verify_user_secret_key;
 use crypto::ibe::UserSecretKey;
@@ -23,7 +24,7 @@ use tracing::debug;
 pub use crypto::elgamal::genkey;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
 pub use crypto::{seal_encrypt, EncryptedObject};
-pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
+pub use types::{Certificate, DecryptionKey, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
 
 pub fn signed_message(
     package_name: String,
@@ -144,6 +145,72 @@ pub fn seal_decrypt_object(
         &IBEUserSecretKeys::BonehFranklinBLS12381(usks),
         Some(&IBEPublicKeys::BonehFranklinBLS12381(pks)),
     )
+}
+
+/// Aggregate encrypted partial keys from committee members using homomorphic Lagrange interpolation.
+///
+/// This function takes encrypted key shares from multiple committee members and aggregates them.
+/// It computes Enc(Σ λᵢ * sᵢ) directly from the encrypted shares, where λᵢ are Lagrange coefficients
+/// and returns FetchKeyResponse containing aggregated encrypted keys that can be decrypted by the
+/// client using their ephemeral secret key.
+pub fn aggregate_encrypted_responses(
+    threshold: u16,
+    responses: Vec<(u16, FetchKeyResponse)>,
+) -> Result<FetchKeyResponse, String> {
+    if responses.is_empty() {
+        return Err("No responses to aggregate".to_string());
+    }
+
+    let first_response = &responses[0].1;
+    if first_response.decryption_keys.is_empty() {
+        return Err("No decryption keys in response".to_string());
+    }
+
+    // For each decryption key ID, aggregate across committee members
+    let mut aggregated_keys = Vec::new();
+
+    for key_idx in 0..first_response.decryption_keys.len() {
+        let expected_key_id = &first_response.decryption_keys[key_idx].id;
+
+        // Collect (party_id, encrypted_key) pairs for this key ID
+        // Validate that all responses have matching key IDs at this index
+        let encrypted_shares: Vec<(u16, elgamal::Encryption<_>)> = responses
+            .iter()
+            .filter_map(|(party_id, response)| {
+                response.decryption_keys.get(key_idx).map(|dk| {
+                    // Validate key ID matches
+                    if dk.id != *expected_key_id {
+                        return None;
+                    }
+                    Some((*party_id, dk.encrypted_key.clone()))
+                })
+            })
+            .flatten()
+            .collect();
+
+        if encrypted_shares.len() < threshold as usize {
+            return Err(format!(
+                "Insufficient partial keys for key_idx {}: got {}, need {}",
+                key_idx,
+                encrypted_shares.len(),
+                threshold
+            ));
+        }
+
+        let aggregated_encrypted =
+            elgamal::aggregate_encrypted(threshold, encrypted_shares.into_iter())
+                .map_err(|e| format!("Homomorphic aggregation failed: {e}"))?;
+
+        let key_id = expected_key_id.clone();
+        aggregated_keys.push(DecryptionKey {
+            id: key_id,
+            encrypted_key: aggregated_encrypted,
+        });
+    }
+
+    Ok(FetchKeyResponse {
+        decryption_keys: aggregated_keys,
+    })
 }
 #[cfg(test)]
 mod tests {

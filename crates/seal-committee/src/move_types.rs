@@ -43,7 +43,7 @@ pub enum ServerType {
     },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct PartialKeyServer {
     #[serde(deserialize_with = "deserialize_move_bytes")]
     pub partial_pk: Vec<u8>,
