@@ -2,23 +2,25 @@
 
 ** WARNING: This is WIP. Do not use. **
 
-Command-line tool for Distributed Key Generation (DKG) and key rotation protocols. A DKG process involves a coordinator and a set of participating members. Here we describe the processes for both a fresh DKG and a DKG key rotation.
+Command-line tool for Distributed Key Generation (DKG) and key rotation protocols. A DKG process involves a coordinator and a set of participating members. Here we describe the processes for both a fresh DKG and a key rotation.
 
 Both fresh DKG and key rotation has 3 phases. 
 
-- **Phase 1 (Registration)**: Members register their public keys onchain.
-- **Phase 2 (Message Creation)**: Members create and share DKG messages offchain.
+- **Phase 1 (Registration)**: Members generate and register their encryption keys onchain.- **Phase 2 (Message Creation)**: Members create and share DKG messages offchain.
 - **Phase 3 (Finalization)**: Members process messages, propose committee onchain. 
 
 The coordinator signals when to proceed from one phase to the next.
 
 ## Prerequisites
-- Install Sui (See [more](https://docs.sui.io/guides/developer/getting-started/sui-install)).
-- Install python
+
+1. Install Sui (See [more](https://docs.sui.io/guides/developer/getting-started/sui-install)).
+2. Clone the [Seal](https://github.com/MystenLabs/seal) repo locally and set to working directory. 
+3. Install python and the dependencies in `/seal`. 
 
 ```bash
 brew install python # if needed
 cd seal/
+
 # for the first time
 python -m venv .venv
 source .venv/bin/activate
@@ -55,7 +57,7 @@ COMMITTEE_PKG: 0x3358b7f7150efe9a0487ad354e5959771c56556737605848231b09cca5b791c
 COMMITTEE_ID: 0x46540663327da161b688786cbebbafbd32e0f344c85f8dc3bfe874c65a613418
 ```
 
-3. Share the `dkg.yaml` file with members. Announce to all members to begin Phase 1.
+3. Share the `dkg.yaml` file with all members. Announce to all members to begin Phase 1.
 
 4. Monitor onchain state until all members are registered using the check-committee script.
 
@@ -171,7 +173,7 @@ python crates/dkg-cli/scripts/dkg-scripts.py init-rotation -c crates/dkg-cli/scr
 
 This will initialize rotation and append the new `COMMITTEE_ID` to your config. Share this file with all members.
 
-2. Phase 1, 2, 3: Follow the same steps as fresh DKG. Announce each phase to members and monitor progress. Also announce DKG completion. 
+2. Phase 1, 2, 3: Follow the same steps as fresh DKG. Announce each phase to members and monitor progress. Also announce key rotation completion. 
 
 #### Member Runbook
 
