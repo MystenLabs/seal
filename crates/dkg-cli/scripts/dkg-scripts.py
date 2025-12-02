@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c), Mysten Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 DKG scripts for both coordinator and member operations.
 
