@@ -171,13 +171,11 @@ pub async fn to_partial_key_servers(
             .contents
             .iter()
             .map(|entry| {
-                let partial_pk = bcs::from_bytes(&entry.value.partial_pk)
-                    .map_err(|e| anyhow!("Failed to deserialize partial PK: {}", e))?;
                 Ok((
                     entry.key,
                     PartialKeyServerInfo {
                         party_id: entry.value.party_id,
-                        partial_pk,
+                        partial_pk: entry.value.partial_pk,
                     },
                 ))
             })
