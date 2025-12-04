@@ -1980,6 +1980,7 @@ version = "0.5.14"
 dependencies = [
  "bcs",
  "fastcrypto",
+ "fastcrypto-tbls",
  "hex",
  "itertools 0.14.0",
  "rand 0.8.5",
