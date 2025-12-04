@@ -148,7 +148,7 @@ jobs:
           # Retry deploy up to 4 times with backoff to handle transient network timeouts
           for attempt in 1 2 3 4; do
             echo "Deploy attempt $attempt"
-            if ./site-builder deploy ./site --check-extend --epochs 50; then
+            if ./site-builder deploy ./site --epochs 50; then
               echo "Deploy succeeded on attempt $attempt";
               break
             fi
