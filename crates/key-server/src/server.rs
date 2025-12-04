@@ -40,7 +40,6 @@ use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
-use mysten_service::serve;
 use rand::thread_rng;
 use seal_committee::grpc_helper::{
     fetch_committee_server_version, get_partial_key_server_for_member,
@@ -977,8 +976,17 @@ async fn main() -> Result<()> {
     let _guard = mysten_service::logging::init();
     let (monitor_handle, app) = app().await?;
 
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .context("Invalid PORT")?;
+
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("Key server listening on http://localhost:{}", port);
+
     tokio::select! {
-        server_result = serve(app) => {
+        server_result = axum::serve(listener, app) => {
             error!("Server stopped with status {:?}", server_result);
             std::process::exit(1);
         }

@@ -6,24 +6,26 @@ pub mod types;
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
 use crypto::create_full_id;
+use crypto::elgamal;
 use crypto::elgamal::decrypt as elgamal_decrypt;
-use crypto::ibe::verify_user_secret_key;
 use crypto::ibe::UserSecretKey;
+use crypto::ibe::{verify_encrypted_signature, verify_user_secret_key};
 use crypto::{seal_decrypt, IBEPublicKeys, IBEUserSecretKeys, ObjectID};
 use fastcrypto::ed25519::Ed25519PublicKey;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::FastCryptoError;
 use fastcrypto::error::FastCryptoResult;
+use fastcrypto::groups::bls12381::G2Element;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_sdk_types::ProgrammableTransaction;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 // Re-exported for seal_sdk
 pub use crypto::elgamal::genkey;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
 pub use crypto::{seal_encrypt, EncryptedObject};
-pub use types::{Certificate, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
+pub use types::{Certificate, DecryptionKey, ElGamalSecretKey, FetchKeyRequest, FetchKeyResponse};
 
 pub fn signed_message(
     package_name: String,
@@ -145,6 +147,122 @@ pub fn seal_decrypt_object(
         Some(&IBEPublicKeys::BonehFranklinBLS12381(pks)),
     )
 }
+
+/// Aggregate encrypted partial keys from committee members using homomorphic Lagrange interpolation.
+///
+/// This function takes encrypted key shares from multiple committee members and aggregates them.
+/// It computes Enc(Σ λᵢ * sᵢ) directly from the encrypted shares, where λᵢ are Lagrange coefficients
+/// and returns FetchKeyResponse containing aggregated encrypted keys that can be decrypted by the
+/// client using their ephemeral secret key.
+pub fn aggregate_encrypted_responses(
+    threshold: u16,
+    responses: Vec<(u16, FetchKeyResponse)>,
+) -> FastCryptoResult<FetchKeyResponse> {
+    if responses.is_empty() {
+        return Err(FastCryptoError::GeneralError(
+            "No responses to aggregate".to_string(),
+        ));
+    }
+
+    let first_response = &responses[0].1;
+    if first_response.decryption_keys.is_empty() {
+        return Err(FastCryptoError::GeneralError(
+            "No decryption keys in response".to_string(),
+        ));
+    }
+
+    // For each decryption key ID, aggregate across committee members
+    let mut aggregated_keys = Vec::new();
+
+    for key_idx in 0..first_response.decryption_keys.len() {
+        let expected_key_id = &first_response.decryption_keys[key_idx].id;
+
+        // Collect (party_id, encrypted_key) pairs for this key ID
+        // Validate that all responses have matching key IDs at this index
+        let encrypted_shares: Vec<(u16, elgamal::Encryption<_>)> = responses
+            .iter()
+            .filter_map(|(party_id, response)| {
+                response.decryption_keys.get(key_idx).map(|dk| {
+                    // Validate key ID matches
+                    if dk.id != *expected_key_id {
+                        return None;
+                    }
+                    Some((*party_id, dk.encrypted_key.clone()))
+                })
+            })
+            .flatten()
+            .collect();
+
+        if encrypted_shares.len() < threshold as usize {
+            return Err(FastCryptoError::GeneralError(format!(
+                "Insufficient partial keys for key_idx {}: got {}, need {}",
+                key_idx,
+                encrypted_shares.len(),
+                threshold
+            )));
+        }
+
+        let aggregated_encrypted =
+            elgamal::aggregate_encrypted(threshold, encrypted_shares.into_iter())?;
+
+        let key_id = expected_key_id.clone();
+        aggregated_keys.push(DecryptionKey {
+            id: key_id,
+            encrypted_key: aggregated_encrypted,
+        });
+    }
+
+    Ok(FetchKeyResponse {
+        decryption_keys: aggregated_keys,
+    })
+}
+
+/// Verify encrypted signatures for all decryption keys from a committee member.
+///
+/// Filters out any keys that fail verification and logs warnings.
+/// Returns an error if all keys fail verification.
+pub fn verify_decryption_keys(
+    decryption_keys: &[DecryptionKey],
+    partial_pk: &G2Element,
+    ephemeral_vk: &ElgamalVerificationKey,
+    party_id: u16,
+) -> Result<Vec<DecryptionKey>, String> {
+    let mut verified_keys = Vec::new();
+
+    for dk in decryption_keys {
+        match verify_encrypted_signature(&dk.encrypted_key, ephemeral_vk, partial_pk, &dk.id) {
+            Ok(()) => {
+                verified_keys.push(dk.clone());
+            }
+            Err(e) => {
+                warn!(
+                    "Verification failed for party {} key_id={}: {}",
+                    party_id,
+                    Hex::encode(&dk.id),
+                    e
+                );
+            }
+        }
+    }
+
+    if verified_keys.is_empty() && !decryption_keys.is_empty() {
+        return Err(format!(
+            "All {} decryption keys from party {} failed verification",
+            decryption_keys.len(),
+            party_id
+        ));
+    }
+
+    info!(
+        "Verified {}/{} decryption keys from party {}",
+        verified_keys.len(),
+        decryption_keys.len(),
+        party_id
+    );
+
+    Ok(verified_keys)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{signed_message, signed_request};
