@@ -148,9 +148,6 @@ jobs:
           # Retry deploy up to 4 times with backoff to handle transient network timeouts
           for attempt in 1 2 3 4; do
             echo "Deploy attempt $attempt"
-            site-builder
-          update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
-          --epochs ${{ env.EPOCHS }}
             if ./site-builder deploy ./site --epochs 50; then
               echo "Deploy succeeded on attempt $attempt";
               break
