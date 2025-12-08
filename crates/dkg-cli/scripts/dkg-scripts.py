@@ -456,7 +456,7 @@ def genkey_and_register(config_path: str, keys_file: str = "./dkg-state/dkg.key"
         "--package", committee_pkg,
         "--module", "seal_committee",
         "--function", "register",
-        "--args", committee_id, f'x"{enc_pk}"', f'x"{signing_pk}"', my_server_url
+        "--args", committee_id, enc_pk, signing_pk, my_server_url
     ], check=True)
 
     print("\n[SUCCESS] Keys generated and registered onchain!")
@@ -671,9 +671,8 @@ def process_all_and_propose(config_path: str, messages_dir: str, keys_file: str 
     else:
         print(f"\n=== Proposing committee onchain ===")
 
-    # Format partial PKs as vector: [x"0x...", x"0x...", x"0x..."]
-    partial_pks_formatted = [f'x"{pk}"' for pk in partial_pks]
-    partial_pks_arg = "[" + ", ".join(partial_pks_formatted) + "]"
+    # Format partial PKs as vector: [0x..., 0x..., 0x...]
+    partial_pks_arg = "[" + ", ".join(partial_pks) + "]"
 
     if is_rotation:
         # Use propose_for_rotation for key rotation
@@ -691,7 +690,7 @@ def process_all_and_propose(config_path: str, messages_dir: str, keys_file: str 
             "--package", committee_pkg,
             "--module", "seal_committee",
             "--function", "propose",
-            "--args", committee_id, partial_pks_arg, f'x"{key_server_pk}"'
+            "--args", committee_id, partial_pks_arg, key_server_pk
         ], check=True)
 
     print("\n✓ Successfully processed messages and proposed committee onchain!")
