@@ -40,7 +40,7 @@ module patterns::key_request {
         ctx: &mut TxContext,
     ): KeyRequest {
         // The package of the caller (via the witness T).
-        let package = type_name::get_with_original_ids<T>().get_address();
+        let package = type_name::with_original_ids<T>().address_string();
         KeyRequest {
             id: object::new(ctx),
             package,
@@ -64,7 +64,7 @@ module patterns::key_request {
         user: address,
         c: &Clock,
     ): bool {
-        let package = type_name::get_with_original_ids<T>().get_address();
+        let package = type_name::with_original_ids<T>().address_string();
         (req.package == package) && (req.inner_id == id) && (req.user == user) && (c.timestamp_ms() <= req.valid_till)
     }
 }
