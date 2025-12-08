@@ -54,7 +54,11 @@ def run_sui_command(args: list[str]) -> dict:
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error: {result.stderr}", file=sys.stderr)
+        print(f"\nCommand failed with exit code {result.returncode}", file=sys.stderr)
+        if result.stderr:
+            print(f"stderr:\n{result.stderr}", file=sys.stderr)
+        if result.stdout:
+            print(f"stdout:\n{result.stdout}", file=sys.stderr)
         sys.exit(1)
 
     try:

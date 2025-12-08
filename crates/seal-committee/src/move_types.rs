@@ -5,7 +5,6 @@
 
 use anyhow::{anyhow, Result};
 use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
-use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto_tbls::ecies_v1::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -204,45 +203,26 @@ pub struct ParsedMemberInfo {
     pub signing_pk: BLS12381PublicKey,
 }
 
-/// Helper function to parse Move byte literal (x"0x..." or x"...") to decoded bytes.
-fn parse_move_byte_literal(bytes: &[u8]) -> Result<Vec<u8>> {
-    let str = String::from_utf8(bytes.to_vec())
-        .map_err(|e| anyhow!("Failed to convert bytes to UTF-8 string: {}", e))?;
-
-    // Strip Move byte literal format: x"..." or just "..."
-    let hex_str = str
-        .strip_prefix("x\"")
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| str.strip_prefix('x'))
-        .unwrap_or(&str);
-
-    // Strip 0x prefix if present
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-
-    Ok(Hex::decode(hex_str)?)
-}
-
 /// Macro to generate serde deserializers for Move byte literals.
 macro_rules! move_bytes_deserializer {
-    // For Vec<u8>, just return the decoded bytes
+    // For Vec<u8>, just return the raw bytes
     ($deserialize_fn:ident, Vec<u8>) => {
         fn $deserialize_fn<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
             let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-            parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)
+            Ok(bytes)
         }
     };
-    // For other types, decode and then deserialize from BCS
+    // For other types, deserialize directly from raw bytes
     ($deserialize_fn:ident, $type:ty) => {
         fn $deserialize_fn<'de, D>(deserializer: D) -> Result<$type, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
             let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-            let decoded = parse_move_byte_literal(&bytes).map_err(serde::de::Error::custom)?;
-            bcs::from_bytes(&decoded).map_err(serde::de::Error::custom)
+            bcs::from_bytes(&bytes).map_err(serde::de::Error::custom)
         }
     };
 }
