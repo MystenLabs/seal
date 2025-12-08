@@ -12,7 +12,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use mysten_service::{get_mysten_service, package_name, package_version};
@@ -109,7 +109,11 @@ async fn main() -> Result<()> {
         .context("Invalid PORT")?;
 
     let app = get_mysten_service::<AppState>(package_name!(), package_version!())
-        .merge(Router::new().route("/v1/fetch_key", post(handle_fetch_key)))
+        .merge(
+            Router::new()
+                .route("/v1/fetch_key", post(handle_fetch_key))
+                .route("/v1/service", get(handle_get_service)),
+        )
         .with_state(state)
         .layer(CorsLayer::new().allow_origin(Any));
 
@@ -135,6 +139,11 @@ async fn handle_fetch_key(
     // 5. Return with appropriate headers
 
     unimplemented!("depends on crypto code")
+}
+
+/// Not supported for aggregator server.
+async fn handle_get_service() -> Response {
+    (StatusCode::NOT_FOUND, "Unsupported").into_response()
 }
 
 /// Fetch encrypted partial key from a single committee member.

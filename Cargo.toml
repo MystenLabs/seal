@@ -33,7 +33,6 @@ tokio = { version = "1.46.1", features = ["full"] }
 futures = "0.3"
 reqwest = "0.12"
 tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
-semver = { version = "1.0.26", features = ["serde"] }
 serde_yaml = "0.9"
 
 # Sui dependencies
