@@ -43,10 +43,10 @@ pub enum ServerType {
     },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct PartialKeyServer {
-    #[serde(deserialize_with = "deserialize_move_bytes")]
-    pub partial_pk: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_partial_pk")]
+    pub partial_pk: G2Element,
     pub url: String,
     pub party_id: u16,
 }
@@ -250,3 +250,4 @@ macro_rules! move_bytes_deserializer {
 move_bytes_deserializer!(deserialize_move_bytes, Vec<u8>);
 move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G2Element>);
 move_bytes_deserializer!(deserialize_signing_pk, BLS12381PublicKey);
+move_bytes_deserializer!(deserialize_partial_pk, G2Element);

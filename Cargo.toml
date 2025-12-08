@@ -24,6 +24,7 @@ serde_with = "3.13.0"
 prost-types = "0.14"
 sui-rpc = "0.1.0"
 tonic = "0.14"
+semver = { version = "1.0.26", features = ["serde"] }
 
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
