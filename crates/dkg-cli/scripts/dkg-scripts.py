@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c), Mysten Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 DKG scripts for both coordinator and member operations.
 
@@ -51,7 +54,11 @@ def run_sui_command(args: list[str]) -> dict:
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error: {result.stderr}", file=sys.stderr)
+        print(f"\nCommand failed with exit code {result.returncode}", file=sys.stderr)
+        if result.stderr:
+            print(f"stderr:\n{result.stderr}", file=sys.stderr)
+        if result.stdout:
+            print(f"stdout:\n{result.stdout}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -453,7 +460,7 @@ def genkey_and_register(config_path: str, keys_file: str = "./dkg-state/dkg.key"
         "--package", committee_pkg,
         "--module", "seal_committee",
         "--function", "register",
-        "--args", committee_id, f'x"{enc_pk}"', f'x"{signing_pk}"', my_server_url
+        "--args", committee_id, enc_pk, signing_pk, my_server_url
     ], check=True)
 
     print("\n[SUCCESS] Keys generated and registered onchain!")
@@ -668,9 +675,8 @@ def process_all_and_propose(config_path: str, messages_dir: str, keys_file: str 
     else:
         print(f"\n=== Proposing committee onchain ===")
 
-    # Format partial PKs as vector: [x"0x...", x"0x...", x"0x..."]
-    partial_pks_formatted = [f'x"{pk}"' for pk in partial_pks]
-    partial_pks_arg = "[" + ", ".join(partial_pks_formatted) + "]"
+    # Format partial PKs as vector: [0x..., 0x..., 0x...]
+    partial_pks_arg = "[" + ", ".join(partial_pks) + "]"
 
     if is_rotation:
         # Use propose_for_rotation for key rotation
@@ -688,7 +694,7 @@ def process_all_and_propose(config_path: str, messages_dir: str, keys_file: str 
             "--package", committee_pkg,
             "--module", "seal_committee",
             "--function", "propose",
-            "--args", committee_id, partial_pks_arg, f'x"{key_server_pk}"'
+            "--args", committee_id, partial_pks_arg, key_server_pk
         ], check=True)
 
     print("\n✓ Successfully processed messages and proposed committee onchain!")
