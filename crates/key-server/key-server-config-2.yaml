@@ -4,7 +4,7 @@ node_url: https://fullnode.testnet.sui.io:443
 
 server_mode: !Committee
   member_address: '0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9'
-  key_server_obj_id: '0x0c9b2a1185f42bebdc16baf0a393ec5bd93bab8b0cb902b694198077b27c15da'
+  key_server_obj_id: '0x029bcb82cf335f19221eeec3b6c217eb2bdfee07b0ca49b25452a1e213eb4d27'
   committee_state: !Active
 
 metrics_host_port: 9186

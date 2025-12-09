@@ -21,8 +21,8 @@ use seal_sdk::{
     aggregate_encrypted_responses, verify_decryption_keys, FetchKeyRequest, FetchKeyResponse,
 };
 use semver::{Version, VersionReq};
+use serde::Deserialize;
 use std::env;
-use std::str::FromStr;
 use std::sync::Arc;
 use sui_sdk_types::Address;
 use tower_http::cors::{Any, CorsLayer};
@@ -30,6 +30,13 @@ use tracing::{error, info, warn};
 
 /// Minimum required version for committee members, from ts-sdks.
 const MIN_SERVER_VERSION: &str = ">=0.4.1";
+const DEFAULT_PORT: u16 = 2024;
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    network: Network,
+    key_server_object_id: Address,
+}
 
 /// Application state.
 #[derive(Clone)]
@@ -58,23 +65,17 @@ impl IntoResponse for AggregatorError {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let key_server_obj_id = Address::from_str(
-        &env::var("KEY_SERVER_OBJ_ID").context("KEY_SERVER_OBJ_ID environment variable not set")?,
+    let config_path =
+        env::var("CONFIG_PATH").context("CONFIG_PATH environment variable not set")?;
+
+    let config: Config = serde_yaml::from_reader(
+        std::fs::File::open(&config_path)
+            .context(format!("Cannot open configuration file {config_path}"))?,
     )?;
 
-    let network = Network::from_str(
-        env::var("NETWORK")
-            .context("NETWORK environment variable not set")?
-            .as_str(),
-    )
-    .expect("Invalid network");
+    info!("Starting aggregator with config: {:?}", config);
 
-    info!(
-        "Starting aggregator for KeyServer {} on {}",
-        key_server_obj_id, network
-    );
-
-    let state = load_members(&key_server_obj_id, network).await?;
+    let state = load_members(&config.key_server_object_id, config.network).await?;
 
     // TODO: Add periodic refresh of committee members from onchain by watching version.
     info!(
@@ -84,7 +85,7 @@ async fn main() -> Result<()> {
     );
 
     let port: u16 = env::var("PORT")
-        .unwrap_or_else(|_| "2027".to_string())
+        .unwrap_or_else(|_| DEFAULT_PORT.to_string())
         .parse()
         .context("Invalid PORT")?;
 

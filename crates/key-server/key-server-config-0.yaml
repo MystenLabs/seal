@@ -3,8 +3,8 @@ network: Testnet
 node_url: https://fullnode.testnet.sui.io:443
 
 server_mode: !Committee
-  member_address: '0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d'
-  key_server_obj_id: '0x0c9b2a1185f42bebdc16baf0a393ec5bd93bab8b0cb902b694198077b27c15da'
+  member_address: '0x1edd19be21bacb19c30e7dfcc3a1a270effd8c9c24e9dfbd1c99156597efab9e'
+  key_server_obj_id: '0x0688650cf0b28882e607ae43df1e95e769f9b2f689cf90d68c715b3e08e28c70'
   committee_state: !Active
 
 metrics_host_port: 9184
