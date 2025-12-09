@@ -31,7 +31,7 @@ jobs:
               platform: ubuntu
               arch: x86_64
               extension-matching: true
-              tag: testnet-v1.57.2
+              tag: testnet-v1.61.2
 
       - name: Run move tests
         run: |

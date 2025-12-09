@@ -18,10 +18,10 @@ use rand::thread_rng;
 use seal_committee::grpc_helper::to_partial_key_servers;
 use seal_committee::{
     build_new_to_old_map, create_grpc_client, fetch_committee_data, fetch_key_server_by_committee,
-    Network,
+    CommitteeState, Network, ServerType,
 };
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
@@ -90,6 +90,20 @@ enum Commands {
         /// Path to keys file
         #[arg(short = 'k', long, default_value = "./dkg-state/dkg.key")]
         keys_file: PathBuf,
+        /// Network (mainnet or testnet).
+        #[arg(short = 'n', long, value_parser = parse_network)]
+        network: Network,
+    },
+
+    /// Check committee status and member registration.
+    CheckCommittee {
+        /// Committee object ID to check.
+        #[arg(long)]
+        committee_id: Address,
+
+        /// Network (mainnet or testnet).
+        #[arg(long, value_parser = parse_network)]
+        network: Network,
     },
 }
 
@@ -218,7 +232,7 @@ async fn main() -> Result<()> {
 
                     // Fetch partial key server info from the old committee's key server object.
                     let (_, ks) =
-                        fetch_key_server_by_committee(&mut grpc_client, &committee_id).await?;
+                        fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await?;
                     let old_partial_key_infos = to_partial_key_servers(&ks).await?;
 
                     // Build mapping from old party ID to partial public key.
@@ -335,6 +349,7 @@ async fn main() -> Result<()> {
             messages_dir,
             state_dir,
             keys_file,
+            network,
         } => {
             let mut state = DkgState::load(&state_dir)?;
             let local_keys = KeysFile::load(&keys_file)?;
@@ -514,6 +529,40 @@ async fn main() -> Result<()> {
 
             state.output = Some(output.clone());
 
+            // Determine the committee version.
+            let version = {
+                let mut grpc_client = create_grpc_client(&network)?;
+                let committee =
+                    fetch_committee_data(&mut grpc_client, &state.config.committee_id).await?;
+
+                if let Some(old_committee_id) = committee.old_committee_id {
+                    // Rotation: fetch the old committee's KeyServer version then increment by 1.
+                    match fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await {
+                        Ok((_, key_server_v2)) => match key_server_v2.server_type {
+                            ServerType::Committee { version, .. } => {
+                                println!(
+                                    "Old committee version: {}, new version will be: {}",
+                                    version,
+                                    version + 1
+                                );
+                                version + 1
+                            }
+                            _ => return Err(anyhow!("Old KeyServer is not of type Committee")),
+                        },
+                        Err(e) => {
+                            return Err(anyhow!(
+                                "Failed to fetch old committee's KeyServer for rotation: {}",
+                                e
+                            ));
+                        }
+                    }
+                } else {
+                    // Fresh DKG: version is 0.
+                    println!("Fresh DKG, version will be: 0");
+                    0
+                }
+            };
+
             println!("============KEY SERVER PK AND PARTIAL PKS=====================");
             println!("KEY_SERVER_PK={}", format_pk_hex(&output.vss_pk.c0())?);
 
@@ -532,14 +581,141 @@ async fn main() -> Result<()> {
             println!("============YOUR PARTIAL KEY SHARE, KEEP SECRET=====================");
             if let Some(shares) = &output.shares {
                 for share in shares {
-                    println!("MASTER_SHARE={}", format_pk_hex(&share.value)?);
+                    println!("MASTER_SHARE_V{}={}", version, format_pk_hex(&share.value)?);
                 }
             }
+
+            println!("============COMMITTEE VERSION=====================");
+            println!("COMMITTEE_VERSION={version}");
 
             println!("============FULL VSS POLYNOMIAL COEFFICIENTS=====================");
             for i in 0..=output.vss_pk.degree() {
                 let coeff = output.vss_pk.coefficient(i);
                 println!("Coefficient {}: {}", i, format_pk_hex(coeff)?);
+            }
+        }
+
+        Commands::CheckCommittee {
+            committee_id,
+            network,
+        } => {
+            // Fetch committee from onchain
+            let mut grpc_client = create_grpc_client(&network)?;
+            let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
+
+            println!("Committee ID: {committee_id}");
+            println!("Total members: {}", committee.members.len());
+            println!("Threshold: {}", committee.threshold);
+            println!("State: {:?}", committee.state);
+
+            // Check which members are registered and approved based on state
+            match &committee.state {
+                CommitteeState::Init { members_info } => {
+                    let registered_addrs: HashSet<_> = members_info
+                        .0
+                        .contents
+                        .iter()
+                        .map(|entry| entry.key)
+                        .collect();
+
+                    let mut registered = Vec::new();
+                    let mut not_registered = Vec::new();
+
+                    for member_addr in &committee.members {
+                        if registered_addrs.contains(member_addr) {
+                            registered.push(*member_addr);
+                        } else {
+                            not_registered.push(*member_addr);
+                        }
+                    }
+
+                    println!(
+                        "\nRegistered members ({}/{}):",
+                        registered.len(),
+                        committee.members.len()
+                    );
+                    for addr in &registered {
+                        println!("  ✓ {addr}");
+                    }
+
+                    if !not_registered.is_empty() {
+                        println!();
+                        println!("⚠ Missing members ({}):", not_registered.len());
+                        for addr in &not_registered {
+                            println!("  ✗ {addr}");
+                        }
+                        println!(
+                            "\nWaiting for {} member(s) to register before proceeding to phase 2.",
+                            not_registered.len()
+                        );
+                    } else {
+                        println!();
+                        println!("✓ All members registered! Good to proceed to phase 2.");
+                    }
+                }
+                CommitteeState::PostDKG { approvals, .. } => {
+                    let approved_addrs: HashSet<_> = approvals.contents.iter().cloned().collect();
+
+                    // Show approval status
+                    let mut approved = Vec::new();
+                    let mut not_approved = Vec::new();
+
+                    for member_addr in &committee.members {
+                        if approved_addrs.contains(member_addr) {
+                            approved.push(*member_addr);
+                        } else {
+                            not_approved.push(*member_addr);
+                        }
+                    }
+
+                    println!(
+                        "\nApproved members ({}/{}):",
+                        approved.len(),
+                        committee.members.len()
+                    );
+                    for addr in &approved {
+                        println!("  ✓ {addr}");
+                    }
+
+                    if !not_approved.is_empty() {
+                        println!();
+                        println!("⚠ Members who haven't approved ({}):", not_approved.len());
+                        for addr in &not_approved {
+                            println!("  ✗ {addr}");
+                        }
+                        println!(
+                            "\nWaiting for {} member(s) to approve before finalizing.",
+                            not_approved.len()
+                        );
+                    } else {
+                        println!();
+                        println!("✓ All members approved! Committee can be finalized.");
+                    }
+                }
+                CommitteeState::Finalized => {
+                    println!("\n✓ Committee is finalized!");
+
+                    // Fetch key server object ID and version
+                    println!("\nFetching key server object ID...");
+                    match fetch_key_server_by_committee(&mut grpc_client, &committee_id).await {
+                        Ok((ks_obj_id, key_server)) => {
+                            println!("KEY_SERVER_OBJ_ID: {ks_obj_id}");
+
+                            // Extract and print committee version
+                            match key_server.server_type {
+                                ServerType::Committee { version, .. } => {
+                                    println!("COMMITTEE_VERSION: {version}");
+                                }
+                                _ => {
+                                    println!("Warning: KeyServer is not of type Committee");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Warning: Could not fetch key server object: {e}");
+                        }
+                    }
+                }
             }
         }
     }
