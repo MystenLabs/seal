@@ -1,0 +1,38 @@
+# Start with a Rust base image
+FROM rust:1.88-bullseye AS builder
+
+ARG PROFILE=release
+
+WORKDIR work
+
+COPY ./crates ./crates
+COPY ./Cargo.toml ./
+
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
+
+RUN cargo build --bin aggregator-server --profile $PROFILE --config net.git-fetch-with-cli=true
+
+FROM debian:bullseye-slim AS runtime
+
+EXPOSE 2024
+
+RUN apt-get update && apt-get install -y ca-certificates
+
+COPY --from=builder /work/target/release/aggregator-server /opt/aggregator-server/bin/
+COPY ./crates/aggregator-server/aggregator-config.yaml /opt/aggregator-server/config/
+
+# Set default CONFIG_PATH
+ENV CONFIG_PATH=/opt/aggregator-server/config/aggregator-config.yaml
+
+# Handle all environment variables
+RUN echo '#!/bin/bash\n\
+# Export all environment variables\n\
+for var in $(env | cut -d= -f1); do\n\
+    export "$var"\n\
+done\n\
+\n\
+exec /opt/aggregator-server/bin/aggregator-server "$@"' > /opt/aggregator-server/entrypoint.sh && \
+    chmod +x /opt/aggregator-server/entrypoint.sh
+
+ENTRYPOINT ["/opt/aggregator-server/entrypoint.sh"]

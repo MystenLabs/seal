@@ -26,6 +26,15 @@ sui-rpc = "0.1.0"
 tonic = "0.14"
 semver = { version = "1.0.26", features = ["serde"] }
 
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6.6", features = ["cors", "limit"] }
+tokio = { version = "1.46.1", features = ["full"] }
+futures = "0.3"
+reqwest = "0.12"
+tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
+serde_yaml = "0.9"
+
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
 mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "22642cf" }
