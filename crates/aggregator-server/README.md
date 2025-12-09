@@ -32,7 +32,7 @@ $ CONFIG_PATH=crates/aggregator-server/aggregator-config.yaml cargo run --bin ag
 ```
 
 
-## Docker
+### Running with Docker
 
 1. Build the image:
 
