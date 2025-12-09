@@ -4,6 +4,7 @@
 //! Implementation of a the Boneh-Franklin Identity-based encryption scheme from https://eprint.iacr.org/2001/090 over the BLS12-381 curve construction.
 //! It enables a symmetric key to be derived from the identity + the public key of a user and used to encrypt a fixed size message of length [KEY_LENGTH].
 
+use crate::elgamal::{Encryption, VerificationKey};
 use crate::utils::{generate_random_bytes, xor};
 use crate::{DST_ID, DST_KDF, DST_POP, KEY_SIZE};
 use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
@@ -76,6 +77,25 @@ pub fn verify_user_secret_key(
     public_key: &PublicKey,
 ) -> FastCryptoResult<()> {
     if user_secret_key.pairing(&G2Element::generator()) == hash_to_g1(id).pairing(public_key) {
+        Ok(())
+    } else {
+        Err(InvalidInput)
+    }
+}
+
+/// Verify an encrypted signature share from a committee member.
+/// Checks: e(encsig_2, g2) = e(encsig_1, ephpk_2) * e(H(ID), pk_i)
+pub fn verify_encrypted_signature(
+    encrypted_sig: &Encryption<G1Element>,
+    ephemeral_vk: &VerificationKey<G2Element>,
+    partial_pk: &G2Element,
+    id: &[u8],
+) -> FastCryptoResult<()> {
+    let lhs = encrypted_sig.1.pairing(&G2Element::generator());
+    let rhs =
+        encrypted_sig.0.pairing(ephemeral_vk.as_element()) + hash_to_g1(id).pairing(partial_pk);
+
+    if lhs == rhs {
         Ok(())
     } else {
         Err(InvalidInput)
@@ -203,6 +223,8 @@ pub fn create_proof_of_possession(master_key: &MasterKey, message: &[u8]) -> Pro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::elgamal;
+    use rand::thread_rng;
 
     #[test]
     fn test_kdf_regression() {
@@ -236,5 +258,24 @@ mod tests {
             expected_master_key,
             derive_master_key(&seed, derivation_index)
         );
+    }
+
+    #[test]
+    fn test_encrypted_signature_verification() {
+        let master_share = MasterKey::rand(&mut thread_rng());
+        let partial_pk = public_key_from_master_key(&master_share);
+
+        let (_eg_sk, eg_pk, eg_vk) = elgamal::genkey::<G1Element, G2Element, _>(&mut thread_rng());
+
+        let id = b"test_id";
+        let usk = extract(&master_share, id);
+
+        // Encrypt the user secret key.
+        let encrypted_key = elgamal::encrypt(&mut thread_rng(), &usk, &eg_pk);
+
+        // Verify the encrypted signature ok.
+        let result = verify_encrypted_signature(&encrypted_key, &eg_vk, &partial_pk, id);
+
+        assert!(result.is_ok());
     }
 }
