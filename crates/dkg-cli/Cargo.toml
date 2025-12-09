@@ -19,7 +19,7 @@ tracing.workspace = true
 sui_types.workspace = true
 sui-sdk-types.workspace = true
 seal-committee = { path = "../seal-committee" }
-tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
 
 [[bin]]
 name = "dkg-cli"

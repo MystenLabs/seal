@@ -18,21 +18,21 @@ itertools = { version = "0.14.0" }
 anyhow = "1.0"
 rand = "0.8.5"
 hex = "0.4"
-clap = { version = "4.5.40", features = ["derive"] }
-tracing = "0.1.37"
-serde_with = "3.13.0"
+clap = { version = "4.5.53", features = ["derive"] }
+tracing = "0.1.43"
+serde_with = "3.16.1"
 prost-types = "0.14"
 sui-rpc = "0.1.0"
 tonic = "0.14"
-semver = { version = "1.0.26", features = ["serde"] }
+semver = { version = "1.0.27", features = ["serde"] }
 
 axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6.6", features = ["cors", "limit"] }
-tokio = { version = "1.46.1", features = ["full"] }
+tower-http = { version = "0.6.8", features = ["cors", "limit"] }
+tokio = { version = "1.48.0", features = ["full"] }
 futures = "0.3"
 reqwest = "0.12"
-tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
+tracing-subscriber = {version = "0.3.22", features = ["env-filter"]}
 serde_yaml = "0.9"
 
 # Sui dependencies
