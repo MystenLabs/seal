@@ -14,7 +14,7 @@ Coordinator usage:
 Member usage:
     python dkg-scripts.py genkey-and-register -c dkg.yaml -k ./dkg-state/dkg.key
     python dkg-scripts.py init-state -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state
-    python dkg-scripts.py create-message -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state --old-share <hex>
+    python dkg-scripts.py create-message -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state [--old-share <hex>]
     python dkg-scripts.py process-all-and-propose -c dkg.yaml -m ./dkg-messages
 """
 
@@ -786,10 +786,10 @@ def main():
         help="State directory (default: ./dkg-state)",
     )
 
-    # create-message command (member) - for rotation with old-share
+    # create-message command (member) - for both fresh DKG and rotation
     create_msg_parser = subparsers.add_parser(
         "create-message",
-        help="[Member] Create DKG message for key rotation (continuing members with old share)",
+        help="[Member] Create DKG message (fresh DKG or rotation with --old-share)",
     )
     create_msg_parser.add_argument(
         "--config",
@@ -811,8 +811,9 @@ def main():
     )
     create_msg_parser.add_argument(
         "--old-share",
-        required=True,
-        help="Old master share for rotation (continuing members only)",
+        required=False,
+        default=None,
+        help="Old master share for rotation (continuing members only). Omit for fresh DKG.",
     )
 
     # process-all-and-propose command (coordinator)
