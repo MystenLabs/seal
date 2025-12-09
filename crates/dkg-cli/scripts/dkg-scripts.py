@@ -13,7 +13,8 @@ Coordinator usage:
 
 Member usage:
     python dkg-scripts.py genkey-and-register -c dkg.yaml -k ./dkg-state/dkg.key
-    python dkg-scripts.py create-message -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state
+    python dkg-scripts.py init-state -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state
+    python dkg-scripts.py create-message -c dkg.yaml -k ./dkg-state/dkg.key -s ./dkg-state --old-share <hex>
     python dkg-scripts.py process-all-and-propose -c dkg.yaml -m ./dkg-messages
 """
 
@@ -761,10 +762,34 @@ def main():
         help="Path to write keys file (default: ./dkg-state/dkg.key)",
     )
 
-    # create-message command (member)
+    # init-state command (member) - alias for create-message without old-share
+    init_state_parser = subparsers.add_parser(
+        "init-state",
+        help="[Member] Initialize DKG state and create message (for fresh DKG or new members in rotation)",
+    )
+    init_state_parser.add_argument(
+        "--config",
+        "-c",
+        default="dkg.yaml",
+        help="Path to configuration file (default: dkg.yaml)",
+    )
+    init_state_parser.add_argument(
+        "--keys-file",
+        "-k",
+        default="./dkg-state/dkg.key",
+        help="Path to keys file (default: ./dkg-state/dkg.key)",
+    )
+    init_state_parser.add_argument(
+        "--state-dir",
+        "-s",
+        default="./dkg-state",
+        help="State directory (default: ./dkg-state)",
+    )
+
+    # create-message command (member) - for rotation with old-share
     create_msg_parser = subparsers.add_parser(
         "create-message",
-        help="[Member] Create DKG message for phase 2",
+        help="[Member] Create DKG message for key rotation (continuing members with old share)",
     )
     create_msg_parser.add_argument(
         "--config",
@@ -786,7 +811,7 @@ def main():
     )
     create_msg_parser.add_argument(
         "--old-share",
-        default=None,
+        required=True,
         help="Old master share for rotation (continuing members only)",
     )
 
@@ -830,6 +855,9 @@ def main():
         check_committee(args.config)
     elif args.command == "genkey-and-register":
         genkey_and_register(args.config, args.keys_file)
+    elif args.command == "init-state":
+        # init-state is just create-message with no old share
+        create_message(args.config, args.keys_file, args.state_dir, old_share=None)
     elif args.command == "create-message":
         create_message(args.config, args.keys_file, args.state_dir, args.old_share)
     elif args.command == "process-all-and-propose":

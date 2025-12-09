@@ -209,7 +209,7 @@ Share the output `message_P.json` file with the coordinator.
 **For new members**: Just run the command without old share. 
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py create-message \
+python crates/dkg-cli/scripts/dkg-scripts.py init-state \
     -c crates/dkg-cli/scripts/dkg-rotation.yaml
 
 # No message file is created for new members.
@@ -265,8 +265,6 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1_OUTPUT_FROM_STEP_5> \
   cargo run --bin key-server
 ```
-
-Store your old master share securely. It is needed for future rotation. 
 
 b. For new members, since `X+1` is the first known key, so just need to start the server with it: 
 
