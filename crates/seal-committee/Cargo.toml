@@ -8,13 +8,14 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 bcs.workspace = true
-fastcrypto = { workspace = true }
-fastcrypto-tbls = { workspace = true }
+fastcrypto.workspace = true
+fastcrypto-tbls.workspace = true
 prost-types.workspace = true
 serde.workspace = true
-sui-rpc = { workspace = true }
+
+sui-rpc.workspace = true
 sui-sdk-types.workspace = true
 sui_types.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1.46.1", features = ["rt-multi-thread"] }
+tokio.workspace = true
