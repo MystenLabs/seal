@@ -305,7 +305,7 @@ async fn main() -> Result<()> {
 
                 // Write message to file.
                 let message_base64 = Base64::encode(bcs::to_bytes(&signed_message)?);
-                let message_file = PathBuf::from(format!("message_{my_party_id}.json"));
+                let message_file = state_dir.join(format!("message_{my_party_id}.json"));
 
                 let message_json = serde_json::json!({
                     "message": message_base64
