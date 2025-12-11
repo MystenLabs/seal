@@ -23,6 +23,20 @@ pub struct KeyServerV2 {
     pub server_type: ServerType,
 }
 
+impl KeyServerV2 {
+    /// Extract committee info from KeyServerV2. Returns error if ServerType is Independent.
+    pub fn extract_committee_info(self) -> Result<(u32, u16, VecMap<Address, PartialKeyServer>)> {
+        match self.server_type {
+            ServerType::Committee {
+                version,
+                threshold,
+                partial_key_servers,
+            } => Ok((version, threshold, partial_key_servers)),
+            ServerType::Independent { .. } => Err(anyhow!("Invalid independent key server type")),
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct KeyServer {
     pub id: Address,
