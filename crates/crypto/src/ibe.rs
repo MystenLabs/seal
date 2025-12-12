@@ -91,7 +91,7 @@ pub fn verify_encrypted_signature(
     partial_pk: &G2Element,
     id: &[u8],
 ) -> FastCryptoResult<()> {
-    // Validate no identity elements (security-critical).
+    // Validate no identity elements.
     if encrypted_sig.0 == G1Element::zero()
         || encrypted_sig.1 == G1Element::zero()
         || *ephemeral_vk.as_element() == G2Element::zero()

@@ -6,8 +6,8 @@ use fastcrypto::groups::{GroupElement, Scalar};
 use fastcrypto::traits::AllowedRng;
 use fastcrypto_tbls::polynomial::Poly;
 use fastcrypto_tbls::types::IndexedValue;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::num::NonZeroU16;
 
 #[derive(Serialize, Deserialize)]
@@ -55,7 +55,7 @@ pub fn decrypt<G: GroupElement>(sk: &SecretKey<G>, e: &Encryption<G>) -> G {
 /// Homomorphically aggregate ElGamal encryptions using Lagrange interpolation.
 pub fn aggregate_encrypted<G: GroupElement>(
     threshold: u16,
-    encrypted_shares: Vec<(u16, Encryption<G>)>,
+    encrypted_shares: &[(u16, Encryption<G>)],
 ) -> FastCryptoResult<Encryption<G>> {
     // Validate threshold and shares count.
     if threshold == 0
@@ -65,33 +65,30 @@ pub fn aggregate_encrypted<G: GroupElement>(
         return Err(FastCryptoError::InvalidInput);
     }
 
-    // Validate party ID < u16::MAX and check for duplicates.
-    if encrypted_shares.iter().any(|(id, _)| *id == u16::MAX) {
-        return Err(FastCryptoError::InvalidInput);
-    }
-    if encrypted_shares.iter().map(|(id, _)| id).unique().count() != encrypted_shares.len() {
-        return Err(FastCryptoError::InvalidInput);
-    }
+    let mut seen_ids = HashSet::new();
+    let mut c1_shares = Vec::with_capacity(encrypted_shares.len());
+    let mut c2_shares = Vec::with_capacity(encrypted_shares.len());
 
-    // Party ID to IndexedValue and interpolate at x=0.
-    let c1_shares = encrypted_shares.iter().map(|(id, enc)| {
-        let index = NonZeroU16::new(id + 1).expect("id < u16::MAX checked above");
-        IndexedValue {
+    for (id, enc) in encrypted_shares.iter() {
+        // Validate party ID < u16::MAX and check for duplicates.
+        if *id == u16::MAX || !seen_ids.insert(id) {
+            return Err(FastCryptoError::InvalidInput);
+        }
+
+        // Convert to IndexedValue.
+        let index = NonZeroU16::new(id + 1).expect("Checked above");
+        c1_shares.push(IndexedValue {
             index,
             value: enc.0,
-        }
-    });
-
-    let c2_shares = encrypted_shares.iter().map(|(id, enc)| {
-        let index = NonZeroU16::new(id + 1).expect("id < u16::MAX checked above");
-        IndexedValue {
+        });
+        c2_shares.push(IndexedValue {
             index,
             value: enc.1,
-        }
-    });
+        });
+    }
 
-    let result_c1 = Poly::<G>::recover_c0(threshold, c1_shares)?;
-    let result_c2 = Poly::<G>::recover_c0(threshold, c2_shares)?;
+    let result_c1 = Poly::<G>::recover_c0(threshold, c1_shares.into_iter())?;
+    let result_c2 = Poly::<G>::recover_c0(threshold, c2_shares.into_iter())?;
 
     Ok(Encryption(result_c1, result_c2))
 }
@@ -135,7 +132,7 @@ mod tests {
 
         // Aggregate using any 9 of the 10 shares.
         let selected_shares: Vec<_> = shares.iter().take(9).cloned().collect();
-        let aggregated = aggregate_encrypted(threshold, selected_shares).unwrap();
+        let aggregated = aggregate_encrypted(threshold, &selected_shares).unwrap();
 
         // Decrypt it and verifies it equals to secret.
         let decrypted = decrypt(&eg_sk, &aggregated);
@@ -143,7 +140,7 @@ mod tests {
 
         // Insufficient shares should fail.
         let insufficient_shares: Vec<_> = shares.iter().take(8).cloned().collect();
-        let result = aggregate_encrypted(threshold, insufficient_shares);
+        let result = aggregate_encrypted(threshold, &insufficient_shares);
         assert!(result.is_err());
     }
 }
