@@ -4457,6 +4457,7 @@ dependencies = [
 name = "key-server"
 version = "0.5.14"
 dependencies = [
+ "aggregator-server",
  "anyhow",
  "axum 0.8.7",
  "bcs",

@@ -13,7 +13,7 @@ pub type ElgamalVerificationKey = elgamal::VerificationKey<ibe::PublicKey>;
 pub type KeyId = Vec<u8>;
 
 pub type ElGamalSecretKey = crypto::elgamal::SecretKey<fastcrypto::groups::bls12381::G1Element>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DecryptionKey {
     pub id: KeyId,
     pub encrypted_key: ElgamalEncryption,
@@ -35,7 +35,7 @@ pub struct Certificate {
     pub mvr_name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FetchKeyRequest {
     pub ptb: String,
     pub enc_key: ElGamalPublicKey,
