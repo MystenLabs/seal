@@ -55,7 +55,7 @@ pub fn decrypt<G: GroupElement>(sk: &SecretKey<G>, e: &Encryption<G>) -> G {
 /// Homomorphically aggregate ElGamal encryptions using Lagrange interpolation.
 pub fn aggregate_encrypted<G: GroupElement>(
     threshold: u16,
-    encrypted_shares: &[(u16, Encryption<G>)],
+    encrypted_shares: &[(u16, Encryption<G>)], // (party_id, encryption)
 ) -> FastCryptoResult<Encryption<G>> {
     // Validate threshold and shares count.
     if threshold == 0
