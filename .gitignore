@@ -74,7 +74,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # misc
-*.key
 .env
 checkpoints_dir/*
 light_client.yaml
@@ -84,4 +83,3 @@ docs/content/references/framework/**
 lcov.info
 
 **/build/**
-/dkg-state/
