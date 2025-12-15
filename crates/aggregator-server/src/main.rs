@@ -55,7 +55,6 @@ struct AppState {
     grpc_client: SuiGrpcClient,
     threshold: u16,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
-    committee_version: Arc<RwLock<u32>>,
     // TODO: API storage and rotation.
 }
 
@@ -97,11 +96,11 @@ async fn main() -> Result<()> {
 
     let state = load_committee_state(&config.key_server_object_id, config.network).await?;
 
-    // Spawn background task to watch onchain for committee version updates.
+    // Spawn background task to monitor committee member updates.
     {
         let state_clone = state.clone();
         tokio::spawn(async move {
-            watch_committee_version(state_clone).await;
+            monitor_members_update(state_clone).await;
         });
     }
 
@@ -174,48 +173,39 @@ async fn load_committee_state(key_server_obj_id: &Address, network: Network) -> 
     let mut grpc_client = create_grpc_client(&network)?;
     let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, key_server_obj_id).await?;
 
-    let (version, threshold, members) = key_server_v2.extract_committee_info()?;
+    let (threshold, members) = key_server_v2.extract_committee_info()?;
 
     Ok(AppState {
         key_server_object_id: *key_server_obj_id,
         network,
         grpc_client,
         committee_members: Arc::new(RwLock::new(members)),
-        committee_version: Arc::new(RwLock::new(version)),
         threshold,
     })
 }
 
-/// Background task that watches for committee version updates onchain.
-/// Polls every 30 seconds and refreshes committee members if version changes.
-async fn watch_committee_version(mut state: AppState) {
+/// Background task that periodically refreshes committee members from onchain.
+/// Polls every 30 seconds and updates the committee members.
+async fn monitor_members_update(mut state: AppState) {
     let mut ticker = interval(Duration::from_secs(REFRESH_INTERVAL_SECS));
 
     loop {
         ticker.tick().await;
 
-        // Fetch the current version from onchain.
-        let (onchain_version, _, updated_members) =
+        // Fetch the current state from onchain.
+        let (_, members) =
             match fetch_key_server_by_id(&mut state.grpc_client, &state.key_server_object_id)
                 .await
                 .and_then(|ks| ks.extract_committee_info())
             {
                 Ok(info) => info,
                 Err(e) => {
-                    warn!("Failed to fetch/parse KeyServer for version check: {}", e);
+                    warn!("Failed to fetch/parse KeyServer: {}", e);
                     continue;
                 }
             };
 
-        // If version changed, update state.
-        let current_version = *state.committee_version.read().await;
-        if onchain_version != current_version {
-            info!(
-                "Committee version changed from {} to {}, updating members",
-                current_version, onchain_version
-            );
-            *state.committee_version.write().await = onchain_version;
-            *state.committee_members.write().await = updated_members;
-        }
+        // Always update committee members.
+        *state.committee_members.write().await = members;
     }
 }
