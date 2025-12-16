@@ -16,22 +16,30 @@ use axum::{
     Json, Router,
 };
 use mysten_service::{get_mysten_service, package_name, package_version};
-use seal_committee::{grpc_helper::create_grpc_client, move_types::PartialKeyServer, Network};
+use seal_committee::{
+    fetch_key_server_by_id,
+    grpc_helper::create_grpc_client,
+    move_types::{PartialKeyServer, VecMap},
+    Network,
+};
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use serde::Deserialize;
 use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
+use tokio::sync::RwLock;
+use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
-
+use tracing::{info, warn};
 /// Minimum required version for committee members' responses (matches typescript).
 const MIN_SERVER_VERSION: &str = ">=0.4.1";
 
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 
+/// Interval (in seconds) to refresh committee version from onchain.
+const REFRESH_INTERVAL_SECS: u64 = 30;
 /// Configuration for aggregator server.
 #[derive(Deserialize)]
 struct Config {
@@ -46,7 +54,7 @@ struct AppState {
     network: Network,
     grpc_client: SuiGrpcClient,
     threshold: u16,
-    committee_members: Arc<Vec<PartialKeyServer>>,
+    committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
     // TODO: API storage and rotation.
 }
 
@@ -86,20 +94,19 @@ async fn main() -> Result<()> {
         config.key_server_object_id, config.network
     );
 
-    let state = AppState {
-        key_server_object_id: config.key_server_object_id,
-        network: config.network,
-        grpc_client,
-        threshold: 0,                        // TODO: Load from onchain
-        committee_members: Arc::new(vec![]), // TODO: Load from onchain
-    };
+    let state = load_committee_state(&config.key_server_object_id, config.network).await?;
 
-    // TODO: Spawn background task to watch onchain for committee version updates:
-    // 1. Every 30s, fetch KeyServerV2.version from onchain
-    // 2. If version changes, refresh committee_members in AppState
+    // Spawn background task to monitor committee member updates.
+    {
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            monitor_members_update(state_clone).await;
+        });
+    }
+
     info!(
         "Loaded committee with {} members, threshold {}",
-        state.committee_members.len(),
+        state.committee_members.read().await.0.contents.len(),
         state.threshold
     );
 
@@ -163,10 +170,42 @@ async fn fetch_from_member(
 
 /// Load committee state from onchain KeyServerV2 object.
 async fn load_committee_state(key_server_obj_id: &Address, network: Network) -> Result<AppState> {
-    // TODO:
-    // 1. Fetch KeyServerV2 object from chain.
-    // 2. Parse committee members and threshold.
-    // 3. Return AppState with loaded data.
+    let mut grpc_client = create_grpc_client(&network)?;
+    let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, key_server_obj_id).await?;
 
-    unimplemented!("not implemented yet")
+    let (threshold, members) = key_server_v2.extract_committee_info()?;
+
+    Ok(AppState {
+        key_server_object_id: *key_server_obj_id,
+        network,
+        grpc_client,
+        committee_members: Arc::new(RwLock::new(members)),
+        threshold,
+    })
+}
+
+/// Background task that periodically refreshes committee members from onchain.
+/// Polls every 30 seconds and updates the committee members.
+async fn monitor_members_update(mut state: AppState) {
+    let mut ticker = interval(Duration::from_secs(REFRESH_INTERVAL_SECS));
+
+    loop {
+        ticker.tick().await;
+
+        // Fetch the current state from onchain.
+        let (_, members) =
+            match fetch_key_server_by_id(&mut state.grpc_client, &state.key_server_object_id)
+                .await
+                .and_then(|ks| ks.extract_committee_info())
+            {
+                Ok(info) => info,
+                Err(e) => {
+                    warn!("Failed to fetch/parse KeyServer: {}", e);
+                    continue;
+                }
+            };
+
+        // Always update committee members.
+        *state.committee_members.write().await = members;
+    }
 }
