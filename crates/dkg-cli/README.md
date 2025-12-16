@@ -39,14 +39,14 @@ pip install -r crates/dkg-cli/scripts/requirements.txt
 
 #### Coordinator Runbook
 
-1. Make directory`dkg-state` and copy `crates/dkg-cli/scripts/dkg.example.yaml` to `dkg-state/dkg.yaml`:
+1. Create a clean directory called `dkg-state` and copy `crates/dkg-cli/scripts/dkg.example.yaml` to `dkg-state/dkg.yaml`:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-Gather all members' addresses. Edit the following fields:
+Gather all members' addresses. Open `dkg-state/dkg.yaml` and edit the following fields:
 
 ```yaml
 NETWORK: Testnet # Expected network
@@ -105,18 +105,23 @@ This will show which members had proposed and which are still missing. If all me
 
 1. Share with the coordinator your address (`MY_ADDRESS`). This is the wallet used for the rest of the onchain commands. Make sure you are on the right network with wallet with enough gas.
 
-2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Verify its parameters (members addresses and threshold) on Sui Explorer. Add your member specific fields to `dkg.yaml`:
+2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Download the `dkg.yaml`, create an empty `dkg-state` directory and move `dkg.yaml` there.
+
+```bash
+rm -rf dkg-state & mkdir dkg-state
+mv path/to/dkg.yaml dkg-state/
+```
+
+Open `dkg.yaml`, verify parameters (members addresses, threshold, committee ID) on Sui Explorer. Then add your member specific fields to it:
 
 ```yaml
 MY_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
 MY_SERVER_URL: https://myserver.example.com
 ```
 
-Download the `dkg.yaml` and run the following to generate keys locally and register onchain.
+Then run the following to generate keys locally and register onchain.
 
 ```bash
-rm -rf dkg-state & mkdir dkg-state
-mv path/to/dkg.yaml dkg-state/
 python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
 ```
 
@@ -133,16 +138,18 @@ python crates/dkg-cli/scripts/dkg-scripts.py create-message -c dkg-state/dkg.yam
 
 Share the file `message_P.json` with the coordinator.
 
-4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Run the following:
+4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Move it to the `dkg-state` directory and run the command to process them. 
 
 ```bash
+mv path/to/dkg-messages dkg-state/
+
 python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
     -c dkg-state/dkg.yaml \
-    -m path/to/dkg-messages
+    -m dkg-state/dkg-messages
 ```
 
 This script:
-- Processes all messages from `path/to/dkg-messages` directory.
+- Processes all messages from the directory.
 - Appends to `dkg.yaml`: `KEY_SERVER_PK` (new key server public key), `PARTIAL_PKS_V0` (partial public keys for all members), and `MASTER_SHARE_V0` (This is used at next step to start your server with).
 - Proposes the committee onchain by calling the `propose` function.
 
@@ -176,14 +183,14 @@ Assuming the key server committee mode version onchain is currently at `X`. It i
 
 The process follows the same three phases as fresh DKG, with the following differences:
 
-1. Make `dkg-directory` and copy `crates/dkg-cli/scripts/dkg-rotation.example.yaml` to `dkg-state/dkg.yaml`:
+1. Create a clean directory called `dkg-state` and copy `crates/dkg-cli/scripts/dkg-rotation.example.yaml` to `dkg-state/dkg.yaml`:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
-Gather all members' addresses. Edit the following fields. `KEY_SERVER_OBJ_ID` that can be found in any continuing members' key server's config file. 
+Gather all members' addresses. Open `dkg-state/dkg.yaml` and edit the following fields. `KEY_SERVER_OBJ_ID` can be found in any continuing members' key server's config file. 
 
 ```yaml
 NETWORK: Testnet
@@ -215,18 +222,23 @@ Share the updated `dkg.yaml` with all members.
 
 1. Share with the coordinator your address (`MY_ADDRESS`). This is the wallet used for the rest of the onchain commands. Make sure you are on the right network with wallet with enough gas.
 
-2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID` and `COMMITTEE_ID`. Verify its parameters (member addresses, threshold, the current committee ID) on Sui Explorer. Add your member specific fields to `dkg.yaml`:
+2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID` and `COMMITTEE_ID`. Download the `dkg.yaml`, create an empty `dkg-state` directory and move `dkg.yaml` there.
+
+```bash
+rm -rf dkg-state & mkdir dkg-state
+mv path/to/dkg.yaml dkg-state/
+```
+
+Open `dkg.yaml`, verify parameters (members addresses, threshold, current committee ID) on Sui Explorer. Then add your member specific fields to it:
 
 ```yaml
 MY_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
 MY_SERVER_URL: https://myserver.example.com
 ```
 
-Download the `dkg.yaml` and run the following to generate keys locally and register onchain.
+Then run the following to generate keys locally and register onchain.
 
 ```bash
-mkdir dkg-state/
-mv path/to/dkg.yaml dkg-state/
 python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
 ```
 
@@ -253,16 +265,18 @@ Share the file `message_P.json` with the coordinator.
 python crates/dkg-cli/scripts/dkg-scripts.py init-state -c dkg-state/dkg.yaml
 ```
 
-4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Run the following:
+4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Move it to the `dkg-state` directory and run the command to process them. 
 
 ```bash
+mv path/to/dkg-messages dkg-state/
+
 python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
     -c dkg-state/dkg.yaml \
-    -m path/to/dkg-messages
+    -m dkg-state/dkg-messages
 ```
 
 This script:
-- Processes all messages from `path/to/dkg-messages` directory.
+- Processes all messages from the directory.
 - Appends to your config: `PARTIAL_PKS_VX+1` (new partial public keys for all members) and `MASTER_SHARE_VX+1` (This is used at next step to start your server with).
 - Proposes the rotation onchain by calling the `propose_for_rotation` function.
 
