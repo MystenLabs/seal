@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Aggregator server for Seal committee mode. It fetches encrypted partial keys from committee
-//! servers, verifies and aggregates them into a single response.
+//! servers, verifies and aggregates them into a single response and propagates the majority error
+//! if threshold is not achieved.
+
+mod errors;
 
 use aggregator_server::{aggregate_verified_encrypted_responses, verify_decryption_keys};
 use anyhow::{Context, Result};
@@ -13,17 +16,19 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use errors::InternalError;
 use futures::stream::{FuturesUnordered, StreamExt};
 use mysten_service::{get_mysten_service, package_name, package_version};
 use seal_committee::{
     fetch_key_server_by_id,
     grpc_helper::create_grpc_client,
     move_types::{PartialKeyServer, VecMap},
-    Network,
+    ErrorResponse, Network,
 };
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::Version;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
@@ -38,6 +43,7 @@ const DEFAULT_PORT: u16 = 2024;
 
 /// Interval (in seconds) to refresh committee version from onchain.
 const REFRESH_INTERVAL_SECS: u64 = 30;
+
 /// Configuration for aggregator server.
 #[derive(Deserialize)]
 struct Config {
@@ -53,21 +59,6 @@ struct AppState {
     threshold: u16,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
     // TODO: API storage and rotation.
-}
-
-/// Custom error type for aggregator responses.
-struct AggregatorError {
-    status: StatusCode,
-    message: String,
-    headers: HeaderMap,
-}
-
-impl IntoResponse for AggregatorError {
-    fn into_response(self) -> Response {
-        let mut response = (self.status, self.message).into_response();
-        *response.headers_mut() = self.headers;
-        response
-    }
 }
 
 #[tokio::main]
@@ -133,13 +124,14 @@ async fn handle_get_service() -> Response {
     (StatusCode::FORBIDDEN, "Unsupported").into_response()
 }
 
-/// Handle fetch_key request by fanning out to committee members and aggregating responses.
+/// Handle fetch_key request by fanning out to committee members and returns the aggregated
+/// responses if threshold is achieved. Otherwise, propagates the majority error from key servers.
 async fn handle_fetch_key(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<FetchKeyRequest>,
-) -> Result<(HeaderMap, Json<FetchKeyResponse>), AggregatorError> {
-    // Extract client SDK headers to forward to committee members
+) -> Result<(HeaderMap, Json<FetchKeyResponse>), ErrorResponse> {
+    // Extract client SDK headers to forward to committee members.
     let client_sdk_type = headers
         .get("Client-Sdk-Type")
         .and_then(|v| v.to_str().ok())
@@ -175,12 +167,11 @@ async fn handle_fetch_key(
                         Ok((partial_key_server.party_id, response, server_version))
                     }
                     Err(e) => {
-                        let error_msg = format!(
-                            "party_id={}, url={}: {}",
+                        warn!(
+                            "Failed to fetch from party_id={}, url={}: {:?}",
                             partial_key_server.party_id, partial_key_server.url, e
                         );
-                        warn!("Failed to fetch from {}", error_msg);
-                        Err(error_msg)
+                        Err(e)
                     }
                 }
             }
@@ -208,25 +199,37 @@ async fn handle_fetch_key(
 
     info!("Collected {} responses", responses.len());
 
-    // If not enough responses, return error with details about failures.
+    // If not enough responses, return majority error from key servers.
     if responses.len() < state.threshold as usize {
-        let mut msg = format!(
-            "Insufficient responses: got {}, need {}",
+        error!(
+            "Insufficient responses: got {}, need {}. Errors: {:?}",
             responses.len(),
-            state.threshold
+            state.threshold,
+            errors
         );
+
+        // Find majority error by error type.
         if !errors.is_empty() {
-            msg.push_str(&format!(". Failed member servers ({}):", errors.len()));
-            for error in &errors {
-                msg.push_str(&format!(" [{error}]"));
+            let mut error_counts = HashMap::new();
+            for err in errors {
+                error_counts
+                    .entry(err.error.clone())
+                    .and_modify(|(count, _)| *count += 1)
+                    .or_insert((1, err));
+            }
+
+            if let Some((_, (_, majority_error))) =
+                error_counts.iter().max_by_key(|(_, (count, _))| count)
+            {
+                return Err(majority_error.clone());
             }
         }
-        error!("{}", msg);
-        return Err(AggregatorError {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            message: msg,
-            headers: HeaderMap::new(),
-        });
+
+        // If errors is empty but still insufficient responses, return generic error.
+        return Err(ErrorResponse::from(InternalError::InsufficientResponses(
+            responses.len(),
+            state.threshold as usize,
+        )));
     }
 
     // Get the oldest version for all committee servers' responses and use it for the aggregator
@@ -246,13 +249,10 @@ async fn handle_fetch_key(
     match aggregate_verified_encrypted_responses(state.threshold, responses) {
         Ok(aggregated_response) => Ok((headers, Json(aggregated_response))),
         Err(e) => {
-            let msg = format!("Aggregation failed: {e}");
-            error!("{msg}");
-            Err(AggregatorError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: msg,
-                headers,
-            })
+            error!("Aggregating responses failed: {e}");
+            Err(ErrorResponse::from(InternalError::AggregationFailed(
+                e.to_string(),
+            )))
         }
     }
 }
@@ -263,7 +263,7 @@ async fn fetch_from_member(
     request: &FetchKeyRequest,
     client_sdk_type: &str,
     client_sdk_version: &str,
-) -> Result<(FetchKeyResponse, String), String> {
+) -> Result<(FetchKeyResponse, String), ErrorResponse> {
     info!("Fetching from party {} at {}", member.party_id, member.url);
 
     let client = reqwest::Client::new();
@@ -276,26 +276,30 @@ async fn fetch_from_member(
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+        .map_err(|e| ErrorResponse::from(InternalError::RequestFailed(e.to_string())))?;
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
-    }
-
-    // Extract version header and return.
+    // Extract version header.
     let version_str = response
         .headers()
         .get("X-KeyServer-Version")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_string();
 
-    let server_version = Version::parse(version_str)
-        .map_err(|e| format!("Invalid version format '{version_str}': {e}"))?;
+    // If response is not successful, try to parse error response from key server
+    let status = response.status();
+    if !status.is_success() {
+        if let Ok(error_response) = response.json::<ErrorResponse>().await {
+            return Err(error_response);
+        } else {
+            return Err(ErrorResponse::from(InternalError::HttpError(status)));
+        }
+    }
 
     let mut body = response
         .json::<FetchKeyResponse>()
         .await
-        .map_err(|e| format!("Parse failed: {e}"))?;
+        .map_err(|e| ErrorResponse::from(InternalError::ParseFailed(e.to_string())))?;
 
     // Verify each decryption key.
     body.decryption_keys = verify_decryption_keys(
@@ -303,16 +307,16 @@ async fn fetch_from_member(
         &member.partial_pk,
         &request.enc_verification_key,
         member.party_id,
-    )?;
+    )
+    .map_err(|e| ErrorResponse::from(InternalError::VerificationFailed(e)))?;
 
-    Ok((body, server_version.to_string()))
+    Ok((body, version_str))
 }
 
 /// Load committee state from onchain KeyServerV2 object.
 async fn load_committee_state(key_server_obj_id: &Address, network: Network) -> Result<AppState> {
     let mut grpc_client = create_grpc_client(&network)?;
     let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, key_server_obj_id).await?;
-
     let (threshold, members) = key_server_v2.extract_committee_info()?;
 
     Ok(AppState {
@@ -346,5 +350,119 @@ async fn monitor_members_update(mut state: AppState) {
 
         // Always update committee members.
         *state.committee_members.write().await = members;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto::elgamal::genkey;
+    use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519Signature};
+    use fastcrypto::groups::bls12381::G1Element;
+    use fastcrypto::groups::{bls12381::G2Element, GroupElement};
+    use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
+    use rand::thread_rng;
+    use seal_sdk::types::Certificate;
+    use serde_json::json;
+    use sui_sdk_types::UserSignature;
+    use sui_types::collection_types::{Entry, VecMap as SuiVecMap};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    #[tokio::test]
+    async fn test_majority_error_with_3_invalid_ptb_2_noaccess() {
+        // Create 5 mock key servers.
+        let mut mock_servers = vec![];
+
+        // 3 servers return InvalidPTB.
+        for _ in 0..3 {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/fetch_key"))
+                .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                    "error": "InvalidPTB",
+                    "message": "Invalid PTB: test error"
+                })))
+                .mount(&server)
+                .await;
+            mock_servers.push(server);
+        }
+
+        // 2 servers return NoAccess.
+        for _ in 0..2 {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/fetch_key"))
+                .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                    "error": "NoAccess",
+                    "message": "Access denied"
+                })))
+                .mount(&server)
+                .await;
+            mock_servers.push(server);
+        }
+
+        // Create committee members for testing.
+        let mut committee_contents = vec![];
+        for (i, server) in mock_servers.iter().enumerate() {
+            let address = Address::from([i as u8; 32]);
+            let member = PartialKeyServer {
+                party_id: i as u16,
+                url: server.uri(),
+                partial_pk: G2Element::zero(),
+            };
+            committee_contents.push(Entry {
+                key: address,
+                value: member,
+            });
+        }
+
+        // Create AppState for testing.
+        let grpc_client = create_grpc_client(&Network::Testnet).unwrap();
+        let state = AppState {
+            key_server_object_id: Address::from([0u8; 32]),
+            grpc_client,
+            threshold: 3,
+            committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
+                contents: committee_contents,
+            }))),
+        };
+
+        // Create a FetchKeyRequest for testing.
+        let mut rng = thread_rng();
+        let (_, enc_key, enc_verification_key) = genkey::<G1Element, G2Element, _>(&mut rng);
+        let kp = Ed25519KeyPair::generate(&mut rng);
+        let pk = kp.public().clone();
+        let sig: Ed25519Signature = kp.sign(b"test");
+        let mut user_sig_bytes = vec![0u8];
+        user_sig_bytes.extend_from_slice(sig.as_bytes());
+        user_sig_bytes.extend_from_slice(pk.as_bytes());
+
+        let request = FetchKeyRequest {
+            ptb: "{}".to_string(),
+            enc_key,
+            enc_verification_key,
+            request_signature: sig,
+            certificate: Certificate {
+                user: Address::from([0u8; 32]),
+                session_vk: pk,
+                creation_time: 0,
+                ttl_min: 60,
+                mvr_name: None,
+                signature: UserSignature::from_bytes(&user_sig_bytes).unwrap(),
+            },
+        };
+
+        // Call handle_fetch_key and check majority error.
+        let headers = HeaderMap::new();
+        let result = handle_fetch_key(State(state), headers, Json(request)).await;
+        match result {
+            Err(error) => {
+                assert_eq!(error.error, "InvalidPTB");
+            }
+            Ok(_) => panic!("Expected error but got success"),
+        }
     }
 }

@@ -6,6 +6,8 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 
+pub use seal_committee::ErrorResponse;
+
 #[derive(Debug, Serialize, PartialEq)]
 pub enum InternalError {
     InvalidPTB(String),
@@ -22,12 +24,6 @@ pub enum InternalError {
     InvalidServiceId,
     UnsupportedPackageId,
     Failure(String), // Internal error, try again later. Debug message is for logging only.
-}
-
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    error: String,
-    message: String,
 }
 
 impl IntoResponse for InternalError {

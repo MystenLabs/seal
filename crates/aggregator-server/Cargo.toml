@@ -33,3 +33,9 @@ tracing-subscriber.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
+
+[dev-dependencies]
+wiremock = "0.5"
+serde_json.workspace = true
+sui_types.workspace = true
+rand.workspace = true

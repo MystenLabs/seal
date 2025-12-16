@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
 bcs.workspace = true
 fastcrypto.workspace = true
 fastcrypto-tbls.workspace = true
