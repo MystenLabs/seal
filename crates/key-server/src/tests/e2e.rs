@@ -4,30 +4,31 @@
 use crate::errors::InternalError::UnsupportedPackageId;
 use crate::key_server_options::{ClientConfig, ClientKeyType, CommitteeState};
 use crate::master_keys::MasterKeys;
-use crate::tests::externals::get_key;
+use crate::tests::externals::{get_key, sign};
 use crate::tests::test_utils::{create_committee_servers, create_server};
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
+use crate::time::current_epoch_time;
+use crate::valid_ptb::ValidPtb;
+use crate::Server;
+use aggregator_server::{aggregate_verified_encrypted_responses, verify_decryption_keys};
+use crypto::elgamal;
 use crypto::elgamal::encrypt;
 use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
 use crypto::{
-    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput,
-    IBEPublicKeys, IBEUserSecretKeys,
+    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys,
+    IBEUserSecretKeys,
 };
+use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::encoding::{Encoding, Hex};
-use fastcrypto::groups::bls12381::G1Element;
+use fastcrypto::groups::bls12381::{G1Element, G2Element};
 use fastcrypto::serde_helpers::ToFromByteArray;
-use fastcrypto_tbls::{
-    tbls::{PartialSignature, ThresholdBls},
-    types::ThresholdBls12381MinSig,
-};
 use futures::future::join_all;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use std::collections::HashMap;
-use std::num::NonZeroU16;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -35,6 +36,7 @@ use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
+use sui_types::transaction::ProgrammableTransaction;
 use test_cluster::TestClusterBuilder;
 use tracing_test::traced_test;
 
@@ -794,29 +796,34 @@ async fn test_e2e_committee_mode_with_rotation() {
     let party_ids: Vec<u8> = vec![0, 1, 2];
     let selected_party_ids: Vec<u8> = party_ids.choose_multiple(&mut rng, 2).copied().collect();
 
-    // Fetch keys from selected parties.
-    let usks_with_party_ids: Vec<(u8, G1Element)> =
-        join_all(selected_party_ids.iter().map(|&party_id| {
-            let ptb = ptb.clone();
-            let user_keypair = Arc::clone(&user_keypair);
-            let server = committee[party_id as usize];
-            async move {
-                let usk = get_key(server, &package_id, ptb, &user_keypair)
-                    .await
-                    .unwrap();
-                (party_id, usk)
-            }
-        }))
-        .await;
+    // Use aggregator to fetch and aggregate encrypted keys from selected parties.
+    let aggregated_usks = get_aggregated_key_from_committee(
+        &committee,
+        &selected_party_ids,
+        2, // threshold
+        &package_id,
+        ptb.clone(),
+        &user_keypair,
+    )
+    .await;
 
-    // Decrypt ok with 2 out of 3 servers.
-    let decryption = decrypt_with_threshold_and_party_ids(
-        2,
-        usks_with_party_ids,
-        key_server_object_id,
+    // Compute the full_id for this encrypted object to look up the correct key.
+    let full_id = create_full_id(&package_id.into_bytes(), &encryption.id);
+    let aggregated_usk = aggregated_usks
+        .get(&full_id)
+        .expect("Should have key for encrypted object");
+
+    // Decrypt using the aggregated key (client treats it like a regular open-mode server key).
+    let decryption = seal_decrypt(
         &encryption,
-        &pks,
-    );
+        &IBEUserSecretKeys::BonehFranklinBLS12381(
+            vec![(key_server_object_id, *aggregated_usk)]
+                .into_iter()
+                .collect(),
+        ),
+        Some(&pks),
+    )
+    .unwrap();
     assert_eq!(decryption, message);
 
     // Manually update current version = target version for party 0 and 1 servers.
@@ -858,59 +865,132 @@ async fn test_e2e_committee_mode_with_rotation() {
     let selected_new_party_ids: Vec<u8> =
         [0, 1, 2, 3].choose_multiple(&mut rng, 3).copied().collect();
 
-    // Fetch keys from selected parties.
-    let new_usks_with_party_ids: Vec<(u8, G1Element)> =
-        join_all(selected_new_party_ids.iter().map(|&party_id| {
-            let ptb = ptb.clone();
-            let user_keypair = Arc::clone(&user_keypair);
-            let server = new_committee[party_id as usize];
-            async move {
-                let usk = get_key(server, &package_id, ptb, &user_keypair)
-                    .await
-                    .unwrap();
-                (party_id, usk)
-            }
-        }))
-        .await;
+    // Use aggregator with new committee and new threshold.
+    let new_aggregated_usks = get_aggregated_key_from_committee(
+        &new_committee,
+        &selected_new_party_ids,
+        3, // new threshold
+        &package_id,
+        ptb.clone(),
+        &user_keypair,
+    )
+    .await;
+
+    // Compute the full_id for this encrypted object to look up the correct key.
+    let new_aggregated_usk = new_aggregated_usks
+        .get(&full_id)
+        .expect("Should have key for encrypted object");
 
     // Decrypt works with new committee.
-    let new_decryption = decrypt_with_threshold_and_party_ids(
-        3,
-        new_usks_with_party_ids,
-        key_server_object_id,
+    let new_decryption = seal_decrypt(
         &encryption,
-        &pks,
-    );
+        &IBEUserSecretKeys::BonehFranklinBLS12381(
+            vec![(key_server_object_id, *new_aggregated_usk)]
+                .into_iter()
+                .collect(),
+        ),
+        Some(&pks),
+    )
+    .unwrap();
     assert_eq!(new_decryption, message);
 }
 
-/// Helper function to perform threshold aggregation and decryption with party IDs.
-fn decrypt_with_threshold_and_party_ids(
+/// Simulate a client with generated ephemeral ElGamal key pair and user keypair requesting
+/// secret key shares from selected committee members, aggregating the encrypted responses,
+/// and decrypting the aggregated result to obtain the final user secret keys.
+///
+/// Returns a HashMap mapping key_id to decrypted user secret key.
+async fn get_aggregated_key_from_committee(
+    committee: &[&Server],
+    selected_party_ids: &[u8],
     threshold: u16,
-    usks_with_party_ids: Vec<(u8, G1Element)>,
-    key_server_object_id: NewObjectID,
-    encryption: &EncryptedObject,
-    pks: &IBEPublicKeys,
-) -> Vec<u8> {
-    let mut partial_usks = Vec::new();
-    for (party_id, usk) in usks_with_party_ids.iter() {
-        partial_usks.push(PartialSignature::<G1Element> {
-            index: NonZeroU16::new((party_id + 1) as u16).unwrap(),
-            value: *usk,
-        });
-    }
+    package_id: &ObjectID,
+    ptb: ProgrammableTransaction,
+    user_keypair: &Ed25519KeyPair,
+) -> HashMap<Vec<u8>, G1Element> {
+    // Generate ephemeral key pair.
+    let (eg_sk, eg_pk, eg_vk) = elgamal::genkey::<_, G2Element, _>(&mut thread_rng());
 
-    let aggregated_usk =
-        ThresholdBls12381MinSig::aggregate(threshold, partial_usks.iter()).unwrap();
+    // Fetch encrypted keys from selected committee members.
+    let responses_with_party_ids = join_all(selected_party_ids.iter().map(|&party_id| {
+        let ptb = ptb.clone();
+        let eg_pk = eg_pk.clone();
+        let eg_vk = eg_vk.clone();
+        let package_id = *package_id;
+        let server = committee[party_id as usize];
+        async move {
+            // Sign the request.
+            let (cert, req_sig) = sign(
+                &package_id,
+                &ptb,
+                &eg_pk,
+                &eg_vk,
+                user_keypair,
+                current_epoch_time(),
+                1,
+            );
 
-    let usks_map: HashMap<_, _> = vec![(key_server_object_id, aggregated_usk)]
+            // Get encrypted key from this committee member.
+            let response = server
+                .check_request(
+                    &ValidPtb::try_from(ptb).unwrap(),
+                    &eg_pk,
+                    &eg_vk,
+                    &req_sig,
+                    &cert,
+                    1000,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+            let response_data = server.create_response(response.0, &response.1, &eg_pk);
+            (party_id as u16, response_data, server)
+        }
+    }))
+    .await;
+
+    // Verify encrypted keys.
+    let verified_responses = responses_with_party_ids
         .into_iter()
+        .map(|(party_id, response, server)| {
+            // Derive partial key.
+            let master_share = server
+                .master_keys
+                .get_committee_server_master_share()
+                .expect("Should have master share for committee member");
+            let partial_pk = public_key_from_master_key(master_share);
+
+            // Verify all decryption keys.
+            let verified_keys =
+                verify_decryption_keys(&response.decryption_keys, &partial_pk, &eg_vk, party_id)
+                    .expect("Verification should succeed");
+
+            // All keys were verified.
+            assert_eq!(verified_keys.len(), response.decryption_keys.len());
+
+            (
+                party_id,
+                FetchKeyResponse {
+                    decryption_keys: verified_keys,
+                },
+            )
+        })
         .collect();
 
-    seal_decrypt(
-        encryption,
-        &IBEUserSecretKeys::BonehFranklinBLS12381(usks_map),
-        Some(pks),
-    )
-    .unwrap()
+    // Aggregate the verified encrypted responses.
+    let aggregated_response =
+        aggregate_verified_encrypted_responses(threshold, verified_responses).unwrap();
+
+    // Client decrypts all keys with ephemeral secret key.
+    aggregated_response
+        .decryption_keys
+        .into_iter()
+        .map(|dk| {
+            let decrypted_key = elgamal::decrypt(&eg_sk, &dk.encrypted_key);
+            (dk.id, decrypted_key)
+        })
+        .collect()
 }

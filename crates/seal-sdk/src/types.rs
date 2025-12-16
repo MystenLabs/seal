@@ -3,6 +3,7 @@
 
 use crypto::{elgamal, ibe};
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
+use fastcrypto::encoding::{Base64, Encoding};
 use serde::{Deserialize, Serialize};
 use sui_sdk_types::{Address as SuiAddress, UserSignature};
 
@@ -13,7 +14,7 @@ pub type ElgamalVerificationKey = elgamal::VerificationKey<ibe::PublicKey>;
 pub type KeyId = Vec<u8>;
 
 pub type ElGamalSecretKey = crypto::elgamal::SecretKey<fastcrypto::groups::bls12381::G1Element>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DecryptionKey {
     pub id: KeyId,
     pub encrypted_key: ElgamalEncryption,
@@ -25,7 +26,7 @@ pub struct FetchKeyResponse {
 }
 
 /// The session certificate, signed by the user.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Debug)]
 pub struct Certificate {
     pub user: SuiAddress,
     pub session_vk: Ed25519PublicKey,
@@ -35,7 +36,42 @@ pub struct Certificate {
     pub mvr_name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+impl<'de> Deserialize<'de> for Certificate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct CertHelper {
+            user: SuiAddress,
+            session_vk: Ed25519PublicKey,
+            creation_time: u64,
+            ttl_min: u16,
+            signature: serde_json::Value,
+            mvr_name: Option<String>,
+        }
+
+        let helper = CertHelper::deserialize(deserializer)?;
+        let signature = if let Some(s) = helper.signature.as_str() {
+            let bytes = Base64::decode(s).map_err(serde::de::Error::custom)?;
+            UserSignature::from_bytes(&bytes).map_err(serde::de::Error::custom)?
+        } else {
+            // Standard format
+            serde_json::from_value(helper.signature).map_err(serde::de::Error::custom)?
+        };
+
+        Ok(Certificate {
+            user: helper.user,
+            session_vk: helper.session_vk,
+            creation_time: helper.creation_time,
+            ttl_min: helper.ttl_min,
+            signature,
+            mvr_name: helper.mvr_name,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FetchKeyRequest {
     pub ptb: String,
     pub enc_key: ElGamalPublicKey,
