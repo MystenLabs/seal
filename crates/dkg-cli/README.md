@@ -2,15 +2,18 @@
 
 ** WARNING: This is WIP. Do not use. **
 
-Command-line tool for Distributed Key Generation (DKG) and key rotation protocols. A DKG process involves a coordinator and a set of participating members. Here we describe the processes for both a fresh DKG and a key rotation.
+This command-line tool supports Distributed Key Generation (DKG) and key rotation for Seal MPC committees. A DKG process involves a coordinator, which orchestrates the workflow, and a set of committee members, which participate in key generation and rotation. This document describes both of the following:
 
-Both fresh DKG and key rotation has 3 phases. The coordinator signals the members when to proceed from one phase to the next.
+- how to run a fresh DKG to initialize a new committee, and
+- how to perform key rotation to update committee membership or keys.
 
-- **Phase 1 (Registration)**: Members generate and register their encryption keys onchain.
-- **Phase 2 (Message Creation)**: Members create and share DKG messages offchain.
-- **Phase 3 (Finalization)**: Members process messages, propose committee onchain. 
+Both fresh DKG and key rotation follow the same three-phase process. The coordinator signals members when to move from one phase to the next:
 
-There are 4 sections:
+- **Phase 1 — Registration:** Members generate encryption keys and register them onchain.
+- **Phase 2 — Message Creation:** Members create and exchange DKG messages offchain.
+- **Phase 3 — Finalization:** Members process messages and propose the committee configuration onchain.
+
+The guide is organized into four sections:
 
 - Fresh DKG coordinator runbook
 - Fresh DKG member runbook
@@ -19,72 +22,95 @@ There are 4 sections:
 
 ## Prerequisites
 
-The coordinator and all members are required to complete the following in order to run the scripts.
+Before running the DKG or key rotation workflows, both the coordinator and all committee members must complete the following steps.
 
-1. Install Sui (See [more](https://docs.sui.io/guides/developer/getting-started/sui-install)).
-2. Clone the [Seal](https://github.com/MystenLabs/seal) repo locally and set to working directory. 
-3. Install python and the dependencies in `/seal`. 
+1. Install Sui: follow the [official installation guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
+2. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
+
+```bash
+git clone https://github.com/MystenLabs/seal.git
+cd seal
+```
+
+3. Install Python and required dependencies.
 
 ```bash
 brew install python # if needed
-cd seal/
 
-# for the first time
+# create a virtual environment (first-time setup)
 python -m venv .venv
 source .venv/bin/activate
+
+# install dependencies
 pip install -r crates/dkg-cli/scripts/requirements.txt
 ```
 
-### Fresh DKG Process
+## Fresh DKG Process
 
-#### Coordinator Runbook
+### Coordinator Runbook
 
-1. Create a clean directory called `dkg-state` and copy `crates/dkg-cli/scripts/dkg.example.yaml` to `dkg-state/dkg.yaml`:
+Follow these steps to initialize a new MPC committee using a fresh DKG.
+
+1. **Prepare the DKG state directory**
+
+Create a clean working directory and copy the example configuration file:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-Gather all members' addresses. Open `dkg-state/dkg.yaml` and edit the following fields:
+Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
 
 ```yaml
-NETWORK: Testnet # Expected network
-THRESHOLD: 2 # Expected threshold
-# Your address, make sure you have enough gas for subsequent onchain calls for the network
-COORDINATOR_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
-MEMBERS: # Gathered from participating members
-  - 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
-  - 0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6
-  - 0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9
+NETWORK: Testnet # Target network
+THRESHOLD: 2 # Committee threshold (t of n)
+COORDINATOR_ADDRESS: 0x... # Your address (must have sufficient gas for subsequent steps on the target network)
+MEMBERS: # Addresses of all participating members
+  - 0x...
+  - 0x...
+  - 0x...
 ```
 
-2. Run the publish-and-init script.
+2. **Publish and initialize the committee**
+
+Run the publish-and-init script:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py publish-and-init -c dkg-state/dkg.yaml
 ```
 
-This publishes the `seal_committee` package and initializes the committee onchain. The script also appends the following to `dkg.yaml`. 
+This script publishes the `seal_committee` package onchain and initializes the committee state. It also appends the committee identifiers to `dkg.yaml`, for example: 
 
 ```yaml
 COMMITTEE_PKG: 0x3358b7f7150efe9a0487ad354e5959771c56556737605848231b09cca5b791c6
 COMMITTEE_ID: 0x46540663327da161b688786cbebbafbd32e0f344c85f8dc3bfe874c65a613418
 ```
 
-3. Share the updated `dkg.yaml` file with all members. Announce to all members to begin Phase 1.
+3. **Distribute configuration and start Phase 1**
 
-4. Monitor onchain state until all members are registered using the check-committee script.
+Share the updated dkg.yaml file with all committee members. Notify members to begin **Phase 1 (Registration)**.
+
+4. **Monitor member registration**
+
+Check on-chain registration status:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py check-committee -c dkg-state/dkg.yaml
 ```
 
-This will show which members have registered and which are still missing.
+The output shows which members have registered and which are still pending.
 
-5. Announce to all members to begin Phase 2 when all members registered. Monitor offchain storage until all members upload their messages.
+5. **Start Phase 2 after registration completes**
 
-6. Collect all messages files into a directory (e.g., `./dkg-messages`) and share it. Announce to all members to begin Phase 3.
+Once all members are registered:
+
+- Notify members to begin **Phase 2 (Message Creation)**.
+- Monitor the offchain storage location until all members upload their DKG message files.
+
+6. **Collect and share DKG messages**
+
+Collect all message files into a single directory and share it with members:
 
 ```bash
 mkdir dkg-messages
@@ -93,52 +119,74 @@ mv message_1.json dkg-messages/
 mv message_2.json dkg-messages/
 ```
 
-7. Monitor onchain state until all members had proposed and the committee state is finalized.
+Notify members to begin **Phase 3 (Finalization)**.
+
+7. **Confirm committee finalization**
+
+Monitor onchain state until all members have proposed and the committee is finalized:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py check-committee -c dkg-state/dkg.yaml
 ```
 
-This will show which members had proposed and which are still missing. If all members had proposed and the committee is finalized, it will show the key server object ID (`KEY_SERVER_OBJ_ID`). Share it with all members to configure their key servers. 
+When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
 
-#### Member Runbook
+### Member Runbook
 
-1. Share with the coordinator your address (`MY_ADDRESS`). This is the wallet used for the rest of the onchain commands. Make sure you are on the right network with wallet with enough gas.
+Follow these steps to participate as a member in a fresh DKG.
 
-2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Download the `dkg.yaml`, create an empty `dkg-state` directory and move `dkg.yaml` there.
+1. **Share your address with the coordinator**
+
+Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all onchain actions during the DKG.
+
+Make sure:
+
+- Your wallet is connected to the correct network.
+- You have enough gas to submit transactions.
+
+2. **Prepare your local DKG state (Phase 1)**
+
+Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory and move the file there:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml`, verify parameters (members addresses, threshold, committee ID) on Sui Explorer. Then add your member specific fields to it:
+Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer. Then add your member-specific fields:
 
 ```yaml
-MY_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
+MY_ADDRESS: 0x...
 MY_SERVER_URL: https://myserver.example.com
 ```
 
-Then run the following to generate keys locally and register onchain.
+Generate your keys and register them onchain:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
 ```
 
-This script:
-- Generates sensitive keys and saved `/dkg-state/` directory. Keep it secure.
+This command:
+
+- Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK` and `DKG_SIGNING_PK` to `dkg.yaml`.
 - Registers your public keys onchain.
 
-3. Wait till the coordinator annouces Phase 2. Run the following to initialize DKG state and outputs a message file at `dkg-state/message_P.json` (where P is your party ID).
+3. **Create and share your DKG message (Phase 2)**
+
+Wait for the coordinator to announce **Phase 2 (Message Creation)**. Then initialize your local DKG state and generate your message file:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py create-message -c dkg-state/dkg.yaml
 ```
 
-Share the file `message_P.json` with the coordinator.
+This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
 
-4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Move it to the `dkg-state` directory and run the command to process them. 
+4. **Process messages and propose the committee (Phase 3)**
+
+Wait for the coordinator to announce **Phase 3 (Finalization)** and provide a directory containing all members’ messages (for example, `path/to/dkg-messages`).
+
+Move the directory into `dkg-state` and process the messages:
 
 ```bash
 mv path/to/dkg-messages dkg-state/
@@ -148,15 +196,20 @@ python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
     -m dkg-state/dkg-messages
 ```
 
-This script:
-- Processes all messages from the directory.
-- Appends to `dkg.yaml`: `KEY_SERVER_PK` (new key server public key), `PARTIAL_PKS_V0` (partial public keys for all members), and `MASTER_SHARE_V0` (This is used at next step to start your server with).
+This command:
+
+- Processes all DKG messages from the directory.
+- Appends the following fields to `dkg.yaml`: 
+  - `KEY_SERVER_PK` (new key server public key)
+  - `PARTIAL_PKS_V0` (partial public keys for all members) 
+  - `MASTER_SHARE_V0` (your local key share, used to start the key server).
 - Proposes the committee onchain by calling the `propose` function.
 
-5. Wait for the coordinator to announce that the DKG is completed and receive `KEY_SERVER_OBJ_ID`. Now you are ready to configure and run the key server: 
+5. **Configure and start your key server**
 
-- Create `key-server-config.yaml` with `MY_ADDRESS` and `KEY_SERVER_OBJ_ID` and set Active mode. 
-- Start the server with environment variable config path and `MASTER_SHARE_V0` (0 is used for fresh DKG) set to the value from `dkg.yaml`. 
+Wait for the coordinator to confirm that the DKG is complete and share the `KEY_SERVER_OBJ_ID`.
+
+Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and the committee object ID (`KEY_SERVER_OBJ_ID`), and set the committee state to active:
 
 Example config file:
 ```yaml
@@ -166,90 +219,137 @@ server_mode: !Committee
   committee_state: !Active
 ```
 
-Example command to start server:
+Start the key server, setting the config path and your master key share from `dkg.yaml` (use `MASTER_SHARE_V0` for a fresh DKG):
+
 ```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x208cd48a92430eb9f90482291e5552e07aebc335d84b7b6371a58ebedd6ed036 cargo run --bin key-server
+CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
 
-6. Now it is safe to delete `./dkg-state` directory (containing `dkg.yaml`, `dkg.key` and `state.json`) completely.
+6. **Clean up local DKG state**
 
-### Key Rotation Process
+Once your key server is running successfully, you can safely delete the local DKG state directory:
 
-A key rotation process is needed when a committee wants to update a portion of its members. The count of continuing members (those who are in both the current and next committee) must meet the threshold of the current committee.
+```bash
+rm -rf dkg-state
+```
 
-Assuming the key server committee mode version onchain is currently at `X`. It is being rotated to next version at `X+1`.
+## Key Rotation Process
 
-#### Coordinator Runbook
+Use key rotation to update committee membership without re-encrypting data. When rotating a committee, the set of continuing members, including those present in both the current and next committee, must be large enough to meet the threshold of the current committee.
 
-The process follows the same three phases as fresh DKG, with the following differences:
+This guide assumes:
 
-1. Create a clean directory called `dkg-state` and copy `crates/dkg-cli/scripts/dkg-rotation.example.yaml` to `dkg-state/dkg.yaml`:
+- the current onchain committee version is X, and
+- the rotation produces the next committee version X + 1.
+
+### Coordinator Runbook
+
+Key rotation follows the same three-phase flow as a fresh DKG, with a few important differences outlined below.
+
+1. **Prepare the DKG state directory**
+
+Create a clean working directory and copy the rotation example configuration:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
-Gather all members' addresses. Open `dkg-state/dkg.yaml` and edit the following fields. `KEY_SERVER_OBJ_ID` can be found in any continuing members' key server's config file. 
+Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields. 
+
+You can obtain `KEY_SERVER_OBJ_ID` from the key server configuration of any continuing member in the current committee.
 
 ```yaml
-NETWORK: Testnet
-THRESHOLD: 3  # New threshold for new committee
-COORDINATOR_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
-KEY_SERVER_OBJ_ID: 0x0688650cf0b28882e607ae43df1e95e769f9b2f689cf90d68c715b3e08e28c70  # Key server object from current committee
-MEMBERS:  # New committee members (can include continuing members)
-  - 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
-  - 0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6
-  - 0x2aaadc85d1013bde04e7bff32aceaa03201627e43e3e3dd0b30521486b5c34cb
-  - 0x8b4a608c002d969d29f1dd84bc8ac13e6c2481d6de45718e606cfc4450723ec2
+NETWORK: Testnet # Target network
+THRESHOLD: 3  # Threshold for the new committee (t of n)
+COORDINATOR_ADDRESS: 0x... # Your address (must have sufficient gas for subsequent steps on the target network)
+KEY_SERVER_OBJ_ID: 0x...  # Key server object ID from the current committee
+MEMBERS:  # New committee members (may include continuing members)
+  - 0x...
+  - 0x...
+  - 0x...
+  - 0x..
 ```
 
-2. Instead of `publish-and-init`, run `init-rotation`.
+2. **Initialize the rotation**
+
+Instead of running `publish-and-init`, initialize the key rotation:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py init-rotation -c dkg-state/dkg.yaml
 ```
 
-This script will:
-- Fetch the key server object to determine the current committee ID and committee package ID.
-- Initialize the new committee object and append its object ID `COMMITTEE_ID`, along with `COMMITTEE_PKG` and `CURRENT_COMMITTEE_ID` to `dkg.yaml`.
+This command:
 
-Share the updated `dkg.yaml` with all members.
+- Fetches the current key server object to determine the existing committee ID and package ID.
+- Initializes the new committee object onchain.
+- Appends the following fields to `dkg.yaml`:
+  - `COMMITTEE_ID`
+  - `COMMITTEE_PKG`
+  - `CURRENT_COMMITTEE_ID`
 
-3. Phase 1, 2, 3: Follow the same steps as fresh DKG. Announce each phase to members and monitor progress. Also announce key rotation completion. 
+After the command completes, share the updated `dkg.yaml` file with all members.
 
-#### Member Runbook
+3. **Run Phases 1–3**
 
-1. Share with the coordinator your address (`MY_ADDRESS`). This is the wallet used for the rest of the onchain commands. Make sure you are on the right network with wallet with enough gas.
+Proceed through **Phase 1 (Registration)**, **Phase 2 (Message Creation)**, and **Phase 3 (Finalization)** using the **same steps as a fresh DKG**.
 
-2. Wait till the coordinator annouces Phase 1 and receive the `dkg.yaml` file containing `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID` and `COMMITTEE_ID`. Download the `dkg.yaml`, create an empty `dkg-state` directory and move `dkg.yaml` there.
+As the coordinator:
+
+- Announce the start of each phase to all members.
+- Monitor progress during each phase.
+- Announce completion once the key rotation finalizes onchain.
+
+### Member Runbook
+
+Follow these steps to participate as a member in a key rotation.
+
+1. **Share your address with the coordinator**
+
+Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all onchain actions during the rotation.
+
+Make sure:
+
+- Your wallet is connected to the correct network.
+- You have enough gas to submit transactions.
+
+2. **Prepare your local DKG state (Phase 1)**
+
+Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
+
+Create a local working directory and move the file there:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml`, verify parameters (members addresses, threshold, current committee ID) on Sui Explorer. Then add your member specific fields to it:
+Open `dkg.yaml` and verify the committee parameters (member addresses, threshold, current committee ID) using a Sui Explorer. Then add your member-specific fields:
 
 ```yaml
-MY_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
+MY_ADDRESS: 0x...
 MY_SERVER_URL: https://myserver.example.com
 ```
 
-Then run the following to generate keys locally and register onchain.
+Generate your keys and register them onchain:
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
 ```
 
-This script:
-- Generates sensitive keys and saved `/dkg-state/` directory. Keep it secure.
+This command:
+
+- Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK` and `DKG_SIGNING_PK` to `dkg.yaml`.
 - Registers your public keys onchain.
 
-3. Wait for the coordinator to announce Phase 2 and run the following: 
+3. **Initialize DKG state and create messages (Phase 2)**
 
-**For continuing members**: Run the following to initialize DKG state and outputs a message file at `dkg-state/message_P.json` (where `P` is your party ID). Must pass your current master share `MASTER_SHARE_VX` as an argument. 
+Wait for the coordinator to announce **Phase 2 (Message Creation)**.
+
+**For continuing members**:
+
+Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`):
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py create-message \
@@ -257,15 +357,21 @@ python crates/dkg-cli/scripts/dkg-scripts.py create-message \
     --old-share <MASTER_SHARE_VX>
 ```
 
-Share the file `message_P.json` with the coordinator.
+This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
 
-**For new members**: Just run the command without old share to initialize DKG state. No file is outputed or needed to be shared.
+**For new members**:
+
+Initialize your DKG state without providing an old share. No message file is generated.
 
 ```bash
 python crates/dkg-cli/scripts/dkg-scripts.py init-state -c dkg-state/dkg.yaml
 ```
 
-4. Wait for the coordinator to announce Phase 3 and download the directory `path/to/dkg-messages` containing all messages from the coordinator. Move it to the `dkg-state` directory and run the command to process them. 
+4. **Process messages and propose the rotation (Phase 3)**
+
+Wait for the coordinator to announce **Phase 3 (Finalization)** and provide a directory containing all DKG messages (for example, `path/to/dkg-messages`).
+
+Move the directory into `dkg-state` and process the messages:
 
 ```bash
 mv path/to/dkg-messages dkg-state/
@@ -275,12 +381,17 @@ python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
     -m dkg-state/dkg-messages
 ```
 
-This script:
-- Processes all messages from the directory.
-- Appends to your config: `PARTIAL_PKS_VX+1` (new partial public keys for all members) and `MASTER_SHARE_VX+1` (This is used at next step to start your server with).
-- Proposes the rotation onchain by calling the `propose_for_rotation` function.
+This command:
 
-5. Now you are ready to run your key server. Update `key-server-config.yaml` to Rotation mode with target version `X+1`. Leave other configs unchanged. 
+- Processes all messages from the directory.
+- Appends the following fields to `dkg.yaml`: 
+  - `PARTIAL_PKS_VX+1` (new partial public keys for all members)
+  - `MASTER_SHARE_VX+1` (your new master share, used to start the key server)
+- Proposes the rotation onchain by calling `propose_for_rotation`.
+
+5. **Start or update your key server**
+
+Update `key-server-config.yaml` to **Rotation** mode and set the target committee version to `X + 1`. Leave other settings unchanged.
 
 Example config file:
 ```yaml
@@ -291,9 +402,9 @@ server_mode: !Committee
     target_version: <X+1> # Increment this
 ```
 
-a. For continuing members:
+**For continuing members:**
 
-i. Restart server with both `MASTER_SHARE_VX` and `MASTER_SHARE_VX+1`. Now your server will monitor onchain periodically to determine which master share to use to serve requests.
+a. Restart the key server with both the old and new master shares. The server monitors onchain state and selects the correct share automatically.
 
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
@@ -302,7 +413,7 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-ii. Wait for the coordinator to announce the DKG rotation is completed. Update the config to Active mode and restart with only `MASTER_SHARE_VX+1`:
+b. Wait for the coordinator to confirm that rotation is complete. Then update the config to **Active** mode and restart the server with only the new master share:
 
 ```yaml
 server_mode: !Committee
@@ -317,7 +428,9 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-b. For new members, since `X+1` is the first known key, so just need to start the server with `MASTER_SHARE_VX+1` and the config file set to active: 
+**For new members:**
+
+Since `X + 1` is your first committee version, start the key server directly in **Active** mode using only `MASTER_SHARE_VX+1`:
 
 ```yaml
 server_mode: !Committee
@@ -332,4 +445,24 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-6. Now it is safe to delete `./dkg-state` directory (containing `dkg.yaml`, `dkg.key` and `state.json`) completely.
+6. **Clean up local DKG state**
+
+After your key server is running successfully, you can safely delete the local DKG state directory:
+
+```bash
+rm -rf dkg-state
+```
+
+## Quick reference: Fresh DKG vs Key rotation
+
+| Aspect | Fresh DKG | Key Rotation |
+| -------- | ------- | ------- |
+| Purpose | Create a brand-new committee and keys | Update committee membership or threshold |
+| Committee version | Starts at `V0` | Rotates from `VX` to `VX+1` |
+| Coordinator init command | `publish-and-init` | `init-rotation` |
+| Continuing members required | N/A | Must meet current threshold |
+| Member Phase 2 action | All members create messages | Only continuing members create messages |
+| Old master share needed | N/A | Yes (for continuing members) |
+| Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
+| Onchain proposal function | `propose` | `propose_for_rotation` |
+| Result | New committee object | Updated committee version |
