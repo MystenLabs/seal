@@ -5,18 +5,20 @@ pub mod types;
 
 use crate::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use chrono::{DateTime, Utc};
+use crypto::create_full_id;
 use crypto::elgamal::decrypt as elgamal_decrypt;
 use crypto::ibe::verify_user_secret_key;
 use crypto::ibe::UserSecretKey;
-use crypto::{create_full_id, seal_decrypt, IBEPublicKeys, IBEUserSecretKeys, ObjectID};
+use crypto::{seal_decrypt, IBEPublicKeys, IBEUserSecretKeys, ObjectID};
 use fastcrypto::ed25519::Ed25519PublicKey;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::error::FastCryptoError;
 use fastcrypto::error::FastCryptoResult;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use sui_sdk_types::ProgrammableTransaction;
 use tracing::debug;
+
 // Re-exported for seal_sdk
 pub use crypto::elgamal::genkey;
 pub use crypto::ibe::PublicKey as IBEPublicKey;
@@ -61,33 +63,16 @@ pub fn signed_request(
     bcs::to_bytes(&req).expect("should serialize")
 }
 
-/// Given the ElGamalSecretKey, elgamal decrypt and verify all usks from each seal responses,
-/// then decrypt all encrypted objects using the decrypted usks.
-pub fn seal_decrypt_all_objects(
+/// Given the ElGamalSecretKey, elgamal decrypt and verify all user secret keys from multiple seal
+/// responses. Returns a nested map: full_id -> (server_id -> UserSecretKey).
+pub fn decrypt_seal_responses(
     enc_secret: &ElGamalSecretKey,
     seal_responses: &[(ObjectID, FetchKeyResponse)],
-    encrypted_objects: &[EncryptedObject],
     server_pk_map: &HashMap<ObjectID, IBEPublicKey>,
-) -> FastCryptoResult<Vec<Vec<u8>>> {
-    if encrypted_objects.is_empty() {
-        return Ok(Vec::new());
-    }
-    if seal_responses.is_empty() {
-        return Err(FastCryptoError::GeneralError(
-            "No seal responses provided".to_string(),
-        ));
-    }
-
+) -> FastCryptoResult<HashMap<Vec<u8>, HashMap<ObjectID, UserSecretKey>>> {
     let mut cached_keys: HashMap<Vec<u8>, HashMap<ObjectID, UserSecretKey>> = HashMap::new();
-    let mut processed_servers: HashSet<ObjectID> = HashSet::new();
 
     for (server_id, seal_response) in seal_responses.iter() {
-        if !processed_servers.insert(*server_id) {
-            return Err(FastCryptoError::GeneralError(format!(
-                "Duplicate server_id {server_id} in seal_responses"
-            )));
-        }
-
         let public_key = server_pk_map.get(server_id).ok_or_else(|| {
             FastCryptoError::GeneralError(format!(
                 "No public key configured for server {server_id}"
@@ -105,58 +90,68 @@ pub fn seal_decrypt_all_objects(
         }
     }
 
-    let mut decrypted_results = Vec::with_capacity(encrypted_objects.len());
-    for encrypted_object in encrypted_objects.iter() {
-        let full_id = create_full_id(
-            &encrypted_object.package_id.into_inner(),
-            &encrypted_object.id,
-        );
-        let keys_for_id = cached_keys.get(&full_id).ok_or_else(|| {
+    Ok(cached_keys)
+}
+
+/// Decrypt a single encrypted object using cached user secret keys from multiple servers.
+/// The cached_keys should be the result from decrypt_seal_responses.
+pub fn seal_decrypt_object(
+    encrypted_object: &EncryptedObject,
+    cached_keys: &HashMap<Vec<u8>, HashMap<ObjectID, UserSecretKey>>,
+    server_pk_map: &HashMap<ObjectID, IBEPublicKey>,
+) -> FastCryptoResult<Vec<u8>> {
+    // Compute the full_id for this encrypted object
+    let full_id = create_full_id(
+        &encrypted_object.package_id.into_inner(),
+        &encrypted_object.id,
+    );
+
+    // Get the keys for this full_id
+    let keys_for_id = cached_keys.get(&full_id).ok_or_else(|| {
+        FastCryptoError::GeneralError(format!(
+            "No keys available for object with full_id {}",
+            Hex::encode(&full_id)
+        ))
+    })?;
+
+    let mut usks = HashMap::new();
+    let mut pks = Vec::with_capacity(encrypted_object.services.len());
+
+    // Iterate through the services in the encrypted object to maintain correct order
+    for (server_id, _index) in encrypted_object.services.iter() {
+        if let Some(user_secret_key) = keys_for_id.get(server_id) {
+            usks.insert(*server_id, *user_secret_key);
+        }
+
+        let pk = server_pk_map.get(server_id).ok_or_else(|| {
             FastCryptoError::GeneralError(format!(
-                "No keys available for object with full_id {:?}",
-                Hex::encode(&full_id)
+                "No public key configured for server {server_id}"
             ))
         })?;
-
-        let mut usks = HashMap::new();
-        let mut pks = Vec::with_capacity(encrypted_object.services.len());
-        for (server_id, _index) in encrypted_object.services.iter() {
-            if let Some(user_secret_key) = keys_for_id.get(server_id) {
-                usks.insert(*server_id, *user_secret_key);
-            }
-
-            let pk = server_pk_map.get(server_id).ok_or_else(|| {
-                FastCryptoError::GeneralError(format!(
-                    "No public key configured for server {server_id}"
-                ))
-            })?;
-            pks.push(*pk);
-        }
-
-        if usks.len() < encrypted_object.threshold as usize {
-            return Err(FastCryptoError::GeneralError(format!(
-                "Insufficient keys for object: have {}, threshold requires {}",
-                usks.len(),
-                encrypted_object.threshold
-            )));
-        }
-
-        let secret = seal_decrypt(
-            encrypted_object,
-            &IBEUserSecretKeys::BonehFranklinBLS12381(usks),
-            Some(&IBEPublicKeys::BonehFranklinBLS12381(pks)),
-        )?;
-
-        decrypted_results.push(secret);
+        pks.push(*pk);
     }
 
-    Ok(decrypted_results)
+    if usks.len() < encrypted_object.threshold as usize {
+        return Err(FastCryptoError::GeneralError(format!(
+            "Insufficient keys for object: have {}, threshold requires {}",
+            usks.len(),
+            encrypted_object.threshold
+        )));
+    }
+
+    seal_decrypt(
+        encrypted_object,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(usks),
+        Some(&IBEPublicKeys::BonehFranklinBLS12381(pks)),
+    )
 }
 #[cfg(test)]
 mod tests {
     use crate::{signed_message, signed_request};
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
+    use fastcrypto::encoding::Encoding;
+    use fastcrypto::encoding::Hex;
     use fastcrypto::traits::KeyPair;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
@@ -221,6 +216,6 @@ mod tests {
         let expected_output = "38000100d92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d503626c610e7365616c5f617070726f76655f7800003085946cd4134ecb8f7739bbd3522d1c8fab793c6c431a8b0b77b4f1885d4c096aafab755e7b8bce8688410cee9908fb29608faaf686c0dcbe3f65f1130e8be538d7ea009347d397f517188dfa14417618887a0412e404fff56efbafb63d1fc4970a1187b4ccb6e767a91822312e533fa53dee69f77ef5130be095e147ff3d40e96e8ddc4bf554dae3bcc34048fe9330cccf";
 
         let result = signed_request(&ptb, &eg_keys.1, &eg_keys.2);
-        assert_eq!(hex::encode(result), expected_output);
+        assert_eq!(Hex::encode(result), expected_output);
     }
 }

@@ -21,9 +21,10 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::json::SuiJsonValue;
 use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -38,6 +39,7 @@ mod tle;
 pub(crate) mod whitelist;
 
 mod server;
+mod test_utils;
 
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
@@ -64,12 +66,12 @@ pub enum KeyServerType {
 
 impl SealTestCluster {
     /// Create a new SealTestCluster with the given number users. To add servers, use the `add_server` method.
-    pub async fn new(users: usize) -> Self {
+    pub async fn new(users: usize, module: &str) -> Self {
         let cluster = TestClusterBuilder::new()
             .with_num_validators(1)
             .build()
             .await;
-        let registry = Self::publish_internal(&cluster, "seal").await;
+        let registry = Self::publish_internal(&cluster, module).await;
         Self {
             cluster,
             servers: vec![],
@@ -92,19 +94,39 @@ impl SealTestCluster {
         &self.cluster
     }
 
-    pub async fn add_open_server(&mut self) {
-        let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
-        let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
-        self.add_server(Open(master_key), &name).await;
+    pub async fn add_open_server(&mut self, seal_package: ObjectID) {
+        self.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(120))
+            .await;
     }
 
-    pub async fn add_open_servers(&mut self, num_servers: usize) {
+    pub async fn add_open_servers(&mut self, num_servers: usize, seal_package: ObjectID) {
         for _ in 0..num_servers {
-            self.add_open_server().await;
+            self.add_open_server(seal_package).await;
         }
     }
 
-    pub async fn add_server(&mut self, server: KeyServerType, name: &str) {
+    pub async fn add_open_server_with_allowed_staleness(
+        &mut self,
+        seal_package: ObjectID,
+        allowed_staleness: Duration,
+    ) {
+        let master_key = ibe::generate_key_pair(&mut thread_rng()).0;
+        let name = DefaultEncoding::encode(public_key_from_master_key(&master_key).to_byte_array());
+        self.add_server_with_allowed_staleness(
+            Open(master_key),
+            &name,
+            seal_package,
+            allowed_staleness,
+        )
+        .await;
+    }
+
+    pub async fn add_server_with_options(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        options: KeyServerOptions,
+    ) {
         match server {
             Open(master_key) => {
                 let key_server_object_id = self
@@ -123,26 +145,53 @@ impl SealTestCluster {
                         None,
                     ),
                     master_keys: MasterKeys::Open { master_key },
-                    key_server_oid_to_pop: HashMap::new(),
-                    options: KeyServerOptions {
-                        network: Network::TestCluster,
-                        server_mode: ServerMode::Open {
-                            key_server_object_id,
-                        },
-                        metrics_host_port: 0,
-                        checkpoint_update_interval: Duration::from_secs(10),
-                        rgp_update_interval: Duration::from_secs(60),
-                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-                        allowed_staleness: Duration::from_secs(120),
-                        session_key_ttl_max: from_mins(30),
-                        rpc_config: RpcConfig::default(),
-                        metrics_push_config: None,
-                    },
+                    key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
+                    options,
                 };
                 self.servers.push((key_server_object_id, server));
             }
             _ => panic!(),
         };
+    }
+
+    pub async fn add_server_with_allowed_staleness(
+        &mut self,
+        server: KeyServerType,
+        name: &str,
+        seal_package: ObjectID,
+        allowed_staleness: Duration,
+    ) {
+        match server {
+            Open(master_key) => {
+                let key_server_object_id = self
+                    .register_key_server(
+                        name,
+                        "http://localhost:8080", // Dummy URL, not used in this test
+                        public_key_from_master_key(&master_key),
+                    )
+                    .await;
+                self.add_server_with_options(
+                    server,
+                    name,
+                    KeyServerOptions {
+                        network: Network::TestCluster { seal_package },
+                        node_url: None,
+                        server_mode: ServerMode::Open {
+                            key_server_object_id,
+                        },
+                        metrics_host_port: 0,
+                        rgp_update_interval: Duration::from_secs(60),
+                        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
+                        allowed_staleness,
+                        session_key_ttl_max: from_mins(30),
+                        rpc_config: RpcConfig::default(),
+                        metrics_push_config: None,
+                    },
+                )
+                .await;
+            }
+            _ => panic!(),
+        }
     }
 
     pub fn server(&self) -> &Server {
@@ -362,7 +411,7 @@ impl SealTestCluster {
 
 #[tokio::test]
 async fn test_pkg_upgrade() {
-    let mut setup = SealTestCluster::new(0).await;
+    let mut setup = SealTestCluster::new(0, "seal").await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id, upgrade_cap) = setup.publish_path(path).await;
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v2");

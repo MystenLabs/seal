@@ -213,8 +213,8 @@ Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
 | <NETWORK> | <PACKAGE_ID> |
 | -------- | ------- |
-| Testnet | 0x927a54e9ae803f82ebf480136a9bcff45101ccbe28b13f433c89f5181069d682 |
-| Mainnet | 0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d | 
+| Testnet | 0x4016869413374eaa71df2a043d1660ed7bc927ab7962831f8b07efbc7efdb2c3 |
+| Mainnet | 0xcb83a248bda5f7a0a431e6bf9e96d184e604130ec5218696e3f1211113b447b7 | 
 
 To decrypt an encrypted object in a Move package, follow these steps:
 

@@ -14,23 +14,6 @@ fn duration_since(offset: u64) -> (u64, bool) {
     }
 }
 
-/// Returns the duration since the offset as a signed f64.
-pub(crate) fn duration_since_as_f64(offset: u64) -> f64 {
-    match duration_since(offset) {
-        (duration, true) => duration as f64,
-        (duration, false) => -(duration as f64),
-    }
-}
-
-/// Returns the duration since the offset.
-/// Returns `Duration::ZERO` if the offset is greater than the current time.
-pub(crate) fn saturating_duration_since(offset: u64) -> Duration {
-    match checked_duration_since(offset) {
-        Some(duration) => duration,
-        _ => Duration::ZERO,
-    }
-}
-
 /// Returns the duration since the offset.
 /// Returns `None` if the offset is greater than the current time.
 pub(crate) fn checked_duration_since(offset: u64) -> Option<Duration> {
@@ -57,10 +40,7 @@ pub(crate) fn from_mins(mins: u16) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use crate::time::{
-        checked_duration_since, current_epoch_time, duration_since, from_mins,
-        saturating_duration_since,
-    };
+    use crate::time::{checked_duration_since, current_epoch_time, duration_since, from_mins};
     use std::thread;
     use std::time::Duration;
 
@@ -91,11 +71,6 @@ mod tests {
             checked_duration.unwrap() >= Duration::from_millis(1000)
                 && checked_duration.unwrap() < Duration::from_millis(1100)
         );
-        let saturated_duration = saturating_duration_since(offset_in_past);
-        assert!(
-            saturated_duration >= Duration::from_millis(1000)
-                && saturated_duration < Duration::from_millis(1100)
-        );
     }
 
     #[test]
@@ -107,7 +82,5 @@ mod tests {
         assert!(!is_past);
         let checked_duration = checked_duration_since(offset_in_future);
         assert!(checked_duration.is_none());
-        let saturated_duration = saturating_duration_since(offset_in_future);
-        assert_eq!(saturated_duration, Duration::ZERO);
     }
 }

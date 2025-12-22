@@ -4,16 +4,16 @@ use crate::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
 };
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::ServerMode;
-use crate::metrics::{call_with_duration, observation_callback, status_callback, Metrics};
+use crate::key_server_options::{CommitteeState, ServerMode};
+use crate::master_keys::CommitteeKeyState;
+use crate::metrics::{call_with_duration, status_callback, Metrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::time::checked_duration_since;
-use crate::time::from_mins;
-use crate::time::{duration_since_as_f64, saturating_duration_since};
-use crate::types::{MasterKeyPOP, Network};
+use crate::sui_rpc_client::RpcError;
+use crate::time::{checked_duration_since, from_mins};
+use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -23,11 +23,10 @@ use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
-use crypto::ibe;
 use crypto::ibe::create_proof_of_possession;
+use crypto::ibe::{self, public_key_from_master_key};
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
-use externals::get_latest_checkpoint_timestamp;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
@@ -41,8 +40,10 @@ use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
-use mysten_service::serve;
 use rand::thread_rng;
+use seal_committee::grpc_helper::{
+    fetch_committee_server_version, get_partial_key_server_for_member,
+};
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
@@ -51,8 +52,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc_client::SuiRpcClient;
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
@@ -61,6 +63,7 @@ use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
+use sui_sdk_types::Address;
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -85,12 +88,14 @@ mod metrics;
 mod metrics_push;
 mod mvr;
 mod periodic_updater;
+mod seal_package;
 #[cfg(test)]
 pub mod tests;
 mod time;
 
 const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = utils::git_version!();
+const DEFAULT_PORT: u16 = 2024;
 
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
@@ -125,14 +130,11 @@ struct FetchKeyRequest {
     certificate: Certificate,
 }
 
-/// UNIX timestamp in milliseconds.
-type Timestamp = u64;
-
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
     master_keys: MasterKeys,
-    key_server_oid_to_pop: HashMap<ObjectID, MasterKeyPOP>,
+    key_server_oid_to_pop: Arc<RwLock<HashMap<ObjectID, MasterKeyPOP>>>,
     options: KeyServerOptions,
 }
 
@@ -141,37 +143,179 @@ impl Server {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
-                .build(&options.network.node_url())
+                .build(&options.node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(options.network.node_url()).expect("Failed to create SuiGrpcClient"),
+            SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics,
         );
         info!("Server started with network: {:?}", options.network);
-        let master_keys = MasterKeys::load(&options).unwrap_or_else(|e| {
+
+        // Fetch current committee version onchain for committee server.
+        let committee_version = match &options.server_mode {
+            ServerMode::Committee {
+                key_server_obj_id, ..
+            } => {
+                let version = fetch_committee_server_version(
+                    &mut sui_rpc_client.sui_grpc_client(),
+                    key_server_obj_id,
+                )
+                .await
+                .expect("Failed to fetch committee server version");
+                Some(version)
+            }
+            _ => None,
+        };
+
+        let master_keys = MasterKeys::load(&options, committee_version).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {e}");
         });
 
-        let key_server_oid_to_pop = options
-            .get_supported_key_server_object_ids()
-            .into_iter()
-            .map(|ks_oid| {
-                let key = master_keys
-                    .get_key_for_key_server(&ks_oid)
-                    .expect("checked already");
-                let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
-                (ks_oid, pop)
-            })
-            .collect();
+        let key_server_oid_to_pop = Self::build_key_server_pop_map(
+            &options,
+            &master_keys,
+            sui_rpc_client.sui_grpc_client(),
+        )
+        .await;
 
         Server {
             sui_rpc_client,
             master_keys,
-            key_server_oid_to_pop,
+            key_server_oid_to_pop: Arc::new(RwLock::new(key_server_oid_to_pop)),
             options,
+        }
+    }
+
+    /// Update committee version to target and refresh PoP when rotation completes.
+    pub(crate) async fn refresh_committee_server(&self) {
+        let (
+            committee_version_arc,
+            target_version,
+            next_master_share,
+            member_address,
+            key_server_obj_id,
+        ) = match (&self.master_keys, &self.options.server_mode) {
+            (
+                MasterKeys::Committee {
+                    committee_version,
+                    key_state:
+                        CommitteeKeyState::Rotation {
+                            target_version,
+                            next_master_share,
+                            ..
+                        },
+                },
+                ServerMode::Committee {
+                    member_address,
+                    key_server_obj_id,
+                    ..
+                },
+            ) => (
+                committee_version,
+                *target_version,
+                next_master_share,
+                member_address,
+                key_server_obj_id,
+            ),
+            _ => panic!("refresh_committee_server called in non-Rotation mode"),
+        };
+
+        // Build PoP with new master share.
+        let new_pop = Self::build_committee_server_pop(
+            next_master_share,
+            self.sui_rpc_client.sui_grpc_client(),
+            member_address,
+            key_server_obj_id,
+        )
+        .await;
+
+        // Update version in state.
+        committee_version_arc.store(target_version, Ordering::Relaxed);
+
+        // Update PoP map in state.
+        *self
+            .key_server_oid_to_pop
+            .write()
+            .expect("Failed to acquire write lock on PoP map") =
+            HashMap::from([(ObjectID::new(key_server_obj_id.into_inner()), new_pop)]);
+        info!("Committee version and PoP refreshed successfully.");
+    }
+
+    /// Helper function to build the PoP for Committee mode. First fetch member info for partial pk
+    /// and party ID from onchain and creates proof of possession.
+    /// Panics on failure since server cannot operate without valid PoP.
+    async fn build_committee_server_pop(
+        master_key: &IbeMasterKey,
+        mut grpc_client: SuiGrpcClient,
+        member_address: &Address,
+        key_server_obj_id: &Address,
+    ) -> MasterKeyPOP {
+        let member_info =
+            get_partial_key_server_for_member(&mut grpc_client, key_server_obj_id, member_address)
+                .await
+                .expect("Failed to fetch member info from chain");
+
+        assert_eq!(
+            member_info.partial_pk,
+            public_key_from_master_key(master_key),
+            "Public key mismatch for member address"
+        );
+
+        info!(
+            "Committee mode: KeyServer {} with party_id={}",
+            key_server_obj_id, member_info.party_id
+        );
+
+        // PoP: key_server_obj_id || party_id.
+        let mut pop_message = Vec::new();
+        pop_message.extend_from_slice(key_server_obj_id.as_bytes());
+        pop_message.extend_from_slice(&member_info.party_id.to_le_bytes());
+        create_proof_of_possession(master_key, &pop_message)
+    }
+
+    /// Build the key_server_oid -> PoP HashMap for all server modes.
+    /// Panics on failure since server cannot start without valid PoP.
+    pub(crate) async fn build_key_server_pop_map(
+        options: &KeyServerOptions,
+        master_keys: &MasterKeys,
+        grpc_client: SuiGrpcClient,
+    ) -> HashMap<ObjectID, MasterKeyPOP> {
+        match &options.server_mode {
+            ServerMode::Open { .. } | ServerMode::Permissioned { .. } => options
+                .get_supported_key_server_object_ids()
+                .into_iter()
+                .map(|ks_oid| {
+                    let key = master_keys
+                        .get_key_for_key_server(&ks_oid)
+                        .expect("checked already");
+                    let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                    (ks_oid, pop)
+                })
+                .collect(),
+
+            ServerMode::Committee {
+                member_address,
+                key_server_obj_id,
+                ..
+            } => {
+                let key_server_oid = ObjectID::new(key_server_obj_id.into_inner());
+                let master_key = master_keys
+                    .get_key_for_key_server(&key_server_oid)
+                    .expect("checked already");
+
+                let pop = Self::build_committee_server_pop(
+                    master_key,
+                    grpc_client,
+                    member_address,
+                    key_server_obj_id,
+                )
+                .await;
+
+                HashMap::from([(key_server_oid, pop)])
+            }
         }
     }
 
@@ -266,9 +410,17 @@ impl Server {
             vptb.ptb(),
             req_id
         );
+
+        // Add a staleness check as the first command in the PTB
+        let ptb = self
+            .options
+            .network
+            .seal_package()
+            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone());
+
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
-            TransactionKind::ProgrammableTransaction(vptb.ptb().clone()),
+            TransactionKind::ProgrammableTransaction(ptb),
             sender,
             vec![], // Empty gas payment for dry run
             GAS_BUDGET,
@@ -276,48 +428,62 @@ impl Server {
         );
         let dry_run_res = self
             .sui_rpc_client
-            .dry_run_transaction_block(tx_data.clone())
+            .dry_run_transaction_block(tx_data)
             .await
             .map_err(|e| {
-                if let Error::RpcError(ClientError::Call(ref e)) = e {
-                    match e.code() {
-                        INVALID_PARAMS_CODE => {
-                            // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
-                            // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                            // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                            // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                            debug!("Invalid parameter: {}", e.message());
-                            return InternalError::InvalidParameter(e.message().to_string());
-                        }
-                        METHOD_NOT_FOUND_CODE => {
-                            // This means that the seal_approve function is not found on the given module.
-                            debug!("Function not found: {:?}", e);
-                            return InternalError::InvalidPTB(
-                                "The seal_approve function was not found on the module".to_string(),
-                            );
-                        }
-                        _ => {}
+                match e {
+                    Error::RpcError(ClientError::Call(ref e))
+                        if e.code() == INVALID_PARAMS_CODE =>
+                    {
+                        // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
+                        // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
+                        // There are other possible reasons, so we return the entire message to the user to allow debugging.
+                        // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
+                        debug!("Invalid parameter: {}", e.message());
+                        InternalError::InvalidParameter(e.message().to_string())
                     }
+                    Error::RpcError(ClientError::Call(ref e))
+                        if e.code() == METHOD_NOT_FOUND_CODE =>
+                    {
+                        // This means that the seal_approve function is not found on the given module.
+                        debug!("Function not found: {:?}", e);
+                        InternalError::InvalidPTB(
+                            "The seal_approve function was not found on the module".to_string(),
+                        )
+                    }
+                    _ => InternalError::Failure(format!(
+                        "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
+                    )),
                 }
-                InternalError::Failure(format!(
-                    "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
-                ))
             })?;
 
+        debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
+
         // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
-        if let Some(m) = metrics {
-            if matches!(
-                self.options.server_mode,
-                ServerMode::Permissioned { client_configs: _ }
-            ) {
-                let package = vptb.pkg_id().to_hex_uncompressed();
-                m.dry_run_gas_cost_per_package
-                    .with_label_values(&[&package])
-                    .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
-            }
+        if let Some(m) = metrics
+            && matches!(self.options.server_mode, ServerMode::Permissioned { .. })
+        {
+            let package = vptb.pkg_id().to_hex_uncompressed();
+            m.dry_run_gas_cost_per_package
+                .with_label_values(&[&package])
+                .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
         }
 
-        debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
+        // Check if the staleness check failed
+        if self
+            .options
+            .network
+            .seal_package()
+            .is_staleness_error(&dry_run_res.effects)
+        {
+            debug!("Fullnode is stale (req_id: {:?})", req_id);
+            if let Some(m) = metrics {
+                m.requests_failed_due_to_staleness.inc()
+            }
+            return Err(InternalError::Failure("Fullnode is stale".to_string()));
+        }
+
+        // Handle errors in the dry run
         if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
             debug!(
                 "Dry run execution asserted (req_id: {:?}) {:?}",
@@ -415,34 +581,6 @@ impl Server {
         FetchKeyResponse { decryption_keys }
     }
 
-    /// Spawns a thread that fetches the latest checkpoint timestamp and sends it to a [Receiver] once per `update_interval`.
-    /// Returns the [Receiver].
-    async fn spawn_latest_checkpoint_timestamp_updater(
-        &self,
-        metrics: Option<&Metrics>,
-    ) -> (Receiver<Timestamp>, JoinHandle<()>) {
-        spawn_periodic_updater(
-            &self.sui_rpc_client,
-            self.options.checkpoint_update_interval,
-            get_latest_checkpoint_timestamp,
-            "latest checkpoint timestamp",
-            metrics.map(|m| {
-                observation_callback(&m.checkpoint_timestamp_delay, |ts| {
-                    let duration = duration_since_as_f64(ts);
-                    debug!("Latest checkpoint timestamp delay is {duration} ms");
-                    duration
-                })
-            }),
-            metrics.map(|m| {
-                observation_callback(&m.get_checkpoint_timestamp_duration, |d: Duration| {
-                    d.as_millis() as f64
-                })
-            }),
-            metrics.map(|m| status_callback(&m.get_checkpoint_timestamp_status)),
-        )
-        .await
-    }
-
     /// Spawns a thread that fetches RGP and sends it to a [Receiver] once per `update_interval`.
     /// Returns the [Receiver].
     async fn spawn_reference_gas_price_updater(
@@ -492,6 +630,105 @@ impl Server {
             })
         }
     }
+
+    /// Spawns a background task that fetches committee key server version from onchain and updates
+    /// the committee version in MasterKeys::Committee. Only spawns a task if in Committee mode
+    /// during rotation and current version is 1 behind target version.
+    async fn spawn_committee_version_updater(&self) {
+        // Load committee state from config.
+        let ServerMode::Committee {
+            member_address: _,
+            key_server_obj_id,
+            committee_state,
+        } = &self.options.server_mode
+        else {
+            return;
+        };
+
+        // Check if we're in rotation mode.
+        let target_version = match committee_state {
+            CommitteeState::Active => {
+                info!("Active mode: no rotation needed. Do not start version monitor.");
+                return;
+            }
+            CommitteeState::Rotation { target_version } => *target_version,
+        };
+
+        // Load current version from MasterKeys. This is initialized during MasterKeys::load().
+        let current_version = match &self.master_keys {
+            MasterKeys::Committee {
+                committee_version, ..
+            } => committee_version.load(Ordering::Relaxed),
+            _ => return,
+        };
+
+        if current_version == target_version {
+            info!("Rotation already completed. You can restart in Active mode with only MASTER_SHARE_V{} set.", current_version);
+            return;
+        }
+
+        info!(
+            "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
+        );
+
+        {
+            // Define the fetch function for the periodic updater.
+            let key_server_obj_id_clone = *key_server_obj_id;
+            let fetch_fn = move |client: SuiRpcClient| async move {
+                let mut grpc = client.sui_grpc_client();
+                fetch_committee_server_version(&mut grpc, &key_server_obj_id_clone)
+                    .await
+                    .map(|v| v as u64)
+                    .map_err(|e| RpcError::new(e.to_string()))
+            };
+
+            // Define the periodic updater.
+            let (receiver, updater_handle) = spawn_periodic_updater(
+                &self.sui_rpc_client,
+                Duration::from_secs(30),
+                fetch_fn,
+                "committee key server version",
+                None::<fn(u64)>,
+                None::<fn(Duration)>,
+                None::<fn(bool)>,
+            )
+            .await;
+
+            let mut receiver_clone = receiver;
+            let server = self.clone();
+
+            // Spawn the background task to monitor version changes.
+            tokio::spawn(async move {
+                loop {
+                    match receiver_clone.changed().await {
+                        Ok(_) => {
+                            // TODO: Make the updater generic from u64 to avoid this cast.
+                            let version = *receiver_clone.borrow() as u32;
+
+                            // Rotation completes, refresh committee server version and PoP.
+                            if version == target_version {
+                                server.refresh_committee_server().await;
+                                info!("Rotation complete at version {version}. Exiting version monitor.");
+                                updater_handle.abort();
+                                break;
+                            } else if target_version == version + 1 {
+                                continue; // Still in rotation, keep monitoring.
+                            } else {
+                                // Unexpected version state - onchain version skipped or went backwards.
+                                panic!(
+                                    "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
+                                    target_version - 1
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            panic!("Version monitor channel closed unexpectedly: {e}");
+                        }
+                    }
+                }
+            });
+        }
+    }
 }
 
 #[allow(clippy::single_match)]
@@ -501,8 +738,6 @@ async fn handle_fetch_key_internal(
     req_id: Option<&str>,
     sdk_version: &str,
 ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
-    app_state.check_full_node_is_fresh()?;
-
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
 
     // Report the number of id's in the request to the metrics.
@@ -589,6 +824,8 @@ async fn handle_get_service(
     let pop = *app_state
         .server
         .key_server_oid_to_pop
+        .read()
+        .map_err(|e| InternalError::Failure(format!("Failed to read PoP map: {e}")))?
         .get(&service_id)
         .ok_or(InternalError::InvalidServiceId)?;
 
@@ -599,24 +836,10 @@ async fn handle_get_service(
 struct MyState {
     metrics: Arc<Metrics>,
     server: Arc<Server>,
-    latest_checkpoint_timestamp_receiver: Receiver<Timestamp>,
     reference_gas_price_receiver: Receiver<u64>,
 }
 
 impl MyState {
-    fn check_full_node_is_fresh(&self) -> Result<(), InternalError> {
-        // Compute the staleness of the latest checkpoint timestamp.
-        let staleness =
-            saturating_duration_since(*self.latest_checkpoint_timestamp_receiver.borrow());
-        if staleness > self.server.options.allowed_staleness {
-            return Err(InternalError::Failure(format!(
-                "Full node is stale. Latest checkpoint is {} ms old.",
-                staleness.as_millis()
-            )));
-        }
-        Ok(())
-    }
-
     fn reference_gas_price(&self) -> u64 {
         *self.reference_gas_price_receiver.borrow()
     }
@@ -699,7 +922,6 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 }
 
 /// Spawn server's background tasks:
-///  - background checkpoint downloader
 ///  - reference gas price updater.
 ///  - optional metrics pusher (if configured).
 ///
@@ -708,20 +930,15 @@ async fn start_server_background_tasks(
     server: Arc<Server>,
     metrics: Arc<Metrics>,
     registry: prometheus::Registry,
-) -> (
-    Receiver<Timestamp>,
-    Receiver<u64>,
-    JoinHandle<anyhow::Result<()>>,
-) {
-    // Spawn background checkpoint timestamp updater.
-    let (latest_checkpoint_timestamp_receiver, latest_checkpoint_timestamp_handle) = server
-        .spawn_latest_checkpoint_timestamp_updater(Some(&metrics))
-        .await;
-
+) -> (Receiver<u64>, JoinHandle<anyhow::Result<()>>) {
     // Spawn background reference gas price updater.
     let (reference_gas_price_receiver, reference_gas_price_handle) = server
         .spawn_reference_gas_price_updater(Some(&metrics))
         .await;
+
+    // Spawn committee version updater only if the server is in committee mode and is during
+    // rotation (current onchain version is target-1).
+    server.spawn_committee_version_updater().await;
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);
@@ -729,15 +946,6 @@ async fn start_server_background_tasks(
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
         tokio::select! {
-            result = latest_checkpoint_timestamp_handle => {
-                if let Err(e) = result {
-                    error!("Latest checkpoint timestamp updater panicked: {:?}", e);
-                    if e.is_panic() {
-                        std::panic::resume_unwind(e.into_panic());
-                    }
-                    return Err(e.into());
-                }
-            }
             result = reference_gas_price_handle => {
                 if let Err(e) = result {
                     error!("Reference gas price updater panicked: {:?}", e);
@@ -761,11 +969,7 @@ async fn start_server_background_tasks(
         unreachable!("One of the background tasks should have returned an error");
     });
 
-    (
-        latest_checkpoint_timestamp_receiver,
-        reference_gas_price_receiver,
-        handle,
-    )
+    (reference_gas_price_receiver, handle)
 }
 
 #[tokio::main]
@@ -773,8 +977,17 @@ async fn main() -> Result<()> {
     let _guard = mysten_service::logging::init();
     let (monitor_handle, app) = app().await?;
 
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| DEFAULT_PORT.to_string())
+        .parse()
+        .context("Invalid PORT")?;
+
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("Key server listening on http://localhost:{}", port);
+
     tokio::select! {
-        server_result = serve(app) => {
+        server_result = axum::serve(listener, app) => {
             error!("Server stopped with status {:?}", server_result);
             std::process::exit(1);
         }
@@ -798,29 +1011,21 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             .expect("Failed to parse configuration file");
 
             // Handle Custom network NODE_URL configuration
-            if let Network::Custom {
-                ref mut node_url, ..
-            } = opts.network
-            {
-                let env_node_url = env::var("NODE_URL").ok();
-
-                match (node_url.as_ref(), env_node_url.as_ref()) {
-                    (Some(_), Some(_)) => {
-                        panic!("NODE_URL cannot be provided in both config file and environment variable. Please use only one source.");
-                    }
-                    (None, Some(url)) => {
-                        info!("Using NODE_URL from environment variable: {}", url);
-                        *node_url = Some(url.clone());
-                    }
-                    (Some(url), None) => {
-                        info!("Using NODE_URL from config file: {}", url);
-                    }
-                    (None, None) => {
-                        panic!("Custom network requires NODE_URL to be set either in config file or as environment variable");
-                    }
+            match (&opts.node_url, env::var("NODE_URL").ok()) {
+                (Some(_), Some(_)) => {
+                    panic!("NODE_URL cannot be provided in both config file and environment variable. Please use only one source.");
+                }
+                (None, Some(url)) => {
+                    info!("Using NODE_URL from environment variable: {}", url);
+                    opts.node_url = Some(url.clone());
+                }
+                (Some(_), None) => {
+                    info!("Using NODE_URL from config file: {}", opts.node_url());
+                }
+                (None, None) => {
+                    info!("Using default NODE_URL: {}", opts.node_url());
                 }
             }
-
             opts
         }
         Err(_) => {
@@ -862,13 +1067,12 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     options.validate()?;
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
-    let (latest_checkpoint_timestamp_receiver, reference_gas_price_receiver, monitor_handle) =
+    let (reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;
 
     let state = MyState {
         metrics,
         server,
-        latest_checkpoint_timestamp_receiver,
         reference_gas_price_receiver,
     };
 

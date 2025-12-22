@@ -9,6 +9,7 @@ use duration_str::deserialize_duration;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tracing::info;
 
@@ -36,6 +37,17 @@ pub struct ClientConfig {
     pub package_ids: Vec<ObjectID>,     // first versions only
 }
 
+/// State of the committee key server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CommitteeState {
+    /// Active mode: the key server is operating with one master share. Version is determined from
+    /// the onchain key server object.
+    Active,
+    /// Rotation mode: the key server is rotating to a new version. Target version is read from the
+    /// the config, and the current is target - 1.
+    Rotation { target_version: u32 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ServerMode {
     Open {
@@ -46,6 +58,12 @@ pub enum ServerMode {
     Permissioned {
         // Master key is expected to by 32 byte HKDF seed
         client_configs: Vec<ClientConfig>,
+    },
+    Committee {
+        member_address: Address,
+        key_server_obj_id: Address,
+        /// The state of the committee: Active or Rotation.
+        committee_state: CommitteeState,
     },
 }
 
@@ -96,6 +114,9 @@ pub struct KeyServerOptions {
     /// The network this key server is running on.
     pub network: Network,
 
+    /// A custom node URL. If not set, the default for the given network is used.
+    pub node_url: Option<String>,
+
     /// If the server is open or permissioned.
     pub server_mode: ServerMode,
 
@@ -105,13 +126,6 @@ pub struct KeyServerOptions {
 
     #[serde(default = "default_metrics_host_port")]
     pub metrics_host_port: u16,
-
-    /// The interval at which the latest checkpoint timestamp is updated.
-    #[serde(
-        default = "default_checkpoint_update_interval",
-        deserialize_with = "deserialize_duration"
-    )]
-    pub checkpoint_update_interval: Duration,
 
     /// The interval at which the reference gas price is updated.
     #[serde(
@@ -146,18 +160,24 @@ pub struct KeyServerOptions {
 }
 
 impl KeyServerOptions {
+    pub fn node_url(&self) -> &str {
+        self.node_url
+            .as_deref()
+            .unwrap_or_else(|| self.network.default_node_url())
+    }
+
     pub fn new_open_server_with_default_values(
         network: Network,
         key_server_object_id: ObjectID,
     ) -> Self {
         Self {
             network,
+            node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
             },
             metrics_host_port: default_metrics_host_port(),
-            checkpoint_update_interval: default_checkpoint_update_interval(),
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
@@ -170,12 +190,12 @@ impl KeyServerOptions {
     pub fn new_for_testing(network: Network) -> Self {
         Self {
             network,
+            node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
             },
             metrics_host_port: default_metrics_host_port(),
-            checkpoint_update_interval: default_checkpoint_update_interval(),
             rgp_update_interval: default_rgp_update_interval(),
             allowed_staleness: default_allowed_staleness(),
             session_key_ttl_max: default_session_key_ttl_max(),
@@ -237,6 +257,7 @@ impl KeyServerOptions {
                         config.key_server_object_id
                     ));
                 }
+
                 for pkg_id in &config.package_ids {
                     if !obj_ids.insert(*pkg_id) {
                         return Err(anyhow!("Duplicate package ID: {}", pkg_id));
@@ -255,7 +276,6 @@ impl KeyServerOptions {
         }
         Ok(())
     }
-
     pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
         match &self.server_mode {
             ServerMode::Open {
@@ -273,12 +293,11 @@ impl KeyServerOptions {
                 })
                 .map(|c| c.key_server_object_id)
                 .collect(),
+            ServerMode::Committee {
+                key_server_obj_id, ..
+            } => vec![ObjectID::new(key_server_obj_id.into_inner())],
         }
     }
-}
-
-fn default_checkpoint_update_interval() -> Duration {
-    Duration::from_secs(10)
 }
 
 fn default_rgp_update_interval() -> Duration {
@@ -303,7 +322,6 @@ fn default_sdk_version_requirement() -> VersionReq {
 
 #[test]
 fn test_parse_open_config() {
-    use crate::mvr::resolve_network;
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet
@@ -311,7 +329,6 @@ sdk_version_requirement: '>=0.2.7'
 metrics_host_port: 1234
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000002'
-checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'
@@ -331,25 +348,30 @@ session_key_ttl_max: '60s'
     };
     assert_eq!(options.server_mode, expected_server_mode);
 
-    assert_eq!(options.checkpoint_update_interval, Duration::from_secs(13));
-
-    let valid_configuration_custom_network = r#"
-network: !Custom
-  node_url: https://node.dk
-  use_default_mainnet_for_mvr: false
+    let valid_configuration_custom_node_url = r#"
+network: Testnet
+node_url: https://node.dk
 server_mode: !Open
   key_server_object_id: '0x0'
 "#;
-    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_network)
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_custom_node_url)
         .expect("Failed to parse valid configuration");
 
-    assert!(resolve_network(&options.network).unwrap() == Network::Testnet);
+    assert_eq!(options.network, Network::Testnet);
+    assert_eq!(options.node_url, Some("https://node.dk".to_string()));
+
+    let valid_configuration_devnet = r#"
+network: !Devnet
+  seal_package: '0x7'
+server_mode: !Open
+  key_server_object_id: '0x0'
+"#;
+    let options: KeyServerOptions = serde_yaml::from_str(valid_configuration_devnet)
+        .expect("Failed to parse valid configuration");
+    assert!(matches!(options.network, Network::Devnet { .. }));
     assert_eq!(
-        options.network,
-        Network::Custom {
-            node_url: Some("https://node.dk".to_string()),
-            use_default_mainnet_for_mvr: Some(false),
-        }
+        options.network.seal_package().package_id(),
+        ObjectID::from_str("0x7").unwrap()
     );
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
@@ -357,31 +379,8 @@ server_mode: !Open
 }
 
 #[test]
-fn test_parse_custom_network_with_env_var() {
-    use crate::mvr::resolve_network;
-    // Test that NODE_URL can be omitted from config when not set in env
-    let config_without_url = r#"
-network: !Custom {}
-server_mode: !Open
-  key_server_object_id: '0x0'
-"#;
-
-    let options: KeyServerOptions = serde_yaml::from_str(config_without_url)
-        .expect("Failed to parse configuration without node_url");
-
-    assert!(resolve_network(&options.network).unwrap() == Network::Mainnet);
-    match options.network {
-        Network::Custom { node_url, .. } => {
-            assert_eq!(node_url, None);
-        }
-        _ => panic!("Expected Custom network"),
-    }
-}
-
-#[test]
 fn test_parse_permissioned_config() {
     use std::str::FromStr;
-
     let valid_configuration = r#"
 network: Mainnet
 sdk_version_requirement: '>=0.2.7'
@@ -407,7 +406,6 @@ server_mode: !Permissioned
       key_server_object_id: "0xcccc000000000000000000000000000000000000000000000000000000000003"
       package_ids:
       - "0x3333333333333333333333333333333333333333333333333333333333333333"
-checkpoint_update_interval: '13s'
 rgp_update_interval: '5s'
 allowed_staleness: '2s'
 session_key_ttl_max: '60s'

@@ -2,35 +2,36 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::InternalError::UnsupportedPackageId;
-use crate::key_server_options::{
-    ClientConfig, ClientKeyType, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
-};
+use crate::key_server_options::{ClientConfig, ClientKeyType, CommitteeState};
 use crate::master_keys::MasterKeys;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::externals::get_key;
+use crate::tests::test_utils::{create_committee_servers, create_server};
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::tests::SealTestCluster;
-use crate::time::from_mins;
-use crate::types::Network;
-use crate::{DefaultEncoding, Server};
 use crypto::elgamal::encrypt;
 use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};
 use crypto::{
-    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptionInput, IBEPublicKeys,
-    IBEUserSecretKeys,
+    create_full_id, ibe, seal_decrypt, seal_encrypt, EncryptedObject, EncryptionInput,
+    IBEPublicKeys, IBEUserSecretKeys,
 };
-use fastcrypto::encoding::Encoding;
+use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::groups::bls12381::G1Element;
 use fastcrypto::serde_helpers::ToFromByteArray;
+use fastcrypto_tbls::{
+    tbls::{PartialSignature, ThresholdBls},
+    types::ThresholdBls12381MinSig,
+};
 use futures::future::join_all;
+use rand::seq::SliceRandom;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
-use seal_sdk::{genkey, seal_decrypt_all_objects};
-use semver::VersionReq;
+use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use std::collections::HashMap;
+use std::num::NonZeroU16;
 use std::str::FromStr;
-use std::time::Duration;
-use sui_rpc::client::v2::Client as SuiGrpcClient;
-use sui_sdk::SuiClient;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
@@ -40,8 +41,9 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_e2e() {
-    let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_servers(3).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -112,10 +114,11 @@ async fn test_e2e() {
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
-    let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_servers(3).await;
-
+    let mut tc = SealTestCluster::new(1, "seal").await;
     let (examples_package_id, _) = tc.publish("patterns").await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_servers(3, seal_package).await;
 
     let (whitelist, cap, _initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
@@ -213,20 +216,25 @@ async fn test_e2e_decrypt_all_objects() {
 
     let encrypted_objects = vec![encryption1, encryption2];
 
-    let decrypted =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
-            .unwrap();
+    // Decrypt all keys from all servers at once
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
 
-    assert_eq!(decrypted.len(), 2);
-    assert_eq!(decrypted[0], message1);
-    assert_eq!(decrypted[1], message2);
+    // Decrypt each object using the cached keys
+    let decrypted1 =
+        seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map).unwrap();
+    let decrypted2 =
+        seal_decrypt_object(&encrypted_objects[1], &cached_keys, &server_pk_map).unwrap();
+
+    assert_eq!(decrypted1, message1);
+    assert_eq!(decrypted2, message2);
 }
 
 #[traced_test]
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects_missing_servers() {
-    let mut tc = SealTestCluster::new(1).await;
-    tc.add_open_servers(3).await;
+    let mut tc = SealTestCluster::new(1, "seal").await;
+    let (seal_package, _) = tc.publish("seal").await;
+    tc.add_open_servers(3, seal_package).await;
 
     let (examples_package_id, _) = tc.publish("patterns").await;
 
@@ -324,27 +332,33 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
         server_pk_map.insert(service_id_sdk, public_key);
     }
 
-    // Scenario A - One server is missing, but threshold is reached
+    // Scenario A - One server is missing, but threshold (=2) is still reached
     seal_responses.remove(0);
 
     let encrypted_objects = vec![encryption1.clone(), encryption2.clone()];
 
-    let decrypted =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map)
-            .unwrap();
+    // Decrypt all keys from remaining servers at once
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
 
-    assert_eq!(decrypted.len(), 2);
-    assert_eq!(decrypted[0], message1);
-    assert_eq!(decrypted[1], message2);
+    // Decrypt each object using the cached keys
+    let decrypted1 =
+        seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map).unwrap();
+    let decrypted2 =
+        seal_decrypt_object(&encrypted_objects[1], &cached_keys, &server_pk_map).unwrap();
+
+    assert_eq!(decrypted1, message1);
+    assert_eq!(decrypted2, message2);
 
     // Scenario B - A second server is missing, threshold no longer reached
-
     seal_responses.remove(0);
 
     let encrypted_objects = vec![encryption1, encryption2];
 
-    let decrypted_result =
-        seal_decrypt_all_objects(&eg_sk, &seal_responses, &encrypted_objects, &server_pk_map);
+    // Only 1 server remaining - not enough for threshold=2
+    let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
+
+    // Try to decrypt object - should fail due to insufficient keys (threshold=2 but only 1 server)
+    let decrypted_result = seal_decrypt_object(&encrypted_objects[0], &cached_keys, &server_pk_map);
 
     assert!(decrypted_result.is_err());
 }
@@ -366,6 +380,7 @@ async fn test_e2e_permissioned() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -378,6 +393,7 @@ async fn test_e2e_permissioned() {
     let server1 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![
             ClientConfig {
                 name: "Client 1 on server 1".to_string(),
@@ -404,6 +420,7 @@ async fn test_e2e_permissioned() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -493,6 +510,8 @@ async fn test_e2e_imported_key() {
     let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
         .await
         .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+
     // Generate a key pair for the key server
     let mut rng = thread_rng();
     let seed = generate_seed(&mut rng);
@@ -504,6 +523,7 @@ async fn test_e2e_imported_key() {
     let server1 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![ClientConfig {
             name: "Key server client 1".to_string(),
             client_master_key: ClientKeyType::Derived {
@@ -575,6 +595,7 @@ async fn test_e2e_imported_key() {
     let server2 = create_server(
         cluster.sui_client().clone(),
         grpc_client.clone(),
+        seal_package,
         vec![ClientConfig {
             name: "Key server client 2".to_string(),
             client_master_key: ClientKeyType::Imported {
@@ -612,6 +633,7 @@ async fn test_e2e_imported_key() {
     let server3 = create_server(
         cluster.sui_client().clone(),
         grpc_client,
+        seal_package,
         vec![
             ClientConfig {
                 name: "Key server client 3.0".to_string(),
@@ -639,40 +661,256 @@ async fn test_e2e_imported_key() {
         .is_err_and(|e| e == UnsupportedPackageId));
 }
 
-async fn create_server(
-    sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
-    client_configs: Vec<ClientConfig>,
-    vars: impl AsRef<[(&str, &[u8])]>,
-) -> Server {
-    let options = KeyServerOptions {
-        network: Network::TestCluster,
-        server_mode: ServerMode::Permissioned { client_configs },
-        metrics_host_port: 0,
-        checkpoint_update_interval: Duration::from_secs(10),
-        rgp_update_interval: Duration::from_secs(60),
-        sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
-        allowed_staleness: Duration::from_secs(120),
-        session_key_ttl_max: from_mins(30),
-        rpc_config: RpcConfig::default(),
-        metrics_push_config: None,
-    };
+#[traced_test]
+#[tokio::test]
+async fn test_e2e_committee_mode_with_rotation() {
+    // Create a test cluster.
+    let cluster = TestClusterBuilder::new()
+        .with_num_validators(1)
+        .build()
+        .await;
+    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
 
-    let vars = vars
-        .as_ref()
-        .iter()
-        .map(|(k, v)| (k.to_string(), Some(DefaultEncoding::encode(v))))
-        .collect::<Vec<_>>();
+    // Publish the patterns package.
+    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+        .await
+        .0;
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
 
-    Server {
-        sui_rpc_client: SuiRpcClient::new(
-            sui_client,
-            sui_grpc_client,
-            RetryConfig::default(),
-            None,
-        ),
-        master_keys: temp_env::with_vars(vars, || MasterKeys::load(&options)).unwrap(),
-        key_server_oid_to_pop: HashMap::new(),
-        options,
+    // Fresh DKG shares from parties 0, 1, 2 (t=2).
+    let master_shares = [
+        "0x2c8e06a3ba09ff64b841d39df9534e35cee33605033003a634fe6ca2a90c216d",
+        "0x69802da036d15184daa8e444a97e2390d2ab370d94a37f29209006546d61be0d",
+        "0x3284ad4989fb265cc9d61ce3500720e682b5941326189ead0c21a00731b75aac",
+    ];
+
+    // Rotated shares for parties 0, 1, 3, 4 (t=3 after rotation). Party 2 is leaving.
+    let next_master_shares = [
+        Some("0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9"),
+        Some("0x11761fd7d8719dc4297418768ffd3578ecc348e516cbbe2d9de36b6965353182"),
+        None,
+        Some("0x39c3df31bf3e5082e2ae825aa35c53f478bed3a0c9bdbffb95ff2788b6ca3cd3"),
+        Some("0x40375e5b0adc12c2084f96bf6fe6b5d1e3124a73d7a08bbf39a44b2f87e09b6f"),
+    ];
+
+    // Committee member addresses for parties 0, 1, 2, 3, 4.
+    let member_addresses = [
+        "0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d",
+        "0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6",
+        "0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9",
+        "0x5c8a9a87b0f84c6e92d3f1a4b7e0c6d3f2a9e8b5c4d1a0f7e9b2c3d5a6f8e1b4",
+        "0x7d9b8e6a5c4f3d2e1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8",
+    ]
+    .map(|addr| NewObjectID::from_str(addr).unwrap());
+
+    // Key server aggregated public key finalized from DKG.
+    let aggregated_pk_bytes = Hex::decode("0x95a35c03681de93032e9a0544b9b8533ffd7fabe1e70b29a844030237e84789c0c34c0e5a5b12a33e345599ba90f096f17ddd3a8586a4a0de28c13e249c3767026a4bbdb4343885b50115931f8e8a77d735d269ac5a5eca05787d0b91c4a5ffb").unwrap();
+    let aggregated_pk =
+        ibe::PublicKey::from_byte_array(&aggregated_pk_bytes.try_into().unwrap()).unwrap();
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(vec![aggregated_pk]);
+
+    // Use a test key server object id.
+    let key_server_object_id = NewObjectID::new(ObjectID::random().into_bytes());
+
+    // Create test user and add to whitelist.
+    let (address, user_keypair) = get_key_pair_from_rng(&mut thread_rng());
+    let user_keypair = Arc::new(user_keypair);
+    let (whitelist, cap, initial_shared_version) = create_whitelist(&cluster, package_id).await;
+    add_user_to_whitelist(&cluster, package_id, whitelist, cap, address).await;
+    let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
+
+    // Encrypt a message with key server pk.
+    let message = b"Hello, world!";
+    let encryption = seal_encrypt(
+        NewObjectID::new(package_id.into_bytes()),
+        whitelist.to_vec(),
+        vec![key_server_object_id],
+        &pks,
+        1, // Always use 1 for committee mode.
+        EncryptionInput::Aes256Gcm {
+            data: message.to_vec(),
+            aad: None,
+        },
+    )
+    .unwrap()
+    .0;
+
+    // Create initial committee servers (parties 0, 1, 2).
+    let mut servers = Vec::new();
+
+    // Parties 0, 1: rotation in progress (current=0, target=1), both have two shares.
+    servers.extend(
+        create_committee_servers(
+            cluster.sui_client().clone(),
+            grpc_client.clone(),
+            seal_package,
+            key_server_object_id,
+            member_addresses[0..2].to_vec(),
+            vec![
+                vec![
+                    ("MASTER_SHARE_V0", Hex::decode(master_shares[0]).unwrap()),
+                    (
+                        "MASTER_SHARE_V1",
+                        Hex::decode(next_master_shares[0].unwrap()).unwrap(),
+                    ),
+                ],
+                vec![
+                    ("MASTER_SHARE_V0", Hex::decode(master_shares[1]).unwrap()),
+                    (
+                        "MASTER_SHARE_V1",
+                        Hex::decode(next_master_shares[1].unwrap()).unwrap(),
+                    ),
+                ],
+            ],
+            0, // onchain_version
+            CommitteeState::Rotation { target_version: 1 },
+        )
+        .await,
+    );
+
+    // Party 2: Active mode at version 0 (leaving committee, just v0 share).
+    servers.extend(
+        create_committee_servers(
+            cluster.sui_client().clone(),
+            grpc_client.clone(),
+            seal_package,
+            key_server_object_id,
+            vec![member_addresses[2]],
+            vec![vec![(
+                "MASTER_SHARE_V0",
+                Hex::decode(master_shares[2]).unwrap(),
+            )]],
+            0, // onchain_version
+            CommitteeState::Active,
+        )
+        .await,
+    );
+
+    // Fresh DKG committee: parties 0, 1, 2.
+    let committee = [&servers[0], &servers[1], &servers[2]];
+
+    // Randomly select 2 out of 3 parties.
+    let mut rng = thread_rng();
+    let party_ids: Vec<u8> = vec![0, 1, 2];
+    let selected_party_ids: Vec<u8> = party_ids.choose_multiple(&mut rng, 2).copied().collect();
+
+    // Fetch keys from selected parties.
+    let usks_with_party_ids: Vec<(u8, G1Element)> =
+        join_all(selected_party_ids.iter().map(|&party_id| {
+            let ptb = ptb.clone();
+            let user_keypair = Arc::clone(&user_keypair);
+            let server = committee[party_id as usize];
+            async move {
+                let usk = get_key(server, &package_id, ptb, &user_keypair)
+                    .await
+                    .unwrap();
+                (party_id, usk)
+            }
+        }))
+        .await;
+
+    // Decrypt ok with 2 out of 3 servers.
+    let decryption = decrypt_with_threshold_and_party_ids(
+        2,
+        usks_with_party_ids,
+        key_server_object_id,
+        &encryption,
+        &pks,
+    );
+    assert_eq!(decryption, message);
+
+    // Manually update current version = target version for party 0 and 1 servers.
+    servers.iter().for_each(|server| {
+        if let MasterKeys::Committee {
+            committee_version, ..
+        } = &server.master_keys
+        {
+            committee_version.store(1, Ordering::Relaxed);
+        }
+    });
+
+    // Add party 3 and 4 with only MASTER_SHARE_V1 from the dkg rotation.
+    let new_servers = create_committee_servers(
+        cluster.sui_client().clone(),
+        grpc_client.clone(),
+        seal_package,
+        key_server_object_id,
+        vec![member_addresses[3], member_addresses[4]],
+        vec![
+            vec![(
+                "MASTER_SHARE_V1",
+                Hex::decode(next_master_shares[3].unwrap()).unwrap(),
+            )],
+            vec![(
+                "MASTER_SHARE_V1",
+                Hex::decode(next_master_shares[4].unwrap()).unwrap(),
+            )],
+        ],
+        1, // onchain_version
+        CommitteeState::Active,
+    )
+    .await;
+
+    // Set up new committee. Parties 0,1 from old committee (swapped), parties 3,4 new, all at version 1.
+    let new_committee = [&servers[1], &servers[0], &new_servers[0], &new_servers[1]];
+
+    // Randomly select 3 out of 4 parties.
+    let selected_new_party_ids: Vec<u8> =
+        [0, 1, 2, 3].choose_multiple(&mut rng, 3).copied().collect();
+
+    // Fetch keys from selected parties.
+    let new_usks_with_party_ids: Vec<(u8, G1Element)> =
+        join_all(selected_new_party_ids.iter().map(|&party_id| {
+            let ptb = ptb.clone();
+            let user_keypair = Arc::clone(&user_keypair);
+            let server = new_committee[party_id as usize];
+            async move {
+                let usk = get_key(server, &package_id, ptb, &user_keypair)
+                    .await
+                    .unwrap();
+                (party_id, usk)
+            }
+        }))
+        .await;
+
+    // Decrypt works with new committee.
+    let new_decryption = decrypt_with_threshold_and_party_ids(
+        3,
+        new_usks_with_party_ids,
+        key_server_object_id,
+        &encryption,
+        &pks,
+    );
+    assert_eq!(new_decryption, message);
+}
+
+/// Helper function to perform threshold aggregation and decryption with party IDs.
+fn decrypt_with_threshold_and_party_ids(
+    threshold: u16,
+    usks_with_party_ids: Vec<(u8, G1Element)>,
+    key_server_object_id: NewObjectID,
+    encryption: &EncryptedObject,
+    pks: &IBEPublicKeys,
+) -> Vec<u8> {
+    let mut partial_usks = Vec::new();
+    for (party_id, usk) in usks_with_party_ids.iter() {
+        partial_usks.push(PartialSignature::<G1Element> {
+            index: NonZeroU16::new((party_id + 1) as u16).unwrap(),
+            value: *usk,
+        });
     }
+
+    let aggregated_usk =
+        ThresholdBls12381MinSig::aggregate(threshold, partial_usks.iter()).unwrap();
+
+    let usks_map: HashMap<_, _> = vec![(key_server_object_id, aggregated_usk)]
+        .into_iter()
+        .collect();
+
+    seal_decrypt(
+        encryption,
+        &IBEUserSecretKeys::BonehFranklinBLS12381(usks_map),
+        Some(pks),
+    )
+    .unwrap()
 }

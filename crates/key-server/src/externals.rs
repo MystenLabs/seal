@@ -4,9 +4,9 @@
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
+use crate::mvr_forward_resolution;
 use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
-use crate::{mvr_forward_resolution, Timestamp};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
@@ -102,18 +102,6 @@ pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
     MVR_CACHE.get(&mvr_name.to_string())
 }
 
-/// Returns the timestamp for the latest checkpoint.
-pub(crate) async fn get_latest_checkpoint_timestamp(
-    sui_rpc_client: SuiRpcClient,
-) -> RpcResult<Timestamp> {
-    let latest_checkpoint_sequence_number = sui_rpc_client
-        .get_latest_checkpoint_sequence_number()
-        .await?;
-    sui_rpc_client
-        .get_checkpoint_time(latest_checkpoint_sequence_number)
-        .await
-}
-
 pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> RpcResult<u64> {
     sui_rpc_client.get_reference_gas_price().await.tap_err(|e| {
         warn!("Failed retrieving RGP ({:?})", e);
@@ -132,7 +120,7 @@ mod tests {
     use fastcrypto::secp256r1::Secp256r1KeyPair;
     use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
-    use sui_rpc::client::v2::Client as SuiGrpcClient;
+    use sui_rpc::client::Client as SuiGrpcClient;
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
@@ -146,12 +134,12 @@ mod tests {
         .unwrap();
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
-                .build(&Network::Testnet.node_url())
+                .build(&Network::Testnet.default_node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Testnet.node_url())
+            SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,
@@ -174,12 +162,12 @@ mod tests {
         let invalid_address = ObjectID::ZERO;
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
-                .build(&Network::Mainnet.node_url())
+                .build(&Network::Mainnet.default_node_url())
                 .await
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(Network::Mainnet.node_url())
+            SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,

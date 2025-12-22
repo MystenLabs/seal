@@ -17,10 +17,12 @@ use tracing_test::traced_test;
 #[traced_test]
 #[tokio::test]
 async fn test_pd() {
-    let mut tc = SealTestCluster::new(2).await;
-    tc.add_open_server().await;
+    let mut tc = SealTestCluster::new(2, "seal").await;
 
     let (package_id, _) = tc.publish("patterns").await;
+    let (seal_package, _) = tc.publish("seal").await;
+
+    tc.add_open_server(seal_package).await;
 
     // create PrivateData with nonce=package_id, owned by addr1
     let (pd, version, digest) =

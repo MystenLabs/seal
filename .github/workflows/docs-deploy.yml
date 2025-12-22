@@ -2,6 +2,13 @@ name: Docs Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'ws-resources.json'
 
 concurrency:
   group: docs-deploy-${{ github.ref }}
@@ -11,7 +18,7 @@ jobs:
   build-and-deploy:
     name: Build and deploy MkDocs to Walrus
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
@@ -50,10 +57,29 @@ jobs:
           brew install sui || (brew tap mystenlabs/tap && brew install mystenlabs/tap/sui)
           sui --version
 
+      - name: Initialize Sui client config (non-interactive)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.sui/sui_config"
+          # Initialize keystore with valid empty JSON array
+          echo '[]' > "$HOME/.sui/sui_config/sui.keystore"
+          # Write minimal client.yaml pointing to keystore and mainnet env
+          cat > "$HOME/.sui/sui_config/client.yaml" <<YAML
+          keystore:
+            File: "$HOME/.sui/sui_config/sui.keystore"
+          envs:
+            - alias: mainnet
+              rpc: "https://fullnode.mainnet.sui.io:443"
+          active_env: mainnet
+          # Active address will be set later after key import
+          YAML
+          # Show resulting config for debugging
+          cat "$HOME/.sui/sui_config/client.yaml"
+
       - name: Configure Sui client for mainnet
         run: |
           # Create or update mainnet env and switch to it
-          sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:44 || true
+          sui client new-env --alias mainnet --rpc https://fullnode.mainnet.sui.io:443 || true
           sui client switch --env mainnet
 
       - name: Show Sui client info
@@ -64,32 +90,26 @@ jobs:
 
       - name: Import Sui private key and select address
         env:
-          SUI_PRIVATE_KEY: ${{ secrets.SUI_PRIVATE_KEY }}
+          SEAL_WALLET_PRIVATE_KEY: ${{ secrets.SEAL_WALLET_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${SUI_PRIVATE_KEY:-}" ]; then
-            echo "SUI_PRIVATE_KEY secret is not set. Add it in repository Settings > Secrets and variables > Actions." >&2
+          if [ -z "${SEAL_WALLET_PRIVATE_KEY:-}" ]; then
+            echo "SEAL_WALLET_PRIVATE_KEY secret is not set. Add it in repository Settings > Secrets and variables > Actions." >&2
             exit 1
           fi
           # Import the ed25519 key (idempotent)
-          sui keytool import "$SUI_PRIVATE_KEY" ed25519 || true
+          sui keytool import "$SEAL_WALLET_PRIVATE_KEY" ed25519 || true
 
           # Desired address
           target_addr="0x7edc2e9108968bc3df2b5543cf9ce9ee7bcdc28b043044e51cc1900510b6f58e"
-
-          # Try to find alias via 'sui client addresses' output
-          alias=$(sui client addresses 2>/dev/null | awk -v addr="$target_addr" '$0 ~ addr {print $1}' | head -n1 || true)
-
-          if [ -n "$alias" ]; then
-            sui client switch --address "$alias"
+          # Switch by address directly; verify address exists first
+          if sui client addresses | grep -qi "$target_addr"; then
+            sui client switch --address "$target_addr"
+            echo "Active address set to $target_addr"
           else
-            # Fall back to switching directly by address if supported
-            if sui client switch --address "$target_addr" 2>/dev/null; then
-              echo "Switched using address directly."
-            else
-              echo "Could not determine alias for $target_addr" >&2
-              exit 1
-            fi
+            echo "Target address $target_addr not found in imported key addresses" >&2
+            sui client addresses || true
+            exit 1
           fi
 
       - name: Install Walrus CLI
@@ -121,8 +141,58 @@ jobs:
 
       - name: Deploy site to Walrus and verify
         run: |
+          set -euo pipefail
           ls -la ./site || true
-          ./site-builder deploy ./site --check-extend --epochs 50
-          ./site-builder sitemap @seal-docs
+          export RUST_LOG=info
+
+          # Retry deploy up to 4 times with backoff to handle transient network timeouts
+          for attempt in 1 2 3 4; do
+            echo "Deploy attempt $attempt"
+            if ./site-builder deploy ./site --epochs 50; then
+              echo "Deploy succeeded on attempt $attempt";
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Deploy failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+
+          # Retry sitemap generation similarly
+          for attempt in 1 2 3; do
+            echo "Sitemap attempt $attempt"
+            if ./site-builder sitemap @seal-docs; then
+              echo "Sitemap succeeded on attempt $attempt";
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Sitemap failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
 
+  notify-failure:
+    name: Notify failure to slack channel
+    needs: [build-and-deploy]
+    if: ${{ always() && needs.build-and-deploy.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: dispatch failure notification to slack
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
+        with:
+          repository: MystenLabs/sui-operations
+          token: ${{ secrets.DOCS_DEPLOY_DISPATCH_TOKEN }}
+          event-type: seal-doc-deploy
+          client-payload: >-
+            {"source_repo":"${{ github.repository }}",
+             "sha":"${{ github.sha }}",
+             "ref":"${{ github.ref }}",
+             "actor":"${{ github.actor }}",
+             "run_id":"${{ github.run_id }}",
+             "run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+             "channel":"#seal-secret-mgmt",
+             "status":"failure"}

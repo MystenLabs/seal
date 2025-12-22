@@ -42,7 +42,11 @@ ignore = [
     # AES functions in `ring` may panic when overflow checking is enabled
     "RUSTSEC-2025-0009",
     # fxhash not maintained
-    "RUSTSEC-2025-0057"
+    "RUSTSEC-2025-0057",
+    # number_prefix not maintained
+    "RUSTSEC-2025-0119",
+    # rustls-pemfile is unmaintained
+    "RUSTSEC-2025-0134"
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
