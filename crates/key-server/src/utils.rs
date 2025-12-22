@@ -29,11 +29,11 @@ macro_rules! git_version {
 use crate::types::IbeMasterKey;
 use anyhow::anyhow;
 use crypto::ibe::MASTER_KEY_LENGTH;
-use fastcrypto::encoding::Encoding;
+use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
 pub use git_version;
 use std::env;
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
 
 /// Read a byte array from an environment variable and decode it using the specified encoding.
 pub fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> anyhow::Result<[u8; N]> {
@@ -57,8 +57,5 @@ pub fn decode_master_key<E: Encoding>(env_name: &str) -> anyhow::Result<IbeMaste
 
 /// Read an ObjectID from an environment variable.
 pub fn decode_object_id(env_name: &str) -> anyhow::Result<ObjectID> {
-    let hex_string =
-        env::var(env_name).map_err(|_| anyhow!("Environment variable {} must be set", env_name))?;
-    ObjectID::from_hex_literal(&hex_string)
-        .map_err(|_| anyhow!("Invalid ObjectID for environment variable {env_name}"))
+    decode_byte_array::<Hex, SUI_ADDRESS_LENGTH>(env_name).map(ObjectID::new)
 }
