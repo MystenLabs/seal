@@ -114,37 +114,6 @@ pub fn combine<const N: usize>(shares: &[(u8, [u8; N])]) -> FastCryptoResult<[u8
         .expect("fixed length"))
 }
 
-pub fn split_with_given_shares<const N: usize>(
-    given_shares: &[[u8; N]],
-    number_of_shares: u8,
-) -> FastCryptoResult<SecretSharing<N>> {
-    let threshold = given_shares.len();
-    if threshold > number_of_shares as usize || threshold == 0 {
-        return Err(InvalidInput);
-    }
-
-    let indices = (1..=number_of_shares).collect_vec();
-
-    // Share each byte of the secret individually.
-    let (secret, byte_shares): (Vec<u8>, Vec<Vec<u8>>) = (0..N)
-        .map(|i| {
-            split_byte_with_given_shares(&given_shares.iter().map(|s| s[i]).collect_vec(), &indices)
-        })
-        .collect::<FastCryptoResult<Vec<_>>>()?
-        .into_iter()
-        .unzip();
-
-    // Combine the byte shares into shares.
-    let shares = transpose(&byte_shares)?;
-    let secret = secret.try_into().expect("fixed length");
-
-    Ok(SecretSharing {
-        secret,
-        indices,
-        shares,
-    })
-}
-
 /// Internal function to share a secret.
 /// This is an implementation of Shamir's secret sharing over the Galois field of 256 elements.
 /// See https://dl.acm.org/doi/10.1145/359168.359176.
@@ -173,44 +142,6 @@ fn split_byte<R: AllowedRng>(
         .iter()
         .map(|i| polynomial.evaluate(&i.into()).into())
         .collect())
-}
-
-/// Create a secret sharing of `num_shares` shares such that at least `threshold` shares are needed
-/// to reconstruct the byte and such that the first `threshold` shares will be the given ones.
-///
-/// The shared secret will be determined by the given shares, and the process is deterministic.
-///
-/// Returns the secret and a vector of the shares.
-fn split_byte_with_given_shares(
-    given_shares: &[u8],
-    indices: &[u8],
-) -> FastCryptoResult<(u8, Vec<u8>)> {
-    let number_of_shares = indices.len();
-    let threshold = given_shares.len() + 1;
-    assert!(threshold <= number_of_shares && number_of_shares <= 255 && threshold > 0);
-    assert!(indices.iter().all(|&i| i != 0) && indices.iter().all_unique());
-
-    // Construct the polynomial that interpolates the given shares and the secret.
-    let polynomial = Polynomial::interpolate(
-        &indices
-            .iter()
-            .zip(given_shares)
-            .map(|(&x, &y)| (x.into(), y.into()))
-            .collect_vec(),
-    );
-
-    // The secret is the constant term of the polynomial.
-    let secret = polynomial.0[0].0;
-
-    // Evaluate the polynomial at the remaining indices to get the remaining shares.
-    let remaining_shares = indices[given_shares.len()..]
-        .iter()
-        .map(|i| polynomial.evaluate(&i.into()).0)
-        .collect();
-
-    let shares = [given_shares.to_vec(), remaining_shares].concat();
-
-    Ok((secret, shares))
 }
 
 /// Internal function to reconstruct a secret.
@@ -323,45 +254,5 @@ mod tests {
         assert_eq!(combine(&shares).unwrap(), expected);
 
         assert_ne!(combine(&shares[..1]).unwrap(), expected);
-    }
-
-    #[test]
-    fn test_split_byte_with_given_shares() {
-        let given_shares = [5, 19];
-        let indices = [1, 2, 3, 4, 5];
-
-        let (secret, shares) = split_byte_with_given_shares(&given_shares, &indices).unwrap();
-
-        let reconstructed = combine_byte(&[
-            (indices[0], shares[0]),
-            (indices[2], shares[2]),
-            (indices[4], shares[4]),
-        ])
-        .unwrap();
-        assert_eq!(reconstructed, secret);
-    }
-
-    #[test]
-    fn test_with_given_shares() {
-        let given_shares = [
-            *b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            *b"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-            *b"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-        ];
-        let threshold = given_shares.len() as u8;
-        let SecretSharing {
-            secret,
-            indices,
-            shares,
-        } = split_with_given_shares(&given_shares, 5).unwrap();
-
-        assert_eq!(threshold, given_shares.len() as u8);
-        assert_eq!(shares[0], given_shares[0]);
-        assert_eq!(shares[1], given_shares[1]);
-
-        assert_eq!(
-            secret,
-            combine(&(1..4).map(|i| (indices[i], shares[i])).collect_vec()).unwrap()
-        );
     }
 }

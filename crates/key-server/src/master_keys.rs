@@ -230,6 +230,7 @@ impl MasterKeys {
                 .ok_or(InternalError::InvalidServiceId),
         }
     }
+
     /// Load committee version to determine which master share to use.
     pub(crate) fn get_committee_server_master_share(
         &self,

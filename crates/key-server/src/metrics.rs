@@ -171,11 +171,11 @@ pub(crate) fn call_with_duration<T>(metrics: Option<&Histogram>, closure: impl F
 pub(crate) fn status_callback(metrics: &IntCounterVec) -> impl Fn(bool) + use<> {
     let metrics = metrics.clone();
     move |status: bool| {
-        let value = match status {
+        let label = match status {
             true => "success",
             false => "failure",
         };
-        metrics.with_label_values(&[value]).inc();
+        metrics.with_label_values(&[label]).inc();
     }
 }
 

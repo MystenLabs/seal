@@ -108,10 +108,10 @@ pub async fn push_metrics(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = match response.text().await {
-            Ok(body) => body,
-            Err(error) => format!("couldn't decode response body; {error}"),
-        };
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|error| format!("couldn't decode response body; {error}"));
         return Err(anyhow::anyhow!(
             "metrics push failed: [{}]:{}",
             status,
