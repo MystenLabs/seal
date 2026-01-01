@@ -93,7 +93,7 @@ mod seal_package;
 pub mod tests;
 mod time;
 
-const GAS_BUDGET: u64 = 500_000_000;
+const GAS_BUDGET: u64 = 25_000_000;
 const GIT_VERSION: &str = utils::git_version!();
 const DEFAULT_PORT: u16 = 2024;
 
