@@ -805,7 +805,8 @@ async fn test_e2e_committee_mode_with_rotation() {
         ptb.clone(),
         &user_keypair,
     )
-    .await;
+    .await
+    .expect("Aggregation should succeed");
 
     // Compute the full_id for this encrypted object to look up the correct key.
     let full_id = create_full_id(&package_id.into_bytes(), &encryption.id);
@@ -813,7 +814,7 @@ async fn test_e2e_committee_mode_with_rotation() {
         .get(&full_id)
         .expect("Should have key for encrypted object");
 
-    // Decrypt using the aggregated key (client treats it like a regular open-mode server key).
+    // Decrypt using the aggregated key.
     let decryption = seal_decrypt(
         &encryption,
         &IBEUserSecretKeys::BonehFranklinBLS12381(
@@ -865,6 +866,18 @@ async fn test_e2e_committee_mode_with_rotation() {
     let selected_new_party_ids: Vec<u8> =
         [0, 1, 2, 3].choose_multiple(&mut rng, 3).copied().collect();
 
+    // Insufficient threshold with new committee should fail.
+    let insufficient_new_result = get_aggregated_key_from_committee(
+        &new_committee,
+        &[0, 1], // Only 2 parties, threshold is 3
+        3,
+        &package_id,
+        ptb.clone(),
+        &user_keypair,
+    )
+    .await;
+    assert!(insufficient_new_result.is_err());
+
     // Use aggregator with new committee and new threshold.
     let new_aggregated_usks = get_aggregated_key_from_committee(
         &new_committee,
@@ -874,7 +887,8 @@ async fn test_e2e_committee_mode_with_rotation() {
         ptb.clone(),
         &user_keypair,
     )
-    .await;
+    .await
+    .expect("New committee aggregation should succeed");
 
     // Compute the full_id for this encrypted object to look up the correct key.
     let new_aggregated_usk = new_aggregated_usks
@@ -899,7 +913,7 @@ async fn test_e2e_committee_mode_with_rotation() {
 /// secret key shares from selected committee members, aggregating the encrypted responses,
 /// and decrypting the aggregated result to obtain the final user secret keys.
 ///
-/// Returns a HashMap mapping key_id to decrypted user secret key.
+/// Returns a HashMap mapping key_id to decrypted user secret key, or an error if aggregation fails.
 async fn get_aggregated_key_from_committee(
     committee: &[&Server],
     selected_party_ids: &[u8],
@@ -907,7 +921,7 @@ async fn get_aggregated_key_from_committee(
     package_id: &ObjectID,
     ptb: ProgrammableTransaction,
     user_keypair: &Ed25519KeyPair,
-) -> HashMap<Vec<u8>, G1Element> {
+) -> Result<HashMap<Vec<u8>, G1Element>, String> {
     // Generate ephemeral key pair.
     let (eg_sk, eg_pk, eg_vk) = elgamal::genkey::<_, G2Element, _>(&mut thread_rng());
 
@@ -931,7 +945,7 @@ async fn get_aggregated_key_from_committee(
             );
 
             // Get encrypted key from this committee member.
-            let response = server
+            server
                 .check_request(
                     &ValidPtb::try_from(ptb).unwrap(),
                     &eg_pk,
@@ -944,17 +958,19 @@ async fn get_aggregated_key_from_committee(
                     None,
                 )
                 .await
-                .unwrap();
-
-            let response_data = server.create_response(response.0, &response.1, &eg_pk);
-            (party_id as u16, response_data, server)
+                .ok()
+                .map(|response| {
+                    let response_data = server.create_response(response.0, &response.1, &eg_pk);
+                    (party_id as u16, response_data, server)
+                })
         }
     }))
     .await;
 
-    // Verify encrypted keys.
-    let verified_responses = responses_with_party_ids
+    // Verify encrypted keys - filter out failed servers.
+    let verified_responses: Vec<_> = responses_with_party_ids
         .into_iter()
+        .flatten()
         .map(|(party_id, response, server)| {
             // Derive partial key.
             let master_share = server
@@ -981,16 +997,16 @@ async fn get_aggregated_key_from_committee(
         .collect();
 
     // Aggregate the verified encrypted responses.
-    let aggregated_response =
-        aggregate_verified_encrypted_responses(threshold, verified_responses).unwrap();
+    let aggregated_response = aggregate_verified_encrypted_responses(threshold, verified_responses)
+        .map_err(|e| format!("Aggregation failed: {e}"))?;
 
     // Client decrypts all keys with ephemeral secret key.
-    aggregated_response
+    Ok(aggregated_response
         .decryption_keys
         .into_iter()
         .map(|dk| {
             let decrypted_key = elgamal::decrypt(&eg_sk, &dk.encrypted_key);
             (dk.id, decrypted_key)
         })
-        .collect()
+        .collect())
 }

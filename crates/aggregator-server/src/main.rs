@@ -213,7 +213,7 @@ async fn handle_fetch_key(
 
     // Get the oldest version for all committee servers' responses and use it for the aggregator
     // response header, along with its corresponding git version.
-    let (min_version, git_version) = server_metadata
+    let (oldest_version, git_version) = server_metadata
         .iter()
         .filter_map(|(v, g)| Version::parse(v).ok().map(|parsed| (parsed, v, g)))
         .min_by_key(|(parsed, _, _)| parsed.clone())
@@ -221,13 +221,13 @@ async fn handle_fetch_key(
         .unwrap_or_default();
     info!(
         "Oldest key server version: {}, git version: {}",
-        min_version, git_version
+        oldest_version, git_version
     );
 
     let mut headers = HeaderMap::new();
     headers.insert(
         "X-KeyServer-Version",
-        min_version.parse().expect("Invalid header version"),
+        oldest_version.parse().expect("Invalid header version"),
     );
     headers.insert(
         "X-KeyServer-GitVersion",
@@ -404,6 +404,130 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
+    /// Helper to create a FetchKeyRequest for testing.
+    fn create_test_fetch_key_request(
+        rng: &mut impl fastcrypto::traits::AllowedRng,
+    ) -> (
+        FetchKeyRequest,
+        crypto::elgamal::PublicKey<G1Element>,
+        crypto::elgamal::VerificationKey<G2Element>,
+    ) {
+        let (_, enc_key, enc_verification_key) = genkey::<G1Element, G2Element, _>(rng);
+        let kp = Ed25519KeyPair::generate(rng);
+        let pk = kp.public().clone();
+        let sig: Ed25519Signature = kp.sign(b"test");
+        let mut user_sig_bytes = vec![0u8];
+        user_sig_bytes.extend_from_slice(sig.as_bytes());
+        user_sig_bytes.extend_from_slice(pk.as_bytes());
+
+        let request = FetchKeyRequest {
+            ptb: "{}".to_string(),
+            enc_key: enc_key.clone(),
+            enc_verification_key: enc_verification_key.clone(),
+            request_signature: sig,
+            certificate: Certificate {
+                user: Address::from([0u8; 32]),
+                session_vk: pk,
+                creation_time: 0,
+                ttl_min: 60,
+                mvr_name: None,
+                signature: UserSignature::from_bytes(&user_sig_bytes).unwrap(),
+            },
+        };
+
+        (request, enc_key, enc_verification_key)
+    }
+
+    /// Helper to create AppState for testing.
+    fn create_test_app_state(
+        mock_servers: &[MockServer],
+        threshold: u16,
+        partial_pks: Vec<G2Element>,
+    ) -> AppState {
+        let mut committee_contents = vec![];
+        for (i, server) in mock_servers.iter().enumerate() {
+            let address = Address::from([i as u8; 32]);
+            let member = PartialKeyServer {
+                party_id: i as u16,
+                url: server.uri(),
+                partial_pk: partial_pks.get(i).cloned().unwrap_or(G2Element::zero()),
+            };
+            committee_contents.push(Entry {
+                key: address,
+                value: member,
+            });
+        }
+
+        let grpc_client = create_grpc_client(&Network::Testnet).unwrap();
+        AppState {
+            key_server_object_id: Address::from([0u8; 32]),
+            grpc_client,
+            threshold,
+            committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
+                contents: committee_contents,
+            }))),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_oldest_version_selected() {
+        // Create 3 mock key servers with different versions.
+        let mut mock_servers = vec![];
+        let versions_and_git = vec![
+            ("0.5.15", "git-abc123"),
+            ("0.5.13", "git-xyz789"), // Oldest
+            ("0.5.14", "git-def456"),
+        ];
+
+        for (version, git_version) in &versions_and_git {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/fetch_key"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header("X-KeyServer-Version", *version)
+                        .insert_header("X-KeyServer-GitVersion", *git_version)
+                        .set_body_json(json!({
+                            "decryption_keys": []
+                        })),
+                )
+                .mount(&server)
+                .await;
+            mock_servers.push(server);
+        }
+
+        // Create AppState for testing.
+        let state = create_test_app_state(
+            &mock_servers,
+            3,
+            vec![G2Element::zero(); mock_servers.len()],
+        );
+
+        // Create a FetchKeyRequest for testing.
+        let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
+
+        // Call handle_fetch_key.
+        let headers = HeaderMap::new();
+        let result = handle_fetch_key(State(state), headers, Json(request)).await;
+
+        match result {
+            Ok((response_headers, _body)) => {
+                let version = response_headers
+                    .get("X-KeyServer-Version")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap();
+                let git_version = response_headers
+                    .get("X-KeyServer-GitVersion")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap();
+
+                assert_eq!(version, "0.5.13");
+                assert_eq!(git_version, "git-xyz789");
+            }
+            Err(e) => panic!("Expected success but got error: {e:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn test_majority_error_with_3_invalid_ptb_2_noaccess() {
         // Create 5 mock key servers.
@@ -437,56 +561,16 @@ mod tests {
             mock_servers.push(server);
         }
 
-        // Create committee members for testing.
-        let mut committee_contents = vec![];
-        for (i, server) in mock_servers.iter().enumerate() {
-            let address = Address::from([i as u8; 32]);
-            let member = PartialKeyServer {
-                party_id: i as u16,
-                url: server.uri(),
-                partial_pk: G2Element::zero(),
-            };
-            committee_contents.push(Entry {
-                key: address,
-                value: member,
-            });
-        }
-
-        // Create AppState for testing.
-        let grpc_client = create_grpc_client(&Network::Testnet).unwrap();
-        let state = AppState {
-            key_server_object_id: Address::from([0u8; 32]),
-            grpc_client,
-            threshold: 3,
-            committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
-                contents: committee_contents,
-            }))),
-        };
+        // Create AppState with threshold=3 and zero partial keys.
+        let state = create_test_app_state(
+            &mock_servers,
+            3,
+            vec![G2Element::zero(); mock_servers.len()],
+        );
 
         // Create a FetchKeyRequest for testing.
         let mut rng = thread_rng();
-        let (_, enc_key, enc_verification_key) = genkey::<G1Element, G2Element, _>(&mut rng);
-        let kp = Ed25519KeyPair::generate(&mut rng);
-        let pk = kp.public().clone();
-        let sig: Ed25519Signature = kp.sign(b"test");
-        let mut user_sig_bytes = vec![0u8];
-        user_sig_bytes.extend_from_slice(sig.as_bytes());
-        user_sig_bytes.extend_from_slice(pk.as_bytes());
-
-        let request = FetchKeyRequest {
-            ptb: "{}".to_string(),
-            enc_key,
-            enc_verification_key,
-            request_signature: sig,
-            certificate: Certificate {
-                user: Address::from([0u8; 32]),
-                session_vk: pk,
-                creation_time: 0,
-                ttl_min: 60,
-                mvr_name: None,
-                signature: UserSignature::from_bytes(&user_sig_bytes).unwrap(),
-            },
-        };
+        let (request, _, _) = create_test_fetch_key_request(&mut rng);
 
         // Call handle_fetch_key and check majority error.
         let headers = HeaderMap::new();
