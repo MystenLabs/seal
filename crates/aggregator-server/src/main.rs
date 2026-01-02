@@ -5,8 +5,6 @@
 //! servers, verifies and aggregates them into a single response and propagates the majority error
 //! if threshold is not achieved.
 
-mod errors;
-
 use aggregator_server::{aggregate_verified_encrypted_responses, verify_decryption_keys};
 use anyhow::{Context, Result};
 use axum::{
@@ -16,14 +14,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use errors::InternalError;
 use futures::stream::{FuturesUnordered, StreamExt};
 use mysten_service::{get_mysten_service, package_name, package_version};
 use seal_committee::{
     fetch_key_server_by_id,
     grpc_helper::create_grpc_client,
     move_types::{PartialKeyServer, VecMap},
-    ErrorResponse, Network,
+    ErrorResponse, InternalError, Network,
 };
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::Version;
@@ -41,10 +38,10 @@ use tracing::{error, info, warn};
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 
-/// Interval (in seconds) to refresh committee version from onchain.
+/// Interval seconds to refresh committee members.
 const REFRESH_INTERVAL_SECS: u64 = 30;
 
-/// Configuration for aggregator server.
+/// Configuration file format for aggregator server.
 #[derive(Deserialize)]
 struct Config {
     network: Network,
@@ -66,15 +63,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // Load configuration from file.
-    let config_path =
-        env::var("CONFIG_PATH").context("CONFIG_PATH environment variable not set")?;
-    info!("Loading config file: {}", config_path);
-
+    let config_path = env::var("CONFIG_PATH").context("CONFIG_PATH not set")?;
     let config: Config = serde_yaml::from_reader(
         std::fs::File::open(&config_path)
-            .context(format!("Cannot open configuration file {config_path}"))?,
+            .context(format!("Cannot open config file {config_path}"))?,
     )
-    .context("Failed to parse configuration file")?;
+    .context("Failed to parse config file")?;
 
     info!(
         "Starting aggregator for KeyServer {} on {:?}",
@@ -82,20 +76,19 @@ async fn main() -> Result<()> {
     );
 
     let state = load_committee_state(&config.key_server_object_id, config.network).await?;
+    info!(
+        "Loaded committee with {} members, threshold {}",
+        state.committee_members.read().await.0.contents.len(),
+        state.threshold
+    );
 
-    // Spawn background task to monitor committee member updates.
+    // Spawn background task to monitor committee members VecMap.
     {
         let state_clone = state.clone();
         tokio::spawn(async move {
             monitor_members_update(state_clone).await;
         });
     }
-
-    info!(
-        "Loaded committee with {} members, threshold {}",
-        state.committee_members.read().await.0.contents.len(),
-        state.threshold
-    );
 
     let port: u16 = env::var("PORT")
         .unwrap_or_else(|_| DEFAULT_PORT.to_string())
@@ -140,6 +133,10 @@ async fn handle_fetch_key(
         .get("Client-Sdk-Version")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
+    let req_id = headers
+        .get("Request-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
 
     // Call to committee members' servers in parallel.
     let mut fetch_tasks: FuturesUnordered<_> = state
@@ -152,20 +149,22 @@ async fn handle_fetch_key(
         .map(|member| {
             let request = request.clone();
             let partial_key_server = member.clone().value;
-            let client_sdk_type = client_sdk_type.to_string();
-            let client_sdk_version = client_sdk_version.to_string();
             async move {
                 match fetch_from_member(
                     &partial_key_server,
-                    &request,
-                    &client_sdk_type,
-                    &client_sdk_version,
+                    &request.clone(),
+                    client_sdk_type,
+                    client_sdk_version,
+                    req_id,
                 )
                 .await
                 {
-                    Ok((response, server_version)) => {
-                        Ok((partial_key_server.party_id, response, server_version))
-                    }
+                    Ok((response, server_version, git_version)) => Ok((
+                        partial_key_server.party_id,
+                        response,
+                        server_version,
+                        git_version,
+                    )),
                     Err(e) => {
                         warn!(
                             "Failed to fetch from party_id={}, url={}: {:?}",
@@ -180,13 +179,13 @@ async fn handle_fetch_key(
 
     // Collect responses until we have threshold, then abort remaining.
     let mut responses = Vec::new();
-    let mut server_versions = Vec::new();
+    let mut server_metadata = Vec::new(); // (version, git_version)
     let mut errors = Vec::new();
     while let Some(result) = fetch_tasks.next().await {
         match result {
-            Ok((party_id, response, server_version)) => {
+            Ok((party_id, response, server_version, git_version)) => {
                 responses.push((party_id, response));
-                server_versions.push(server_version);
+                server_metadata.push((server_version, git_version));
                 if responses.len() >= state.threshold as usize {
                     break;
                 }
@@ -197,62 +196,51 @@ async fn handle_fetch_key(
         }
     }
 
-    info!("Collected {} responses", responses.len());
+    info!(
+        "Collected {} responses, {} errors",
+        responses.len(),
+        errors.len()
+    );
 
     // If not enough responses, return majority error from key servers.
     if responses.len() < state.threshold as usize {
-        error!(
-            "Insufficient responses: got {}, need {}. Errors: {:?}",
-            responses.len(),
-            state.threshold,
-            errors
-        );
-
-        // Find majority error by error type.
-        if !errors.is_empty() {
-            let mut error_counts = HashMap::new();
-            for err in errors {
-                error_counts
-                    .entry(err.error.clone())
-                    .and_modify(|(count, _)| *count += 1)
-                    .or_insert((1, err));
-            }
-
-            if let Some((_, (_, majority_error))) =
-                error_counts.iter().max_by_key(|(_, (count, _))| count)
-            {
-                return Err(majority_error.clone());
-            }
-        }
-
-        // If errors is empty but still insufficient responses, return generic error.
-        return Err(ErrorResponse::from(InternalError::InsufficientResponses(
+        return Err(handle_insufficient_responses(
             responses.len(),
             state.threshold as usize,
-        )));
+            errors,
+        ));
     }
 
     // Get the oldest version for all committee servers' responses and use it for the aggregator
-    // response header.
-    let min_version = server_versions
+    // response header, along with its corresponding git version.
+    let (min_version, git_version) = server_metadata
         .iter()
-        .filter_map(|v| Version::parse(v).ok())
-        .min()
-        .map(|v| v.to_string())
+        .filter_map(|(v, g)| Version::parse(v).ok().map(|parsed| (parsed, v, g)))
+        .min_by_key(|(parsed, _, _)| parsed.clone())
+        .map(|(_, v, g)| (v.to_string(), g.to_string()))
         .unwrap_or_default();
-    info!("Oldest key server version: {}", min_version);
+    info!(
+        "Oldest key server version: {}, git version: {}",
+        min_version, git_version
+    );
 
     let mut headers = HeaderMap::new();
-    headers.insert("X-KeyServer-Version", min_version.parse().unwrap());
+    headers.insert(
+        "X-KeyServer-Version",
+        min_version.parse().expect("Invalid header version"),
+    );
+    headers.insert(
+        "X-KeyServer-GitVersion",
+        git_version.parse().expect("Invalid git version header"),
+    );
 
     // Aggregate encrypted responses and return.
     match aggregate_verified_encrypted_responses(state.threshold, responses) {
         Ok(aggregated_response) => Ok((headers, Json(aggregated_response))),
         Err(e) => {
-            error!("Aggregating responses failed: {e}");
-            Err(ErrorResponse::from(InternalError::AggregationFailed(
-                e.to_string(),
-            )))
+            let msg = format!("Aggregating responses failed: {e}");
+            error!("{}", msg);
+            Err(ErrorResponse::from(InternalError::Failure(msg)))
         }
     }
 }
@@ -263,7 +251,8 @@ async fn fetch_from_member(
     request: &FetchKeyRequest,
     client_sdk_type: &str,
     client_sdk_version: &str,
-) -> Result<(FetchKeyResponse, String), ErrorResponse> {
+    req_id: &str,
+) -> Result<(FetchKeyResponse, String, String), ErrorResponse> {
     info!("Fetching from party {} at {}", member.party_id, member.url);
 
     let client = reqwest::Client::new();
@@ -271,35 +260,44 @@ async fn fetch_from_member(
         .post(format!("{}/v1/fetch_key", member.url))
         .header("Client-Sdk-Type", client_sdk_type)
         .header("Client-Sdk-Version", client_sdk_version)
+        .header("Request-Id", req_id)
         .header("Content-Type", "application/json")
         .body(request.to_json_string().expect("should not fail"))
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| ErrorResponse::from(InternalError::RequestFailed(e.to_string())))?;
+        .map_err(|e| ErrorResponse::from(InternalError::Failure(format!("Request failed: {e}"))))?;
 
-    // Extract version header.
-    let version_str = response
+    // Extract version and git version from response headers.
+    let version = response
         .headers()
         .get("X-KeyServer-Version")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
+    let git_version = response
+        .headers()
+        .get("X-KeyServer-GitVersion")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
 
-    // If response is not successful, try to parse error response from key server
+    // If response is not success, relay error response from key server.
     let status = response.status();
     if !status.is_success() {
         if let Ok(error_response) = response.json::<ErrorResponse>().await {
             return Err(error_response);
         } else {
-            return Err(ErrorResponse::from(InternalError::HttpError(status)));
+            return Err(ErrorResponse::from(InternalError::Failure(format!(
+                "HTTP {status}"
+            ))));
         }
     }
 
     let mut body = response
         .json::<FetchKeyResponse>()
         .await
-        .map_err(|e| ErrorResponse::from(InternalError::ParseFailed(e.to_string())))?;
+        .map_err(|e| ErrorResponse::from(InternalError::Failure(format!("Parse failed: {e}"))))?;
 
     // Verify each decryption key.
     body.decryption_keys = verify_decryption_keys(
@@ -308,9 +306,45 @@ async fn fetch_from_member(
         &request.enc_verification_key,
         member.party_id,
     )
-    .map_err(|e| ErrorResponse::from(InternalError::VerificationFailed(e)))?;
+    .map_err(|e| {
+        ErrorResponse::from(InternalError::Failure(format!("Verification failed: {e}")))
+    })?;
 
-    Ok((body, version_str))
+    Ok((body, version, git_version))
+}
+
+/// Handle insufficient responses by finding and returning the majority error, or a generic error.
+fn handle_insufficient_responses(
+    got: usize,
+    threshold: usize,
+    errors: Vec<ErrorResponse>,
+) -> ErrorResponse {
+    warn!(
+        "Insufficient responses: got {}, need {}. Errors: {:?}",
+        got, threshold, errors
+    );
+
+    // Find majority error by error type.
+    if !errors.is_empty() {
+        let mut error_counts = HashMap::new();
+        for err in errors {
+            error_counts
+                .entry(err.error.clone())
+                .and_modify(|(count, _)| *count += 1)
+                .or_insert((1, err));
+        }
+
+        if let Some((_, (_, majority_error))) =
+            error_counts.iter().max_by_key(|(_, (count, _))| count)
+        {
+            return majority_error.clone();
+        }
+    }
+
+    // If errors is empty but still insufficient responses, return generic error.
+    ErrorResponse::from(InternalError::Failure(format!(
+        "Insufficient responses: got {got}, need {threshold}"
+    )))
 }
 
 /// Load committee state from onchain KeyServerV2 object.
@@ -327,8 +361,7 @@ async fn load_committee_state(key_server_obj_id: &Address, network: Network) -> 
     })
 }
 
-/// Background task that periodically refreshes committee members from onchain.
-/// Polls every 30 seconds and updates the committee members.
+/// Background task that periodically refreshes committee members from onchain with interval.
 async fn monitor_members_update(mut state: AppState) {
     let mut ticker = interval(Duration::from_secs(REFRESH_INTERVAL_SECS));
 
@@ -348,7 +381,7 @@ async fn monitor_members_update(mut state: AppState) {
                 }
             };
 
-        // Always update committee members.
+        // Write committee members to state.
         *state.committee_members.write().await = members;
     }
 }
