@@ -53,7 +53,7 @@ Follow these steps to initialize a new MPC committee using a fresh DKG.
 
 1. **Prepare the DKG state directory**
 
-Create a clean working directory and copy the example configuration file:
+Create a clean working directory named `dkg-state` and copy the example configuration file:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
@@ -146,7 +146,7 @@ Make sure:
 
 2. **Prepare your local DKG state (Phase 1)**
 
-Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory and move the file there:
+Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
@@ -209,7 +209,7 @@ This command:
 
 Wait for the coordinator to confirm that the DKG is complete and share the `KEY_SERVER_OBJ_ID`.
 
-Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and the committee object ID (`KEY_SERVER_OBJ_ID`), and set the committee state to active:
+Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and the key server object ID (`KEY_SERVER_OBJ_ID`), and set the committee state to active:
 
 Example config file:
 ```yaml
@@ -235,7 +235,7 @@ rm -rf dkg-state
 
 ## Key Rotation Process
 
-Use key rotation to update committee membership without re-encrypting data. When rotating a committee, the set of continuing members, including those present in both the current and next committee, must be large enough to meet the threshold of the current committee.
+Use key rotation to update the committee membership. When rotating a committee, the set of continuing members, including those present in both the current and next committee, must be large enough to meet the threshold of the current committee.
 
 This guide assumes:
 
@@ -248,7 +248,7 @@ Key rotation follows the same three-phase flow as a fresh DKG, with a few import
 
 1. **Prepare the DKG state directory**
 
-Create a clean working directory and copy the rotation example configuration:
+Create a clean working directory named `dkg-state` and copy the rotation example configuration:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
@@ -317,7 +317,7 @@ Make sure:
 
 Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
 
-Create a local working directory and move the file there:
+Create a local working directory named `dkg-state` and move the file there:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
@@ -465,4 +465,4 @@ rm -rf dkg-state
 | Old master share needed | N/A | Yes (for continuing members) |
 | Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
 | Onchain proposal function | `propose` | `propose_for_rotation` |
-| Result | New committee object | Updated committee version |
+| Result | New key server object | Updated key server object's version |
