@@ -9,6 +9,10 @@ license.workspace = true
 name = "key-server"
 path = "src/server.rs"
 
+[[bin]]
+name = "aggregator-server"
+path = "src/aggregator/server.rs"
+
 [dependencies]
 crypto = { path = "../crypto" }
 seal-sdk = { path = "../seal-sdk" }
