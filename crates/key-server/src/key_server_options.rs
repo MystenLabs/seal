@@ -120,9 +120,13 @@ pub struct KeyServerOptions {
     /// If the server is open or permissioned.
     pub server_mode: ServerMode,
 
-    /// The minimum version of the SDK that is required to use this service.
+    /// The minimum version of the client SDK that is required to use this key server.
     #[serde(default = "default_sdk_version_requirement")]
     pub sdk_version_requirement: VersionReq,
+
+    /// The minimum version of the aggregator that is required to use this key server.
+    #[serde(default = "default_aggregator_version_requirement")]
+    pub aggregator_version_requirement: VersionReq,
 
     #[serde(default = "default_metrics_host_port")]
     pub metrics_host_port: u16,
@@ -174,6 +178,7 @@ impl KeyServerOptions {
             network,
             node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
+            aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
             },
@@ -192,6 +197,7 @@ impl KeyServerOptions {
             network,
             node_url: None,
             sdk_version_requirement: default_sdk_version_requirement(),
+            aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
             },
@@ -318,6 +324,10 @@ fn default_metrics_host_port() -> u16 {
 
 fn default_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.4.5").expect("Failed to parse default SDK version requirement")
+}
+
+fn default_aggregator_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.5.15").expect("Failed to parse default aggregator version requirement")
 }
 
 #[test]
