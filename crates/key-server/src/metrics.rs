@@ -270,3 +270,9 @@ pub(crate) fn observe_version(version: &str, metrics: Arc<Metrics>) -> anyhow::R
         .set(key_server_version.patch as i64);
     Ok(())
 }
+
+#[test]
+fn test_parse_package_version() {
+    // This is used in the metrics via observe_version, so we check that this works
+    semver::Version::from_str(mysten_service::package_version!()).unwrap();
+}

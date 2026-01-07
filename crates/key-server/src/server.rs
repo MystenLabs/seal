@@ -1105,11 +1105,3 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         .layer(cors);
     Ok((monitor_handle, app))
 }
-
-#[test]
-fn test_parse_package_version() {
-    use std::str::FromStr;
-
-    // This is used in the metrics via observe_version, so we check that this works
-    semver::Version::from_str(package_version!()).unwrap();
-}
