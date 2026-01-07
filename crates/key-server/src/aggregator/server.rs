@@ -75,7 +75,7 @@ impl IntoResponse for AggregatorError {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    let _guard = mysten_service::logging::init();
 
     // Load configuration from file.
     let config_path =
