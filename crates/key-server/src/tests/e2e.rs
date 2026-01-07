@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::aggregator_utils::{aggregate_verified_encrypted_responses, verify_decryption_keys};
 use crate::errors::InternalError::UnsupportedPackageId;
 use crate::key_server_options::{ClientConfig, ClientKeyType, CommitteeState};
 use crate::master_keys::MasterKeys;
@@ -11,7 +12,6 @@ use crate::tests::SealTestCluster;
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
 use crate::Server;
-use aggregator_server::{aggregate_verified_encrypted_responses, verify_decryption_keys};
 use crypto::elgamal;
 use crypto::elgamal::encrypt;
 use crypto::ibe::{extract, generate_seed, public_key_from_master_key, UserSecretKey};

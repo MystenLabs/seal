@@ -12,14 +12,14 @@ use seal_sdk::{
     FetchKeyResponse,
 };
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Given a list of fetch key responses of servers: (party id, list of (key_id, encrypted_key)),
 /// aggregate encrypted keys of all parties for each key id and return a list of aggregated
 /// encrypted keys.
 pub fn aggregate_verified_encrypted_responses(
     threshold: u16,
-    responses: Vec<(u16, FetchKeyResponse)>,
+    responses: Vec<(u16, FetchKeyResponse)>, // (party_id, response)
 ) -> FastCryptoResult<FetchKeyResponse> {
     // Build map: key_id -> Vec<(party_id, encrypted_key)>.
     let mut shares_by_key_id: HashMap<Vec<u8>, Vec<(u16, elgamal::Encryption<_>)>> = HashMap::new();
@@ -45,36 +45,32 @@ pub fn aggregate_verified_encrypted_responses(
     Ok(FetchKeyResponse { decryption_keys })
 }
 
-/// Verify decryption keys for the partial pk. Returns error if any key fails verification.
+/// Verify decryption keys for one party. Returns error if any key fails verification.
 pub fn verify_decryption_keys(
     decryption_keys: &[DecryptionKey],
     partial_pk: &G2Element,
     ephemeral_vk: &ElgamalVerificationKey,
     party_id: u16,
 ) -> Result<Vec<DecryptionKey>, String> {
-    let mut verified_keys = Vec::new();
+    let mut verified_keys = Vec::with_capacity(decryption_keys.len());
 
     for dk in decryption_keys {
-        match verify_encrypted_signature(&dk.encrypted_key, ephemeral_vk, partial_pk, &dk.id) {
-            Ok(()) => {
-                verified_keys.push(dk.clone());
-            }
-            Err(e) => {
-                let error_msg = format!(
+        verify_encrypted_signature(&dk.encrypted_key, ephemeral_vk, partial_pk, &dk.id).map_err(
+            |e| {
+                format!(
                     "Verification failed for party {} key_id={}: {}",
                     party_id,
                     Hex::encode(&dk.id),
                     e
-                );
-                warn!("{}", error_msg);
-                return Err(error_msg);
-            }
-        }
+                )
+            },
+        )?;
+        verified_keys.push(dk.clone());
     }
 
     info!(
         "Verified all {} decryption keys from party {}",
-        verified_keys.len(),
+        decryption_keys.len(),
         party_id
     );
 

@@ -9,6 +9,10 @@ license.workspace = true
 name = "key-server"
 path = "src/server.rs"
 
+[[bin]]
+name = "aggregator-server"
+path = "src/aggregator_server.rs"
+
 [dependencies]
 crypto = { path = "../crypto" }
 seal-sdk = { path = "../seal-sdk" }
@@ -21,6 +25,7 @@ serde_json.workspace = true
 hex.workspace = true
 bcs.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 sui_types.workspace = true
 mysten-service.workspace = true
 sui_sdk.workspace = true
@@ -61,4 +66,4 @@ test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
-aggregator-server = { path = "../aggregator-server" }
+wiremock = "0.5"

@@ -1,8 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::errors::InternalError::{
-    DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
-};
+use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::CommitteeKeyState;
@@ -14,6 +12,7 @@ use crate::signed_message::signed_request;
 use crate::sui_rpc_client::RpcError;
 use crate::time::{checked_duration_since, from_mins};
 use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
+use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
 use axum::http::{HeaderMap, HeaderValue};
@@ -21,6 +20,7 @@ use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
+use common::ClientSdkType;
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe::create_proof_of_possession;
@@ -73,7 +73,10 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{debug, error, info, warn};
 use valid_ptb::ValidPtb;
 
+#[cfg(test)]
+mod aggregator_utils;
 mod cache;
+mod common;
 mod errors;
 mod externals;
 mod signed_message;
@@ -94,7 +97,7 @@ pub mod tests;
 mod time;
 
 const GAS_BUDGET: u64 = 500_000_000;
-const GIT_VERSION: &str = utils::git_version!();
+const GIT_VERSION: &str = crate::git_version!();
 const DEFAULT_PORT: u16 = 2024;
 
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
@@ -844,16 +847,24 @@ impl MyState {
         *self.reference_gas_price_receiver.borrow()
     }
 
-    fn validate_sdk_version(&self, version_string: &str) -> Result<(), InternalError> {
+    /// Validates the version based on SDK types. Handle aggregator and typescript and ignore others.
+    fn validate_sdk_version(
+        &self,
+        version_string: &str,
+        sdk_type: ClientSdkType,
+    ) -> Result<(), InternalError> {
         let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
-        if !self
-            .server
-            .options
-            .sdk_version_requirement
-            .matches(&version)
-        {
+
+        let requirement = match sdk_type {
+            ClientSdkType::Aggregator => &self.server.options.aggregator_version_requirement,
+            ClientSdkType::TypeScript => &self.server.options.sdk_version_requirement,
+            ClientSdkType::Other => return Ok(()),
+        };
+
+        if !requirement.matches(&version) {
             return Err(DeprecatedSDKVersion);
         }
+
         Ok(())
     }
 }
@@ -866,6 +877,7 @@ async fn handle_request_headers(
 ) -> Result<Response, InternalError> {
     // Log the request id and SDK version
     let version = request.headers().get("Client-Sdk-Version");
+    let sdk_type = request.headers().get("Client-Sdk-Type");
 
     info!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
@@ -874,14 +886,16 @@ async fn handle_request_headers(
             .get("Request-Id")
             .map(|v| v.to_str().unwrap_or_default()),
         version,
-        request.headers().get("Client-Sdk-Type"),
+        sdk_type,
         request.headers().get("Client-Target-Api-Version")
     );
+
+    let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
 
     version
         .ok_or(MissingRequiredHeader("Client-Sdk-Version".to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
-        .and_then(|v| state.validate_sdk_version(v))
+        .and_then(|v| state.validate_sdk_version(v, sdk_type))
         .tap_err(|e| {
             debug!("Invalid SDK version: {:?}", e);
             state.metrics.observe_error(e.as_str());

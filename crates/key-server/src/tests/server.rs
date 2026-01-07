@@ -142,6 +142,51 @@ async fn test_service() {
             .unwrap();
         assert_eq!(response.status(), 400);
 
+        // Old client SDK version. Should fail with 426 Upgrade Required
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header("Client-Sdk-Version", "0.3.0") // Too old (requires >=0.4.6)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 426); // Upgrade Required
+        let error_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let error_json: Value = from_slice(&error_bytes).unwrap();
+        assert_eq!(
+            error_json.get("error").unwrap().as_str().unwrap(),
+            "DeprecatedSDKVersion"
+        );
+
+        // Old aggregator version. Should fail with 426 Upgrade Required
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header("Client-Sdk-Type", "aggregator")
+                    .header("Client-Sdk-Version", "0.5.14") // Too old (requires >=0.5.15)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 426); // Upgrade Required
+        let error_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let error_json: Value = from_slice(&error_bytes).unwrap();
+        assert_eq!(
+            error_json.get("error").unwrap().as_str().unwrap(),
+            "DeprecatedSDKVersion"
+        );
+
         // Valid request
         let response = client
             .request(
