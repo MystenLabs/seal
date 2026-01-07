@@ -254,7 +254,13 @@ pub(crate) async fn metrics_middleware(
     response
 }
 
-pub(crate) fn observe_version(version: &str, metrics: Arc<Metrics>) -> anyhow::Result<()> {
+/// Report a key server version to the metrics.
+/// The version must be follow semantic versioning, otherwise an error is returned.
+/// Only the version numbers are reported so not build metadata or pre-release tags.
+pub(crate) fn observe_key_server_version(
+    version: &str,
+    metrics: Arc<Metrics>,
+) -> anyhow::Result<()> {
     let key_server_version = semver::Version::from_str(version)?;
     metrics
         .key_server_version
