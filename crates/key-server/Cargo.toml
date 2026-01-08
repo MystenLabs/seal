@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "key_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "key-server"
 path = "src/server.rs"
@@ -65,3 +69,4 @@ test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
+wiremock = "0.5"
