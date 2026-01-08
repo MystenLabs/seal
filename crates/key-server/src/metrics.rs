@@ -5,10 +5,9 @@ use axum::{extract::State, middleware};
 use prometheus::{
     register_histogram_vec_with_registry, register_histogram_with_registry,
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
-    register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Histogram,
-    HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Registry,
+    register_int_gauge_vec_with_registry, Histogram, HistogramVec, IntCounter, IntCounterVec,
+    IntGaugeVec, Registry,
 };
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -53,8 +52,8 @@ pub(crate) struct Metrics {
     /// Total number of requests failed due to stale FN
     pub requests_failed_due_to_staleness: IntCounter,
 
-    /// The current key server version (major, minor, patch)
-    pub key_server_version: (IntGauge, IntGauge, IntGauge),
+    /// The current key server version represented as a time series.
+    pub key_server_version: IntCounterVec,
 }
 
 impl Metrics {
@@ -151,26 +150,13 @@ impl Metrics {
                 registry
             )
             .unwrap(),
-            key_server_version: (
-                register_int_gauge_with_registry!(
-                    "key_server_version_major",
-                    "The current key server major version",
-                    registry
-                )
-                .unwrap(),
-                register_int_gauge_with_registry!(
-                    "key_server_version_minor",
-                    "The current key server minor version",
-                    registry
-                )
-                .unwrap(),
-                register_int_gauge_with_registry!(
-                    "key_server_version_patch",
-                    "The current key server patch version",
-                    registry
-                )
-                .unwrap(),
-            ),
+            key_server_version: register_int_counter_vec_with_registry!(
+                "key_server_version",
+                "The current key server version",
+                &["version"],
+                registry
+            )
+            .unwrap(),
         }
     }
 
@@ -252,33 +238,4 @@ pub(crate) async fn metrics_middleware(
         .inc();
 
     response
-}
-
-/// Report a key server version to the metrics.
-/// The version must be follow semantic versioning, otherwise an error is returned.
-/// Only the version numbers are reported so not build metadata or pre-release tags.
-pub(crate) fn observe_key_server_version(
-    version: &str,
-    metrics: Arc<Metrics>,
-) -> anyhow::Result<()> {
-    let key_server_version = semver::Version::from_str(version)?;
-    metrics
-        .key_server_version
-        .0
-        .set(key_server_version.major as i64);
-    metrics
-        .key_server_version
-        .1
-        .set(key_server_version.minor as i64);
-    metrics
-        .key_server_version
-        .2
-        .set(key_server_version.patch as i64);
-    Ok(())
-}
-
-#[test]
-fn test_parse_package_version() {
-    // This is used in the metrics via observe_version, so we check that this works
-    semver::Version::from_str(mysten_service::package_version!()).unwrap();
 }
