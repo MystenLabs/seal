@@ -12,7 +12,7 @@ use crate::{
     types::Network,
     DefaultEncoding, Server,
 };
-use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::encoding::Encoding;
 use fastcrypto::groups::bls12381::G2Element;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use move_core_types::language_storage::StructTag;
@@ -163,9 +163,7 @@ pub(crate) fn build_partial_key_servers(
     partial_pk: &G2Element,
     party_id: u16,
 ) -> Argument {
-    let partial_pk_hex = Hex::encode(partial_pk.to_byte_array());
-    let partial_pk_str = format!("x\"{partial_pk_hex}\"");
-    let partial_pk_bytes = builder.pure(partial_pk_str.as_bytes().to_vec()).unwrap();
+    let partial_pk_bytes = builder.pure(partial_pk.to_byte_array().to_vec()).unwrap();
     let url_arg = builder.pure("testurl.com".to_string()).unwrap();
     let party_id_arg = builder.pure(party_id).unwrap();
 

@@ -14,7 +14,12 @@ use seal_testnet::key_server::{
     PartialKeyServer
 };
 use std::string::String;
-use sui::{dynamic_object_field as dof, vec_map::{Self, VecMap}, vec_set::{Self, VecSet}};
+use sui::{
+    bls12381::g2_from_bytes,
+    dynamic_object_field as dof,
+    vec_map::{Self, VecMap},
+    vec_set::{Self, VecSet}
+};
 
 // ===== Errors =====
 
@@ -103,7 +108,10 @@ public fun register(
     url: String,
     ctx: &mut TxContext,
 ) {
-    // TODO: add checks for enc_pk, signing_pk to be valid elements, maybe PoP.
+    // TODO: maybe check PoP for the public keys.
+    let _ = g2_from_bytes(&enc_pk);
+    let _ = g2_from_bytes(&signing_pk);
+
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
     match (&mut committee.state) {
         State::Init { members_info } => {

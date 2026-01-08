@@ -1,5 +1,7 @@
 # Seal design
 
+> For a comprehensive technical analysis and formal security proofs, see the [Seal Whitepaper](./Seal_White_Paper_v1.pdf).
+
 ## Overview
 
 Seal uses a cryptographic primitive called *Identity-Based Encryption (IBE)* to encrypt stored data. This design detail is abstracted away from both developers and users, as Seal does not have visibility into the data it helps secure.

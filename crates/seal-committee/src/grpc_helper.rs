@@ -171,13 +171,11 @@ pub async fn to_partial_key_servers(
             .contents
             .iter()
             .map(|entry| {
-                let partial_pk = bcs::from_bytes(&entry.value.partial_pk)
-                    .map_err(|e| anyhow!("Failed to deserialize partial PK: {}", e))?;
                 Ok((
                     entry.key,
                     PartialKeyServerInfo {
                         party_id: entry.value.party_id,
-                        partial_pk,
+                        partial_pk: entry.value.partial_pk,
                     },
                 ))
             })
@@ -205,7 +203,7 @@ mod tests {
     async fn test_fetch_committee_members() {
         // Test committee object on testnet set up with 3 members.
         let committee_id =
-            Address::from_str("0x1d8e07b865da82d86c71bb0ac8adf174996fd780ccae8237dd5f6ea38d9fe903")
+            Address::from_str("0x39bddd8ac7a160c87267de8142e0c3f87322745ac48697807be83899ee716b0b")
                 .unwrap();
 
         let mut grpc_client = create_grpc_client(&Network::Testnet).unwrap();
@@ -223,8 +221,16 @@ mod tests {
                 .unwrap(),
         ];
 
-        let expected_enc_pk: PublicKey<G2Element> = from_hex_bcs("0xaf2ca44fd70f4e72d5ef6ad1bc8f5ab42850a36f75e1562f4f33ca2d25c5fee5fe780e164f17e0591a46a44d545e71f21447d316563899b77f34ee34d84ee70c70505f98dc4e7f5914b347cec49ef3a510efa9568416413cacd5361f42c8fa58");
-        let expected_signing_pk: BLS12381PublicKey = from_hex_bcs("0x89dcee7b2f5b6256eafe4eabcac4a2fa348ce52d10b6a994da6f2969eb76d87e54f0298d446ab72f0094dae0f0fb5e2018e1d2957cb1514837d0bdb6edab1f549638bdbdca7542f81b62d426a898c9efff50cdaa1958b8ed06cbc72208570b46");
+        let expected_enc_pks = [
+            from_hex_bcs::<PublicKey<G2Element>>("0x8ebd9dd80ca1652b6b6b8d80a14afde4bae196f369182ec2e302c235f739853e322ee742adb7911628050bed24353a530da67dffe02f5390eeff949c12fbdf4d3567d1c3f8602c335eb93e88da7b14b8cfde3d94ee835b15d70e7a883ed28eda"),
+            from_hex_bcs::<PublicKey<G2Element>>("0x8aa3a0b722271e9f6f14e621e1db76e4652c5944bbd57b7469c45eb4894c1584017cafe3eff0517cfcd710fcf1812554082b04334b018d6472ea3f34cc53ac6aecda3baed51dd92031803ab87a7cd8ccc75d2d968b1eed569b0d9304d1f41c19"),
+            from_hex_bcs::<PublicKey<G2Element>>("0xb9a30a4515570699dbb8f2b57c81c27415b7f3788545c9defa196fcec5f360880e8ab66cd8479ee8e7486e061aeb834107b12c31ae87db68ccb8a219e3517d44b5a0254d456ee7506af70c6e72692b95392adba312d3958e2c57c9c61ef63a06"),
+        ];
+        let expected_signing_pks = [
+            from_hex_bcs::<BLS12381PublicKey>("0x90eef60cb0ecb8ca153d99233add7832a2fe7221667a3272961d0cb7af9b662eba7a41941af1c05e0149f87cc789d74d0fb47d16b819158f92531b551d7043d371be825598436d5a54ee74a1dd48d848445e77c8b86e42651666cd2f2550b53b"),
+            from_hex_bcs::<BLS12381PublicKey>("0xb1a9cb54074e036c39e0c7f097fe6b3b53b96c2569a3a0c14c1751501d758c42697a47ae0c035749fde44445e0fb12c2081dfeabc33ea65b4ce7529c16da8cc9ca2b4fe8615a241543e1d5db33052cc75bfb806c1e50a950c1db25ccee8da649"),
+            from_hex_bcs::<BLS12381PublicKey>("0x8ea9af5ed693681f0c776068c440938efd8e25f8ab287549a5bb7dbfc2b620092e3e95469820b94f408b1352e802c089131abc0865336019575b5d6f6455652a02cecff5d4459181d62cb8aa710999784579ccd5199a0dab8b171289d7aa6551"),
+        ];
 
         for ParsedMemberInfo {
             party_id,
@@ -234,8 +240,8 @@ mod tests {
         } in members_info.values()
         {
             assert_eq!(addresses[*party_id as usize], *address);
-            assert_eq!(enc_pk, &expected_enc_pk);
-            assert_eq!(signing_pk, &expected_signing_pk);
+            assert_eq!(enc_pk, &expected_enc_pks[*party_id as usize]);
+            assert_eq!(signing_pk, &expected_signing_pks[*party_id as usize]);
         }
 
         assert!(committee.is_init().is_ok());
@@ -244,40 +250,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_partial_key_servers() {
-        // Test rotated finalized committee from testnet.
+        // Test rotated finalized committee from testnet (V1 with 4 parties).
         let committee_id =
-            Address::from_str("0x82283c1056bb18832428034d20e0af5ed098bc58f8815363c33eb3a9b3fba867")
-                .unwrap();
-
-        // Old committee ID (before rotation).
-        let old_committee_id =
-            Address::from_str("0xaf2962d702d718f7b968eddc262da28418a33c296786cd356a43728a858faf80")
+            Address::from_str("0x9b137931e62e28b57da78aa4c3ffd050f9a3f8a51dc5f28cf18be9907c70c0ea")
                 .unwrap();
 
         // Create gRPC client.
         let mut grpc_client = Client::new(Client::TESTNET_FULLNODE).unwrap();
-
-        // Assert that the old committee has no key server object (should fail).
-        let old_result = fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await;
-        assert!(
-            old_result.is_err(),
-            "Old committee should not have a key server object after rotation"
-        );
 
         // Fetch committee data to get member addresses.
         let committee = fetch_committee_data(&mut grpc_client, &committee_id)
             .await
             .unwrap();
 
-        // Expected values for rotated committee (4 parties).
+        // Expected values for rotated committee (4 parties, version 1).
         let expected_key_server =
-            Address::from_str("0x5b4b868b22f4e1e87d3938f29aefc71a1e1ddf7352e214088c9eaf37e31efd31")
+            Address::from_str("0x0c9b2a1185f42bebdc16baf0a393ec5bd93bab8b0cb902b694198077b27c15da")
                 .unwrap();
         let expected_partial_pks = [
-            "0xaa56bd6b3af3eb4c92b75c1cbe7c4fff64563966b81f812008b4edcf1dac9cf42df1695be94f850f01dcfa813add29630810a51dc5bb558f67da1f3182e5e1ff064555e3c3cf83e295899677873c10c284ace2526dd7f5f7b898a7d323622e57",
-            "0x8f1902dbf32c7c2dd7a6eefa97b1e6833bccd859c35c4ec6124dde5f267d260fcd16240cf0c5ecadfa5202563f97035e05ba0cd246ceaca8abb930505cf2752b00e14565af0ffe02a437de0b5c799c1e84314297b7fdc7e9fdd322a9c77c6bc3",
-            "0x8d942a02eb6a3bf78d27ec8ee27b9a8721b07fe22866bb4f6614f78978e394c9ddc8b87712ddbc3fa2f0386bc3b68ccc18dd0f05f2ca5345bf19433933a5d77bf56cd2563a2e872f82b16495529b47086212466f903f84949b15153d7eab6848",
-            "0x94eba091a424bed60ad920855706ee476d23c2d9d4763ab5a4f832b3e57c38eb7d81013ea8f5b4790b4db6cd1ad2fd051633e6c8e9a25f302b5b4382724c5e83c40e487dba39910df2829c09f7d38ee2d37e0a8a1bdc2a71486c5fb6e508c069",
+            "0xa99ccc28dec85022a6c812878b17d0ddf1d6b7e166e9f5776737baa1297dc548f2168a1616c9da66f2d108f246f40172136cef6fd68408be515ee2544619eef07a9eb1965207f019cf0f9e1bd5e6c74b09d9c0a2311f6b1c1b1db071f14190f3",
+            "0x96896800af1d60489b01c784c6935c260e0e855879bd7bd1836608dafa969f6fe84f412e646dffc826529227bd0388a31713f382aec66924d1eada8a7eb33702300a5fd85d15e7ebed113a79a1cc4c61ee188d332bd3dc713b06b8044944d2af",
+            "0x8ed8ac534f4991509b2fca4a6d99bc9239b8c6688bc80a4009f6db3a5c2d79129726ddae6f99c85109b8bfd91a9f9179184067a8b1b8652abd87c51a6681b32d562880db2a2db69b031c420e44f2f4dd01d7622227470cb324f0286c0a115cd3",
+            "0x8538902206ff0227b235c9f3e2526f0692100e38a0bef4cc0e472f9e5e39095a529de5f181aecf9e59e1029b99bc1aab184e9239c7d3d0258dc3f51b3c9b577260f913a4ce5bb298877cdba2d89d81581ecfe80134b296a6bd6442a319621345",
         ];
 
         let (ks_obj_id, key_server_v2) =

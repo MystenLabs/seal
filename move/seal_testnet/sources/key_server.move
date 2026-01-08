@@ -89,7 +89,9 @@ public fun create_committee_v2(
 ): KeyServer {
     assert!(threshold > 0, EInvalidThreshold);
     assert!(partial_key_servers.length() as u16 >= threshold, EInvalidThreshold);
-    // TODO: assert pk and partial_pk are all valid elements.
+
+    let _ = g2_from_bytes(&pk);
+
     let mut key_server = KeyServer {
         id: object::new(ctx),
         first_version: 2,
@@ -131,7 +133,7 @@ public fun create_partial_key_server(
     url: String,
     party_id: u16,
 ): PartialKeyServer {
-    // TODO: validate partial_pk is a valid element.
+    let _ = g2_from_bytes(&partial_pk);
     PartialKeyServer {
         partial_pk,
         url,
@@ -144,7 +146,6 @@ public fun update_partial_key_servers(
     s: &mut KeyServer,
     partial_key_servers: VecMap<address, PartialKeyServer>,
 ) {
-    // TODO: validate partial pk are valid elements.
     s.assert_committee_server_v2();
     let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2);
     match (&mut v2.server_type) {
