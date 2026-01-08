@@ -52,7 +52,7 @@ pub(crate) struct Metrics {
     /// Total number of requests failed due to stale FN
     pub requests_failed_due_to_staleness: IntCounter,
 
-    /// The current key server version represented as a time series.
+    /// The current key server version
     pub key_server_version: IntCounterVec,
 }
 
