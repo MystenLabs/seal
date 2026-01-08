@@ -97,11 +97,10 @@ pub(crate) async fn create_private_data(
             object_id,
             ..
         } = created
+            && object_type.name.as_str() == "PrivateData"
         {
-            if object_type.name.as_str() == "PrivateData" {
-                pd.replace(object_id);
-            };
-        }
+            pd.replace(object_id);
+        };
     }
 
     let builder = cluster.sui_client().transaction_builder();
@@ -119,10 +118,9 @@ pub(crate) async fn create_private_data(
             digest,
             ..
         } = modified
+            && object_type.name.as_str() == "PrivateData"
         {
-            if object_type.name.as_str() == "PrivateData" {
-                return (object_id, version, digest);
-            }
+            return (object_id, version, digest);
         }
     }
 

@@ -253,10 +253,9 @@ pub(crate) async fn create_committee_key_server_onchain(
                 object_id,
                 ..
             } = change
+                && object_type.name.as_str() == "KeyServer"
             {
-                if object_type.name.as_str() == "KeyServer" {
-                    return Some(object_id);
-                }
+                return Some(object_id);
             }
             None
         })

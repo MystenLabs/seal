@@ -46,7 +46,11 @@ ignore = [
     # number_prefix not maintained
     "RUSTSEC-2025-0119",
     # rustls-pemfile is unmaintained
-    "RUSTSEC-2025-0134"
+    "RUSTSEC-2025-0134",
+    # lru only in dev dependencies
+    "RUSTSEC-2026-0002",
+    # bincode is unmaintained
+    "RUSTSEC-2025-0141"
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score

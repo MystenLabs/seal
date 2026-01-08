@@ -104,8 +104,8 @@ dependencies = [
  "semver",
  "serde",
  "serde_yaml 0.9.34+deprecated",
- "sui-rpc 0.1.0",
- "sui-sdk-types 0.1.0",
+ "sui-rpc 0.2.1",
+ "sui-sdk-types 0.2.1",
  "tokio",
  "tower-http 0.6.6",
  "tracing",
@@ -1986,7 +1986,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_with",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "sui-types",
  "typenum",
 ]
@@ -2543,7 +2543,7 @@ dependencies = [
  "seal-committee",
  "serde",
  "serde_json",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "tokio",
 ]
 
@@ -4491,9 +4491,9 @@ dependencies = [
  "shared-crypto",
  "snap",
  "sui-move-build",
- "sui-rpc 0.1.0",
+ "sui-rpc 0.2.1",
  "sui-sdk",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "sui-types",
  "tap",
  "temp-env",
@@ -8036,7 +8036,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sui-sdk",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "sui-types",
  "tokio",
 ]
@@ -8051,8 +8051,8 @@ dependencies = [
  "fastcrypto-tbls",
  "prost-types 0.14.1",
  "serde",
- "sui-rpc 0.1.0",
- "sui-sdk-types 0.1.0",
+ "sui-rpc 0.2.1",
+ "sui-sdk-types 0.2.1",
  "sui-types",
  "tokio",
 ]
@@ -8098,7 +8098,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "sui-types",
  "tracing",
 ]
@@ -10102,9 +10102,9 @@ dependencies = [
 
 [[package]]
 name = "sui-rpc"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a931ef96b890a118f12b6fa1dda727b8b6df82af3bdb5568c5257078a54c5ba8"
+checksum = "b736e6ff95a01381bf5c91c2c55a7fd1a38783811eb2b4f4f2693a94dc98da54"
 dependencies = [
  "base64 0.22.1",
  "bcs",
@@ -10115,7 +10115,7 @@ dependencies = [
  "prost-types 0.14.1",
  "serde",
  "serde_json",
- "sui-sdk-types 0.1.0",
+ "sui-sdk-types 0.2.1",
  "tap",
  "tokio",
  "tonic 0.14.2",
@@ -10239,9 +10239,9 @@ dependencies = [
 
 [[package]]
 name = "sui-sdk-types"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df9497600faf5a1fb07a2db85902515867ad30474abf959de1a7d1fa473c4a28"
+checksum = "42b2d924d4fb30062d54dfeb95ba3ef3ab2794709e2296655c85f56358853b60"
 dependencies = [
  "base64ct",
  "bcs",

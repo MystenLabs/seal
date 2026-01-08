@@ -53,10 +53,10 @@ impl SealPackage {
                 }),
             ..
         }) = effects
+            && error_code == &STALENESS_ERROR_CODE
+            && module_id == &self.staleness_module()
         {
-            if error_code == &STALENESS_ERROR_CODE && module_id == &self.staleness_module() {
-                return true;
-            }
+            return true;
         }
         false
     }

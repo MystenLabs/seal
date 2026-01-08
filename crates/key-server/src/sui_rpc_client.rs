@@ -111,31 +111,32 @@ where
         }
 
         // Check if error is retriable and we have attempts left
-        if let Err(ref error) = result {
-            if error.is_retriable_error() && attempts_remaining > 1 {
-                tracing::debug!(
-                    "Retrying RPC call to {} due to retriable error: {:?}. Remaining attempts: {}",
-                    label,
-                    error,
-                    attempts_remaining
-                );
+        if let Err(ref error) = result
+            && error.is_retriable_error()
+            && attempts_remaining > 1
+        {
+            tracing::debug!(
+                "Retrying RPC call to {} due to retriable error: {:?}. Remaining attempts: {}",
+                label,
+                error,
+                attempts_remaining
+            );
 
-                if let Some(metrics) = metrics.as_ref() {
-                    metrics
-                        .sui_rpc_request_duration_millis
-                        .with_label_values(&[label, "retriable_error"])
-                        .observe(start_time.elapsed().as_millis() as f64);
-                }
-
-                // Wait before retrying with exponential backoff
-                tokio::time::sleep(current_delay).await;
-
-                // Implement exponential backoff.
-                // Double the delay for next retry, but cap at max_delay
-                current_delay = std::cmp::min(current_delay * 2, rpc_config.max_delay);
-                attempts_remaining -= 1;
-                continue;
+            if let Some(metrics) = metrics.as_ref() {
+                metrics
+                    .sui_rpc_request_duration_millis
+                    .with_label_values(&[label, "retriable_error"])
+                    .observe(start_time.elapsed().as_millis() as f64);
             }
+
+            // Wait before retrying with exponential backoff
+            tokio::time::sleep(current_delay).await;
+
+            // Implement exponential backoff.
+            // Double the delay for next retry, but cap at max_delay
+            current_delay = std::cmp::min(current_delay * 2, rpc_config.max_delay);
+            attempts_remaining -= 1;
+            continue;
         }
 
         tracing::debug!(
