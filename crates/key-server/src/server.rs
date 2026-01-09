@@ -83,6 +83,8 @@ mod types;
 mod utils;
 mod valid_ptb;
 
+#[cfg(test)]
+mod aggregator;
 mod key_server_options;
 mod master_keys;
 mod metrics;
