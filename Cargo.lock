@@ -89,30 +89,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aggregator-server"
-version = "0.5.14"
-dependencies = [
- "anyhow",
- "axum 0.8.7",
- "crypto",
- "fastcrypto",
- "futures",
- "mysten-service",
- "reqwest",
- "seal-committee",
- "seal-sdk",
- "semver",
- "serde",
- "serde_yaml 0.9.34+deprecated",
- "sui-rpc 0.2.1",
- "sui-sdk-types 0.2.1",
- "tokio",
- "tower-http 0.6.6",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"

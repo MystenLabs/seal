@@ -16,19 +16,19 @@ The aggregator server performs the following tasks:
 
 ### Running the Server
 
-Edit the example configuration file at `aggregator-config.yaml` to match your environment. 
+Edit the example configuration file at `aggregator-config.yaml` to match your environment.
 
 ```yaml
-# The network for the object. 
+# The network for the object.
 network: !Testnet
-# The committee server object ID. 
+# The committee server object ID.
 key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
 ```
 
 Then run:
 
 ```shell
-$ CONFIG_PATH=crates/aggregator-server/aggregator-config.yaml cargo run --bin aggregator-server
+$ CONFIG_PATH=crates/key-server/src/aggregator/aggregator-config.yaml cargo run --bin aggregator-server
 ```
 
 
@@ -44,7 +44,7 @@ $ docker build -f Dockerfile.aggregator -t aggregator-server:latest .
 
 ```shell
 $ docker run -p 2024:2024 \
-  -v $(pwd)/crates/aggregator-server/aggregator-config.yaml:/config/aggregator-config.yaml \
+  -v $(pwd)/crates/key-server/src/aggregator/aggregator-config.yaml:/config/aggregator-config.yaml \
   -e CONFIG_PATH=/config/aggregator-config.yaml \
   aggregator-server
 ```
