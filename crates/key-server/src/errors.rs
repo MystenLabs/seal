@@ -16,6 +16,8 @@ pub enum InternalError {
     InvalidCertificate,
     InvalidSDKVersion,
     DeprecatedSDKVersion,
+    #[allow(dead_code)] // Only used by aggregator-server binary
+    InvalidKeyServerVersion,
     MissingRequiredHeader(String),
     InvalidParameter(String),
     InvalidMVRName,
@@ -47,6 +49,7 @@ impl InternalError {
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
+            InternalError::InvalidKeyServerVersion => "InvalidKeyServerVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
             InternalError::InvalidParameter(_) => "InvalidParameter",
             InternalError::InvalidMVRName => "InvalidMVRName",
@@ -67,6 +70,7 @@ impl From<InternalError> for ErrorResponse {
             InternalError::InvalidSignature => "Invalid user signature".to_string(),
             InternalError::InvalidSDKVersion => "Invalid SDK version".to_string(),
             InternalError::DeprecatedSDKVersion => "Deprecated SDK version".to_string(),
+            InternalError::InvalidKeyServerVersion => "Invalid key server version".to_string(),
             InternalError::MissingRequiredHeader(ref inner) => {
                 format!("Missing required header: {inner}")
             }
@@ -101,6 +105,7 @@ impl IntoResponse for ErrorResponse {
             | "InvalidParameter"
             | "InvalidMVRName" => StatusCode::FORBIDDEN,
             "InvalidSDKVersion"
+            | "InvalidKeyServerVersion"
             | "InvalidServiceId"
             | "UnsupportedPackageId"
             | "MissingRequiredHeader" => StatusCode::BAD_REQUEST,
