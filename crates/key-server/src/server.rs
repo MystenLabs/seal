@@ -1064,6 +1064,13 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     options.validate()?;
     let server = Arc::new(Server::new(options, Some(metrics.clone())).await);
 
+    // Report the current version as to the dashboard.
+    // Counters are reset on startup, so only the counter with version equal to package_version is 1.
+    metrics
+        .key_server_version
+        .with_label_values(&[package_version!()])
+        .inc();
+
     let (reference_gas_price_receiver, monitor_handle) =
         start_server_background_tasks(server.clone(), metrics.clone(), registry.clone()).await;
 

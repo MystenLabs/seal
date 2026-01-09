@@ -51,6 +51,9 @@ pub(crate) struct Metrics {
 
     /// Total number of requests failed due to stale FN
     pub requests_failed_due_to_staleness: IntCounter,
+
+    /// The current key server version
+    pub key_server_version: IntCounterVec,
 }
 
 impl Metrics {
@@ -144,6 +147,13 @@ impl Metrics {
             requests_failed_due_to_staleness: register_int_counter_with_registry!(
                 "requests_failed_due_to_staleness",
                 "Total number of requests that failed due to a stale fullnode",
+                registry
+            )
+            .unwrap(),
+            key_server_version: register_int_counter_vec_with_registry!(
+                "key_server_version",
+                "The current key server version",
+                &["version"],
                 registry
             )
             .unwrap(),
