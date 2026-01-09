@@ -77,7 +77,9 @@ impl From<InternalError> for ErrorResponse {
             InternalError::InvalidMVRName => "Invalid MVR name".to_string(),
             InternalError::InvalidServiceId => "Invalid service ID".to_string(),
             InternalError::UnsupportedPackageId => "Unsupported package ID".to_string(),
-            InternalError::Failure(ref msg) => msg.clone(),
+            InternalError::Failure(_) => {
+                "Internal server error, please try again later".to_string()
+            }
         };
 
         ErrorResponse {

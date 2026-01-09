@@ -327,7 +327,8 @@ fn default_sdk_version_requirement() -> VersionReq {
 }
 
 fn default_aggregator_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.5.15").expect("Failed to parse default aggregator version requirement")
+    // TODO: Update on first aggregator release
+    VersionReq::parse(">=1000.0.0").expect("Failed to parse default aggregator version requirement")
 }
 
 #[test]
