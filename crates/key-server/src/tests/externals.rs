@@ -80,7 +80,7 @@ pub(crate) async fn get_key(
         .map(|(pkg_id, ids)| {
             elgamal::decrypt(
                 &sk,
-                &server.create_response(pkg_id, &ids, &pk).decryption_keys[0].encrypted_key,
+                &server.create_response(pkg_id, ids, &pk).decryption_keys[0].encrypted_key,
             )
         })
 }

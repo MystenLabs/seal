@@ -554,7 +554,7 @@ impl Server {
     fn create_response(
         &self,
         first_pkg_id: ObjectID,
-        ids: &[KeyId],
+        ids: Vec<KeyId>,
         enc_key: &ElGamalPublicKey,
     ) -> FetchKeyResponse {
         debug!(
@@ -566,16 +566,13 @@ impl Server {
             .get_key_for_package(&first_pkg_id)
             .expect("checked already");
         let decryption_keys = ids
-            .iter()
+            .into_iter()
             .map(|id| {
                 // Requested key
-                let key = ibe::extract(master_key, id);
+                let key = ibe::extract(master_key, &id);
                 // ElGamal encryption of key under the user's public key
                 let encrypted_key = encrypt(&mut thread_rng(), &key, enc_key);
-                DecryptionKey {
-                    id: id.to_owned(),
-                    encrypted_key,
-                }
+                DecryptionKey { id, encrypted_key }
             })
             .collect();
         FetchKeyResponse { decryption_keys }
@@ -797,7 +794,7 @@ async fn handle_fetch_key(
             Json(
                 app_state
                     .server
-                    .create_response(first_pkg_id, &full_ids, &payload.enc_key),
+                    .create_response(first_pkg_id, full_ids, &payload.enc_key),
             )
         })
 }

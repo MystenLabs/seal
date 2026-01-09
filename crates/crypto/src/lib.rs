@@ -132,11 +132,7 @@ pub fn seal_encrypt(
         indices, shares, ..
     } = split(&mut rng, base_key, threshold, number_of_shares)?;
 
-    let services = key_servers
-        .iter()
-        .zip(indices)
-        .map(|(s, i)| (*s, i))
-        .collect::<Vec<_>>();
+    let services = key_servers.iter().cloned().zip(indices).collect::<Vec<_>>();
 
     let encrypted_shares = match public_keys {
         IBEPublicKeys::BonehFranklinBLS12381(pks) => {
