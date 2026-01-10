@@ -20,7 +20,7 @@ EXPOSE 2024
 RUN apt-get update && apt-get install -y ca-certificates
 
 COPY --from=builder /work/target/release/aggregator-server /opt/aggregator-server/bin/
-COPY ./crates/aggregator-server/aggregator-config.yaml /opt/aggregator-server/config/
+COPY ./crates/key-server/src/aggregator/aggregator-config.yaml /opt/aggregator-server/config/
 
 # Set default CONFIG_PATH
 ENV CONFIG_PATH=/opt/aggregator-server/config/aggregator-config.yaml
