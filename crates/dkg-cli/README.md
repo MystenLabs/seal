@@ -144,6 +144,17 @@ Make sure:
 - Your wallet is connected to the correct network.
 - You have enough gas to submit transactions.
 
+```bash
+# check values
+sui client active-address
+sui client active-env
+sui client gas
+
+# switch values if needed
+sui client switch --address <MY_ADDRESS>
+sui client switch --env testnet
+```
+
 2. **Prepare your local DKG state (Phase 1)**
 
 Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
@@ -153,17 +164,12 @@ rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer. Then add your member-specific fields:
+Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-```yaml
-MY_ADDRESS: 0x...
-MY_SERVER_URL: https://myserver.example.com
-```
-
-Generate your keys and register them onchain:
+Then generate your keys and register them onchain by providing your server URL:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
+python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL>
 ```
 
 This command:
