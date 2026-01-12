@@ -15,6 +15,7 @@ use crate::metrics::Metrics;
 use crate::start_server_background_tasks;
 use crate::tests::SealTestCluster;
 
+use crate::common::{HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION, SDK_TYPE_AGGREGATOR};
 use crate::errors::InternalError::Failure;
 use crate::signed_message::signed_request;
 use crate::tests::externals::get_key;
@@ -150,7 +151,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
-                    .header("Client-Sdk-Version", "0.3.0") // Too old (requires >=0.4.6)
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.3.0") // Too old (requires >=0.4.6)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -172,8 +173,8 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
-                    .header("Client-Sdk-Type", "aggregator")
-                    .header("Client-Sdk-Version", "0.5.14") // Too old (requires >=0.5.15)
+                    .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.5.14") // Too old (requires >=0.5.15)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -195,7 +196,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
-                    .header("Client-Sdk-Version", "0.4.11")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -220,7 +221,7 @@ async fn test_service() {
             .request(
                 Request::builder()
                     .uri(format!("http://{addr}/v1/service"))
-                    .header("Client-Sdk-Version", "0.4.11")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -237,7 +238,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
-                    .header("Client-Sdk-Version", "0.4.11")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .body(Body::from(large_body))
                     .unwrap(),
             )
@@ -342,7 +343,7 @@ async fn test_fetch_key() {
                 Request::builder()
                     .uri(format!("http://{addr}/v1/fetch_key",))
                     .method("POST")
-                    .header("Client-Sdk-Version", "0.4.11")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .header("Content-Type", "application/json")
                     .body(Body::from(json!(request).to_string()))
                     .unwrap(),

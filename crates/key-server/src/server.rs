@@ -1,5 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::common::add_response_headers;
 use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::{CommitteeState, ServerMode};
@@ -15,12 +16,12 @@ use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
-use axum::http::{HeaderMap, HeaderValue};
+use axum::http::HeaderMap;
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
-use common::ClientSdkType;
+use common::{ClientSdkType, HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe::create_proof_of_possession;
@@ -82,6 +83,8 @@ mod sui_rpc_client;
 mod types;
 mod utils;
 mod valid_ptb;
+
+use common::NetworkConfig;
 
 mod key_server_options;
 mod master_keys;
@@ -777,7 +780,7 @@ async fn handle_fetch_key(
         .get("Request-Id")
         .map(|v| v.to_str().unwrap_or_default());
     let sdk_version = headers
-        .get("Client-Sdk-Version")
+        .get(HEADER_CLIENT_SDK_VERSION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
 
@@ -871,8 +874,8 @@ async fn handle_request_headers(
     next: Next,
 ) -> Result<Response, InternalError> {
     // Log the request id and SDK version
-    let version = request.headers().get("Client-Sdk-Version");
-    let sdk_type = request.headers().get("Client-Sdk-Type");
+    let version = request.headers().get(HEADER_CLIENT_SDK_VERSION);
+    let sdk_type = request.headers().get(HEADER_CLIENT_SDK_TYPE);
 
     info!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
@@ -888,7 +891,7 @@ async fn handle_request_headers(
     let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
 
     version
-        .ok_or(MissingRequiredHeader("Client-Sdk-Version".to_string()))
+        .ok_or(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
         .and_then(|v| state.validate_sdk_version(v, sdk_type))
         .tap_err(|e| {
@@ -896,20 +899,6 @@ async fn handle_request_headers(
             state.metrics.observe_error(e.as_str());
         })?;
     Ok(next.run(request).await)
-}
-
-/// Middleware to add headers to all responses.
-async fn add_response_headers(mut response: Response) -> Response {
-    let headers = response.headers_mut();
-    headers.insert(
-        "X-KeyServer-Version",
-        HeaderValue::from_static(package_version!()),
-    );
-    headers.insert(
-        "X-KeyServer-GitVersion",
-        HeaderValue::from_static(GIT_VERSION),
-    );
-    response
 }
 
 /// Creates a [prometheus::core::Collector] that tracks the uptime of the server.
@@ -1040,7 +1029,8 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         Err(_) => {
             info!("Using local environment variables for configuration, should only be used for testing");
             let network = env::var("NETWORK")
-                .map(|n| Network::from_str(&n))
+                .ok()
+                .and_then(|n| n.parse().ok())
                 .unwrap_or(Network::Testnet);
             KeyServerOptions::new_open_server_with_default_values(
                 network,
@@ -1104,7 +1094,9 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 .route("/v1/fetch_key", post(handle_fetch_key))
                 .route("/v1/service", get(handle_get_service))
                 .layer(from_fn_with_state(state.clone(), handle_request_headers))
-                .layer(map_response(add_response_headers))
+                .layer(map_response(|response| {
+                    add_response_headers(response, package_version!(), GIT_VERSION)
+                }))
                 // Outside most middlewares that tracks metrics for HTTP requests and response
                 // status.
                 .layer(from_fn_with_state(

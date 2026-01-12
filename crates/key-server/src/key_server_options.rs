@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::common::NetworkConfig;
 use crate::metrics_push::MetricsPushConfig;
 use crate::time::from_mins;
 use crate::types::Network;
@@ -163,13 +164,17 @@ pub struct KeyServerOptions {
     pub metrics_push_config: Option<MetricsPushConfig>,
 }
 
-impl KeyServerOptions {
-    pub fn node_url(&self) -> &str {
-        self.node_url
-            .as_deref()
-            .unwrap_or_else(|| self.network.default_node_url())
+impl NetworkConfig for KeyServerOptions {
+    fn network(&self) -> &Network {
+        &self.network
     }
 
+    fn node_url_option(&self) -> &Option<String> {
+        &self.node_url
+    }
+}
+
+impl KeyServerOptions {
     pub fn new_open_server_with_default_values(
         network: Network,
         key_server_object_id: ObjectID,

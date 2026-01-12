@@ -65,3 +65,4 @@ test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
+wiremock = "0.5"
