@@ -852,7 +852,7 @@ impl MyState {
 
         let requirement = match sdk_type {
             ClientSdkType::Aggregator => &self.server.options.aggregator_version_requirement,
-            ClientSdkType::TypeScript => &self.server.options.sdk_version_requirement,
+            ClientSdkType::TypeScript => &self.server.options.ts_sdk_version_requirement,
             ClientSdkType::Other => return Ok(()),
         };
 

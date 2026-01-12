@@ -121,8 +121,8 @@ pub struct KeyServerOptions {
     pub server_mode: ServerMode,
 
     /// The minimum version of the client SDK that is required to use this key server.
-    #[serde(default = "default_sdk_version_requirement")]
-    pub sdk_version_requirement: VersionReq,
+    #[serde(default = "default_ts_sdk_version_requirement")]
+    pub ts_sdk_version_requirement: VersionReq,
 
     /// The minimum version of the aggregator that is required to use this key server.
     #[serde(default = "default_aggregator_version_requirement")]
@@ -177,7 +177,7 @@ impl KeyServerOptions {
         Self {
             network,
             node_url: None,
-            sdk_version_requirement: default_sdk_version_requirement(),
+            ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
@@ -196,7 +196,7 @@ impl KeyServerOptions {
         Self {
             network,
             node_url: None,
-            sdk_version_requirement: default_sdk_version_requirement(),
+            ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
@@ -322,8 +322,8 @@ fn default_metrics_host_port() -> u16 {
     9184
 }
 
-fn default_sdk_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.4.5").expect("Failed to parse default SDK version requirement")
+fn default_ts_sdk_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.4.5").expect("Failed to parse default TSSDK version requirement")
 }
 
 fn default_aggregator_version_requirement() -> VersionReq {
@@ -336,7 +336,7 @@ fn test_parse_open_config() {
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet
-sdk_version_requirement: '>=0.2.7'
+ts_sdk_version_requirement: '>=0.2.7'
 metrics_host_port: 1234
 server_mode: !Open
   key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000002'
@@ -348,7 +348,7 @@ session_key_ttl_max: '60s'
     let options: KeyServerOptions =
         serde_yaml::from_str(valid_configuration).expect("Failed to parse valid configuration");
     assert_eq!(options.network, Network::Mainnet);
-    assert_eq!(options.sdk_version_requirement.to_string(), ">=0.2.7");
+    assert_eq!(options.ts_sdk_version_requirement.to_string(), ">=0.2.7");
     assert_eq!(options.metrics_host_port, 1234);
 
     let expected_server_mode = ServerMode::Open {
@@ -394,7 +394,7 @@ fn test_parse_permissioned_config() {
     use std::str::FromStr;
     let valid_configuration = r#"
 network: Mainnet
-sdk_version_requirement: '>=0.2.7'
+ts_sdk_version_requirement: '>=0.2.7'
 metrics_host_port: 1234
 server_mode: !Permissioned
   client_configs:

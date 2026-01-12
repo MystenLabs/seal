@@ -114,7 +114,7 @@ server_mode: !Open
 # metrics_host_port: 9184
 #
 # The minimum version of the SDK that is required to use this service.
-# sdk_version_requirement: '>=0.4.5'
+# ts_sdk_version_requirement: '>=0.4.5'
 #
 # Update intervals and timeouts for various operations. Example values are shown below.
 # rgp_update_interval: '60s'
