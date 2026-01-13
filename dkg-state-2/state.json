@@ -1,0 +1,174 @@
+{
+  "config": {
+    "my_party_id": 2,
+    "nodes": {
+      "nodes": [
+        {
+          "id": 0,
+          "pk": "r6aRb9mHozEEL5BkMwIr9a02KlmYgq/n91bpWxn9OYjcZBmTZghQ2JwnzAUF5VWKAgjcCo7AoA+G9rNdKEtIlbdDYHac3I202LyC2I0goE5ZtpsASe73ztdcQ/9tdbmP",
+          "weight": 1
+        },
+        {
+          "id": 1,
+          "pk": "qfGJgdcYonyez5jwplXcCnnU82cMhZOGlMd0QuXV8qUj3qDsy1CrwMD/USuAXsHGD7a+wUVU5nTYSbEz3WPnbo89LzR+Asx5GlOIcu3B4UY9KDikt52bq4K/qmLPaiKr",
+          "weight": 1
+        },
+        {
+          "id": 2,
+          "pk": "pqLzfd4yy2vEGoNnYPdC0dRJuKORxWWhRpIfDEGtqADpW4exg7Kqkcj7Xp6v9X1/C+1Z5wbc+88xfDnWrNhCaP9InYC1LAFREuUCfMyqjY3TbiPSRUXlyqt9n5UrEabJ",
+          "weight": 1
+        }
+      ],
+      "total_weight": 3,
+      "accumulated_weights": [
+        1,
+        2,
+        3
+      ],
+      "nodes_with_nonzero_weight": [
+        0,
+        1,
+        2
+      ]
+    },
+    "committee_id": "0xa9846a7aeac12a418336e6eefe56155fcffc74937e83048cb71d47b5c4ab8eea",
+    "threshold": 2,
+    "signing_pks": {
+      "2": "uWNTuTCZApqPUa/j5o8fwaX4qqexjfn2MMF5kvsPDIZpT3+uCXv4CSNLToqk4/PdFEmGPRY+xvuMn1oyJGpd2WAJBWdQFVuKuXv5+3fAsygbsr/TAlwkiDnsnbxGPSD4",
+      "0": "mYBMFTX/gaNm+sVuGwYoxnqUVNEhkEr50sWKLDu7ZhsNskiOOmqo5wIFIF2G1AdPD3SrMDfi51ubFwnpHlV3Hjeih/Mud7mLHXxX25nytWb+PPxSkgO/IeRdv6ImOUIW",
+      "1": "jJ6FmFIw0HOe6+t4CVzB3w0Dfv1ZXYuOC6eNZSzu16TGzUcFvSrdx/096PRmE9k+EqC5VQXuYASKzB7A09lUywGBR/1HEPZlceDbND23qFhj69ReTirHfScX3jZJGnnd"
+    },
+    "old_threshold": null,
+    "new_to_old_mapping": null,
+    "expected_old_pks": null,
+    "my_old_share": null,
+    "my_old_pk": null
+  },
+  "my_message": {
+    "sender": 2,
+    "vss_pk": [
+      "psmw7UjBWFx2uaROPlUTfS4tgh3RIwauySN7G+3SLs1KNRSQvDGbEg+pUYD1K+zZBWfYy3xt2Otj37NrwKzItf5SVQfD4D7Q+rDTo8tXOYJLgqp3Ky9sLTFoccdYnECb",
+      "kYt79BclutJMnLJtfxOINp0/kCbJJlinA7KUVbFjE4Db+o8IwogAQJYpR1E7jdIyGckDtLQUR3JKEIot0e/gevJTLYIKmoBb0kadwn7YBr9vydu0Tn2aYh2tWQ5rG95A"
+    ],
+    "encrypted_shares": {
+      "c": "rK5dGpCYzzTFiAbGYK5TkcppQlu7+YGMh0CN1l2p4IPGKOqKIqUNA69bl9o/f/Q9Fa5O1H4shwgc1Lq1wiABvQM3s0Zr6mkp4U56WdWW9TelwFwFZbWMisz2hl+ILbkF",
+      "c_hat": "pcUCUZ7m3drDnANKfoKic7bvDkAtJxMGwgqBGFgzgoPrAatUOU7hwdXc8rozeqCVDR70Pv1gd95WWOeHip1AN/VauqEfg1Vjqc/wcfzH6QaiWEXpoCbqAFh1xlMDwHYK",
+      "encs": [
+        [
+          236,
+          174,
+          176,
+          236,
+          56,
+          156,
+          225,
+          7,
+          76,
+          94,
+          111,
+          19,
+          178,
+          28,
+          126,
+          53,
+          235,
+          247,
+          60,
+          242,
+          200,
+          131,
+          59,
+          137,
+          34,
+          172,
+          15,
+          87,
+          118,
+          210,
+          53,
+          14,
+          6
+        ],
+        [
+          163,
+          250,
+          17,
+          4,
+          158,
+          77,
+          211,
+          62,
+          20,
+          51,
+          145,
+          170,
+          198,
+          107,
+          132,
+          102,
+          92,
+          161,
+          156,
+          85,
+          196,
+          154,
+          253,
+          151,
+          204,
+          60,
+          52,
+          155,
+          50,
+          25,
+          107,
+          60,
+          123
+        ],
+        [
+          97,
+          201,
+          19,
+          248,
+          62,
+          114,
+          72,
+          115,
+          28,
+          181,
+          50,
+          152,
+          176,
+          79,
+          180,
+          200,
+          224,
+          195,
+          234,
+          93,
+          36,
+          137,
+          15,
+          114,
+          104,
+          243,
+          171,
+          30,
+          188,
+          142,
+          40,
+          40,
+          119
+        ]
+      ],
+      "proof": [
+        "mKAylBjlIgs+SDOZ9XwbyiMPmyLkWbI4GOnBmi1X8HGBh7SiiQcLCcdGCIq4w46cAs795kQbd5j/oz79VTPF3BQdJw9KeL5M305lHWHXvxACQK95Pw/7hftwZHUYID1D",
+        "lS01M2QBTJ8N6l7jLBL8V9TxXDxsve+YX3+/BShEtoXAJS/KwV7lOP0b7GtfGiSLDK2DgmT7e4i3yo5+9bVqtWSIdNl3UyqsSXGwMIfdD1x6AIxygioRFp0tzuD3zSYJ",
+        "JlR4rupYLrdxvxko4pRKgaXS+i1eEAvpEzoa5qqgGPo="
+      ]
+    }
+  },
+  "received_messages": {},
+  "processed_messages": [],
+  "confirmation": null,
+  "output": null
+}

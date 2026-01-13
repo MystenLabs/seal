@@ -1,0 +1,174 @@
+{
+  "config": {
+    "my_party_id": 1,
+    "nodes": {
+      "nodes": [
+        {
+          "id": 0,
+          "pk": "r6aRb9mHozEEL5BkMwIr9a02KlmYgq/n91bpWxn9OYjcZBmTZghQ2JwnzAUF5VWKAgjcCo7AoA+G9rNdKEtIlbdDYHac3I202LyC2I0goE5ZtpsASe73ztdcQ/9tdbmP",
+          "weight": 1
+        },
+        {
+          "id": 1,
+          "pk": "qfGJgdcYonyez5jwplXcCnnU82cMhZOGlMd0QuXV8qUj3qDsy1CrwMD/USuAXsHGD7a+wUVU5nTYSbEz3WPnbo89LzR+Asx5GlOIcu3B4UY9KDikt52bq4K/qmLPaiKr",
+          "weight": 1
+        },
+        {
+          "id": 2,
+          "pk": "pqLzfd4yy2vEGoNnYPdC0dRJuKORxWWhRpIfDEGtqADpW4exg7Kqkcj7Xp6v9X1/C+1Z5wbc+88xfDnWrNhCaP9InYC1LAFREuUCfMyqjY3TbiPSRUXlyqt9n5UrEabJ",
+          "weight": 1
+        }
+      ],
+      "total_weight": 3,
+      "accumulated_weights": [
+        1,
+        2,
+        3
+      ],
+      "nodes_with_nonzero_weight": [
+        0,
+        1,
+        2
+      ]
+    },
+    "committee_id": "0xa9846a7aeac12a418336e6eefe56155fcffc74937e83048cb71d47b5c4ab8eea",
+    "threshold": 2,
+    "signing_pks": {
+      "2": "uWNTuTCZApqPUa/j5o8fwaX4qqexjfn2MMF5kvsPDIZpT3+uCXv4CSNLToqk4/PdFEmGPRY+xvuMn1oyJGpd2WAJBWdQFVuKuXv5+3fAsygbsr/TAlwkiDnsnbxGPSD4",
+      "1": "jJ6FmFIw0HOe6+t4CVzB3w0Dfv1ZXYuOC6eNZSzu16TGzUcFvSrdx/096PRmE9k+EqC5VQXuYASKzB7A09lUywGBR/1HEPZlceDbND23qFhj69ReTirHfScX3jZJGnnd",
+      "0": "mYBMFTX/gaNm+sVuGwYoxnqUVNEhkEr50sWKLDu7ZhsNskiOOmqo5wIFIF2G1AdPD3SrMDfi51ubFwnpHlV3Hjeih/Mud7mLHXxX25nytWb+PPxSkgO/IeRdv6ImOUIW"
+    },
+    "old_threshold": null,
+    "new_to_old_mapping": null,
+    "expected_old_pks": null,
+    "my_old_share": null,
+    "my_old_pk": null
+  },
+  "my_message": {
+    "sender": 1,
+    "vss_pk": [
+      "jcV2W5B1em/u6+9dHSHqEeSbRfjhNHXTDnf9fqKmHWRtoQigVV6cCY24OZGjGjkNGcPNXuD4wOZYp+eibLF3lk3BwVVY6RLaPU/5bLyiKwJ73ULVLg7TvEuSKGH6OJH8",
+      "iZrr1cX64fVPhs8rypVipSeI4weDKfj13lHjCW/NSXGQSLqWWr9SN1yAYX5WlhPbBxwhCriBX96YQFaKTtO2SF8+GlN+08M7Q3lo/nr0/E/6aqX9TrkcR1ObmsjV0zrf"
+    ],
+    "encrypted_shares": {
+      "c": "uet26yJkFOi8nY6Rzke+UKOWeD67OZeCYaFGtP5kVHKZvPmzCHE5WbxbQSzbGInSBilqPWC0yikBVqJFQ72aIM7q4uA6Cgc2hDocaPRqxD0CBB1ZX6XnhbW78aHcyA1X",
+      "c_hat": "p1mNUGjXP62JBzfFaPmaXG/u/wxhZJ6oINPHfk7HxTgj5gW3K7yfwBO5X6YreDocAzS3FOhKQNMgo8NFwMysnbuvwxOm7Ps0BaOjv4ChYSEiv1gleoiVdOMCxyty1Fbj",
+      "encs": [
+        [
+          153,
+          239,
+          211,
+          18,
+          135,
+          144,
+          188,
+          67,
+          168,
+          137,
+          222,
+          150,
+          139,
+          34,
+          59,
+          184,
+          106,
+          236,
+          78,
+          247,
+          198,
+          103,
+          13,
+          174,
+          31,
+          132,
+          103,
+          199,
+          6,
+          181,
+          36,
+          239,
+          180
+        ],
+        [
+          85,
+          220,
+          28,
+          37,
+          9,
+          124,
+          37,
+          24,
+          255,
+          163,
+          220,
+          145,
+          154,
+          187,
+          196,
+          13,
+          239,
+          132,
+          188,
+          17,
+          130,
+          52,
+          58,
+          130,
+          100,
+          34,
+          188,
+          92,
+          132,
+          200,
+          195,
+          49,
+          238
+        ],
+        [
+          202,
+          192,
+          220,
+          157,
+          23,
+          44,
+          91,
+          160,
+          241,
+          18,
+          85,
+          175,
+          53,
+          138,
+          44,
+          195,
+          26,
+          210,
+          166,
+          143,
+          29,
+          127,
+          35,
+          29,
+          212,
+          66,
+          174,
+          116,
+          203,
+          48,
+          215,
+          217,
+          135
+        ]
+      ],
+      "proof": [
+        "mRkHHxU1cPLcf2RsbfFV0GuWBOxRrnQzBy3cSbUDYjf+BL5klFfnKH5ZiZhLNtHTDfzQf4etgs/O0IO6YrITofCf1I8d803vmYwYRNDzdUdRpLhmRFKaEqlHuJ5skQR0",
+        "kX8ocz3sFwv8EIYrwdOOzNzjeGsAOr39hz0cVVqKd9lAa8x4It3/Z/l4hAspn2v2DeYqjfET4Zx/pNWNwDz433BmmD+mhkUQ0/Hlb+7ruhsAxhFOxpg+xG+OAYB9H5Va",
+        "YNQ0aBqDdf33M91cWjeddyd+PP13eTaiQbkAGBHDACg="
+      ]
+    }
+  },
+  "received_messages": {},
+  "processed_messages": [],
+  "confirmation": null,
+  "output": null
+}

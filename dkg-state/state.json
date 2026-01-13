@@ -1,0 +1,174 @@
+{
+  "config": {
+    "my_party_id": 0,
+    "nodes": {
+      "nodes": [
+        {
+          "id": 0,
+          "pk": "r6aRb9mHozEEL5BkMwIr9a02KlmYgq/n91bpWxn9OYjcZBmTZghQ2JwnzAUF5VWKAgjcCo7AoA+G9rNdKEtIlbdDYHac3I202LyC2I0goE5ZtpsASe73ztdcQ/9tdbmP",
+          "weight": 1
+        },
+        {
+          "id": 1,
+          "pk": "qfGJgdcYonyez5jwplXcCnnU82cMhZOGlMd0QuXV8qUj3qDsy1CrwMD/USuAXsHGD7a+wUVU5nTYSbEz3WPnbo89LzR+Asx5GlOIcu3B4UY9KDikt52bq4K/qmLPaiKr",
+          "weight": 1
+        },
+        {
+          "id": 2,
+          "pk": "pqLzfd4yy2vEGoNnYPdC0dRJuKORxWWhRpIfDEGtqADpW4exg7Kqkcj7Xp6v9X1/C+1Z5wbc+88xfDnWrNhCaP9InYC1LAFREuUCfMyqjY3TbiPSRUXlyqt9n5UrEabJ",
+          "weight": 1
+        }
+      ],
+      "total_weight": 3,
+      "accumulated_weights": [
+        1,
+        2,
+        3
+      ],
+      "nodes_with_nonzero_weight": [
+        0,
+        1,
+        2
+      ]
+    },
+    "committee_id": "0xa9846a7aeac12a418336e6eefe56155fcffc74937e83048cb71d47b5c4ab8eea",
+    "threshold": 2,
+    "signing_pks": {
+      "2": "uWNTuTCZApqPUa/j5o8fwaX4qqexjfn2MMF5kvsPDIZpT3+uCXv4CSNLToqk4/PdFEmGPRY+xvuMn1oyJGpd2WAJBWdQFVuKuXv5+3fAsygbsr/TAlwkiDnsnbxGPSD4",
+      "1": "jJ6FmFIw0HOe6+t4CVzB3w0Dfv1ZXYuOC6eNZSzu16TGzUcFvSrdx/096PRmE9k+EqC5VQXuYASKzB7A09lUywGBR/1HEPZlceDbND23qFhj69ReTirHfScX3jZJGnnd",
+      "0": "mYBMFTX/gaNm+sVuGwYoxnqUVNEhkEr50sWKLDu7ZhsNskiOOmqo5wIFIF2G1AdPD3SrMDfi51ubFwnpHlV3Hjeih/Mud7mLHXxX25nytWb+PPxSkgO/IeRdv6ImOUIW"
+    },
+    "old_threshold": null,
+    "new_to_old_mapping": null,
+    "expected_old_pks": null,
+    "my_old_share": null,
+    "my_old_pk": null
+  },
+  "my_message": {
+    "sender": 0,
+    "vss_pk": [
+      "k04VqTmVuqTJnsJUaClLRKuMMAEcd45X9s29QTFUm6N0gmRXIMO/GifBP8boMENpCvhOJAWEv0+8+M6MfjhFyRwZ1JohIfz/amhuxLWUVkeOvVyorwHbWz01+8Ys8G3/",
+      "qzRIQCgL3y6yBU/qWqACO4dXzZJ11U+J0bPm9AJwUevnLn3g8G4WMEh1t/ms4UzXBdy4z5mFKL/h/pYoxLI5gjv54OUKhoyL2Q+TR+ysyO1dIsfpj5TuW2FzIXxNWULt"
+    ],
+    "encrypted_shares": {
+      "c": "kuly6QA5DTpFDKEmIKcSJUF7daXqk8cjt826s1/VnG05jEez7WXWJTghKkPLgMi0D4ZPS9x4qRkKimRKyqSPAoF7e7ZB+SV1eTiiMxOWWEY3rJt8D30AqctIlFaUXHfs",
+      "c_hat": "k4MBNyYLD+qObRKCd+XU8oyrIllAzu4ft8WJj/JKqzPtgqxOfAp9E5Tvw8tuMds8GYR2TTDeWFpDNszIizN0gLNrUUcm8azUS/JylweTBdrNRBpkZNLjzJdf2y7f48tV",
+      "encs": [
+        [
+          11,
+          25,
+          238,
+          87,
+          207,
+          61,
+          232,
+          155,
+          120,
+          42,
+          95,
+          53,
+          167,
+          83,
+          51,
+          41,
+          99,
+          54,
+          86,
+          148,
+          152,
+          217,
+          156,
+          27,
+          232,
+          64,
+          181,
+          232,
+          173,
+          53,
+          178,
+          92,
+          40
+        ],
+        [
+          74,
+          169,
+          151,
+          49,
+          168,
+          123,
+          128,
+          162,
+          111,
+          53,
+          185,
+          239,
+          84,
+          213,
+          103,
+          246,
+          106,
+          7,
+          207,
+          116,
+          203,
+          188,
+          160,
+          228,
+          111,
+          25,
+          40,
+          174,
+          102,
+          54,
+          116,
+          181,
+          243
+        ],
+        [
+          174,
+          148,
+          145,
+          43,
+          140,
+          96,
+          242,
+          57,
+          135,
+          178,
+          152,
+          249,
+          156,
+          247,
+          193,
+          208,
+          240,
+          168,
+          79,
+          194,
+          97,
+          230,
+          129,
+          9,
+          136,
+          10,
+          120,
+          186,
+          215,
+          200,
+          141,
+          150,
+          63
+        ]
+      ],
+      "proof": [
+        "iltYjZAGmVtcH9mT3cKLglrvdeA7pCAeo6Fa4yMvzBboeHNW71z6/XUZsAASfGlfDkFVxlDGDOHvhyCrKLqZOzexe6lambcTyRaeEGXy49io/NWS21TbJQcNJJvRBvKW",
+        "kMhO/9+k1PAD54AXmd+f+atEilqplCx6h2WrQ1Pr7pRBCdtxrQQ1ouVtxeB8y7bKDq0l2NWxU9cBANF9Nm4XnmYdHnLY4jF5qfhgyVVUY334kFCqsc5vbh0ChV8IR32D",
+        "baqiic9AYSHuJzkip983BP7H4bDU/UKb0ECAd3HYQHY="
+      ]
+    }
+  },
+  "received_messages": {},
+  "processed_messages": [],
+  "confirmation": null,
+  "output": null
+}
