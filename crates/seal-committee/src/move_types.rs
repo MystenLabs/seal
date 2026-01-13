@@ -58,10 +58,10 @@ pub enum ServerType {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct PartialKeyServer {
+    pub name: String,
+    pub url: String,
     #[serde(deserialize_with = "deserialize_partial_pk")]
     pub partial_pk: G2Element,
-    pub url: String,
-    pub name: String,
     pub party_id: u16,
 }
 
@@ -90,6 +90,7 @@ pub struct MemberInfo {
     #[serde(deserialize_with = "deserialize_signing_pk")]
     pub signing_pk: BLS12381PublicKey,
     pub url: String,
+    pub name: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -199,6 +200,7 @@ impl SealCommittee {
                 Ok((
                     *member_addr,
                     ParsedMemberInfo {
+                        name: info.name.clone(),
                         party_id: party_id as u16,
                         address: *member_addr,
                         enc_pk: info.enc_pk.clone(),
@@ -212,6 +214,7 @@ impl SealCommittee {
 
 /// Helper struct storing member info with deserialized public keys.
 pub struct ParsedMemberInfo {
+    pub name: String,
     pub party_id: u16,
     pub address: Address,
     pub enc_pk: PublicKey<G2Element>,

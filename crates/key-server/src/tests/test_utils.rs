@@ -174,7 +174,7 @@ pub(crate) fn build_partial_key_servers(
         Identifier::new("key_server").unwrap(),
         Identifier::new("create_partial_key_server").unwrap(),
         vec![],
-        vec![partial_pk_bytes, url_arg, name_arg, party_id_arg],
+        vec![name_arg, url_arg, partial_pk_bytes, party_id_arg],
     );
 
     let vec_map_module = ObjectID::from_hex_literal("0x2").unwrap();

@@ -335,9 +335,9 @@ fun build_partial_key_servers(
         partial_key_servers.insert(
             member,
             create_partial_key_server(
-                partial_pks[i],
-                members_info.get(&member).url,
                 members_info.get(&member).name,
+                members_info.get(&member).url,
+                partial_pks[i],
                 i as u16,
             ),
         );

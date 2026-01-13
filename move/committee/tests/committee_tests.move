@@ -538,14 +538,7 @@ fun test_propose_fails_committee_has_old_committee_id() {
         test_scenario::return_shared(new_committee);
 
         // Register BOB for the new committee.
-        register_member_by_id!(
-            scenario,
-            BOB,
-            new_committee_id,
-            g2_bytes,
-            g2_bytes,
-            b"url1",
-        );
+        register_member_by_id!(scenario, BOB, new_committee_id, g2_bytes, g2_bytes, b"url1");
 
         // Try to call propose (instead of propose_for_rotation) on rotation committee.
         // This should fail because propose is only for fresh DKG committees.
@@ -720,7 +713,13 @@ public macro fun register_member(
     let url = $url;
     scenario.next_tx(member);
     let mut committee = scenario.take_shared<Committee>();
-    committee.register(enc_pk, signing_pk, string::utf8(url), string::utf8(b"server"), scenario.ctx());
+    committee.register(
+        enc_pk,
+        signing_pk,
+        string::utf8(url),
+        string::utf8(b"server"),
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 }
 
@@ -742,7 +741,13 @@ public macro fun register_member_by_id(
 
     scenario.next_tx(member);
     let mut committee = scenario.take_shared_by_id<Committee>(committee_id);
-    committee.register(enc_pk, signing_pk, string::utf8(url), string::utf8(b"server"), scenario.ctx());
+    committee.register(
+        enc_pk,
+        signing_pk,
+        string::utf8(url),
+        string::utf8(b"server"),
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 }
 
