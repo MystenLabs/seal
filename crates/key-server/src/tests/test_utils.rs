@@ -166,6 +166,7 @@ pub(crate) fn build_partial_key_servers(
 ) -> Argument {
     let partial_pk_bytes = builder.pure(partial_pk.to_byte_array().to_vec()).unwrap();
     let url_arg = builder.pure("testurl.com".to_string()).unwrap();
+    let name_arg = builder.pure("testserver".to_string()).unwrap();
     let party_id_arg = builder.pure(party_id).unwrap();
 
     let partial_key_server_arg = builder.programmable_move_call(
@@ -173,7 +174,7 @@ pub(crate) fn build_partial_key_servers(
         Identifier::new("key_server").unwrap(),
         Identifier::new("create_partial_key_server").unwrap(),
         vec![],
-        vec![partial_pk_bytes, url_arg, party_id_arg],
+        vec![name_arg, url_arg, partial_pk_bytes, party_id_arg],
     );
 
     let vec_map_module = ObjectID::from_hex_literal("0x2").unwrap();

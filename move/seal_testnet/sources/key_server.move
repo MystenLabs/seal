@@ -70,10 +70,11 @@ public enum ServerType has drop, store {
     },
 }
 
-/// PartialKeyServer, holds the partial pk, party ID and URL for a committee member.
+/// PartialKeyServer, holds the partial pk, party ID, URL, and name for a committee member.
 public struct PartialKeyServer has copy, drop, store {
+    name: String, // Partial key server name.
+    url: String, // Partial key server URL.
     partial_pk: vector<u8>, // Partial public key (G2 element).
-    url: String, // Key server URL.
     party_id: u16, // Party ID in the DKG.
 }
 
@@ -129,14 +130,16 @@ public fun upgrade_to_independent_v2(ks: &mut KeyServer) {
 
 /// Create a PartialKeyServer with respective fields.
 public fun create_partial_key_server(
-    partial_pk: vector<u8>,
+    name: String,
     url: String,
+    partial_pk: vector<u8>,
     party_id: u16,
 ): PartialKeyServer {
     let _ = g2_from_bytes(&partial_pk);
     PartialKeyServer {
-        partial_pk,
+        name,
         url,
+        partial_pk,
         party_id,
     }
 }

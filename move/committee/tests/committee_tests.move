@@ -369,7 +369,13 @@ fun test_register_fails_for_non_member() {
 
         scenario.next_tx(DAVE);
         let mut committee = scenario.take_shared<Committee>();
-        committee.register(g2_bytes, g2_bytes, string::utf8(b"url3"), scenario.ctx());
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url3"),
+            string::utf8(b"server3"),
+            scenario.ctx(),
+        );
 
         test_scenario::return_shared(committee);
     });
@@ -383,9 +389,21 @@ fun test_register_fails_when_already_registered() {
         scenario.next_tx(BOB);
 
         let mut committee = scenario.take_shared<Committee>();
-        committee.register(g2_bytes, g2_bytes, string::utf8(b"url1"), scenario.ctx());
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url1"),
+            string::utf8(b"server1"),
+            scenario.ctx(),
+        );
         // Register again as same member fails.
-        committee.register(g2_bytes, g2_bytes, string::utf8(b"url2"), scenario.ctx());
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url2"),
+            string::utf8(b"server2"),
+            scenario.ctx(),
+        );
 
         test_scenario::return_shared(committee);
     });
@@ -405,7 +423,13 @@ fun test_register_fails_when_not_in_init_state() {
         let mut committee = scenario.take_shared<Committee>();
 
         // Try to register in Finalized state - fails.
-        committee.register(g2_bytes, g2_bytes, string::utf8(b"url2"), scenario.ctx());
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url2"),
+            string::utf8(b"server2"),
+            scenario.ctx(),
+        );
         test_scenario::return_shared(committee);
     });
 }
@@ -687,10 +711,15 @@ public macro fun register_member(
     let enc_pk = $enc_pk;
     let signing_pk = $signing_pk;
     let url = $url;
-
     scenario.next_tx(member);
     let mut committee = scenario.take_shared<Committee>();
-    committee.register(enc_pk, signing_pk, string::utf8(url), scenario.ctx());
+    committee.register(
+        enc_pk,
+        signing_pk,
+        string::utf8(url),
+        string::utf8(b"server"),
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 }
 
@@ -712,7 +741,13 @@ public macro fun register_member_by_id(
 
     scenario.next_tx(member);
     let mut committee = scenario.take_shared_by_id<Committee>(committee_id);
-    committee.register(enc_pk, signing_pk, string::utf8(url), scenario.ctx());
+    committee.register(
+        enc_pk,
+        signing_pk,
+        string::utf8(url),
+        string::utf8(b"server"),
+        scenario.ctx(),
+    );
     test_scenario::return_shared(committee);
 }
 
