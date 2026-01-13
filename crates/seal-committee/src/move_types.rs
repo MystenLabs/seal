@@ -61,6 +61,7 @@ pub struct PartialKeyServer {
     #[serde(deserialize_with = "deserialize_partial_pk")]
     pub partial_pk: G2Element,
     pub url: String,
+    pub name: String,
     pub party_id: u16,
 }
 

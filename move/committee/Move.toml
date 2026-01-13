@@ -4,7 +4,7 @@ edition = "2024.beta"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.61.2" }
-seal_testnet = { local = "../seal_testnet", published-at = "0x51d78baada67ce5a3c191cc6c8ef77c6ce1dc77cd3da64bfff4d78444fb0b770" }
+seal_testnet = { local = "../seal_testnet" }
 
 [addresses]
 seal_committee = "0x0"

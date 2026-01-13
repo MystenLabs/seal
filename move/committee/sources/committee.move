@@ -43,6 +43,8 @@ public struct MemberInfo has copy, drop, store {
     signing_pk: vector<u8>,
     /// URL that the partial key server is running at.
     url: String,
+    /// Name of member key server.
+    name: String,
 }
 
 /// Valid states of the committee that holds state specific infos.
@@ -106,6 +108,7 @@ public fun register(
     enc_pk: vector<u8>,
     signing_pk: vector<u8>,
     url: String,
+    name: String,
     ctx: &mut TxContext,
 ) {
     // TODO: maybe check PoP for the public keys.
@@ -117,7 +120,7 @@ public fun register(
         State::Init { members_info } => {
             let sender = ctx.sender();
             assert!(!members_info.contains(&sender), EAlreadyRegistered);
-            members_info.insert(sender, MemberInfo { enc_pk, signing_pk, url });
+            members_info.insert(sender, MemberInfo { enc_pk, signing_pk, url, name });
         },
         _ => abort EInvalidState,
     }
@@ -334,6 +337,7 @@ fun build_partial_key_servers(
             create_partial_key_server(
                 partial_pks[i],
                 members_info.get(&member).url,
+                members_info.get(&member).name,
                 i as u16,
             ),
         );

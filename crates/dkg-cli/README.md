@@ -166,16 +166,16 @@ mv path/to/dkg.yaml dkg-state/
 
 Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then generate your keys and register them onchain by providing your server URL:
+Then generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL>
+python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL> -n <MY_SERVER_NAME>
 ```
 
 This command:
 
 - Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
-- Appends `DKG_ENC_PK` and `DKG_SIGNING_PK` to `dkg.yaml`.
+- Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
 3. **Create and share your DKG message (Phase 2)**
@@ -330,23 +330,18 @@ rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml` and verify the committee parameters (member addresses, threshold, current committee ID) using a Sui Explorer. Then add your member-specific fields:
+Open `dkg.yaml` and verify the committee parameters (member addresses, threshold, current committee ID) using a Sui Explorer.
 
-```yaml
-MY_ADDRESS: 0x...
-MY_SERVER_URL: https://myserver.example.com
-```
-
-Generate your keys and register them onchain:
+Then generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml
+python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL> -n <MY_SERVER_NAME>
 ```
 
 This command:
 
 - Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
-- Appends `DKG_ENC_PK` and `DKG_SIGNING_PK` to `dkg.yaml`.
+- Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
 3. **Initialize DKG state and create messages (Phase 2)**
