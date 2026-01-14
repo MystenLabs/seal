@@ -64,6 +64,13 @@ fn default_key_server_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.5.14").expect("Failed to parse default key server version requirement")
 }
 
+/// API credentials for a key server.
+#[derive(Clone, Deserialize, Debug)]
+struct ApiCredentials {
+    api_key_name: String,
+    api_key: String,
+}
+
 /// Configuration file format for aggregator server.
 #[derive(Clone, Deserialize)]
 struct AggregatorOptions {
@@ -82,6 +89,11 @@ struct AggregatorOptions {
     /// The minimum version of the key server that is required by this aggregator.
     #[serde(default = "default_key_server_version_requirement")]
     key_server_version_requirement: VersionReq,
+
+    /// API credentials mapped by key server name.
+    /// Each key server's registered PartialKeyServer.name maps to its API credentials.
+    #[serde(default)]
+    api_credentials: HashMap<String, ApiCredentials>,
 }
 
 impl NetworkConfig for AggregatorOptions {
@@ -101,7 +113,6 @@ struct AppState {
     threshold: u16,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
     options: AggregatorOptions,
-    // TODO: API storage and rotation.
 }
 
 impl AppState {
@@ -227,6 +238,7 @@ async fn handle_fetch_key(
 
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
+    let api_credentials = &state.options.api_credentials;
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -238,12 +250,14 @@ async fn handle_fetch_key(
             let request = request.clone();
             let partial_key_server = member.clone().value;
             let ks_version_req = ks_version_req.clone();
+            let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             async move {
                 match fetch_from_member(
                     &partial_key_server,
                     &request.clone(),
                     req_id,
                     &ks_version_req,
+                    api_creds,
                 )
                 .await
                 {
@@ -308,16 +322,28 @@ async fn fetch_from_member(
     request: &FetchKeyRequest,
     req_id: &str,
     ks_version_req: &VersionReq,
+    api_credentials: Option<ApiCredentials>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!("Fetching from party {} at {}", member.party_id, member.url);
 
     let client = reqwest::Client::new();
-    let response = client
+    let mut request_builder = client
         .post(format!("{}/v1/fetch_key", member.url))
         .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
         .header(HEADER_CLIENT_SDK_VERSION, package_version!())
         .header("Request-Id", req_id)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json");
+
+    // Add API key header if credentials are provided.
+    if let Some(creds) = api_credentials {
+        info!(
+            "Using API credentials for server '{}' (party_id={})",
+            member.name, member.party_id
+        );
+        request_builder = request_builder.header(&creds.api_key_name, &creds.api_key);
+    }
+
+    let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
         .timeout(Duration::from_secs(10))
         .send()
@@ -571,6 +597,7 @@ mod tests {
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
+            api_credentials: HashMap::new(),
         };
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         AppState {
