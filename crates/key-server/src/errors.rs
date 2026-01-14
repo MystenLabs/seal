@@ -14,6 +14,8 @@ pub enum InternalError {
     InvalidSignature,
     InvalidSessionSignature,
     InvalidCertificate,
+    #[allow(dead_code)]
+    InvalidSDKType,
     InvalidSDKVersion,
     DeprecatedSDKVersion,
     MissingRequiredHeader(String),
@@ -45,6 +47,7 @@ impl InternalError {
             InternalError::InvalidCertificate => "InvalidCertificate",
             InternalError::InvalidSignature => "InvalidSignature",
             InternalError::InvalidSessionSignature => "InvalidSessionSignature",
+            InternalError::InvalidSDKType => "InvalidSDKType",
             InternalError::InvalidSDKVersion => "InvalidSDKVersion",
             InternalError::DeprecatedSDKVersion => "DeprecatedSDKVersion",
             InternalError::MissingRequiredHeader(_) => "MissingRequiredHeader",
@@ -65,6 +68,7 @@ impl From<InternalError> for ErrorResponse {
             InternalError::NoAccess(ref inner) => format!("Access denied: {inner}"),
             InternalError::InvalidCertificate => "Invalid certificate time or ttl".to_string(),
             InternalError::InvalidSignature => "Invalid user signature".to_string(),
+            InternalError::InvalidSDKType => "Invalid SDK type".to_string(),
             InternalError::InvalidSDKVersion => "Invalid SDK version".to_string(),
             InternalError::DeprecatedSDKVersion => "Deprecated SDK version".to_string(),
             InternalError::MissingRequiredHeader(ref inner) => {
@@ -100,7 +104,8 @@ impl IntoResponse for ErrorResponse {
             | "InvalidSessionSignature"
             | "InvalidParameter"
             | "InvalidMVRName" => StatusCode::FORBIDDEN,
-            "InvalidSDKVersion"
+            "InvalidSDKType"
+            | "InvalidSDKVersion"
             | "InvalidServiceId"
             | "UnsupportedPackageId"
             | "MissingRequiredHeader" => StatusCode::BAD_REQUEST,

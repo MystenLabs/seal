@@ -22,7 +22,7 @@ use key_server::common::{
     SDK_TYPE_AGGREGATOR,
 };
 use key_server::errors::InternalError::{
-    DeprecatedSDKVersion, InvalidSDKVersion, MissingRequiredHeader,
+    DeprecatedSDKVersion, InvalidSDKType, InvalidSDKVersion, MissingRequiredHeader,
 };
 use key_server::errors::{ErrorResponse, InternalError};
 use mysten_service::{get_mysten_service, package_name, package_version};
@@ -58,6 +58,11 @@ fn default_ts_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=1000.0.0").expect("Failed to parse default SDK version requirement")
 }
 
+/// Default key server version requirement.
+fn default_key_server_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.5.14").expect("Failed to parse default key server version requirement")
+}
+
 /// Configuration file format for aggregator server.
 #[derive(Clone, Deserialize)]
 struct AggregatorOptions {
@@ -72,6 +77,10 @@ struct AggregatorOptions {
     /// The minimum version of the SDK that is required to use this aggregator.
     #[serde(default = "default_ts_sdk_version_requirement")]
     ts_sdk_version_requirement: VersionReq,
+
+    /// The minimum version of the key server that is required by this aggregator.
+    #[serde(default = "default_key_server_version_requirement")]
+    key_server_version_requirement: VersionReq,
 }
 
 impl NetworkConfig for AggregatorOptions {
@@ -95,7 +104,7 @@ struct AppState {
 }
 
 impl AppState {
-    /// Validate Typescript SDK version against requirement. Ignore other SDK types.
+    /// Validate SDK version against requirement based on SDK type.
     fn validate_sdk_version(
         &self,
         version: &str,
@@ -103,13 +112,17 @@ impl AppState {
     ) -> Result<(), InternalError> {
         let version = Version::parse(version).map_err(|_| InvalidSDKVersion)?;
         let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
-        let requirement = match sdk_type {
-            ClientSdkType::TypeScript => &self.options.ts_sdk_version_requirement,
-            _ => return Ok(()),
-        };
 
-        if !requirement.matches(&version) {
-            return Err(DeprecatedSDKVersion);
+        match sdk_type {
+            ClientSdkType::TypeScript => {
+                if !self.options.ts_sdk_version_requirement.matches(&version) {
+                    return Err(DeprecatedSDKVersion);
+                }
+            }
+            _ => {
+                // TODO: Add support for other SDK types.
+                return Err(InvalidSDKType);
+            }
         }
 
         Ok(())
@@ -212,6 +225,7 @@ async fn handle_fetch_key(
         .unwrap_or_default();
 
     // Call to committee members' servers in parallel.
+    let ks_version_req = &state.options.key_server_version_requirement;
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -222,8 +236,16 @@ async fn handle_fetch_key(
         .map(|member| {
             let request = request.clone();
             let partial_key_server = member.clone().value;
+            let ks_version_req = ks_version_req.clone();
             async move {
-                match fetch_from_member(&partial_key_server, &request.clone(), req_id).await {
+                match fetch_from_member(
+                    &partial_key_server,
+                    &request.clone(),
+                    req_id,
+                    &ks_version_req,
+                )
+                .await
+                {
                     Ok(response) => Ok((partial_key_server.party_id, response)),
                     Err(e) => {
                         warn!(
@@ -284,6 +306,7 @@ async fn fetch_from_member(
     member: &PartialKeyServer,
     request: &FetchKeyRequest,
     req_id: &str,
+    ks_version_req: &VersionReq,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!("Fetching from party {} at {}", member.party_id, member.url);
 
@@ -330,7 +353,7 @@ async fn fetch_from_member(
             .unwrap_or("unknown")
     );
 
-    validate_key_server_version(version)?;
+    validate_key_server_version(version, ks_version_req)?;
 
     let mut body = response.json::<FetchKeyResponse>().await.map_err(|e| {
         let msg = format!("Parse failed: {e}");
@@ -355,12 +378,11 @@ async fn fetch_from_member(
     Ok(body)
 }
 
-/// Validate key server version from response header against aggregator's own version. Require key
-/// servers to be at least the same version as this aggregator.
-fn validate_key_server_version(version: Option<&HeaderValue>) -> Result<(), InternalError> {
-    let key_server_version_requirement = VersionReq::parse(&format!(">={}", package_version!()))
-        .expect("Failed to parse aggregator version");
-
+/// Validate key server version from response header against the configured version requirement.
+fn validate_key_server_version(
+    version: Option<&HeaderValue>,
+    ks_version_req: &VersionReq,
+) -> Result<(), InternalError> {
     let version = version
         .ok_or(InternalError::MissingRequiredHeader(
             HEADER_KEYSERVER_VERSION.to_string(),
@@ -380,10 +402,10 @@ fn validate_key_server_version(version: Option<&HeaderValue>) -> Result<(), Inte
             })
         })?;
 
-    if !key_server_version_requirement.matches(&version) {
+    if !ks_version_req.matches(&version) {
         let msg = format!(
             "Key server version {} does not meet requirement {}",
-            version, key_server_version_requirement
+            version, ks_version_req
         );
         warn!("{}", msg);
         Err(InternalError::Failure(msg))
@@ -546,6 +568,7 @@ mod tests {
             node_url: None,
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
+            key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
         };
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         AppState {
