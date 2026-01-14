@@ -1,11 +1,11 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub use crate::common::Network;
 use crate::seal_package::SealPackage;
 use crate::utils::decode_object_id;
 use crypto::ibe;
-use serde::{Deserialize, Serialize};
-use sui_types::base_types::ObjectID;
+use std::str::FromStr;
 
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
@@ -13,42 +13,23 @@ pub type IbeMasterKey = ibe::MasterKey;
 /// Proof-of-possession of a key-servers master key.
 pub type MasterKeyPOP = ibe::ProofOfPossession;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum Network {
-    Devnet {
-        seal_package: ObjectID,
-    },
-    Testnet,
-    Mainnet,
-    #[cfg(test)]
-    TestCluster {
-        seal_package: ObjectID,
-    },
+impl FromStr for Network {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "devnet" => Ok(Network::Devnet {
+                seal_package: decode_object_id("SEAL_PACKAGE")
+                    .expect("Seal package ID must be set as env var SEAL_PACKAGE"),
+            }),
+            "testnet" => Ok(Network::Testnet),
+            "mainnet" => Ok(Network::Mainnet),
+            _ => Err(format!("Unknown network: {s}")),
+        }
+    }
 }
 
 impl Network {
-    pub fn default_node_url(&self) -> &str {
-        match self {
-            Network::Devnet { .. } => "https://fullnode.devnet.sui.io:443",
-            Network::Testnet => "https://fullnode.testnet.sui.io:443",
-            Network::Mainnet => "https://fullnode.mainnet.sui.io:443",
-            #[cfg(test)]
-            Network::TestCluster { .. } => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
-        }
-    }
-
-    pub fn from_str(str: &str) -> Self {
-        match str.to_ascii_lowercase().as_str() {
-            "devnet" => Network::Devnet {
-                seal_package: decode_object_id("SEAL_PACKAGE")
-                    .expect("Seal package ID must be set as env var SEAL_PACKAGE"),
-            },
-            "testnet" => Network::Testnet,
-            "mainnet" => Network::Mainnet,
-            _ => panic!("Unknown network: {str}"),
-        }
-    }
-
     pub fn seal_package(&self) -> SealPackage {
         match self {
             Network::Devnet { seal_package } => SealPackage::Custom(*seal_package),

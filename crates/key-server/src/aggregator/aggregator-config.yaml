@@ -1,2 +1,3 @@
 network: !Testnet
-key_server_object_id: '0x0688650cf0b28882e607ae43df1e95e769f9b2f689cf90d68c715b3e08e28c70'
+key_server_object_id: '0x758312953b0db53942c783d56320a3be90ce3d063fa57c00e0ff776d393fded6'
+node_url: https://fullnode.testnet.sui.io:443
