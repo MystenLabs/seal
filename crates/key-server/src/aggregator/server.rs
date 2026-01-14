@@ -4,7 +4,6 @@
 //! Aggregator server for Seal committee mode. It fetches encrypted partial keys from committee
 //! servers, verifies and aggregates them into a single response if threshold is achieved, or
 //! propagates the majority error otherwise.
-mod utils;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -16,6 +15,9 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{FuturesUnordered, StreamExt};
+use key_server::aggregator::utils::{
+    aggregate_verified_encrypted_responses, verify_decryption_keys,
+};
 use key_server::common::{
     add_response_headers, ClientSdkType, Network, NetworkConfig, HEADER_CLIENT_SDK_TYPE,
     HEADER_CLIENT_SDK_VERSION, HEADER_KEYSERVER_GIT_VERSION, HEADER_KEYSERVER_VERSION,
@@ -42,7 +44,6 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
-use utils::{aggregate_verified_encrypted_responses, verify_decryption_keys};
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 

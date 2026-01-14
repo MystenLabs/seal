@@ -3,5 +3,6 @@
 
 //! Shared modules for key-server and aggregator server binaries.
 
+pub mod aggregator;
 pub mod common;
 pub mod errors;
