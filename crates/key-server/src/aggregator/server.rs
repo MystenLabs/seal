@@ -553,6 +553,7 @@ mod tests {
         for (i, server) in mock_servers.iter().enumerate() {
             let address = Address::from([i as u8; 32]);
             let member = PartialKeyServer {
+                name: "server".to_string(),
                 party_id: i as u16,
                 url: server.uri(),
                 partial_pk: partial_pks.get(i).cloned().unwrap_or(G2Element::zero()),
