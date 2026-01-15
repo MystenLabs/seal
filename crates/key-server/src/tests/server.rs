@@ -151,6 +151,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.3.0") // Too old (requires >=0.4.6)
                     .body(Body::empty())
                     .unwrap(),
@@ -196,6 +197,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .body(Body::empty())
                     .unwrap(),
@@ -343,6 +345,7 @@ async fn test_fetch_key() {
                 Request::builder()
                     .uri(format!("http://{addr}/v1/fetch_key",))
                     .method("POST")
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .header("Content-Type", "application/json")
                     .body(Body::from(json!(request).to_string()))

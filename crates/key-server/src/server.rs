@@ -16,7 +16,7 @@ use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
@@ -849,14 +849,15 @@ impl MyState {
     fn validate_sdk_version(
         &self,
         version_string: &str,
-        sdk_type: ClientSdkType,
+        sdk_type: Option<&HeaderValue>,
     ) -> Result<(), InternalError> {
+        let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()))?;
         let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
 
         let requirement = match sdk_type {
             ClientSdkType::Aggregator => &self.server.options.aggregator_version_requirement,
             ClientSdkType::TypeScript => &self.server.options.ts_sdk_version_requirement,
-            ClientSdkType::Other => return Ok(()),
+            ClientSdkType::Rust => &self.server.options.rust_sdk_version_requirement,
         };
 
         if !requirement.matches(&version) {
@@ -887,8 +888,6 @@ async fn handle_request_headers(
         sdk_type,
         request.headers().get("Client-Target-Api-Version")
     );
-
-    let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
 
     version
         .ok_or(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
