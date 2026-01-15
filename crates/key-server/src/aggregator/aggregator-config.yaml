@@ -33,10 +33,3 @@ key_server_object_id: '0x758312953b0db53942c783d56320a3be90ce3d063fa57c00e0ff776
 #   server1_newname: # Support new name for the same server during rotation
 #     api_key_name: keyname1
 #     api_key: key1
-
-#### Optional advanced configurations ####
-# The minimum version of the SDK request that is required to use this service.
-# ts_sdk_version_requirement: '>=0.9.6'
-#
-# The minimum version of the key server reponses that the aggregator accepts.
-# key_server_version_requirement: '>=0.5.14'

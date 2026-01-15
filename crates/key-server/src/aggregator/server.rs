@@ -252,12 +252,25 @@ async fn handle_fetch_key(
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             async move {
+                // Check if API credentials exist for this server.
+                let creds = match api_creds {
+                    Some(c) => c,
+                    None => {
+                        let msg = format!(
+                            "Missing API credentials config for server '{}' ({})",
+                            partial_key_server.name, partial_key_server.url
+                        );
+                        warn!("{}", msg);
+                        return Err(ErrorResponse::from(InternalError::Failure(msg)));
+                    }
+                };
+
                 match fetch_from_member(
                     &partial_key_server,
                     &request.clone(),
                     req_id,
                     &ks_version_req,
-                    api_creds,
+                    creds,
                 )
                 .await
                 {
@@ -322,26 +335,21 @@ async fn fetch_from_member(
     request: &FetchKeyRequest,
     req_id: &str,
     ks_version_req: &VersionReq,
-    api_credentials: Option<ApiCredentials>,
+    api_credentials: ApiCredentials,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
-    info!("Fetching from party {} at {}", member.party_id, member.url);
+    info!(
+        "Fetching from party {} at {} with API credentials",
+        member.party_id, member.url
+    );
 
     let client = reqwest::Client::new();
-    let mut request_builder = client
+    let request_builder = client
         .post(format!("{}/v1/fetch_key", member.url))
         .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
         .header(HEADER_CLIENT_SDK_VERSION, package_version!())
         .header("Request-Id", req_id)
-        .header("Content-Type", "application/json");
-
-    // Add API key header if credentials are provided.
-    if let Some(creds) = api_credentials {
-        info!(
-            "Using API credentials for server '{}' (party_id={})",
-            member.name, member.party_id
-        );
-        request_builder = request_builder.header(&creds.api_key_name, &creds.api_key);
-    }
+        .header("Content-Type", "application/json")
+        .header(&api_credentials.api_key_name, &api_credentials.api_key);
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
@@ -591,13 +599,22 @@ mod tests {
             });
         }
 
+        let mut api_credentials = HashMap::new();
+        api_credentials.insert(
+            "server".to_string(),
+            ApiCredentials {
+                api_key_name: "X-API-Key".to_string(),
+                api_key: "test-key".to_string(),
+            },
+        );
+
         let options = AggregatorOptions {
             network: Network::Testnet,
             node_url: None,
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
-            api_credentials: HashMap::new(),
+            api_credentials,
         };
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         AppState {
