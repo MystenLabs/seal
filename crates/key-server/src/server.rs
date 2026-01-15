@@ -50,7 +50,7 @@ use seal_committee::grpc_helper::{
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
-use semver::Version;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -1059,25 +1059,85 @@ impl MyState {
         *self.reference_gas_price_receiver.borrow()
     }
 
-    /// Validates the version based on SDK types. Handle aggregator and typescript and ignore others.
+    /// Validates the version based on SDK type.
     fn validate_sdk_version(
         &self,
         version_string: &str,
         sdk_type: ClientSdkType,
     ) -> Result<(), InternalError> {
-        let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
+        validate_sdk_version_for_type(
+            version_string,
+            sdk_type,
+            &self.server.options.aggregator_version_requirement,
+            &self.server.options.ts_sdk_version_requirement,
+            &self.server.options.rust_sdk_version_requirement,
+        )
+    }
+}
 
-        let requirement = match sdk_type {
-            ClientSdkType::Aggregator => &self.server.options.aggregator_version_requirement,
-            ClientSdkType::TypeScript => &self.server.options.ts_sdk_version_requirement,
-            ClientSdkType::Other => return Ok(()),
+fn validate_sdk_version_for_type(
+    version_string: &str,
+    sdk_type: ClientSdkType,
+    aggregator_requirement: &VersionReq,
+    ts_requirement: &VersionReq,
+    rust_requirement: &VersionReq,
+) -> Result<(), InternalError> {
+    let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
+
+    let requirement = match sdk_type {
+        ClientSdkType::Aggregator => aggregator_requirement,
+        ClientSdkType::TypeScript => ts_requirement,
+        ClientSdkType::Rust => rust_requirement,
+        ClientSdkType::Other => return Ok(()), // Ignore if sdk type is unknown string or not provided
+    };
+
+    if !requirement.matches(&version) {
+        return Err(DeprecatedSDKVersion);
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod sdk_validation_tests {
+    use super::*;
+
+    #[test]
+    fn key_server_validates_sdk_versions_by_type() {
+        let aggregator_requirement = VersionReq::parse(">=3.0.0").unwrap();
+        let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
+        let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+
+        let validate = |version, sdk_type| {
+            validate_sdk_version_for_type(
+                version,
+                sdk_type,
+                &aggregator_requirement,
+                &ts_requirement,
+                &rust_requirement,
+            )
         };
 
-        if !requirement.matches(&version) {
-            return Err(DeprecatedSDKVersion);
-        }
-
-        Ok(())
+        assert_eq!(validate("3.0.0", ClientSdkType::Aggregator), Ok(()));
+        assert_eq!(
+            validate("2.9.9", ClientSdkType::Aggregator),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("1.2.3", ClientSdkType::TypeScript), Ok(()));
+        assert_eq!(
+            validate("1.2.2", ClientSdkType::TypeScript),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("2.0.0", ClientSdkType::Rust), Ok(()));
+        assert_eq!(
+            validate("1.9.9", ClientSdkType::Rust),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("0.0.1", ClientSdkType::Other), Ok(()));
+        assert_eq!(
+            validate("not-semver", ClientSdkType::Other),
+            Err(InvalidSDKVersion)
+        );
     }
 }
 
@@ -1089,7 +1149,7 @@ async fn handle_request_headers(
 ) -> Result<Response, InternalError> {
     // Log the request id and SDK version
     let version = request.headers().get(HEADER_CLIENT_SDK_VERSION);
-    let sdk_type = request.headers().get(HEADER_CLIENT_SDK_TYPE);
+    let sdk_type_header = request.headers().get(HEADER_CLIENT_SDK_TYPE);
 
     info!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
@@ -1098,12 +1158,11 @@ async fn handle_request_headers(
             .get("Request-Id")
             .map(|v| v.to_str().unwrap_or_default()),
         version,
-        sdk_type,
+        sdk_type_header,
         request.headers().get("Client-Target-Api-Version")
     );
 
-    let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
-
+    let sdk_type = ClientSdkType::from_header(sdk_type_header.and_then(|t| t.to_str().ok()))?;
     let version_str = version
         .ok_or(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))

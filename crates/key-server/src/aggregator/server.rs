@@ -59,7 +59,12 @@ const REFRESH_INTERVAL_SECS: u64 = 30;
 
 /// Default SDK version requirement.
 fn default_ts_sdk_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.10.0").expect("Failed to parse default SDK version requirement")
+    VersionReq::parse(">=0.10.0").expect("Failed to parse default TS SDK version requirement")
+}
+
+/// Default Rust SDK version requirement.
+fn default_rust_sdk_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.0.0").expect("Failed to parse default Rust SDK version requirement")
 }
 
 /// Default key server version requirement.
@@ -90,9 +95,13 @@ struct AggregatorOptions {
 
     key_server_object_id: Address,
 
-    /// The minimum version of the SDK that is required to use this aggregator.
+    /// The minimum version of the TS SDK that is required to use this aggregator.
     #[serde(default = "default_ts_sdk_version_requirement")]
     ts_sdk_version_requirement: VersionReq,
+
+    /// The minimum version of the Rust SDK that is required to use this aggregator.
+    #[serde(default = "default_rust_sdk_version_requirement")]
+    rust_sdk_version_requirement: VersionReq,
 
     /// The minimum version of the key server that is required by this aggregator.
     #[serde(default = "default_key_server_version_requirement")]
@@ -133,31 +142,51 @@ struct AppState {
     options: AggregatorOptions,
 }
 
-impl AppState {
-    /// Validate SDK version against requirement based on SDK type.
-    fn validate_sdk_version(
-        &self,
-        version: &str,
-        sdk_type: Option<&HeaderValue>,
-    ) -> Result<(), InternalError> {
-        let version = Version::parse(version).map_err(|_| InvalidSDKVersion)?;
-        let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
-
-        match sdk_type {
-            ClientSdkType::TypeScript => {
-                if !self.options.ts_sdk_version_requirement.matches(&version) {
-                    return Err(DeprecatedSDKVersion);
-                }
-            }
-            _ => {
-                // TODO: Add support for other SDK types.
-                return Err(InvalidSDKType);
+fn validate_client_sdk_version(
+    version: &str,
+    sdk_type: ClientSdkType,
+    ts_requirement: &VersionReq,
+    rust_requirement: &VersionReq,
+) -> Result<(), InternalError> {
+    let version = Version::parse(version).map_err(|_| InvalidSDKVersion)?;
+    match sdk_type {
+        ClientSdkType::TypeScript => {
+            if !ts_requirement.matches(&version) {
+                return Err(DeprecatedSDKVersion);
             }
         }
-
-        Ok(())
+        ClientSdkType::Rust => {
+            if !rust_requirement.matches(&version) {
+                return Err(DeprecatedSDKVersion);
+            }
+        }
+        ClientSdkType::Aggregator | ClientSdkType::Other => {
+            return Err(InvalidSDKType);
+        }
     }
+
+    Ok(())
 }
+
+fn validate_client_sdk_headers<'a>(
+    headers: &'a HeaderMap,
+    ts_requirement: &VersionReq,
+    rust_requirement: &VersionReq,
+) -> Result<(ClientSdkType, &'a str), InternalError> {
+    let sdk_type_header = headers.get(HEADER_CLIENT_SDK_TYPE).ok_or(InvalidSDKType)?;
+    let sdk_type =
+        ClientSdkType::from_header(Some(sdk_type_header.to_str().map_err(|_| InvalidSDKType)?))?;
+    let version_str = headers
+        .get(HEADER_CLIENT_SDK_VERSION)
+        .ok_or_else(|| MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))?
+        .to_str()
+        .map_err(|_| InvalidSDKVersion)?;
+
+    validate_client_sdk_version(version_str, sdk_type, ts_requirement, rust_requirement)?;
+
+    Ok((sdk_type, version_str))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _guard = mysten_service::logging::init();
@@ -276,55 +305,34 @@ async fn handle_fetch_key(
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
 
-    // Extract headers and validate version.
-    let version = headers.get(HEADER_CLIENT_SDK_VERSION);
-    let sdk_type = headers.get(HEADER_CLIENT_SDK_TYPE);
-
-    let version_str = version
-        .ok_or_else(|| {
-            let err = MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string());
-            debug!("Missing SDK version header (req_id: {})", req_id);
-            state.aggregator_metrics.observe_error(err.as_str());
-            ErrorResponse::from(err)
-        })
-        .and_then(|v| {
-            v.to_str().map_err(|_| {
-                debug!(
-                    "Invalid SDK version header format (req_id: {}), header: {:?}",
-                    req_id, v
-                );
-                state
-                    .aggregator_metrics
-                    .observe_error(InvalidSDKVersion.as_str());
-                ErrorResponse::from(InvalidSDKVersion)
-            })
-        })?;
-
-    // Validate and track SDK version.
-    state
-        .validate_sdk_version(version_str, sdk_type)
-        .map_err(|e| {
-            debug!(
-                "Invalid SDK version: {:?}, sdk_version: {:?}, sdk_type: {:?} (req_id: {})",
-                e, version, sdk_type, req_id
-            );
-            state.aggregator_metrics.observe_error(e.as_str());
-            ErrorResponse::from(e)
-        })?;
+    let (sdk_type, version_str) = validate_client_sdk_headers(
+        &headers,
+        &state.options.ts_sdk_version_requirement,
+        &state.options.rust_sdk_version_requirement,
+    )
+    .map_err(|e| {
+        debug!(
+            "Invalid SDK headers: {:?}, sdk_version: {:?}, sdk_type: {:?} (req_id: {})",
+            e,
+            headers.get(HEADER_CLIENT_SDK_VERSION),
+            headers.get(HEADER_CLIENT_SDK_TYPE),
+            req_id
+        );
+        state.aggregator_metrics.observe_error(e.as_str());
+        ErrorResponse::from(e)
+    })?;
 
     // Track client SDK version by type
-    let sdk_type_enum = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
-    let sdk_type_str = sdk_type_enum.to_string();
     state
         .aggregator_metrics
         .client_sdk_version
-        .with_label_values::<&str>(&[&sdk_type_str, version_str])
+        .with_label_values(&[sdk_type.as_str(), version_str])
         .inc();
 
     // Log incoming request with structured data
     info!(
         "Aggregator request - req_id: {}, SDK version: {}, SDK type: {:?}, user: {:?}",
-        req_id, version_str, sdk_type_enum, request.certificate.user
+        req_id, version_str, sdk_type, request.certificate.user
     );
 
     // Parse the PTB and build the set of expected full ids every honest committee member should
@@ -777,6 +785,7 @@ mod tests {
     use fastcrypto::groups::{bls12381::G2Element, GroupElement, Scalar};
     use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
     use key_server::valid_ptb::ValidPtb;
+    use once_cell::sync::Lazy;
     use rand::thread_rng;
     use seal_sdk::types::Certificate;
     use serde_json::json;
@@ -789,6 +798,9 @@ mod tests {
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
+
+    static MOCK_SERVER_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
+        Lazy::new(|| tokio::sync::Mutex::new(()));
 
     /// Build a valid PTB with a single `seal_approve` call.
     fn test_valid_ptb() -> (String, ObjectID, Vec<u8>, ObjectID) {
@@ -885,6 +897,7 @@ mod tests {
             node_url: None,
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
+            rust_sdk_version_requirement: VersionReq::parse(">=0.0.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             key_server_timeout_secs: 8,
             api_credentials,
@@ -905,8 +918,116 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_client_sdk_version_validation_matrix() {
+        let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
+        let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+
+        assert_eq!(
+            validate_client_sdk_version(
+                "1.2.3",
+                ClientSdkType::TypeScript,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "1.2.2",
+                ClientSdkType::TypeScript,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "2.0.0",
+                ClientSdkType::Rust,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "1.9.9",
+                ClientSdkType::Rust,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "0.6.5",
+                ClientSdkType::Aggregator,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Err(InvalidSDKType)
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "0.6.5",
+                ClientSdkType::Other,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Err(InvalidSDKType)
+        );
+        assert_eq!(
+            validate_client_sdk_version(
+                "not-semver",
+                ClientSdkType::TypeScript,
+                &ts_requirement,
+                &rust_requirement,
+            ),
+            Err(InvalidSDKVersion)
+        );
+    }
+
+    #[test]
+    fn test_client_sdk_header_error_matrix() {
+        let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
+        let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "aggregator".parse().unwrap());
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
+        assert_eq!(
+            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            Err(InvalidSDKType)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "python".parse().unwrap());
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
+        assert_eq!(
+            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            Err(InvalidSDKType)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
+        assert_eq!(
+            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            Err(InvalidSDKType)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
+        assert_eq!(
+            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            Err(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
+        );
+    }
+
     #[tokio::test]
     async fn test_version_validations() {
+        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
+
         // Test 1: Aggregator rejects client SDK if version is too old
         {
             let server1 = MockServer::start().await;
@@ -927,6 +1048,7 @@ mod tests {
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.3.0".parse().unwrap()); // Too old
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
@@ -958,6 +1080,7 @@ mod tests {
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
@@ -1006,6 +1129,7 @@ mod tests {
             let state = create_test_app_state(&[server3], 1, vec![partial_pk]);
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
             let response = result.unwrap().into_response();
@@ -1025,6 +1149,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_majority_error_with_3_invalid_ptb_2_noaccess() {
+        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
+
         // Create 5 mock key servers.
         let mut mock_servers = vec![];
 
@@ -1069,6 +1195,7 @@ mod tests {
 
         // Call handle_fetch_key and check majority error.
         let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         match result {
@@ -1087,6 +1214,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_drop_one_bad_response_still_aggregates_threshold() {
+        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
+
         // 2 out of 3 committee, if one server returns a response missing the expected key id it
         // gets discarded while the other two produce valid responses that still meet threshold and
         // aggregate ok.
@@ -1153,6 +1282,7 @@ mod tests {
         );
 
         let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         let response =
@@ -1162,6 +1292,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_key_id_response_dropped_and_threshold_fails() {
+        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
+
         // 2 out of 2 committee, if one server returns a response missing an expected key id the
         // aggregator discards that whole response. The remaining valid response can no longer
         // reach threshold, so the aggregator returns an error.
@@ -1221,6 +1353,7 @@ mod tests {
         );
 
         let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         assert_eq!(result.err().unwrap().error, "Failure");
