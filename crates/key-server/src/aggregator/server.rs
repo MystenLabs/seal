@@ -58,7 +58,12 @@ const REFRESH_INTERVAL_SECS: u64 = 30;
 /// Default SDK version requirement.
 fn default_ts_sdk_version_requirement() -> VersionReq {
     // TODO: Update on first aggregator compatible SDK release.
-    VersionReq::parse(">=1000.0.0").expect("Failed to parse default SDK version requirement")
+    VersionReq::parse(">=1000.0.0").expect("Failed to parse default ts SDK version requirement")
+}
+
+/// Default SDK version requirement.
+fn default_rust_sdk_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.0.0").expect("Failed to parse default rust SDK version requirement")
 }
 
 /// Default key server version requirement.
@@ -87,6 +92,10 @@ struct AggregatorOptions {
     /// The minimum version of the SDK that is required to use this aggregator.
     #[serde(default = "default_ts_sdk_version_requirement")]
     ts_sdk_version_requirement: VersionReq,
+
+    /// The minimum version of the SDK that is required to use this aggregator.
+    #[serde(default = "default_rust_sdk_version_requirement")]
+    rust_sdk_version_requirement: VersionReq,
 
     /// The minimum version of the key server that is required by this aggregator.
     #[serde(default = "default_key_server_version_requirement")]
@@ -123,19 +132,21 @@ impl AppState {
     fn validate_sdk_version(
         &self,
         version: &str,
-        sdk_type: Option<&HeaderValue>,
+        sdk_type: ClientSdkType,
     ) -> Result<(), InternalError> {
         let version = Version::parse(version).map_err(|_| InvalidSDKVersion)?;
-        let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
-
         match sdk_type {
             ClientSdkType::TypeScript => {
                 if !self.options.ts_sdk_version_requirement.matches(&version) {
                     return Err(DeprecatedSDKVersion);
                 }
             }
-            _ => {
-                // TODO: Add support for other SDK types.
+            ClientSdkType::Rust => {
+                if !self.options.rust_sdk_version_requirement.matches(&version) {
+                    return Err(DeprecatedSDKVersion);
+                }
+            }
+            ClientSdkType::Aggregator | ClientSdkType::Other => {
                 return Err(InvalidSDKType);
             }
         }
@@ -246,7 +257,8 @@ async fn handle_fetch_key(
 
     // Extract headers and validate version.
     let version = headers.get(HEADER_CLIENT_SDK_VERSION);
-    let sdk_type = headers.get(HEADER_CLIENT_SDK_TYPE);
+    let sdk_type_header = headers.get(HEADER_CLIENT_SDK_TYPE);
+    let sdk_type = ClientSdkType::from_header(sdk_type_header.and_then(|t| t.to_str().ok()))?;
 
     let version_str = version
         .ok_or_else(|| {
@@ -278,18 +290,16 @@ async fn handle_fetch_key(
         })?;
 
     // Track client SDK version by type
-    let sdk_type_enum = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
-    let sdk_type_str = sdk_type_enum.to_string();
     state
         .aggregator_metrics
         .client_sdk_version
-        .with_label_values(&[&sdk_type_str, version_str])
+        .with_label_values(&[&sdk_type.to_string(), version_str])
         .inc();
 
     // Log incoming request with structured data
     info!(
         "Aggregator request - req_id: {}, SDK version: {}, SDK type: {:?}, user: {:?}",
-        req_id, version_str, sdk_type_enum, request.certificate.user
+        req_id, version_str, sdk_type, request.certificate.user
     );
 
     // Call to committee members' servers in parallel.
@@ -703,6 +713,7 @@ mod tests {
             node_url: None,
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
+            rust_sdk_version_requirement: VersionReq::parse(">=0.0.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             api_credentials,
         };
@@ -744,6 +755,7 @@ mod tests {
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.3.0".parse().unwrap()); // Too old
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
@@ -775,6 +787,7 @@ mod tests {
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
@@ -806,6 +819,7 @@ mod tests {
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
             let response = result.unwrap().into_response();
@@ -869,6 +883,7 @@ mod tests {
 
         // Call handle_fetch_key and check majority error.
         let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         match result {

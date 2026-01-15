@@ -856,7 +856,8 @@ impl MyState {
         let requirement = match sdk_type {
             ClientSdkType::Aggregator => &self.server.options.aggregator_version_requirement,
             ClientSdkType::TypeScript => &self.server.options.ts_sdk_version_requirement,
-            ClientSdkType::Other => return Ok(()),
+            ClientSdkType::Rust => &self.server.options.rust_sdk_version_requirement,
+            ClientSdkType::Other => return Ok(()), // Ignore if sdk type is unknown string or not provided
         };
 
         if !requirement.matches(&version) {
@@ -875,7 +876,7 @@ async fn handle_request_headers(
 ) -> Result<Response, InternalError> {
     // Log the request id and SDK version
     let version = request.headers().get(HEADER_CLIENT_SDK_VERSION);
-    let sdk_type = request.headers().get(HEADER_CLIENT_SDK_TYPE);
+    let sdk_type_header = request.headers().get(HEADER_CLIENT_SDK_TYPE);
 
     info!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
@@ -884,12 +885,11 @@ async fn handle_request_headers(
             .get("Request-Id")
             .map(|v| v.to_str().unwrap_or_default()),
         version,
-        sdk_type,
+        sdk_type_header,
         request.headers().get("Client-Target-Api-Version")
     );
 
-    let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
-
+    let sdk_type = ClientSdkType::from_header(sdk_type_header.and_then(|t| t.to_str().ok()))?;
     let version_str = version
         .ok_or(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))

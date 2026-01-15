@@ -183,6 +183,7 @@ impl SealTestCluster {
                         rgp_update_interval: Duration::from_secs(60),
                         ts_sdk_version_requirement: VersionReq::from_str(">=0.4.6").unwrap(),
                         aggregator_version_requirement: VersionReq::from_str(">=0.5.15").unwrap(),
+                        rust_sdk_version_requirement: VersionReq::from_str(">=0.0.0").unwrap(),
                         allowed_staleness,
                         session_key_ttl_max: from_mins(30),
                         rpc_config: RpcConfig::default(),
