@@ -1,3 +1,35 @@
+#### Mandatory configurations ####
+
+# Network to use. Should be one of:
+# network: Testnet
+# network: Mainnet
+#
+# Example:
 network: !Testnet
-key_server_object_id: '0x758312953b0db53942c783d56320a3be90ce3d063fa57c00e0ff776d393fded6'
+
+# You can provide a custom full node URL in this config file. If not set, a default URL will be used
+# for the given network.
+#
+# Example:
 node_url: https://fullnode.testnet.sui.io:443
+
+# The key server that the aggregator points to. An aggregator maps to one key server and fetches 
+# keys from its partial key servers. 
+key_server_object_id: '0x758312953b0db53942c783d56320a3be90ce3d063fa57c00e0ff776d393fded6'
+
+# API credentials for committee members: Maps each key server's registered name to its API 
+# credentials. The aggregator looks up credentials (if present) by the PartialKeyServer.name field 
+# from onchain. During rotation, you can configure credentials for both old and new member names.
+# The aggregator periodically fetches the current committee from onchain for the latest member names.
+#
+# Example:
+# api_credentials:
+#   server1:
+#     api_key_name: keyname1
+#     api_key: key1
+#   server2:
+#     api_key_name: keyname2
+#     api_key: key2
+#   server1_newname: # Support new name for the same server during rotation
+#     api_key_name: keyname1
+#     api_key: key1
