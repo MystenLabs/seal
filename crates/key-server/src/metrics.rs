@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug)]
-pub(crate) struct Metrics {
+pub struct KeyServerMetrics {
     /// Total number of requests received
     pub requests: IntCounter,
 
@@ -54,10 +54,13 @@ pub(crate) struct Metrics {
 
     /// The current key server version
     pub key_server_version: IntCounterVec,
+
+    /// Client SDK versions by type seen in requests
+    pub client_sdk_version: IntCounterVec,
 }
 
-impl Metrics {
-    pub(crate) fn new(registry: &Registry) -> Self {
+impl KeyServerMetrics {
+    pub fn new(registry: &Registry) -> Self {
         Self {
             requests: register_int_counter_with_registry!(
                 "total_requests",
@@ -157,16 +160,24 @@ impl Metrics {
                 registry
             )
             .unwrap(),
+            client_sdk_version: register_int_counter_vec_with_registry!(
+                "client_sdk_version",
+                "Client SDK versions by type seen in requests",
+                &["sdk_type", "version"],
+                registry
+            )
+            .unwrap(),
         }
     }
 
-    pub(crate) fn observe_error(&self, error_type: &str) {
+    pub fn observe_error(&self, error_type: &str) {
         self.errors.with_label_values(&[error_type]).inc();
     }
 }
 
 /// If metrics is Some, apply the closure and measure the duration of the closure and call set_duration with the duration.
 /// Otherwise, just call the closure.
+#[allow(dead_code)]
 pub(crate) fn call_with_duration<T>(metrics: Option<&Histogram>, closure: impl FnOnce() -> T) -> T {
     if let Some(metrics) = metrics {
         let start = Instant::now();
@@ -178,6 +189,7 @@ pub(crate) fn call_with_duration<T>(metrics: Option<&Histogram>, closure: impl F
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn status_callback(metrics: &IntCounterVec) -> impl Fn(bool) + use<> {
     let metrics = metrics.clone();
     move |status: bool| {
@@ -204,9 +216,155 @@ fn default_fast_call_duration_buckets() -> Vec<f64> {
     buckets(10.0, 100.0, 10.0)
 }
 
-/// Middleware that tracks metrics for HTTP requests and response status.
-pub(crate) async fn metrics_middleware(
-    State(metrics): State<Arc<Metrics>>,
+/// Collector that tracks the uptime of the server.
+pub fn uptime_metric(service_name: &str, version: &str) -> Box<dyn prometheus::core::Collector> {
+    let opts = prometheus::opts!(
+        "uptime",
+        format!("uptime of the {} in seconds", service_name)
+    )
+    .variable_label("version");
+
+    let start_time = std::time::Instant::now();
+    let uptime = move || start_time.elapsed().as_secs();
+    let metric = prometheus_closure_metric::ClosureMetric::new(
+        opts,
+        prometheus_closure_metric::ValueType::Counter,
+        uptime,
+        &[version],
+    )
+    .unwrap();
+
+    Box::new(metric)
+}
+
+pub type Metrics = KeyServerMetrics;
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct AggregatorMetrics {
+    /// Total number of requests received
+    pub requests: IntCounter,
+
+    /// Total number of internal errors by type
+    errors: IntCounterVec,
+
+    /// HTTP request latency by route and status code
+    pub http_request_duration_millis: HistogramVec,
+
+    /// HTTP request count by route and status code
+    pub http_requests_total: IntCounterVec,
+
+    /// HTTP request in flight by route
+    pub http_request_in_flight: IntGaugeVec,
+
+    /// Client SDK versions by type seen in requests
+    pub client_sdk_version: IntCounterVec,
+
+    /// Key server versions seen in responses from committee members
+    pub upstream_key_server_version: IntCounterVec,
+}
+
+#[allow(dead_code)]
+impl AggregatorMetrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            requests: register_int_counter_with_registry!(
+                "total_requests",
+                "Total number of fetch_key requests received",
+                registry
+            )
+            .unwrap(),
+            errors: register_int_counter_vec_with_registry!(
+                "internal_errors",
+                "Total number of internal errors by type",
+                &["internal_error_type"],
+                registry
+            )
+            .unwrap(),
+            http_request_duration_millis: register_histogram_vec_with_registry!(
+                "http_request_duration_millis",
+                "HTTP request duration in milliseconds",
+                &["route", "status"],
+                default_fast_call_duration_buckets(),
+                registry
+            )
+            .unwrap(),
+            http_requests_total: register_int_counter_vec_with_registry!(
+                "http_requests_total",
+                "Total number of HTTP requests",
+                &["route", "status"],
+                registry
+            )
+            .unwrap(),
+            http_request_in_flight: register_int_gauge_vec_with_registry!(
+                "http_request_in_flight",
+                "Number of HTTP requests in flight",
+                &["route"],
+                registry
+            )
+            .unwrap(),
+            client_sdk_version: register_int_counter_vec_with_registry!(
+                "client_sdk_version",
+                "Client SDK versions by type seen in requests",
+                &["sdk_type", "version"],
+                registry
+            )
+            .unwrap(),
+            upstream_key_server_version: register_int_counter_vec_with_registry!(
+                "upstream_key_server_version",
+                "Key server versions seen in responses from committee members",
+                &["version"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
+
+    pub fn observe_error(&self, error_type: &str) {
+        self.errors.with_label_values(&[error_type]).inc();
+    }
+}
+
+/// Middleware that tracks metrics for HTTP requests and response status (for key server).
+pub async fn metrics_middleware(
+    State(metrics): State<Arc<KeyServerMetrics>>,
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let route = request.uri().path().to_string();
+    let start = std::time::Instant::now();
+
+    metrics
+        .http_request_in_flight
+        .with_label_values(&[&route])
+        .inc();
+
+    let response = next.run(request).await;
+
+    metrics
+        .http_request_in_flight
+        .with_label_values(&[&route])
+        .dec();
+
+    let duration = start.elapsed().as_millis() as f64;
+    let status = response.status().as_str().to_string();
+
+    metrics
+        .http_request_duration_millis
+        .with_label_values(&[&route, &status])
+        .observe(duration);
+    metrics
+        .http_requests_total
+        .with_label_values(&[&route, &status])
+        .inc();
+
+    response
+}
+
+/// Middleware that tracks metrics for HTTP requests and response status (for aggregator).
+#[allow(dead_code)]
+pub async fn aggregator_metrics_middleware(
+    State(metrics): State<Arc<AggregatorMetrics>>,
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
