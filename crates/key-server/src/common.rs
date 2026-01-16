@@ -92,6 +92,20 @@ impl ClientSdkType {
             None => ClientSdkType::TypeScript, // Default to TypeScript for backward compatibility
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClientSdkType::Aggregator => "aggregator",
+            ClientSdkType::TypeScript => "typescript",
+            ClientSdkType::Other => "other",
+        }
+    }
+}
+
+impl std::fmt::Display for ClientSdkType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 /// Trait for types that have network and node_url configuration.
