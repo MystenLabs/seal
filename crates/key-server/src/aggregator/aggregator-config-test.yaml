@@ -1,0 +1,9 @@
+network: !Testnet
+node_url: https://fullnode.testnet.sui.io:443
+key_server_object_id: '0xc8a3c59a48b6cce0c0f1b16f9ad1b9baada89202f7fda20876a1332a05016aa0'
+ts_sdk_version_requirement: '>=0.4.5'
+
+api_credentials:
+  server1:
+    api_key_name: examplename
+    api_key: examplekey
