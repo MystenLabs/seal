@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use axum::{
     extract::State,
     http::{HeaderMap, HeaderValue, StatusCode},
-    middleware::map_response,
+    middleware::{self, map_response},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -27,7 +27,9 @@ use key_server::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKType, InvalidSDKVersion, MissingRequiredHeader,
 };
 use key_server::errors::{ErrorResponse, InternalError};
+use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use mysten_service::{get_mysten_service, package_name, package_version};
+use prometheus::Registry;
 use seal_committee::{
     fetch_key_server_by_id,
     move_types::{PartialKeyServer, VecMap},
@@ -43,7 +45,7 @@ use sui_sdk_types::Address;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 
@@ -109,6 +111,7 @@ impl NetworkConfig for AggregatorOptions {
 /// Application state.
 #[derive(Clone)]
 struct AppState {
+    metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
     threshold: u16,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
@@ -160,7 +163,22 @@ async fn main() -> Result<()> {
         options.key_server_object_id, options.network, options.node_url
     );
 
-    let state = load_committee_state(options).await?;
+    let registry = Registry::new();
+
+    // Track the uptime of the aggregator server.
+    let registry_clone = registry.clone();
+    tokio::task::spawn(async move {
+        registry_clone
+            .register(uptime_metric(
+                "aggregator server",
+                format!("{}-{}", package_version!(), GIT_VERSION).as_str(),
+            ))
+            .expect("metrics defined at compile time must be valid");
+    });
+
+    let metrics = Arc::new(AggregatorMetrics::new(&registry));
+
+    let state = load_committee_state(options, metrics.clone()).await?;
 
     // Spawn background task to monitor committee member updates.
     {
@@ -191,6 +209,10 @@ async fn main() -> Result<()> {
                 })),
         )
         .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            metrics.clone(),
+            aggregator_metrics_middleware,
+        ))
         .layer(CorsLayer::new().allow_origin(Any));
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
@@ -213,32 +235,65 @@ async fn handle_fetch_key(
     headers: HeaderMap,
     Json(request): Json<FetchKeyRequest>,
 ) -> Result<Json<FetchKeyResponse>, ErrorResponse> {
-    // Extract headers and validate version.
-    let version = headers.get(HEADER_CLIENT_SDK_VERSION);
-    let sdk_type = headers.get(HEADER_CLIENT_SDK_TYPE);
+    // Track total requests.
+    state.metrics.requests.inc();
 
-    version
-        .ok_or_else(|| {
-            ErrorResponse::from(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
-        })
-        .and_then(|v| {
-            v.to_str()
-                .map_err(|_| ErrorResponse::from(InvalidSDKVersion))
-        })
-        .and_then(|v| {
-            state
-                .validate_sdk_version(v, sdk_type)
-                .map_err(ErrorResponse::from)
-        })?;
-
+    // Extract request ID early for logging
     let req_id = headers
         .get("Request-Id")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
 
+    // Extract headers and validate version.
+    let version = headers.get(HEADER_CLIENT_SDK_VERSION);
+    let sdk_type = headers.get(HEADER_CLIENT_SDK_TYPE);
+
+    let version_str = version
+        .ok_or_else(|| {
+            let err = MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string());
+            debug!("Missing SDK version header (req_id: {})", req_id);
+            state.metrics.observe_error(err.as_str());
+            ErrorResponse::from(err)
+        })
+        .and_then(|v| {
+            v.to_str().map_err(|_| {
+                debug!("Invalid SDK version header format (req_id: {})", req_id);
+                state.metrics.observe_error(InvalidSDKVersion.as_str());
+                ErrorResponse::from(InvalidSDKVersion)
+            })
+        })?;
+
+    // Validate and track SDK version
+    state
+        .validate_sdk_version(version_str, sdk_type)
+        .map_err(|e| {
+            debug!(
+                "SDK version validation failed: {:?} (req_id: {})",
+                e, req_id
+            );
+            state.metrics.observe_error(e.as_str());
+            ErrorResponse::from(e)
+        })?;
+
+    // Track client SDK version by type
+    let sdk_type_enum = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
+    let sdk_type_str = sdk_type_enum.to_string();
+    state
+        .metrics
+        .client_sdk_version
+        .with_label_values(&[&sdk_type_str, version_str])
+        .inc();
+
+    // Log incoming request with structured data
+    info!(
+        "Aggregator request - req_id: {}, SDK version: {}, SDK type: {:?}, user: {:?}",
+        req_id, version_str, sdk_type_enum, request.certificate.user
+    );
+
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
+    let metrics = state.metrics.clone();
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -251,6 +306,7 @@ async fn handle_fetch_key(
             let partial_key_server = member.clone().value;
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
+            let metrics = metrics.clone();
             async move {
                 // Check if API credentials exist for this server.
                 let creds = match api_creds {
@@ -271,6 +327,7 @@ async fn handle_fetch_key(
                     req_id,
                     &ks_version_req,
                     creds,
+                    metrics,
                 )
                 .await
                 {
@@ -312,11 +369,9 @@ async fn handle_fetch_key(
 
     // If not enough responses, return majority error from key servers.
     if responses.len() < state.threshold as usize {
-        return Err(handle_insufficient_responses(
-            responses.len(),
-            state.threshold as usize,
-            errors,
-        ));
+        let err = handle_insufficient_responses(responses.len(), state.threshold as usize, errors);
+        state.metrics.observe_error(&err.error);
+        return Err(err);
     }
 
     // Aggregate encrypted responses and return.
@@ -324,8 +379,18 @@ async fn handle_fetch_key(
         .map_err(|e| {
             let msg = format!("Aggregating responses failed: {e}");
             warn!("{}", msg);
-            InternalError::Failure(msg)
+            let internal_err = InternalError::Failure(msg);
+            state.metrics.observe_error(internal_err.as_str());
+            internal_err
         })?;
+
+    // Log successful aggregation
+    let committee_size = state.committee_members.read().await.0.contents.len();
+    info!(
+        "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
+        req_id, state.threshold, committee_size, request.certificate.user
+    );
+
     Ok(Json(aggregated_response))
 }
 
@@ -336,10 +401,11 @@ async fn fetch_from_member(
     req_id: &str,
     ks_version_req: &VersionReq,
     api_credentials: ApiCredentials,
+    metrics: Arc<AggregatorMetrics>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
-        "Fetching from party {} at {} with API credentials",
-        member.party_id, member.url
+        "Fetching from party {} at {} (req_id: {})",
+        member.party_id, member.url, req_id
     );
 
     let client = reqwest::Client::new();
@@ -357,7 +423,7 @@ async fn fetch_from_member(
         .send()
         .await
         .map_err(|e| {
-            let msg = format!("Request failed: {e}");
+            let msg = format!("Request failed: {e} (req_id: {})", req_id);
             warn!("{}", msg);
             InternalError::Failure(msg)
         })?;
@@ -368,7 +434,7 @@ async fn fetch_from_member(
         if let Ok(error_response) = response.json::<ErrorResponse>().await {
             return Err(error_response);
         } else {
-            let msg = format!("HTTP {status}");
+            let msg = format!("HTTP {status} (req_id: {})", req_id);
             warn!("{}", msg);
             return Err(InternalError::Failure(msg).into());
         }
@@ -378,20 +444,26 @@ async fn fetch_from_member(
     let version = response.headers().get(HEADER_KEYSERVER_VERSION);
     let git_version = response.headers().get(HEADER_KEYSERVER_GIT_VERSION);
 
+    let version_str = version.and_then(|v| v.to_str().ok()).unwrap_or("unknown");
+    let git_version_str = git_version
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
     info!(
-        "Received response from party {} ({}): version={}, git_version={}",
-        member.party_id,
-        member.url,
-        version.and_then(|v| v.to_str().ok()).unwrap_or("unknown"),
-        git_version
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("unknown")
+        "Received response from party {} ({}) - version={}, git_version={} (req_id: {})",
+        member.party_id, member.url, version_str, git_version_str, req_id
     );
 
     validate_key_server_version(version, ks_version_req)?;
 
+    // Track upstream key server version
+    metrics
+        .upstream_key_server_version
+        .with_label_values(&[version_str])
+        .inc();
+
     let mut body = response.json::<FetchKeyResponse>().await.map_err(|e| {
-        let msg = format!("Parse failed: {e}");
+        let msg = format!("Parse failed: {e} (req_id: {})", req_id);
         warn!("{}", msg);
         InternalError::Failure(msg)
     })?;
@@ -404,7 +476,7 @@ async fn fetch_from_member(
         member.party_id,
     )
     .map_err(|e| {
-        let msg = format!("Verification failed: {e}");
+        let msg = format!("Verification failed: {e} (req_id: {})", req_id);
         warn!("{}", msg);
         InternalError::Failure(msg)
     })?;
@@ -454,7 +526,7 @@ fn handle_insufficient_responses(
     threshold: usize,
     errors: Vec<ErrorResponse>,
 ) -> ErrorResponse {
-    warn!(
+    let msg = format!(
         "Insufficient responses: got {}, need {}. Errors: {:?}",
         got, threshold, errors
     );
@@ -477,13 +549,15 @@ fn handle_insufficient_responses(
     }
 
     // If errors is empty but still insufficient responses, return generic error.
-    let msg = format!("Insufficient responses: got {got}, need {threshold}");
     warn!("{}", msg);
     InternalError::Failure(msg).into()
 }
 
 /// Load committee state from onchain KeyServerV2 object.
-async fn load_committee_state(options: AggregatorOptions) -> Result<AppState> {
+async fn load_committee_state(
+    options: AggregatorOptions,
+    metrics: Arc<AggregatorMetrics>,
+) -> Result<AppState> {
     let mut grpc_client =
         SuiGrpcClient::new(options.node_url()).context("Failed to create SuiGrpcClient")?;
     let key_server_v2 =
@@ -491,6 +565,7 @@ async fn load_committee_state(options: AggregatorOptions) -> Result<AppState> {
     let (threshold, members) = key_server_v2.extract_committee_info()?;
 
     Ok(AppState {
+        metrics,
         grpc_client,
         committee_members: Arc::new(RwLock::new(members)),
         threshold,
@@ -502,6 +577,11 @@ async fn load_committee_state(options: AggregatorOptions) -> Result<AppState> {
 /// Polls every 30 seconds and updates the committee members.
 async fn monitor_members_update(mut state: AppState) {
     let mut ticker = interval(Duration::from_secs(REFRESH_INTERVAL_SECS));
+
+    info!(
+        "Committee monitor started - refresh interval: {}s",
+        REFRESH_INTERVAL_SECS
+    );
 
     loop {
         ticker.tick().await;
@@ -516,13 +596,22 @@ async fn monitor_members_update(mut state: AppState) {
         {
             Ok(info) => info,
             Err(e) => {
-                warn!("Failed to fetch/parse KeyServer: {}", e);
+                warn!(
+                    "Committee refresh failed: {} - will retry in {}s",
+                    e, REFRESH_INTERVAL_SECS
+                );
                 continue;
             }
         };
 
         // Always update committee members.
+        let member_count = members.0.contents.len();
         *state.committee_members.write().await = members;
+
+        info!(
+            "Committee refreshed: {} members, threshold {}",
+            member_count, state.threshold
+        );
     }
 }
 
@@ -616,8 +705,11 @@ mod tests {
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             api_credentials,
         };
+        let registry = Registry::new();
+        let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         AppState {
+            metrics,
             grpc_client,
             threshold,
             committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
