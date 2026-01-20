@@ -710,6 +710,25 @@ async fn main() -> Result<()> {
                                     println!("Warning: KeyServer is not of type Committee");
                                 }
                             }
+
+                            // Display partial key server information
+                            println!("\nPartial Key Servers:");
+                            match to_partial_key_servers(&key_server).await {
+                                Ok(partial_key_servers) => {
+                                    for (addr, info) in partial_key_servers {
+                                        println!("  Address: {}", addr);
+                                        println!("    Name: {}", info.name);
+                                        println!("    URL: {}", info.url);
+                                        println!("    Party ID: {}", info.party_id);
+                                        println!();
+                                    }
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "Warning: Could not fetch partial key server info: {e}"
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
                             println!("Warning: Could not fetch key server object: {e}");

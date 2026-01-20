@@ -176,6 +176,8 @@ pub async fn to_partial_key_servers(
                     PartialKeyServerInfo {
                         party_id: entry.value.party_id,
                         partial_pk: entry.value.partial_pk,
+                        name: entry.value.name.clone(),
+                        url: entry.value.url.clone(),
                     },
                 ))
             })
