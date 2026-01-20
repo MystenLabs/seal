@@ -56,6 +56,7 @@ pub struct KeyServerMetrics {
     pub key_server_version: IntCounterVec,
 
     /// Client SDK versions by type seen in requests
+    #[allow(dead_code)]
     pub client_sdk_version: IntCounterVec,
 }
 
@@ -217,6 +218,7 @@ fn default_fast_call_duration_buckets() -> Vec<f64> {
 }
 
 /// Collector that tracks the uptime of the server.
+#[allow(dead_code)]
 pub fn uptime_metric(service_name: &str, version: &str) -> Box<dyn prometheus::core::Collector> {
     let opts = prometheus::opts!(
         "uptime",
@@ -236,8 +238,6 @@ pub fn uptime_metric(service_name: &str, version: &str) -> Box<dyn prometheus::c
 
     Box::new(metric)
 }
-
-pub type Metrics = KeyServerMetrics;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -262,6 +262,9 @@ pub struct AggregatorMetrics {
 
     /// Key server versions seen in responses from committee members
     pub upstream_key_server_version: IntCounterVec,
+
+    /// Errors from upstream key servers by server name and error type
+    pub upstream_key_server_errors: IntCounterVec,
 }
 
 #[allow(dead_code)]
@@ -317,11 +320,24 @@ impl AggregatorMetrics {
                 registry
             )
             .unwrap(),
+            upstream_key_server_errors: register_int_counter_vec_with_registry!(
+                "upstream_key_server_errors",
+                "Errors from upstream key servers by server name and error type",
+                &["key_server_name", "error_type"],
+                registry
+            )
+            .unwrap(),
         }
     }
 
     pub fn observe_error(&self, error_type: &str) {
         self.errors.with_label_values(&[error_type]).inc();
+    }
+
+    pub fn observe_upstream_error(&self, key_server_name: &str, error_type: &str) {
+        self.upstream_key_server_errors
+            .with_label_values(&[key_server_name, error_type])
+            .inc();
     }
 }
 

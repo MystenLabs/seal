@@ -111,7 +111,7 @@ impl NetworkConfig for AggregatorOptions {
 /// Application state.
 #[derive(Clone)]
 struct AppState {
-    metrics: Arc<AggregatorMetrics>,
+    aggregator_metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
     threshold: u16,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
@@ -236,7 +236,7 @@ async fn handle_fetch_key(
     Json(request): Json<FetchKeyRequest>,
 ) -> Result<Json<FetchKeyResponse>, ErrorResponse> {
     // Track total requests.
-    state.metrics.requests.inc();
+    state.aggregator_metrics.requests.inc();
 
     // Extract request ID early for logging
     let req_id = headers
@@ -252,13 +252,15 @@ async fn handle_fetch_key(
         .ok_or_else(|| {
             let err = MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string());
             debug!("Missing SDK version header (req_id: {})", req_id);
-            state.metrics.observe_error(err.as_str());
+            state.aggregator_metrics.observe_error(err.as_str());
             ErrorResponse::from(err)
         })
         .and_then(|v| {
             v.to_str().map_err(|_| {
                 debug!("Invalid SDK version header format (req_id: {})", req_id);
-                state.metrics.observe_error(InvalidSDKVersion.as_str());
+                state
+                    .aggregator_metrics
+                    .observe_error(InvalidSDKVersion.as_str());
                 ErrorResponse::from(InvalidSDKVersion)
             })
         })?;
@@ -271,7 +273,7 @@ async fn handle_fetch_key(
                 "SDK version validation failed: {:?} (req_id: {})",
                 e, req_id
             );
-            state.metrics.observe_error(e.as_str());
+            state.aggregator_metrics.observe_error(e.as_str());
             ErrorResponse::from(e)
         })?;
 
@@ -279,7 +281,7 @@ async fn handle_fetch_key(
     let sdk_type_enum = ClientSdkType::from_header(sdk_type.and_then(|v| v.to_str().ok()));
     let sdk_type_str = sdk_type_enum.to_string();
     state
-        .metrics
+        .aggregator_metrics
         .client_sdk_version
         .with_label_values(&[&sdk_type_str, version_str])
         .inc();
@@ -293,7 +295,7 @@ async fn handle_fetch_key(
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
-    let metrics = state.metrics.clone();
+    let metrics = state.aggregator_metrics.clone();
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -327,12 +329,13 @@ async fn handle_fetch_key(
                     req_id,
                     &ks_version_req,
                     creds,
-                    metrics,
+                    metrics.clone(),
                 )
                 .await
                 {
                     Ok(response) => Ok((partial_key_server.party_id, response)),
                     Err(e) => {
+                        metrics.observe_upstream_error(&partial_key_server.name, &e.error);
                         warn!(
                             "Failed to fetch from party_id={}, url={}: {:?}",
                             partial_key_server.party_id, partial_key_server.url, e
@@ -370,7 +373,7 @@ async fn handle_fetch_key(
     // If not enough responses, return majority error from key servers.
     if responses.len() < state.threshold as usize {
         let err = handle_insufficient_responses(responses.len(), state.threshold as usize, errors);
-        state.metrics.observe_error(&err.error);
+        state.aggregator_metrics.observe_error(&err.error);
         return Err(err);
     }
 
@@ -380,7 +383,9 @@ async fn handle_fetch_key(
             let msg = format!("Aggregating responses failed: {e}");
             warn!("{}", msg);
             let internal_err = InternalError::Failure(msg);
-            state.metrics.observe_error(internal_err.as_str());
+            state
+                .aggregator_metrics
+                .observe_error(internal_err.as_str());
             internal_err
         })?;
 
@@ -565,7 +570,7 @@ async fn load_committee_state(
     let (threshold, members) = key_server_v2.extract_committee_info()?;
 
     Ok(AppState {
-        metrics,
+        aggregator_metrics: metrics,
         grpc_client,
         committee_members: Arc::new(RwLock::new(members)),
         threshold,
@@ -709,7 +714,7 @@ mod tests {
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         AppState {
-            metrics,
+            aggregator_metrics: metrics,
             grpc_client,
             threshold,
             committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {

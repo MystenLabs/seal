@@ -11,7 +11,7 @@ use tracing_test::traced_test;
 
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::MasterKeys;
-use crate::metrics::Metrics;
+use crate::metrics::KeyServerMetrics;
 use crate::start_server_background_tasks;
 use crate::tests::SealTestCluster;
 
@@ -85,7 +85,7 @@ async fn test_server_background_task_monitor() {
     tc.add_open_server(seal_package).await;
 
     let metrics_registry = Registry::default();
-    let metrics = Arc::new(Metrics::new(&metrics_registry));
+    let metrics = Arc::new(KeyServerMetrics::new(&metrics_registry));
 
     let (reference_gas_price_receiver, monitor_handle) = start_server_background_tasks(
         Arc::new(tc.server().clone()),
