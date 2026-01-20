@@ -260,9 +260,6 @@ pub struct AggregatorMetrics {
     /// Client SDK versions by type seen in requests
     pub client_sdk_version: IntCounterVec,
 
-    /// Key server versions seen in responses from committee members
-    pub upstream_key_server_version: IntCounterVec,
-
     /// Errors from upstream key servers by server name and error type
     pub upstream_key_server_errors: IntCounterVec,
 }
@@ -310,13 +307,6 @@ impl AggregatorMetrics {
                 "client_sdk_version",
                 "Client SDK versions by type seen in requests",
                 &["sdk_type", "version"],
-                registry
-            )
-            .unwrap(),
-            upstream_key_server_version: register_int_counter_vec_with_registry!(
-                "upstream_key_server_version",
-                "Key server versions seen in responses from committee members",
-                &["version"],
                 registry
             )
             .unwrap(),

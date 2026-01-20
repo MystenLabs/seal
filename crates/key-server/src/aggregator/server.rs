@@ -238,7 +238,7 @@ async fn handle_fetch_key(
     // Track total requests.
     state.aggregator_metrics.requests.inc();
 
-    // Extract request ID early for logging
+    // Extract request ID early for logging.
     let req_id = headers
         .get("Request-Id")
         .and_then(|v| v.to_str().ok())
@@ -265,7 +265,7 @@ async fn handle_fetch_key(
             })
         })?;
 
-    // Validate and track SDK version
+    // Validate and track SDK version.
     state
         .validate_sdk_version(version_str, sdk_type)
         .map_err(|e| {
@@ -329,14 +329,13 @@ async fn handle_fetch_key(
                     req_id,
                     &ks_version_req,
                     creds,
-                    metrics.clone(),
                 )
                 .await
                 {
                     Ok(response) => Ok((partial_key_server.party_id, response)),
                     Err(e) => {
                         metrics.observe_upstream_error(&partial_key_server.name, &e.error);
-                        warn!(
+                        debug!(
                             "Failed to fetch from party_id={}, url={}: {:?}",
                             partial_key_server.party_id, partial_key_server.url, e
                         );
@@ -406,7 +405,6 @@ async fn fetch_from_member(
     req_id: &str,
     ks_version_req: &VersionReq,
     api_credentials: ApiCredentials,
-    metrics: Arc<AggregatorMetrics>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
@@ -428,8 +426,12 @@ async fn fetch_from_member(
         .send()
         .await
         .map_err(|e| {
-            let msg = format!("Request failed: {e} (req_id: {})", req_id);
-            warn!("{}", msg);
+            let msg = format!("Request failed (req_id: {}): {}", req_id, e);
+            if e.is_timeout() {
+                debug!("{}", msg);
+            } else {
+                warn!("{}", msg);
+            }
             InternalError::Failure(msg)
         })?;
 
@@ -460,12 +462,6 @@ async fn fetch_from_member(
     );
 
     validate_key_server_version(version, ks_version_req)?;
-
-    // Track upstream key server version
-    metrics
-        .upstream_key_server_version
-        .with_label_values(&[version_str])
-        .inc();
 
     let mut body = response.json::<FetchKeyResponse>().await.map_err(|e| {
         let msg = format!("Parse failed: {e} (req_id: {})", req_id);
