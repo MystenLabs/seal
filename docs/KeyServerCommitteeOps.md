@@ -1,11 +1,17 @@
-# DKG CLI Tool
+# Key Server Operations for Committee Mode
 
-** WARNING: This is WIP. Do not use. **
+This guide explains how to set up and operate a key server in committee mode. It walks you through participating in a Distributed Key Generation (DKG) ceremony to generate cryptographic key shares, and then shows you how to configure and run a key server using those shares. If the committee later needs to change membership, the guide also covers key rotation and how to update a running key server accordingly.
 
-This command-line tool supports Distributed Key Generation (DKG) and key rotation for Seal MPC committees. A DKG process involves a coordinator, which orchestrates the workflow, and a set of committee members, which participate in key generation and rotation. This document describes both of the following:
+In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator doc](./Aggregator.md).
 
-- how to run a fresh DKG to initialize a new committee, and
-- how to perform key rotation to update committee membership or keys.
+A DKG process involves two roles: a **coordinator**, which orchestrates the workflow, and a set of **committee members**, which participate in key generation and key rotation.
+
+This document covers the following tasks:
+
+- Running a fresh DKG to initialize a new committee and generate an initial key share (`MASTER_SHARE_V0`)
+- Configuring and starting a key server using the key share produced by the DKG
+- Performing key rotation to update committee membership or keys and generate a new key share (`MASTER_SHARE_VX+1`)
+- Updating a running key server to transition to the new key share after rotation
 
 Both fresh DKG and key rotation follow the same three-phase process. The coordinator signals members when to move from one phase to the next:
 
@@ -16,9 +22,9 @@ Both fresh DKG and key rotation follow the same three-phase process. The coordin
 The guide is organized into four sections:
 
 - Fresh DKG coordinator runbook
-- Fresh DKG member runbook
+- Fresh DKG member runbook (includes key server setup)
 - Key rotation coordinator runbook
-- Key rotation member runbook
+- Key rotation member runbook (includes key server configuration updates)
 
 ## Prerequisites
 
@@ -131,6 +137,20 @@ python crates/dkg-cli/scripts/dkg-scripts.py check-committee -c dkg-state/dkg.ya
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
 
+8. **Set up the aggregator server**
+
+After all committee members have their key servers running, complete the aggregator setup.
+
+The coordinator shares the following information with the aggregator operator:
+
+- API credentials for each committee member, including:
+    - the on-chain server name (the `PartialKeyServer.name` field)
+    - the API key name
+    - the API key
+- The committee’s `KEY_SERVER_OBJ_ID` from the previous step.
+
+With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see the [Aggregator doc](./Aggregator.md).
+
 ### Member Runbook
 
 Follow these steps to participate as a member in a fresh DKG.
@@ -231,7 +251,19 @@ Start the key server, setting the config path and your master key share from `dk
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
 
-6. **Clean up local DKG state**
+6. **Generate API credentials for the aggregator**
+
+After your key server is running successfully, generate API credentials for aggregator access and share them with the coordinator.
+
+- Generate an **API key name** and **API key** for your key server.
+- Share the following details with the coordinator:
+   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the onchain `PartialKeyServer.name`)
+   - API key name
+   - API key
+
+The coordinator passes these credentials to the aggregator operator, who uses them to authenticate requests to your key server.
+
+7. **Clean up local DKG state**
 
 Once your key server is running successfully, you can safely delete the local DKG state directory:
 
@@ -305,6 +337,18 @@ As the coordinator:
 - Announce the start of each phase to all members.
 - Monitor progress during each phase.
 - Announce completion once the key rotation finalizes onchain.
+
+4. **Update the aggregator configuration**
+
+If new members join the committee during rotation, update the aggregator configuration to include them.
+
+The coordinator shares the following information with the aggregator operator for each new committee member:
+
+- the on-chain server name (the `PartialKeyServer.name` field)
+- the API key name
+- the API key
+
+The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see the [Aggregator doc](./Aggregator.md).
 
 ### Member Runbook
 
@@ -446,7 +490,21 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-6. **Clean up local DKG state**
+6. **Generate API credentials for the aggregator (new members only)**
+
+If you are joining the committee as a new member during rotation, generate API credentials after your key server is up and running and share them with the coordinator.
+
+1. Generate an **API key name** and **API key** for your key server.
+2. Share the following with the coordinator:
+   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the onchain `PartialKeyServer.name`)
+   - API key name
+   - API key
+
+The coordinator forwards these credentials to the aggregator operator to update the aggregator configuration.
+
+**Note:** Continuing members typically do not need to share new credentials, since their existing API keys should already be configured in the aggregator. Share new credentials only if you are rotating your API keys.
+
+7. **Clean up local DKG state**
 
 After your key server is running successfully, you can safely delete the local DKG state directory:
 

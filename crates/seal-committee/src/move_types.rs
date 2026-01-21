@@ -81,6 +81,8 @@ pub struct Field<K, V> {
 pub struct PartialKeyServerInfo {
     pub party_id: u16,
     pub partial_pk: G2Element,
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Deserialize, Debug)]
