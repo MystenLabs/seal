@@ -74,7 +74,7 @@ struct ApiCredentials {
 }
 
 /// Configuration file format for aggregator server.
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct AggregatorOptions {
     /// The network this aggregator is running on.
     network: Network,
@@ -159,8 +159,8 @@ async fn main() -> Result<()> {
     .context("Failed to parse configuration file")?;
 
     info!(
-        "Starting aggregator for KeyServer {} on {:?} ({:?})",
-        options.key_server_object_id, options.network, options.node_url
+        "Starting aggregator for KeyServer {}: {:?}",
+        options.key_server_object_id, options
     );
 
     let registry = Registry::new();
@@ -217,7 +217,7 @@ async fn main() -> Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("Aggregator server listening on http://localhost:{}", port);
+    info!("Aggregator server started (version: {}, git version: {}), listening on http://localhost:{}", package_version!(), GIT_VERSION, port);
 
     axum::serve(listener, app).await?;
     Ok(())
@@ -257,7 +257,10 @@ async fn handle_fetch_key(
         })
         .and_then(|v| {
             v.to_str().map_err(|_| {
-                debug!("Invalid SDK version header format (req_id: {})", req_id);
+                debug!(
+                    "Invalid SDK version header format (req_id: {}), header: {:?}",
+                    req_id, v
+                );
                 state
                     .aggregator_metrics
                     .observe_error(InvalidSDKVersion.as_str());
@@ -270,8 +273,8 @@ async fn handle_fetch_key(
         .validate_sdk_version(version_str, sdk_type)
         .map_err(|e| {
             debug!(
-                "SDK version validation failed: {:?} (req_id: {})",
-                e, req_id
+                "Invalid SDK version: {:?}, sdk_version: {:?}, sdk_type: {:?} (req_id: {})",
+                e, version, sdk_type, req_id
             );
             state.aggregator_metrics.observe_error(e.as_str());
             ErrorResponse::from(e)
