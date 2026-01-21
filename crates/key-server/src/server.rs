@@ -898,7 +898,10 @@ async fn handle_request_headers(
             Ok(v)
         })
         .tap_err(|e| {
-            debug!("Invalid SDK version: {:?}", e);
+            debug!(
+                "Invalid SDK version: {:?}, sdk_version: {:?}, sdk_type: {:?}",
+                e, version, sdk_type
+            );
             state.metrics.observe_error(e.as_str());
         })?;
 
