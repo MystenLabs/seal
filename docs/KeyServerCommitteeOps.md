@@ -2,7 +2,7 @@
 
 This guide explains how to set up and operate a key server in committee mode. It walks you through participating in a Distributed Key Generation (DKG) ceremony to generate cryptographic key shares, and then shows you how to configure and run a key server using those shares. If the committee later needs to change membership, the guide also covers key rotation and how to update a running key server accordingly.
 
-In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator doc](../../docs/Aggregator.md).
+In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator doc](./Aggregator.md).
 
 A DKG process involves two roles: a **coordinator**, which orchestrates the workflow, and a set of **committee members**, which participate in key generation and key rotation.
 
@@ -11,7 +11,7 @@ This document covers the following tasks:
 - Running a fresh DKG to initialize a new committee and generate an initial key share (`MASTER_SHARE_V0`)
 - Configuring and starting a key server using the key share produced by the DKG
 - Performing key rotation to update committee membership or keys and generate a new key share (`MASTER_SHARE_VX+1`)
--  Updating a running key server to transition to the new key share after rotation
+- Updating a running key server to transition to the new key share after rotation
 
 Both fresh DKG and key rotation follow the same three-phase process. The coordinator signals members when to move from one phase to the next:
 
@@ -149,7 +149,7 @@ The coordinator shares the following information with the aggregator operator:
     - the API key
 - The committee’s `KEY_SERVER_OBJ_ID` from the previous step.
 
-With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see the [Aggregator doc](https://github.com/MystenLabs/seal/docs/Aggregator.md).
+With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see the [Aggregator doc](./Aggregator.md).
 
 ### Member Runbook
 
@@ -348,7 +348,7 @@ The coordinator shares the following information with the aggregator operator fo
 - the API key name
 - the API key
 
-The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see the [Aggregator doc](../../docs/Aggregator.md).
+The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see the [Aggregator doc](./Aggregator.md).
 
 ### Member Runbook
 
