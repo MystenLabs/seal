@@ -24,8 +24,8 @@ After a fresh DKG completes, the coordinator shares the following information wi
 - **Key server object ID** (`KEY_SERVER_OBJ_ID`): The object ID created when the committee is finalized onchain.
 - **API credentials for all committee members**, including:
     - the onchain server name
-    - the API key header name
-    - the API key value
+    - the API key name
+    - the API key
 
 The aggregator operator configures these values in `aggregator-config.yaml` and then deploys the aggregator server.
 

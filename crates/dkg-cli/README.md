@@ -145,8 +145,8 @@ The coordinator shares the following information with the aggregator operator:
 
 - API credentials for each committee member, including:
     - the on-chain server name (the `PartialKeyServer.name` field)
-    - the API key header name
-    - the API key value
+    - the API key name
+    - the API key
 - The committee’s `KEY_SERVER_OBJ_ID` from the previous step.
 
 With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see the [Aggregator doc](https://github.com/MystenLabs/seal/docs/Aggregator.md).
@@ -345,8 +345,8 @@ If new members join the committee during rotation, update the aggregator configu
 The coordinator shares the following information with the aggregator operator for each new committee member:
 
 - the on-chain server name (the `PartialKeyServer.name` field)
-- the API key header name
-- the API key value
+- the API key name
+- the API key
 
 The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see the [Aggregator doc](../../docs/Aggregator.md).
 
