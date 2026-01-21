@@ -5,7 +5,7 @@ use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::CommitteeKeyState;
-use crate::metrics::{call_with_duration, status_callback, KeyServerMetrics};
+use crate::metrics::{call_with_duration, status_callback, uptime_metric, KeyServerMetrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
@@ -890,33 +890,26 @@ async fn handle_request_headers(
 
     let sdk_type = ClientSdkType::from_header(sdk_type.and_then(|t| t.to_str().ok()));
 
-    version
+    let version_str = version
         .ok_or(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
         .and_then(|v| v.to_str().map_err(|_| InvalidSDKVersion))
-        .and_then(|v| state.validate_sdk_version(v, sdk_type))
+        .and_then(|v| {
+            state.validate_sdk_version(v, sdk_type)?;
+            Ok(v)
+        })
         .tap_err(|e| {
             debug!("Invalid SDK version: {:?}", e);
             state.metrics.observe_error(e.as_str());
         })?;
+
+    // Track client SDK version by type
+    state
+        .metrics
+        .client_sdk_version
+        .with_label_values(&[sdk_type.as_str(), version_str])
+        .inc();
+
     Ok(next.run(request).await)
-}
-
-/// Creates a [prometheus::core::Collector] that tracks the uptime of the server.
-fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
-    let opts = prometheus::opts!("uptime", "uptime of the key server in seconds")
-        .variable_label("version");
-
-    let start_time = std::time::Instant::now();
-    let uptime = move || start_time.elapsed().as_secs();
-    let metric = prometheus_closure_metric::ClosureMetric::new(
-        opts,
-        prometheus_closure_metric::ValueType::Counter,
-        uptime,
-        &[version],
-    )
-    .unwrap();
-
-    Box::new(metric)
 }
 
 /// Spawn server's background tasks:
@@ -1051,6 +1044,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     tokio::task::spawn(async move {
         registry_clone
             .register(uptime_metric(
+                "key server",
                 format!("{}-{}", package_version!(), GIT_VERSION).as_str(),
             ))
             .expect("metrics defined at compile time must be valid");
