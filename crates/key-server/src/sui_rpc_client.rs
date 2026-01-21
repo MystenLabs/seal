@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{key_server_options::RetryConfig, metrics::Metrics};
+use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::{
     error::SuiRpcResult,
@@ -84,7 +84,7 @@ impl RpcError {
 async fn sui_rpc_with_retries<T, E, F, Fut>(
     rpc_config: &RetryConfig,
     label: &str,
-    metrics: Option<Arc<Metrics>>,
+    metrics: Option<Arc<KeyServerMetrics>>,
     mut func: F,
 ) -> Result<T, E>
 where
@@ -163,7 +163,7 @@ pub struct SuiRpcClient {
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
     rpc_retry_config: RetryConfig,
-    metrics: Option<Arc<Metrics>>,
+    metrics: Option<Arc<KeyServerMetrics>>,
 }
 
 impl SuiRpcClient {
@@ -171,7 +171,7 @@ impl SuiRpcClient {
         sui_client: SuiClient,
         sui_grpc_client: SuiGrpcClient,
         rpc_retry_config: RetryConfig,
-        metrics: Option<Arc<Metrics>>,
+        metrics: Option<Arc<KeyServerMetrics>>,
     ) -> Self {
         Self {
             sui_client,
@@ -192,7 +192,7 @@ impl SuiRpcClient {
     }
 
     /// Returns a clone of the metrics object.
-    pub fn get_metrics(&self) -> Option<Arc<Metrics>> {
+    pub fn get_metrics(&self) -> Option<Arc<KeyServerMetrics>> {
         self.metrics.clone()
     }
 

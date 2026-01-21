@@ -5,7 +5,7 @@ use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::{CommitteeState, ServerMode};
 use crate::master_keys::CommitteeKeyState;
-use crate::metrics::{call_with_duration, status_callback, Metrics};
+use crate::metrics::{call_with_duration, status_callback, KeyServerMetrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
@@ -143,7 +143,7 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions, metrics: Option<Arc<Metrics>>) -> Self {
+    async fn new(options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -407,7 +407,7 @@ impl Server {
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
-        metrics: Option<&Metrics>,
+        metrics: Option<&KeyServerMetrics>,
     ) -> Result<(), InternalError> {
         debug!(
             "Checking policy for ptb: {:?} (req_id: {:?})",
@@ -509,7 +509,7 @@ impl Server {
         request_signature: &Ed25519Signature,
         certificate: &Certificate,
         gas_price: u64,
-        metrics: Option<&Metrics>,
+        metrics: Option<&KeyServerMetrics>,
         req_id: Option<&str>,
         mvr_name: Option<String>,
     ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
@@ -586,7 +586,7 @@ impl Server {
     /// Returns the [Receiver].
     async fn spawn_reference_gas_price_updater(
         &self,
-        metrics: Option<&Metrics>,
+        metrics: Option<&KeyServerMetrics>,
     ) -> (Receiver<u64>, JoinHandle<()>) {
         spawn_periodic_updater(
             &self.sui_rpc_client,
@@ -835,7 +835,7 @@ async fn handle_get_service(
 
 #[derive(Clone)]
 struct MyState {
-    metrics: Arc<Metrics>,
+    metrics: Arc<KeyServerMetrics>,
     server: Arc<Server>,
     reference_gas_price_receiver: Receiver<u64>,
 }
@@ -926,7 +926,7 @@ fn uptime_metric(version: &str) -> Box<dyn prometheus::core::Collector> {
 /// The returned JoinHandle can be used to catch any tasks error or panic.
 async fn start_server_background_tasks(
     server: Arc<Server>,
-    metrics: Arc<Metrics>,
+    metrics: Arc<KeyServerMetrics>,
     registry: prometheus::Registry,
 ) -> (Receiver<u64>, JoinHandle<anyhow::Result<()>>) {
     // Spawn background reference gas price updater.
@@ -1057,7 +1057,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
     });
 
     // hook up custom application metrics
-    let metrics = Arc::new(Metrics::new(&registry));
+    let metrics = Arc::new(KeyServerMetrics::new(&registry));
 
     info!(
         "Starting server, version {}",
