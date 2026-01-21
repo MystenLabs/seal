@@ -1,6 +1,6 @@
 # Aggregator Server
 
-The Aggregator Server supports a Seal MPC committee. It collects encrypted partial keys from committee members, verifies their encrypted signatures, and returns an aggregated encrypted key to clients. The server also uses private API keys to authenticate with committee member key servers.
+The Aggregator Server supports Seal MPC committees by acting as a gateway between clients and committee member key servers. It fetches encrypted partial key shares from committee members, verifies their encrypted signatures, aggregates the shares into a single encrypted key, and returns the result to the client. The aggregator authenticates to member key servers using private API keys.
 
 ## Overview
 
@@ -19,22 +19,25 @@ The aggregator authenticates with each committee member's key server using priva
 
 ### Initial Setup (Fresh DKG)
 
-After a fresh DKG completes, the coordinator should share the following with the aggregator operator:
+After a fresh DKG completes, the coordinator shares the following information with the aggregator operator:
 
-1. **Key server object ID** (`KEY_SERVER_OBJ_ID`): Obtained after DKG finalization.
-2. **API credentials from all committee members**: Each committee member provides their onchain server name, API key name, and API key.
+- **Key server object ID** (`KEY_SERVER_OBJ_ID`): The object ID created when the committee is finalized onchain.
+- **API credentials for all committee members**, including:
+    - the onchain server name
+    - the API key header name
+    - the API key value
 
-The aggregator operator should then configure these values in `aggregator-config.yaml` and deploy the server.
+The aggregator operator configures these values in `aggregator-config.yaml` and then deploys the aggregator server.
 
 ### Key Rotation
 
-During key rotation, if new members join the committee, the coordinator should share the new members' API credentials with the aggregator operator. The aggregator operator should add the new credentials to `aggregator-config.yaml` and restart the server.
+If new members join the committee during key rotation, the coordinator shares their API credentials with the aggregator operator. The aggregator operator adds the new credentials to `aggregator-config.yaml` and restarts the server.
 
-The aggregator configuration can include credentials for both old and new member names. The aggregator periodically fetches the current committee from onchain to get the latest member names.
+The aggregator configuration may include credentials for both old and new member names. The aggregator periodically reads the current committee state from the network and uses the latest onchain member list to determine which credentials to use.
 
 ## Running the Server
 
-Edit the configuration file at `aggregator-config.yaml` to match your environment. Set the network, key server object ID (provided by the coordinator), and the API credentials for all committee members:
+Edit `aggregator-config.yaml` to match your environment. Set the target network, the key server object ID provided by the coordinator, and the API credentials for all committee members:
 
 ```yaml
 # The network for the object.
