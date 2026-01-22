@@ -474,12 +474,13 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
         )))
         .unwrap();
 
+    let threshold = builder.pure(1u16).unwrap();
     builder.programmable_move_call(
         package_id,
         sui_types::Identifier::new("key_server").unwrap(),
         sui_types::Identifier::new("update_partial_key_servers").unwrap(),
         vec![],
-        vec![key_server_obj, partial_key_servers],
+        vec![key_server_obj, threshold, partial_key_servers],
     );
     execute_programmable_transaction(&tc, member_address, builder.finish()).await;
 
