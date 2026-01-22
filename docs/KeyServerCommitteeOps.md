@@ -59,19 +59,28 @@ Follow these steps to initialize a new MPC committee using a fresh DKG.
 
 1. **Prepare the DKG state directory**
 
-Create a clean working directory named `dkg-state` and copy the example configuration file:
+a. Create a clean working directory named `dkg-state` and copy the example configuration file:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
+b. Make sure your CLI has the expected network and active address with gas. 
+```bash
+sui client active-env
+sui client active-address
+
+# switch if needed
+sui client switch --env testnet
+sui client switch --adress 0x...
+```
+
+c. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
 
 ```yaml
 NETWORK: Testnet # Target network
 THRESHOLD: 2 # Committee threshold (t of n)
-COORDINATOR_ADDRESS: 0x... # Your address (must have sufficient gas for subsequent steps on the target network)
 MEMBERS: # Addresses of all participating members
   - 0x...
   - 0x...
@@ -226,9 +235,9 @@ This command:
 
 - Processes all DKG messages from the directory.
 - Appends the following fields to `dkg.yaml`: 
-  - `KEY_SERVER_PK` (new key server public key)
-  - `PARTIAL_PKS_V0` (partial public keys for all members) 
-  - `MASTER_SHARE_V0` (your local key share, used to start the key server).
+  - `KEY_SERVER_PK`: New key server public key.
+  - `PARTIAL_PKS_V0`: Partial public keys for all members.
+  - `MASTER_SHARE_V0`: Your master share, used to start the key server. Back it up securely and do not share it with anyone.
 - Proposes the committee onchain by calling the `propose` function.
 
 5. **Configure and start your key server**
@@ -286,21 +295,30 @@ Key rotation follows the same three-phase flow as a fresh DKG, with a few import
 
 1. **Prepare the DKG state directory**
 
-Create a clean working directory named `dkg-state` and copy the rotation example configuration:
+a. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/scripts/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
-Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields. 
+b. Make sure your CLI has the expected network and active address with gas. 
+```bash
+sui client active-env
+sui client active-address
+
+# switch if needed
+sui client switch --env testnet
+sui client switch --adress 0x...
+```
+
+c. Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields. 
 
 You can obtain `KEY_SERVER_OBJ_ID` from the key server configuration of any continuing member in the current committee.
 
 ```yaml
 NETWORK: Testnet # Target network
 THRESHOLD: 3  # Threshold for the new committee (t of n)
-COORDINATOR_ADDRESS: 0x... # Your address (must have sufficient gas for subsequent steps on the target network)
 KEY_SERVER_OBJ_ID: 0x...  # Key server object ID from the current committee
 MEMBERS:  # New committee members (may include continuing members)
   - 0x...
@@ -430,8 +448,8 @@ This command:
 
 - Processes all messages from the directory.
 - Appends the following fields to `dkg.yaml`: 
-  - `PARTIAL_PKS_VX+1` (new partial public keys for all members)
-  - `MASTER_SHARE_VX+1` (your new master share, used to start the key server)
+  - `PARTIAL_PKS_VX+1`: New partial public keys for all members.
+  - `MASTER_SHARE_VX+1`: Your new master share, used to start the key server. Back it up securely and do not share it with anyone.
 - Proposes the rotation onchain by calling `propose_for_rotation`.
 
 5. **Start or update your key server**

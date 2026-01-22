@@ -395,10 +395,10 @@ async fn main() -> Result<()> {
             println!("Processing {} message(s)...", messages.len());
 
             if let Some(old_threshold) = state.config.old_threshold {
-                // Key rotation: need messages from old threshold members.
-                if messages.len() < old_threshold as usize {
+                // Key rotation: need messages from exactly old threshold members (continuing members).
+                if messages.len() != old_threshold as usize {
                     return Err(anyhow!(
-                        "Key rotation requires at least {} messages from old committee members, got {}.",
+                        "Key rotation requires exactly {} messages from continuing members (old committee threshold), got {}.",
                         old_threshold, messages.len()
                     ));
                 }

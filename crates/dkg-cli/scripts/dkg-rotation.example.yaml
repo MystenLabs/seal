@@ -7,7 +7,6 @@
 
 NETWORK: Testnet
 THRESHOLD: 3  # New threshold for rotated committee
-COORDINATOR_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
 KEY_SERVER_OBJ_ID: 0x0688650cf0b28882e607ae43df1e95e769f9b2f689cf90d68c715b3e08e28c70  # Key server object from current committee
 MEMBERS:  # New committee members (can include continuing members)
   - 0x3af3e4522a8a821dbc50c9dec6a5ad0fa62abc51a66d30f6e298e0d690b07e7b
