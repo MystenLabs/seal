@@ -113,7 +113,7 @@ impl NetworkConfig for AggregatorOptions {
 struct AppState {
     aggregator_metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
-    threshold: u16,
+    threshold: Arc<RwLock<u16>>,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
     options: AggregatorOptions,
 }
@@ -191,7 +191,7 @@ async fn main() -> Result<()> {
     info!(
         "Loaded committee with {} members, threshold {}",
         state.committee_members.read().await.0.contents.len(),
-        state.threshold
+        *state.threshold.read().await
     );
 
     let port: u16 = env::var("PORT")
@@ -350,13 +350,14 @@ async fn handle_fetch_key(
         .collect();
 
     // Collect responses until we have threshold, then abort remaining.
+    let threshold = *state.threshold.read().await;
     let mut responses = Vec::new();
     let mut errors = Vec::new();
     while let Some(result) = fetch_tasks.next().await {
         match result {
             Ok((party_id, response)) => {
                 responses.push((party_id, response));
-                if responses.len() >= state.threshold as usize {
+                if responses.len() >= threshold as usize {
                     break;
                 }
             }
@@ -373,14 +374,14 @@ async fn handle_fetch_key(
     );
 
     // If not enough responses, return majority error from key servers.
-    if responses.len() < state.threshold as usize {
-        let err = handle_insufficient_responses(responses.len(), state.threshold as usize, errors);
+    if responses.len() < threshold as usize {
+        let err = handle_insufficient_responses(responses.len(), threshold as usize, errors);
         state.aggregator_metrics.observe_error(&err.error);
         return Err(err);
     }
 
     // Aggregate encrypted responses and return.
-    let aggregated_response = aggregate_verified_encrypted_responses(state.threshold, responses)
+    let aggregated_response = aggregate_verified_encrypted_responses(threshold, responses)
         .map_err(|e| {
             let msg = format!("Aggregating responses failed: {e}");
             warn!("{}", msg);
@@ -395,7 +396,7 @@ async fn handle_fetch_key(
     let committee_size = state.committee_members.read().await.0.contents.len();
     info!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
-        req_id, state.threshold, committee_size, request.certificate.user
+        req_id, threshold, committee_size, request.certificate.user
     );
 
     Ok(Json(aggregated_response))
@@ -572,7 +573,7 @@ async fn load_committee_state(
         aggregator_metrics: metrics,
         grpc_client,
         committee_members: Arc::new(RwLock::new(members)),
-        threshold,
+        threshold: Arc::new(RwLock::new(threshold)),
         options,
     })
 }
@@ -591,7 +592,7 @@ async fn monitor_members_update(mut state: AppState) {
         ticker.tick().await;
 
         // Fetch the current state from onchain.
-        let (_, members) = match fetch_key_server_by_id(
+        let (threshold, members) = match fetch_key_server_by_id(
             &mut state.grpc_client,
             &state.options.key_server_object_id,
         )
@@ -608,13 +609,14 @@ async fn monitor_members_update(mut state: AppState) {
             }
         };
 
-        // Always update committee members.
+        // Always update committee members and threshold.
         let member_count = members.0.contents.len();
         *state.committee_members.write().await = members;
+        *state.threshold.write().await = threshold;
 
         info!(
             "Committee refreshed: {} members, threshold {}",
-            member_count, state.threshold
+            member_count, threshold
         );
     }
 }
@@ -715,7 +717,7 @@ mod tests {
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
-            threshold,
+            threshold: Arc::new(RwLock::new(threshold)),
             committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
                 contents: committee_contents,
             }))),
