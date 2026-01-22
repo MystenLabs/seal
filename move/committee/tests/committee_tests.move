@@ -55,7 +55,7 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         let committee = scenario.take_shared_by_id<Committee>(old_committee_id);
         let key_server = committee.borrow_key_server();
 
-        assert_key_server_version!(key_server, 0);
+        assert_key_server_version_and_threshold!(key_server, 0, 2);
 
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
         assert_partial_key_server!(key_server, ALICE, b"https://url0.com", g2_bytes, 0);
@@ -164,8 +164,8 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         let new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
         let key_server = new_committee.borrow_key_server();
 
-        // Version incremented to 1.
-        assert_key_server_version!(key_server, 1);
+        // Version incremented to 1, threshold updated to 3.
+        assert_key_server_version_and_threshold!(key_server, 1, 3);
 
         // Verify each member's URL, partial PK, and party ID (BOB=party0, ALICE=party1, DAVE=party2, EVE=party3).
         assert_partial_key_server!(key_server, BOB, b"https://new_url1.com", g2_bytes, 0);
@@ -277,8 +277,8 @@ fun test_scenario_2of3_to_3of4_to_1of3() {
         let third_committee = scenario.take_shared_by_id<Committee>(third_committee_id);
         let key_server = third_committee.borrow_key_server();
 
-        // Version incremented to 2.
-        assert_key_server_version!(key_server, 2);
+        // Version incremented to 2, threshold updated to 1.
+        assert_key_server_version_and_threshold!(key_server, 2, 1);
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
         assert_partial_key_server!(key_server, EVE, b"https://eve_url_3.com", g2_bytes, 0);
@@ -816,4 +816,19 @@ public macro fun assert_key_server_version($key_server: &KeyServer, $expected_ve
     let expected_version = $expected_version;
 
     assert!(key_server.committee_version() == expected_version);
+}
+
+/// Helper macro to assert key server version and threshold.
+public macro fun assert_key_server_version_and_threshold(
+    $key_server: &KeyServer,
+    $expected_version: u32,
+    $expected_threshold: u16,
+) {
+    let key_server = $key_server;
+    let expected_version = $expected_version;
+    let expected_threshold = $expected_threshold;
+
+    let (version, threshold) = key_server.committee_version_and_threshold();
+    assert!(version == expected_version);
+    assert!(threshold == expected_threshold);
 }

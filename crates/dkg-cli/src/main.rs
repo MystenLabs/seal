@@ -166,8 +166,7 @@ async fn main() -> Result<()> {
             let mut grpc_client = create_grpc_client(&network)?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
-            // Validate committee state is in Init state and contains my address.
-            committee.is_init()?;
+            // Validate committee state contains my address.
             if !committee.contains(&my_address) {
                 return Err(anyhow!(
                     "Address {} is not a member of committee {}",
