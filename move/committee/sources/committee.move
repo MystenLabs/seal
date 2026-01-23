@@ -32,6 +32,7 @@ const ENotRegistered: u64 = 5;
 const EAlreadyProposed: u64 = 6;
 const EInvalidProposal: u64 = 7;
 const EInvalidState: u64 = 8;
+const ENameAlreadyTaken: u64 = 9;
 
 // ===== Structs =====
 
@@ -120,6 +121,13 @@ public fun register(
         State::Init { members_info } => {
             let sender = ctx.sender();
             assert!(!members_info.contains(&sender), EAlreadyRegistered);
+
+            // Check unique name
+            members_info.keys().do!(|member_addr| {
+                let existing_info = members_info.get(&member_addr);
+                assert!(existing_info.name != name, ENameAlreadyTaken);
+            });
+
             members_info.insert(sender, MemberInfo { enc_pk, signing_pk, url, name });
         },
         _ => abort EInvalidState,

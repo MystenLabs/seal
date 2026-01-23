@@ -434,6 +434,36 @@ fun test_register_fails_when_not_in_init_state() {
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::ENameAlreadyTaken)]
+fun test_register_fails_with_duplicate_name() {
+    test_tx!(|scenario| {
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
+
+        scenario.next_tx(BOB);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url1"),
+            string::utf8(b"server1"),
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(committee);
+
+        scenario.next_tx(CHARLIE);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.register(
+            g2_bytes,
+            g2_bytes,
+            string::utf8(b"url2"),
+            string::utf8(b"server1"), // Same name as BOB
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(committee);
+    });
+}
+
 #[test, expected_failure(abort_code = seal_committee::ENotMember)]
 fun test_propose_fails_for_non_member() {
     test_tx!(|scenario| {
@@ -713,11 +743,12 @@ public macro fun register_member(
     let url = $url;
     scenario.next_tx(member);
     let mut committee = scenario.take_shared<Committee>();
+    let name = member.to_string();
     committee.register(
         enc_pk,
         signing_pk,
         string::utf8(url),
-        string::utf8(b"server"),
+        name,
         scenario.ctx(),
     );
     test_scenario::return_shared(committee);
@@ -741,11 +772,12 @@ public macro fun register_member_by_id(
 
     scenario.next_tx(member);
     let mut committee = scenario.take_shared_by_id<Committee>(committee_id);
+    let name = member.to_string();
     committee.register(
         enc_pk,
         signing_pk,
         string::utf8(url),
-        string::utf8(b"server"),
+        name,
         scenario.ctx(),
     );
     test_scenario::return_shared(committee);
