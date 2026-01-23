@@ -7,7 +7,6 @@
 
 NETWORK: Testnet
 THRESHOLD: 2
-COORDINATOR_ADDRESS: 0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d
 
 # List of all committee member addresses
 MEMBERS:
