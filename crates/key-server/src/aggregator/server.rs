@@ -37,7 +37,7 @@ use seal_committee::{
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
@@ -159,8 +159,8 @@ async fn main() -> Result<()> {
     .context("Failed to parse configuration file")?;
 
     info!(
-        "Starting aggregator for KeyServer {}: {:?}",
-        options.key_server_object_id, options
+        "Starting aggregator for KeyServer {} on network {:?}, configured API credentials for: {:?}",
+        options.key_server_object_id, options.network, options.api_credentials.keys().collect::<Vec<_>>()
     );
 
     let registry = Registry::new();
@@ -558,6 +558,21 @@ fn handle_insufficient_responses(
     InternalError::Failure(msg).into()
 }
 
+/// Check and warn about missing API credentials for committee members.
+fn check_missing_api_credentials(
+    members: &VecMap<Address, PartialKeyServer>,
+    api_credentials: &HashMap<String, ApiCredentials>,
+) {
+    for member in &members.0.contents {
+        if !api_credentials.contains_key(&member.value.name) {
+            warn!(
+                "Missing API credentials for committee member '{}' (party_id: {}, url: {})",
+                member.value.name, member.value.party_id, member.value.url
+            );
+        }
+    }
+}
+
 /// Load committee state from onchain KeyServerV2 object.
 async fn load_committee_state(
     options: AggregatorOptions,
@@ -568,6 +583,9 @@ async fn load_committee_state(
     let key_server_v2 =
         fetch_key_server_by_id(&mut grpc_client, &options.key_server_object_id).await?;
     let (threshold, members) = key_server_v2.extract_committee_info()?;
+
+    // Check and warn about missing API credentials for current committee.
+    check_missing_api_credentials(&members, &options.api_credentials);
 
     Ok(AppState {
         aggregator_metrics: metrics,
@@ -609,8 +627,31 @@ async fn monitor_members_update(mut state: AppState) {
             }
         };
 
-        // Always update committee members and threshold.
+        // Check for new members' API credentials by comparing with current state.
         let member_count = members.0.contents.len();
+        let current_members = state.committee_members.read().await;
+        let current_names: HashSet<_> = current_members
+            .0
+            .contents
+            .iter()
+            .map(|m| &m.value.name)
+            .collect();
+
+        for member in &members.0.contents {
+            if !current_names.contains(&member.value.name)
+                && !state
+                    .options
+                    .api_credentials
+                    .contains_key(&member.value.name)
+            {
+                warn!(
+                    "Missing API credentials for new committee member '{}' (party_id: {}, url: {})",
+                    member.value.name, member.value.party_id, member.value.url
+                );
+            }
+        }
+
+        // Update members and threshold in state.
         *state.committee_members.write().await = members;
         *state.threshold.write().await = threshold;
 
@@ -714,6 +755,7 @@ mod tests {
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
+
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
