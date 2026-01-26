@@ -11,6 +11,22 @@ use prometheus::{
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Known valid routes for metrics labeling.
+/// Any route not in this list will be normalized to "unknown" to prevent
+/// high-cardinality label explosion from malicious requests.
+const KNOWN_ROUTES: &[&str] = &["/v1/fetch_key", "/v1/service", "/health"];
+
+/// Normalize a route path to a known route or "unknown".
+/// This prevents high-cardinality metrics from malicious/invalid request paths.
+fn normalize_route(path: &str) -> &'static str {
+    for &route in KNOWN_ROUTES {
+        if path == route {
+            return route;
+        }
+    }
+    "unknown"
+}
+
 #[derive(Debug)]
 pub struct KeyServerMetrics {
     /// Total number of requests received
@@ -337,19 +353,19 @@ pub async fn metrics_middleware(
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
-    let route = request.uri().path().to_string();
+    let route = normalize_route(request.uri().path());
     let start = std::time::Instant::now();
 
     metrics
         .http_request_in_flight
-        .with_label_values(&[&route])
+        .with_label_values(&[route])
         .inc();
 
     let response = next.run(request).await;
 
     metrics
         .http_request_in_flight
-        .with_label_values(&[&route])
+        .with_label_values(&[route])
         .dec();
 
     let duration = start.elapsed().as_millis() as f64;
@@ -357,11 +373,11 @@ pub async fn metrics_middleware(
 
     metrics
         .http_request_duration_millis
-        .with_label_values(&[&route, &status])
+        .with_label_values(&[route, &status])
         .observe(duration);
     metrics
         .http_requests_total
-        .with_label_values(&[&route, &status])
+        .with_label_values(&[route, &status])
         .inc();
 
     response
@@ -374,19 +390,19 @@ pub async fn aggregator_metrics_middleware(
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
-    let route = request.uri().path().to_string();
+    let route = normalize_route(request.uri().path());
     let start = std::time::Instant::now();
 
     metrics
         .http_request_in_flight
-        .with_label_values(&[&route])
+        .with_label_values(&[route])
         .inc();
 
     let response = next.run(request).await;
 
     metrics
         .http_request_in_flight
-        .with_label_values(&[&route])
+        .with_label_values(&[route])
         .dec();
 
     let duration = start.elapsed().as_millis() as f64;
@@ -394,12 +410,35 @@ pub async fn aggregator_metrics_middleware(
 
     metrics
         .http_request_duration_millis
-        .with_label_values(&[&route, &status])
+        .with_label_values(&[route, &status])
         .observe(duration);
     metrics
         .http_requests_total
-        .with_label_values(&[&route, &status])
+        .with_label_values(&[route, &status])
         .inc();
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_route_known_routes() {
+        assert_eq!(normalize_route("/v1/fetch_key"), "/v1/fetch_key");
+        assert_eq!(normalize_route("/v1/service"), "/v1/service");
+        assert_eq!(normalize_route("/health"), "/health");
+    }
+
+    #[test]
+    fn test_normalize_route_unknown_routes() {
+        assert_eq!(normalize_route("/v1/unknown"), "unknown");
+        assert_eq!(normalize_route("/malicious/path"), "unknown");
+        assert_eq!(normalize_route("/v1/fetch_key/extra"), "unknown");
+        assert_eq!(normalize_route(""), "unknown");
+        assert_eq!(normalize_route("/"), "unknown");
+        // Long malicious path should be normalized to "unknown"
+        assert_eq!(normalize_route(&"a".repeat(10000)), "unknown");
+    }
 }
