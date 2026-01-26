@@ -195,7 +195,7 @@ fun init_internal(
     old_committee_id: Option<ID>,
     ctx: &mut TxContext,
 ) {
-    assert!(threshold > 0, EInvalidThreshold);
+    assert!(threshold > 1, EInvalidThreshold);
     assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
     assert!(members.length() as u16 >= threshold, EInvalidThreshold);
 
