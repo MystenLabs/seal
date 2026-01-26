@@ -287,6 +287,10 @@ def publish_and_init(config_path: str):
         print("Error: MEMBERS list is empty", file=sys.stderr)
         sys.exit(1)
 
+    if threshold <= 1:
+        print(f"Error: THRESHOLD must be greater than 1, got {threshold}", file=sys.stderr)
+        sys.exit(1)
+
     # Switch to correct network
     switch_sui_context(network_env)
 
@@ -385,6 +389,10 @@ def init_rotation(config_path: str):
 
     if not members:
         print("Error: MEMBERS list is empty", file=sys.stderr)
+        sys.exit(1)
+
+    if threshold <= 1:
+        print(f"Error: THRESHOLD must be greater than 1, got {threshold}", file=sys.stderr)
         sys.exit(1)
 
     # Switch to correct network
