@@ -46,6 +46,7 @@ snap.workspace = true
 git-version.workspace = true
 tonic.workspace = true
 prost-types.workspace = true
+uuid.workspace = true
 
 tap = "1.0.1"
 jsonrpsee = "0.24.0"

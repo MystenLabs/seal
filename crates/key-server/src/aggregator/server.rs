@@ -16,8 +16,12 @@ use axum::{
 };
 use futures::future::pending;
 use futures::stream::{FuturesUnordered, StreamExt};
-use key_server::aggregator::utils::{
-    aggregate_verified_encrypted_responses, verify_decryption_keys,
+use key_server::aggregator::{
+    utils::{
+        aggregate_verified_encrypted_responses, validate_key_server_version,
+        verify_decryption_keys,
+    },
+    KEY_SERVER_REQUEST_TIMEOUT_SECS,
 };
 use key_server::common::{
     add_response_headers, ClientSdkType, Network, NetworkConfig, HEADER_CLIENT_SDK_TYPE,
@@ -122,6 +126,7 @@ struct AppState {
     grpc_client: SuiGrpcClient,
     threshold: Arc<RwLock<u16>>,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
+    verified_servers: Arc<RwLock<HashSet<String>>>,
     options: AggregatorOptions,
 }
 
@@ -310,6 +315,8 @@ async fn handle_fetch_key(
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
     let metrics = state.aggregator_metrics.clone();
+    let verified_servers = state.verified_servers.read().await;
+
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -317,13 +324,21 @@ async fn handle_fetch_key(
         .0
         .contents
         .iter()
-        .map(|member| {
-            let request = request.clone();
+        .filter_map(|member| {
             let partial_key_server = member.clone().value;
+            if !verified_servers.contains(&partial_key_server.name) {
+                warn!(
+                    "Skipping unverified server '{}' (url={})",
+                    partial_key_server.name, partial_key_server.url
+                );
+                return None;
+            }
+
+            let request = request.clone();
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             let metrics = metrics.clone();
-            async move {
+            Some(async move {
                 // Check if API credentials exist for this server.
                 let creds = match api_creds {
                     Some(c) => c,
@@ -350,15 +365,16 @@ async fn handle_fetch_key(
                     Err(e) => {
                         metrics.observe_upstream_error(&partial_key_server.name, &e.error);
                         debug!(
-                            "Failed to fetch from party_id={}, url={}: {:?}",
-                            partial_key_server.party_id, partial_key_server.url, e
+                            "Failed to fetch from server '{}' ({}): {:?}",
+                            partial_key_server.name, partial_key_server.url, e
                         );
                         Err(e)
                     }
                 }
-            }
+            })
         })
         .collect();
+    drop(verified_servers);
 
     // Collect responses until we have threshold, then abort remaining.
     let threshold = *state.threshold.read().await;
@@ -437,7 +453,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(KEY_SERVER_REQUEST_TIMEOUT_SECS))
         .send()
         .await
         .map_err(|e| {
@@ -501,41 +517,6 @@ async fn fetch_from_member(
     Ok(body)
 }
 
-/// Validate key server version from response header against the configured version requirement.
-fn validate_key_server_version(
-    version: Option<&HeaderValue>,
-    ks_version_req: &VersionReq,
-) -> Result<(), InternalError> {
-    let version = version
-        .ok_or(InternalError::MissingRequiredHeader(
-            HEADER_KEYSERVER_VERSION.to_string(),
-        ))
-        .and_then(|v| {
-            v.to_str().map_err(|_| {
-                let msg = "Invalid key server version header".to_string();
-                warn!("{}", msg);
-                InternalError::Failure(msg)
-            })
-        })
-        .and_then(|v| {
-            Version::parse(v).map_err(|_| {
-                let msg = format!("Failed to parse key server version: {}", v);
-                warn!("{}", msg);
-                InternalError::Failure(msg)
-            })
-        })?;
-
-    if !ks_version_req.matches(&version) {
-        let msg = format!(
-            "Key server version {} does not meet requirement {}",
-            version, ks_version_req
-        );
-        warn!("{}", msg);
-        Err(InternalError::Failure(msg))
-    } else {
-        Ok(())
-    }
-}
 /// Handle insufficient responses by finding and returning the majority error, or a generic error.
 fn handle_insufficient_responses(
     got: usize,
@@ -618,7 +599,65 @@ fn check_missing_api_credentials(
     }
 }
 
-/// Load committee state from onchain KeyServerV2 object.
+/// Verify all partial key servers and return a set of successfully verified server names.
+async fn verify_all_servers(
+    members: &VecMap<Address, PartialKeyServer>,
+    key_server_object_id: &Address,
+    api_credentials: &HashMap<String, ApiCredentials>,
+    key_server_version_requirement: &VersionReq,
+) -> HashSet<String> {
+    let mut verified = HashSet::new();
+
+    info!(
+        "Verifying {} partial key servers...",
+        members.0.contents.len()
+    );
+
+    for member in &members.0.contents {
+        let server = &member.value;
+
+        // Check if API credentials exist for this server
+        let Some(api_creds) = api_credentials.get(&server.name) else {
+            warn!(
+                "Skipping verification for '{}' (url={}): missing API credentials",
+                server.name, server.url
+            );
+            continue;
+        };
+
+        let result = verify_partial_key_server(
+            server,
+            key_server_object_id,
+            key_server_version_requirement,
+            &api_creds.api_key_name,
+            &api_creds.api_key,
+        )
+        .await;
+
+        match result {
+            Ok(()) => {
+                verified.insert(server.name.clone());
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to verify server '{}' (url={}): {}",
+                    server.name, server.url, e
+                );
+            }
+        }
+    }
+
+    info!(
+        "Successfully verified {}/{} partial key servers",
+        verified.len(),
+        members.0.contents.len()
+    );
+
+    verified
+}
+
+/// Load committee state from onchain KeyServerV2 object, verify api credentials exist and verify
+/// PoP for all servers.
 async fn load_committee_state(
     options: AggregatorOptions,
     metrics: Arc<AggregatorMetrics>,
@@ -632,11 +671,21 @@ async fn load_committee_state(
     // Check and warn about missing API credentials for current committee.
     check_missing_api_credentials(&members, &options.api_credentials);
 
+    // Verify all partial key servers and cache the results.
+    let verified_servers = verify_all_servers(
+        &members,
+        &options.key_server_object_id,
+        &options.api_credentials,
+        &options.key_server_version_requirement,
+    )
+    .await;
+
     Ok(AppState {
         aggregator_metrics: metrics,
         grpc_client,
         committee_members: Arc::new(RwLock::new(members)),
         threshold: Arc::new(RwLock::new(threshold)),
+        verified_servers: Arc::new(RwLock::new(verified_servers)),
         options,
     })
 }
@@ -672,16 +721,19 @@ async fn monitor_members_update(mut state: AppState) {
             }
         };
 
-        // Check for new members' API credentials by comparing with current state.
+        // Check for new or changed members by comparing with current state.
         let member_count = members.0.contents.len();
-        let current_members = state.committee_members.read().await;
-        let current_names: HashSet<_> = current_members
-            .0
-            .contents
-            .iter()
-            .map(|m| &m.value.name)
-            .collect();
+        let current_names: HashSet<String> = {
+            let current_members = state.committee_members.read().await;
+            current_members
+                .0
+                .contents
+                .iter()
+                .map(|m| m.value.name.clone())
+                .collect()
+        };
 
+        // Check for new members' API credentials.
         for member in &members.0.contents {
             if !current_names.contains(&member.value.name)
                 && !state
@@ -696,9 +748,19 @@ async fn monitor_members_update(mut state: AppState) {
             }
         }
 
-        // Update members and threshold in state.
+        // Verify all servers and update the verified servers cache.
+        let verified_servers = verify_all_servers(
+            &members,
+            &state.options.key_server_object_id,
+            &state.options.api_credentials,
+            &state.options.key_server_version_requirement,
+        )
+        .await;
+
+        // Update members, threshold, and verified servers in state.
         *state.committee_members.write().await = members;
         *state.threshold.write().await = threshold;
+        *state.verified_servers.write().await = verified_servers;
 
         info!(
             "Committee refreshed: {} members, threshold {}",
@@ -802,6 +864,12 @@ mod tests {
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
 
+        // Pre-compute verified servers from committee contents
+        let verified_servers: HashSet<String> = committee_contents
+            .iter()
+            .map(|e| e.value.name.clone())
+            .collect();
+
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
@@ -809,6 +877,7 @@ mod tests {
             committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
                 contents: committee_contents,
             }))),
+            verified_servers: Arc::new(RwLock::new(verified_servers)),
             options,
         }
     }

@@ -37,6 +37,7 @@ chrono = "0.4"
 serde_yaml = "0.9"
 snap = "1.1.0"
 git-version = "0.3.9"
+uuid = "1.20.0"
 
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
