@@ -33,3 +33,10 @@ key_server_object_id: '0x758312953b0db53942c783d56320a3be90ce3d063fa57c00e0ff776
 #   server1_newname: # Support new name for the same server during rotation
 #     api_key_name: keyname1
 #     api_key: key1
+
+# Optional: Metrics push configuration to send metrics to seal-proxy
+# Uncomment and configure to enable pushing metrics to an external endpoint
+# metrics_push_config:
+#   bearer_token: "random-string-for-testing"
+#   push_interval_secs: 10
+#   push_url: "http://localhost:8000/publish/metrics"
