@@ -300,7 +300,9 @@ async fn main() -> Result<()> {
                 )?;
 
                 let message = party.create_message(&mut thread_rng())?;
-                let signed_message = sign_message(message.clone(), &local_keys.signing_sk);
+                let nizk_proof = party.nizk_pop_of_secret(&mut thread_rng());
+                let signed_message =
+                    sign_message(message.clone(), &local_keys.signing_sk, nizk_proof);
 
                 // Write message to file.
                 let message_base64 = Base64::encode(bcs::to_bytes(&signed_message)?);
@@ -462,9 +464,10 @@ async fn main() -> Result<()> {
                         anyhow!("Partial PK not found for old party {}", old_party_id)
                     })?;
 
-                    match party.process_message_and_check_pk(
+                    match party.process_message_with_checks(
                         signed_msg.message.clone(),
-                        expected_pk,
+                        &Some(*expected_pk),
+                        &Some(signed_msg.nizk_proof.clone()),
                         &mut thread_rng(),
                     ) {
                         Ok(proc) => proc,
@@ -475,8 +478,13 @@ async fn main() -> Result<()> {
                         }
                     }
                 } else {
-                    // Fresh DKG.
-                    party.process_message(signed_msg.message.clone(), &mut thread_rng())?
+                    // Fresh DKG
+                    party.process_message_with_checks(
+                        signed_msg.message.clone(),
+                        &None,
+                        &Some(signed_msg.nizk_proof.clone()),
+                        &mut thread_rng(),
+                    )?
                 };
 
                 if let Some(complaint) = &processed.complaint {

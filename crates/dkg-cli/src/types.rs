@@ -10,6 +10,7 @@ use fastcrypto::groups::bls12381::{G2Element, Scalar as G2Scalar};
 use fastcrypto::traits::{Signer, VerifyingKey};
 use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMessages};
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
+use fastcrypto_tbls::nizk::DLNizk;
 use fastcrypto_tbls::nodes::Nodes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -137,6 +138,7 @@ impl DkgState {
 pub(crate) struct SignedMessage {
     pub(crate) message: Message<G2Element, G2Element>,
     pub(crate) signature: BLS12381Signature,
+    pub(crate) nizk_proof: DLNizk<G2Element>,
 }
 
 impl std::str::FromStr for SignedMessage {
@@ -153,10 +155,15 @@ impl std::str::FromStr for SignedMessage {
 pub(crate) fn sign_message(
     message: Message<G2Element, G2Element>,
     sk: &BLS12381PrivateKey,
+    nizk_proof: DLNizk<G2Element>,
 ) -> SignedMessage {
     let message_bytes = bcs::to_bytes(&message).expect("Serialization failed");
     let signature = sk.sign(&message_bytes);
-    SignedMessage { message, signature }
+    SignedMessage {
+        message,
+        signature,
+        nizk_proof,
+    }
 }
 
 /// Verify BLS signature for signed message.
