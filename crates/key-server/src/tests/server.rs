@@ -531,7 +531,9 @@ async fn test_staleness_check() {
     tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(2))
         .await;
 
-    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (examples_package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
     let (whitelist, cap, initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
 

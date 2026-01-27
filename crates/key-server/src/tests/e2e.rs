@@ -49,7 +49,9 @@ async fn test_e2e() {
     let (seal_package, _) = tc.publish("seal").await;
     tc.add_open_servers(3, seal_package).await;
 
-    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (examples_package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
 
     let (whitelist, cap, initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
@@ -119,8 +121,10 @@ async fn test_e2e() {
 #[tokio::test]
 async fn test_e2e_decrypt_all_objects() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    let (examples_package_id, _) = tc.publish("patterns").await;
     let (seal_package, _) = tc.publish("seal").await;
+    let (examples_package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
 
     tc.add_open_servers(3, seal_package).await;
 
@@ -240,7 +244,9 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
     let (seal_package, _) = tc.publish("seal").await;
     tc.add_open_servers(3, seal_package).await;
 
-    let (examples_package_id, _) = tc.publish("patterns").await;
+    let (examples_package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
 
     let (whitelist, cap, _initial_shared_version) =
         create_whitelist(tc.test_cluster(), examples_package_id).await;
@@ -380,11 +386,14 @@ async fn test_e2e_permissioned() {
         .build()
         .await;
     let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
-    // Publish the patterns package
-    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+    // Publish the seal package first, then patterns
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
         .0;
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+            .await
+            .0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -510,11 +519,14 @@ async fn test_e2e_imported_key() {
         .build()
         .await;
     let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
-    // Publish the patterns two times.
-    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+    // Publish seal first, then patterns
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
         .0;
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+            .await
+            .0;
 
     // Generate a key pair for the key server
     let mut rng = thread_rng();
@@ -675,11 +687,14 @@ async fn test_e2e_committee_mode_with_rotation() {
         .await;
     let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
 
-    // Publish the patterns package.
-    let package_id = SealTestCluster::publish_internal(&cluster, "patterns")
+    // Publish the seal package first, then patterns
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
         .0;
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal").await.0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+            .await
+            .0;
 
     // Fresh DKG shares from parties 0, 1, 2 (t=2).
     let master_shares = [

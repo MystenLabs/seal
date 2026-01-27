@@ -71,7 +71,7 @@ impl SealTestCluster {
             .with_num_validators(1)
             .build()
             .await;
-        let registry = Self::publish_internal(&cluster, module).await;
+        let registry = Self::publish_internal(&cluster, module, vec![]).await;
         Self {
             cluster,
             servers: vec![],
@@ -201,28 +201,61 @@ impl SealTestCluster {
 
     /// Publish the Move module in /move/<module> and return the package id and upgrade cap.
     pub async fn publish(&self, module: &str) -> (ObjectID, ObjectID) {
-        Self::publish_internal(&self.cluster, module).await
+        Self::publish_internal(&self.cluster, module, vec![]).await
     }
 
-    pub async fn publish_internal(cluster: &TestCluster, module: &str) -> (ObjectID, ObjectID) {
+    /// Publish with explicit dependency addresses (for packages that depend on other packages)
+    pub async fn publish_with_deps(
+        &self,
+        module: &str,
+        deps: Vec<(&str, ObjectID)>,
+    ) -> (ObjectID, ObjectID) {
+        Self::publish_internal(&self.cluster, module, deps).await
+    }
+
+    pub async fn publish_internal(
+        cluster: &TestCluster,
+        module: &str,
+        deps: Vec<(&str, ObjectID)>,
+    ) -> (ObjectID, ObjectID) {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.extend(["..", "..", "move", module]);
-        Self::publish_path_internal(cluster, path).await
+        Self::publish_path_internal(cluster, path, deps).await
     }
 
     pub async fn publish_path(&self, path: PathBuf) -> (ObjectID, ObjectID) {
-        Self::publish_path_internal(&self.cluster, path).await
+        Self::publish_path_internal(&self.cluster, path, vec![]).await
     }
 
-    async fn publish_path_internal(cluster: &TestCluster, path: PathBuf) -> (ObjectID, ObjectID) {
-        let compiled_package = BuildConfig::new_for_testing().build(&path).unwrap();
-        // Publish package
+    async fn publish_path_internal(
+        cluster: &TestCluster,
+        path: PathBuf,
+        deps: Vec<(&str, ObjectID)>,
+    ) -> (ObjectID, ObjectID) {
+        let compiled_package = if deps.is_empty() {
+            let mut move_config = BuildConfig::new_for_testing();
+            move_config.config.root_as_zero = true;
+            move_config.build(&path).unwrap()
+        } else {
+            let mut move_config = BuildConfig::new_for_testing_replace_addresses(deps.clone());
+            move_config.config.root_as_zero = true;
+            move_config.build(&path).unwrap()
+        };
+        // Publish package - do NOT include unpublished dependencies (false)
+        // because with stricter dependency checking, we need to publish dependencies separately
+        let mut dep_ids = compiled_package.get_dependency_storage_package_ids();
+        // Add any dependencies we explicitly passed that aren't in the storage IDs
+        for (_, obj_id) in deps {
+            if !dep_ids.contains(&obj_id) {
+                dep_ids.push(obj_id);
+            }
+        }
         let builder = cluster.sui_client().transaction_builder();
         let tx = builder
             .publish(
                 cluster.get_address_0(),
-                compiled_package.get_package_bytes(true),
-                compiled_package.get_dependency_storage_package_ids(),
+                compiled_package.get_package_bytes(false),
+                dep_ids,
                 None,
                 40_000_000_000,
             )

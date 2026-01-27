@@ -9,7 +9,7 @@ use sui_sdk::{json::SuiJsonValue, rpc_types::ObjectChange};
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction},
+    transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability},
     Identifier,
 };
 use test_cluster::TestCluster;
@@ -19,8 +19,10 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_whitelist() {
     let mut tc = SealTestCluster::new(2, "seal").await;
-    let (package_id, _) = tc.publish("patterns").await;
     let (seal_package, _) = tc.publish("seal").await;
+    let (package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
 
     tc.add_open_server(seal_package).await;
     tc.add_open_server(seal_package).await;
@@ -181,7 +183,7 @@ pub fn whitelist_create_ptb(
         .obj(ObjectArg::SharedObject {
             id: whitelist_id,
             initial_shared_version: initial_shared_version.into(),
-            mutable: false,
+            mutability: SharedObjectMutability::Immutable,
         })
         .unwrap();
 

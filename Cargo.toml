@@ -9,8 +9,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b", features = ["aes"] }
-fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d1fcb853196c3de7888ed8fad74f419b8c8fbe3b" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d2e2d13be3e550745739144e2a090b9675e4ffcb", features = ["aes"] }
+fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d2e2d13be3e550745739144e2a090b9675e4ffcb" }
 bcs = "0.1.6"
 serde = "1.0.210"
 serde_json = "1.0.138"
@@ -28,7 +28,7 @@ once_cell = "1.21.3"
 axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
 tower-http = { version = "0.6.6", features = ["cors", "limit"] }
-tokio = { version = "1.46.1", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full"] }
 futures = "0.3"
 reqwest = "0.12"
 tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
@@ -39,14 +39,14 @@ snap = "1.1.0"
 git-version = "0.3.9"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "22642cf" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "22642cf", package = "shared-crypto" }
-move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "22642cf" }
-prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "22642cf", package = "prometheus-closure-metric" }
-sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "sui-move-build" }
-test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "22642cf", package = "test-cluster" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "shared-crypto" }
+move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "prometheus-closure-metric" }
+sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-move-build" }
+test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "test-cluster" }
 
 sui-sdk-types = { version = "0.2.0", features = ["serde"] }
 sui-rpc = "0.2.0"

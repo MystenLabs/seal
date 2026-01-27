@@ -13,7 +13,7 @@ use rand::thread_rng;
 use sui_types::{
     base_types::ObjectID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction},
+    transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability},
     Identifier, SUI_CLOCK_OBJECT_ID,
 };
 use tracing_test::traced_test;
@@ -22,8 +22,10 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_tle_policy() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    let (package_id, _) = tc.publish("patterns").await;
     let (seal_package, _) = tc.publish("seal").await;
+    let (package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
 
     tc.add_open_server(seal_package).await;
 
@@ -96,8 +98,10 @@ async fn test_tle_policy() {
 #[tokio::test]
 async fn test_tle_certificate() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    let (package_id, _) = tc.publish("patterns").await;
     let (seal_package, _) = tc.publish("seal").await;
+    let (package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
     tc.add_open_server(seal_package).await;
 
     let ptb = tle_create_ptb(package_id, 1);
@@ -213,8 +217,10 @@ async fn test_tle_certificate() {
 #[tokio::test]
 async fn test_tle_signed_request() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    let (package_id, _) = tc.publish("patterns").await;
     let (seal_package, _) = tc.publish("seal").await;
+    let (package_id, _) = tc
+        .publish_with_deps("patterns", vec![("seal", seal_package)])
+        .await;
     tc.add_open_server(seal_package).await;
 
     let ptb = tle_create_ptb(package_id, 1);
@@ -260,7 +266,7 @@ fn tle_create_ptb(package_id: ObjectID, time: u64) -> ProgrammableTransaction {
         .obj(ObjectArg::SharedObject {
             id: SUI_CLOCK_OBJECT_ID,
             initial_shared_version: 1.into(),
-            mutable: false,
+            mutability: SharedObjectMutability::Immutable,
         })
         .unwrap();
 
