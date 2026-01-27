@@ -950,13 +950,13 @@ fun test_decryption_from_sdk() {
 
 #[test, expected_failure]
 fun test_all_unique_failure() {
-    assert_all_unique(&vector[1, 2, 3, 1], 0);
+    assert_all_unique(&vector[1u8, 2u8, 3u8, 1u8], 0);
 }
 
 #[test]
 fun test_all_unique_success() {
-    assert_all_unique(&vector[4, 1, 2, 3], 0);
-    assert_all_unique(&vector[1], 1);
+    assert_all_unique(&vector[4u8, 1u8, 2u8, 3u8], 0);
+    assert_all_unique(&vector[1u8], 1);
     assert_all_unique(&vector<u8>[], 2);
 }
 

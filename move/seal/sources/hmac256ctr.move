@@ -24,13 +24,13 @@ public(package) fun decrypt(
         return option::none()
     };
 
-    let mut next_block = 0;
+    let mut next_block = 0u64;
     let mut i = 0;
     let mut current_mask = vector[];
     option::some(ciphertext.map_ref!(|b| {
         if (i == 0) {
             current_mask =
-                hmac_sha3_256(key, &vector[ENC_TAG, bcs::to_bytes(&(next_block as u64))].flatten());
+                hmac_sha3_256(key, &vector[ENC_TAG, bcs::to_bytes(&next_block)].flatten());
             next_block = next_block + 1;
         };
         let result = *b ^ current_mask[i];

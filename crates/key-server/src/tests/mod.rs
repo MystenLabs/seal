@@ -241,8 +241,6 @@ impl SealTestCluster {
             move_config.config.root_as_zero = true;
             move_config.build(&path).unwrap()
         };
-        // Publish package - do NOT include unpublished dependencies (false)
-        // because with stricter dependency checking, we need to publish dependencies separately
         let mut dep_ids = compiled_package.get_dependency_storage_package_ids();
         // Add any dependencies we explicitly passed that aren't in the storage IDs
         for (_, obj_id) in deps {
