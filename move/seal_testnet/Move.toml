@@ -1,12 +1,6 @@
 [package]
 name = "seal_testnet"
-edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
+edition = "2024"
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
-# published-at = "0xfe2c71f4dc19cb596a5042bca40b9cd4b1e3517b37bc8c21491c3be33b3056af"
-
-[dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.61.2" }
-
-[addresses]
-seal_testnet = "0x0"
+# published-at = "0x41fee5f043ef36787add1f5747c3a484fb8c5dad74011667d5d406e6ff2d0b22"

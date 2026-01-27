@@ -1,14 +1,6 @@
 [package]
 name = "seal_committee"
-edition = "2024.beta"
+edition = "2024"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.61.2" }
 seal_testnet = { local = "../seal_testnet" }
-
-[addresses]
-seal_committee = "0x0"
-
-[dev-dependencies]
-
-[dev-addresses]
