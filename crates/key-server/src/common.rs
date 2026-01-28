@@ -6,6 +6,8 @@ use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
+use crate::errors::InternalError;
+
 /// Network configuration.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
@@ -50,6 +52,9 @@ pub const SDK_TYPE_AGGREGATOR: &str = "aggregator";
 /// SDK type value for TypeScript clients.
 pub const SDK_TYPE_TYPESCRIPT: &str = "typescript";
 
+/// SDK type value for Rust clients.
+pub const SDK_TYPE_RUST: &str = "rust";
+
 /// Get the git version.
 /// Based on https://github.com/MystenLabs/walrus/blob/7e282a681e6530ae4073210b33cac915fab439fa/crates/walrus-service/src/common/utils.rs#L69
 #[macro_export]
@@ -80,23 +85,25 @@ macro_rules! git_version {
 pub enum ClientSdkType {
     Aggregator,
     TypeScript,
+    Rust,
     Other,
 }
 
 impl ClientSdkType {
-    pub fn from_header(header_value: Option<&str>) -> Self {
+    pub fn from_header(header_value: Option<&str>) -> Result<ClientSdkType, InternalError> {
         match header_value {
-            Some(SDK_TYPE_AGGREGATOR) => ClientSdkType::Aggregator,
-            Some(SDK_TYPE_TYPESCRIPT) => ClientSdkType::TypeScript,
-            Some(_) => ClientSdkType::Other,
-            None => ClientSdkType::TypeScript, // Default to TypeScript for backward compatibility
+            Some(SDK_TYPE_AGGREGATOR) => Ok(ClientSdkType::Aggregator),
+            Some(SDK_TYPE_TYPESCRIPT) => Ok(ClientSdkType::TypeScript),
+            Some(SDK_TYPE_RUST) => Ok(ClientSdkType::Rust),
+            _ => Ok(ClientSdkType::Other),
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            ClientSdkType::Aggregator => "aggregator",
-            ClientSdkType::TypeScript => "typescript",
+            ClientSdkType::Aggregator => SDK_TYPE_AGGREGATOR,
+            ClientSdkType::TypeScript => SDK_TYPE_TYPESCRIPT,
+            ClientSdkType::Rust => SDK_TYPE_RUST,
             ClientSdkType::Other => "other",
         }
     }

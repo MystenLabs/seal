@@ -575,7 +575,7 @@ async fn main() -> FastCryptoResult<()> {
                 match client
                     .post(format!("{}/v1/fetch_key", server.url))
                     .header("Client-Sdk-Type", "rust")
-                    .header("Client-Sdk-Version", "1.0.0")
+                    .header("Client-Sdk-Version", "0.0.0")
                     .header("Content-Type", "application/json")
                     .body(Body::from(
                         request.to_json_string().expect("should not fail"),
