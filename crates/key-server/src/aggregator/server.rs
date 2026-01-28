@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use futures::future::pending;
 use futures::stream::{FuturesUnordered, StreamExt};
 use key_server::aggregator::utils::{
     aggregate_verified_encrypted_responses, verify_decryption_keys,
@@ -28,6 +29,7 @@ use key_server::errors::InternalError::{
 };
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
+use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
 use seal_committee::{
@@ -43,6 +45,7 @@ use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
@@ -96,6 +99,10 @@ struct AggregatorOptions {
     /// Each key server's registered PartialKeyServer.name maps to its API credentials.
     #[serde(default)]
     api_credentials: HashMap<String, ApiCredentials>,
+
+    /// Optional metrics push configuration to send metrics to seal-proxy.
+    #[serde(default)]
+    metrics_push_config: Option<MetricsPushConfig>,
 }
 
 impl NetworkConfig for AggregatorOptions {
@@ -178,7 +185,11 @@ async fn main() -> Result<()> {
 
     let metrics = Arc::new(AggregatorMetrics::new(&registry));
 
-    let state = load_committee_state(options, metrics.clone()).await?;
+    let state = load_committee_state(options.clone(), metrics.clone()).await?;
+
+    // Spawn background task to push metrics to seal-proxy if configured.
+    let _metrics_push_handle =
+        spawn_metrics_push_job(options.metrics_push_config.clone(), registry.clone());
 
     // Spawn background task to monitor committee member updates.
     {
@@ -558,6 +569,40 @@ fn handle_insufficient_responses(
     InternalError::Failure(msg).into()
 }
 
+/// Spawn a metrics push background job that pushes metrics to seal-proxy
+fn spawn_metrics_push_job(
+    push_config: Option<MetricsPushConfig>,
+    registry: Registry,
+) -> JoinHandle<()> {
+    if let Some(push_config) = push_config {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(push_config.push_interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut client = create_push_client();
+            tracing::info!("starting metrics push to '{}'", &push_config.push_url);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(error) = push_metrics(
+                            push_config.clone(),
+                            &client,
+                            &registry,
+                        ).await {
+                            tracing::warn!(?error, "unable to push metrics");
+                            client = create_push_client();
+                        }
+                    }
+                }
+            }
+        })
+    } else {
+        tokio::spawn(async move {
+            warn!("No metrics push config is found");
+            pending().await
+        })
+    }
+}
+
 /// Check and warn about missing API credentials for committee members.
 fn check_missing_api_credentials(
     members: &VecMap<Address, PartialKeyServer>,
@@ -751,6 +796,7 @@ mod tests {
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             api_credentials,
+            metrics_push_config: None,
         };
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
