@@ -45,8 +45,8 @@ entry fun create_and_transfer_v1(
 }
 
 public fun v1(s: &KeyServer): &KeyServerV1 {
-    assert!(df::exists_(&s.id, 1), EInvalidVersion);
-    df::borrow(&s.id, 1)
+    assert!(df::exists_(&s.id, 1u64), EInvalidVersion);
+    df::borrow(&s.id, 1u64)
 }
 
 public fun name(s: &KeyServer): String {
@@ -76,8 +76,8 @@ public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
 }
 
 public fun update(s: &mut KeyServer, url: String) {
-    assert!(df::exists_(&s.id, 1), EInvalidVersion);
-    let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1);
+    assert!(df::exists_(&s.id, 1u64), EInvalidVersion);
+    let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1u64);
     v1.url = url;
 }
 
@@ -104,7 +104,7 @@ fun create_v1(
         key_type,
         pk,
     };
-    df::add(&mut key_server.id, 1, key_server_v1);
+    df::add(&mut key_server.id, 1u64, key_server_v1);
     key_server
 }
 

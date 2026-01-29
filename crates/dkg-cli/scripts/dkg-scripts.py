@@ -62,11 +62,23 @@ def run_sui_command(args: list[str]) -> dict:
             print(f"stdout:\n{result.stdout}", file=sys.stderr)
         sys.exit(1)
 
+    # Skip build output and find the JSON start
+    # The publish command outputs "INCLUDING DEPENDENCY...", "BUILDING..." before the JSON
+    stdout = result.stdout
+    json_start = stdout.find('{')
+
+    if json_start == -1:
+        print(f"Failed to find JSON in output", file=sys.stderr)
+        print(f"Output: {stdout}", file=sys.stderr)
+        sys.exit(1)
+
+    json_output = stdout[json_start:]
+
     try:
-        return json.loads(result.stdout)
+        return json.loads(json_output)
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON output: {e}", file=sys.stderr)
-        print(f"Output: {result.stdout}", file=sys.stderr)
+        print(f"Output: {json_output}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -299,6 +311,12 @@ def publish_and_init(config_path: str):
     committee_path = (
         Path(__file__).parent.parent.parent.parent / "move" / "committee"
     )
+
+    # Remove Published.toml to ensure fresh publish every time
+    published_toml = committee_path / "Published.toml"
+    if published_toml.exists():
+        print(f"Removing {published_toml} to enable fresh publish...")
+        published_toml.unlink()
 
     publish_output = run_sui_command(
         ["publish", str(committee_path)]

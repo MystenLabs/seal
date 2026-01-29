@@ -36,6 +36,6 @@ fun test_check_policy() {
     let id = bcs::to_bytes(&sender);
     assert!(check_policy(id, &ctx), 0);
 
-    let id = bcs::to_bytes(&0x0232);
+    let id = bcs::to_bytes(&@0x0232);
     assert!(!check_policy(id, &ctx), 0);
 }

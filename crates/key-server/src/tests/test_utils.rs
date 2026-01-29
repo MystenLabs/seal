@@ -29,7 +29,10 @@ use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{Argument, ProgrammableTransaction};
+use sui_types::transaction::{
+    Argument, ProgrammableTransaction, TransactionData,
+    TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE,
+};
 use sui_types::{Identifier, TypeTag};
 use test_cluster::TestCluster;
 
@@ -140,12 +143,15 @@ pub(crate) async fn execute_programmable_transaction(
     sender: SuiAddress,
     pt: ProgrammableTransaction,
 ) -> SuiTransactionBlockResponse {
-    let tx_data = tc
+    let builder = tc
         .test_cluster()
         .test_transaction_builder_with_sender(sender)
-        .await
-        .programmable(pt)
-        .build();
+        .await;
+    let gas_object = builder.gas_object();
+    let gas_price = tc.test_cluster().get_reference_gas_price().await;
+    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
+    let tx_data =
+        TransactionData::new_programmable(sender, vec![gas_object], pt, gas_budget, gas_price);
 
     let response = tc
         .test_cluster()
@@ -235,11 +241,20 @@ pub(crate) async fn create_committee_key_server_onchain(
     );
     builder.transfer_arg(member_address, key_server);
 
-    let tx_data = cluster
+    let pt = builder.finish();
+    let test_builder = cluster
         .test_transaction_builder_with_sender(member_address)
-        .await
-        .programmable(builder.finish())
-        .build();
+        .await;
+    let gas_object = test_builder.gas_object();
+    let gas_price = cluster.get_reference_gas_price().await;
+    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
+    let tx_data = TransactionData::new_programmable(
+        member_address,
+        vec![gas_object],
+        pt,
+        gas_budget,
+        gas_price,
+    );
 
     let response = cluster.sign_and_execute_transaction(&tx_data).await;
     assert!(response.status_ok().unwrap());

@@ -31,6 +31,12 @@ The guide is organized into four sections:
 Before running the DKG or key rotation workflows, both the coordinator and all committee members must complete the following steps.
 
 1. Install Sui: follow the [official installation guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
+
+```bash
+sui --version
+# at least 1.64
+```
+
 2. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
 
 ```bash
@@ -49,6 +55,17 @@ source .venv/bin/activate
 
 # install dependencies
 pip install -r crates/dkg-cli/scripts/requirements.txt
+
+# the cli is ready
+python crates/dkg-cli/scripts/dkg-scripts.py -h
+```
+
+4. Make sure you have a CLI wallet ready on the expected network with gas. 
+
+```bash
+sui client active-env
+sui client active-address
+sui client gas
 ```
 
 ## Fresh DKG Process
