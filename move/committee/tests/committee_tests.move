@@ -5,10 +5,13 @@
 #[allow(unused_mut_ref, unused_variable, dead_code)]
 module seal_committee::seal_committee_tests;
 
-use seal_committee::seal_committee::{Self, Committee, propose_for_rotation, init_rotation};
+use seal_committee::{
+    seal_committee::{Self, Committee, propose_for_rotation, init_rotation},
+    upgrade::{Self, UpgradeManager}
+};
 use seal_testnet::key_server::KeyServer;
 use std::string;
-use sui::{bls12381::{g1_generator, g2_generator}, test_scenario::{Self, Scenario}};
+use sui::{bls12381::{g1_generator, g2_generator}, package, test_scenario::{Self, Scenario}};
 
 const ALICE: address = @0x0;
 const BOB: address = @0x1;
@@ -896,4 +899,212 @@ public macro fun assert_key_server_version_and_threshold(
     let (version, threshold) = key_server.committee_version_and_threshold();
     assert!(version == expected_version);
     assert!(threshold == expected_threshold);
+}
+
+// ===== Upgrade Tests =====
+
+/// Generate a test digest (32 bytes)
+fun test_digest(ctx: &mut TxContext): vector<u8> {
+    ctx.fresh_object_address().to_bytes()
+}
+
+#[test]
+fun test_upgrade_manager_creation_and_voting() {
+    test_tx!(|scenario| {
+        // Create and finalize a 2-of-3 committee.
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[ALICE, BOB, CHARLIE], scenario.ctx());
+        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"https://url2.com");
+        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        assert!(committee.is_finalized(), 0);
+
+        // Create an upgrade cap for testing
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+
+        // Create upgrade manager
+        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // Vote for an upgrade with ALICE
+        let digest = test_digest(scenario.ctx());
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // Vote with BOB (should reach quorum for 2-of-3)
+        scenario.next_tx(BOB);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // Authorize upgrade (quorum reached)
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        let ticket = upgrade::authorize_upgrade(&mut upgrade_manager, &committee, digest);
+        test_scenario::return_shared(committee);
+
+        // Simulate upgrade and commit
+        let receipt = package::test_upgrade(ticket);
+        upgrade::commit_upgrade(&mut upgrade_manager, receipt);
+
+        test_scenario::return_shared(upgrade_manager);
+    });
+}
+
+#[test, expected_failure(abort_code = upgrade::ENotAuthorized)]
+fun test_upgrade_vote_fails_for_non_member() {
+    test_tx!(|scenario| {
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
+        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
+
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // CHARLIE (non-member) tries to vote - should fail
+        let digest = test_digest(scenario.ctx());
+        scenario.next_tx(CHARLIE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+    });
+}
+
+#[test, expected_failure(abort_code = upgrade::EDuplicateVote)]
+fun test_upgrade_duplicate_vote_fails() {
+    test_tx!(|scenario| {
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
+        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
+
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        let digest = test_digest(scenario.ctx());
+
+        // ALICE votes
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // ALICE tries to vote again - should fail
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+    });
+}
+
+#[test, expected_failure(abort_code = upgrade::ENoProposalForDigest)]
+fun test_upgrade_vote_fails_with_wrong_digest() {
+    test_tx!(|scenario| {
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
+        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
+
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // ALICE votes for digest1
+        let digest1 = test_digest(scenario.ctx());
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest1, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // BOB tries to vote for digest2 - should fail
+        let digest2 = test_digest(scenario.ctx());
+        scenario.next_tx(BOB);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest2, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+    });
+}
+
+#[test]
+fun test_upgrade_reset_proposal() {
+    test_tx!(|scenario| {
+        let g2_bytes = *g2_generator().bytes();
+        seal_committee::init_committee(2, vector[ALICE, BOB, CHARLIE], scenario.ctx());
+        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"https://url2.com");
+        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes, g2_bytes], g2_bytes);
+
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // ALICE votes for bad digest
+        let bad_digest = test_digest(scenario.ctx());
+        scenario.next_tx(ALICE);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, bad_digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // BOB resets the proposal (only 1 vote, < threshold of 2)
+        scenario.next_tx(BOB);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::reset_proposal(&mut upgrade_manager, &committee, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+
+        // Now BOB can vote for correct digest
+        let good_digest = test_digest(scenario.ctx());
+        scenario.next_tx(BOB);
+        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+        let committee = scenario.take_shared<Committee>();
+        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, good_digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+        test_scenario::return_shared(upgrade_manager);
+    });
 }

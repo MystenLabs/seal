@@ -72,6 +72,9 @@ public struct Committee has key {
     state: State,
     /// Old committee ID that this committee rotates from.
     old_committee_id: Option<ID>,
+    /// The upgrade manager ID for this committee's package.
+    /// Set by new_upgrade_manager after the committee is created.
+    upgrade_manager_id: Option<ID>,
 }
 
 // ===== Public Functions =====
@@ -79,7 +82,7 @@ public struct Committee has key {
 /// Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
 /// state with empty members_info.
 public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
-    init_internal(threshold, members, option::none(), ctx)
+    init_internal(threshold, members, option::none(), option::none(), ctx)
 }
 
 /// Create a committee for rotation from an existing finalized old committee. The new committee must
@@ -100,7 +103,13 @@ public fun init_rotation(
     });
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
-    init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
+    init_internal(
+        threshold,
+        members,
+        option::some(object::id(old_committee)),
+        old_committee.upgrade_manager_id,
+        ctx,
+    );
 }
 
 /// Register a member with ecies pk, signing pk and URL. Append it to members_info.
@@ -176,7 +185,32 @@ public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut T
     key_server.update_member_url(url, ctx.sender());
 }
 
-// TODO: handle package upgrade with threshold approvals of the committee.
+// === Helper Functions for Upgrade Module ===
+
+/// Check if an address is a member of the committee.
+public(package) fun is_member(committee: &Committee, addr: address): bool {
+    committee.members.contains(&addr)
+}
+
+/// Get the threshold of the committee.
+public(package) fun threshold(committee: &Committee): u16 {
+    committee.threshold
+}
+
+/// Set the upgrade manager ID for the committee.
+public(package) fun set_upgrade_manager_id(committee: &mut Committee, upgrade_manager_id: ID) {
+    committee.upgrade_manager_id = option::some(upgrade_manager_id);
+}
+
+/// Check if the committee has an upgrade manager with the given ID.
+public(package) fun has_upgrade_manager(committee: &Committee, upgrade_manager_id: ID): bool {
+    committee.upgrade_manager_id.contains(&upgrade_manager_id)
+}
+
+/// Check if the committee has any upgrade manager set.
+public(package) fun has_upgrade_manager_set(committee: &Committee): bool {
+    committee.upgrade_manager_id.is_some()
+}
 
 /// Helper function to check if a committee is finalized.
 public(package) fun is_finalized(committee: &Committee): bool {
@@ -193,6 +227,7 @@ fun init_internal(
     threshold: u16,
     members: vector<address>,
     old_committee_id: Option<ID>,
+    upgrade_manager_id: Option<ID>,
     ctx: &mut TxContext,
 ) {
     assert!(threshold > 1, EInvalidThreshold);
@@ -208,6 +243,7 @@ fun init_internal(
         members,
         state: State::Init { members_info: vec_map::empty() },
         old_committee_id,
+        upgrade_manager_id,
     });
 }
 
