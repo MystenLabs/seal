@@ -4,6 +4,7 @@
 //! gRPC utilities for interacting with Sui blockchain.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use crate::{
     move_types::{Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, Wrapper},
@@ -63,6 +64,54 @@ pub async fn fetch_committee_data(
     committee_id: &Address,
 ) -> Result<SealCommittee> {
     fetch_and_deserialize_move_object(grpc_client, committee_id, "Committee object").await
+}
+
+/// Fetch committee ID and data from a key server object ID.
+/// Navigates through the dynamic object field relationship to find the committee.
+/// Returns (committee_id, committee_data).
+pub async fn fetch_committee_by_key_server(
+    grpc_client: &mut Client,
+    key_server_id: &Address,
+) -> Result<(Address, SealCommittee)> {
+    // Fetch key server object to get the dynamic field wrapper ID (owner field)
+    let mut ledger_client = grpc_client.ledger_client();
+    let mut request = sui_rpc::proto::sui::rpc::v2::GetObjectRequest::default();
+    request.object_id = Some(key_server_id.to_string());
+    request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["owner".to_string()],
+    });
+
+    let response = ledger_client
+        .get_object(request)
+        .await
+        .map(|r| r.into_inner())?;
+
+    let owner = response
+        .object
+        .and_then(|obj| obj.owner)
+        .ok_or_else(|| anyhow!("Missing owner field in key server object"))?;
+
+    // The owner field contains the dynamic field wrapper object ID
+    let field_wrapper_id = if owner.kind.is_some() {
+        let address_str = owner
+            .address
+            .ok_or_else(|| anyhow!("Missing address in owner field"))?;
+        Address::from_str(&address_str)?
+    } else {
+        return Err(anyhow!("Missing owner kind in key server object"));
+    };
+
+    // Fetch field wrapper to extract committee ID from its name field
+    let field: Field<Wrapper<Address>, Address> =
+        fetch_and_deserialize_move_object(grpc_client, &field_wrapper_id, "Field wrapper object")
+            .await?;
+
+    let committee_id = field.name.name;
+
+    // Fetch committee data
+    let committee = fetch_committee_data(grpc_client, &committee_id).await?;
+
+    Ok((committee_id, committee))
 }
 
 /// Fetch KeyServerV2 data directly from a KeyServer object ID.

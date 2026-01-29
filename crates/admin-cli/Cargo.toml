@@ -1,0 +1,30 @@
+[package]
+name = "admin-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+seal-committee = { path = "../seal-committee" }
+
+clap.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+hex.workspace = true
+bcs.workspace = true
+prost-types.workspace = true
+sui-rpc.workspace = true
+dirs = "5"
+
+# Sui dependencies
+sui_sdk.workspace = true
+sui_types.workspace = true
+sui-sdk-types.workspace = true
+sui-move-build.workspace = true
+sui-package-alt.workspace = true
+move-package-alt-compilation.workspace = true
+
+[[bin]]
+name = "admin-cli"
+path = "src/main.rs"

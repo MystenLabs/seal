@@ -39,6 +39,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
+name = "admin-cli"
+version = "0.5.14"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "dirs 5.0.1",
+ "hex",
+ "move-package-alt-compilation",
+ "prost-types 0.14.1",
+ "seal-committee",
+ "sui-move-build",
+ "sui-package-alt",
+ "sui-rpc 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sui-sdk",
+ "sui-sdk-types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sui-types",
+ "tokio",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

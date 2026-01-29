@@ -117,6 +117,7 @@ pub struct SealCommittee {
     pub members: Vec<Address>,
     pub state: CommitteeState,
     pub old_committee_id: Option<Address>,
+    pub upgrade_manager_id: Option<Address>,
 }
 
 impl SealCommittee {

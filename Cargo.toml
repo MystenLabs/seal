@@ -46,6 +46,10 @@ shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "893c5d608a58
 move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399" }
 prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "prometheus-closure-metric" }
 sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-move-build" }
+sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-package-alt" }
+move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-package-alt-compilation" }
+move-compiler = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-compiler" }
+move-binary-format = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-binary-format" }
 test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "test-cluster" }
 move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-package-alt-compilation" }
 sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-package-alt" }
