@@ -232,15 +232,14 @@ impl SealTestCluster {
         path: PathBuf,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
-        let compiled_package = if deps.is_empty() {
-            let mut move_config = BuildConfig::new_for_testing();
-            move_config.config.root_as_zero = true;
-            move_config.build(&path).unwrap()
+        let mut move_config = if deps.is_empty() {
+            BuildConfig::new_for_testing()
         } else {
-            let mut move_config = BuildConfig::new_for_testing_replace_addresses(deps.clone());
-            move_config.config.root_as_zero = true;
-            move_config.build(&path).unwrap()
+            BuildConfig::new_for_testing_replace_addresses(deps.clone())
         };
+        move_config.config.root_as_zero = true;
+        let compiled_package = move_config.build(&path).unwrap();
+
         let mut dep_ids = compiled_package.get_dependency_storage_package_ids();
         // Add any dependencies we explicitly passed that aren't in the storage IDs
         for (_, obj_id) in deps {
@@ -248,6 +247,7 @@ impl SealTestCluster {
                 dep_ids.push(obj_id);
             }
         }
+
         let builder = cluster.sui_client().transaction_builder();
         let tx = builder
             .publish(

@@ -23,26 +23,17 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Get latest Sui testnet release
-        id: sui-version
-        run: |
-          LATEST_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases | \
-            jq -r '[.[] | select(.tag_name | startswith("testnet-v")) | select(.assets | length > 0)] | first | .tag_name')
-          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "Using Sui version: $LATEST_TAG"
+      - name: Install Suiup
+        run: curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
 
-      - name: Install Sui
-        uses: cloudposse-github-actions/install-gh-releases@33b15dbedceb0a3425d72f54a2300202d5c3418d # pin@v1.5.0
-        with:
-          config: |-
-            mystenlabs/sui:
-              platform: ubuntu
-              arch: x86_64
-              extension-matching: true
-              tag: ${{ steps.sui-version.outputs.tag }}
+      - name: Install Sui CLI
+        run: |
+          export PATH="$HOME/.suiup/bin:$PATH"
+          suiup install sui@testnet -y
 
       - name: Run move tests
         run: |
+          export PATH="$HOME/.suiup/bin:$PATH"
           for dir in move/*; do
             echo "Running sui move test in $dir"
             sui move test --warnings-are-errors --path $dir

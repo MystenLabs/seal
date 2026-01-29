@@ -30,7 +30,7 @@ use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::transaction::{
-    Argument, ProgrammableTransaction, TransactionData, DEFAULT_VALIDATOR_GAS_PRICE,
+    Argument, ProgrammableTransaction, TransactionData,
     TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE,
 };
 use sui_types::{Identifier, TypeTag};
@@ -148,7 +148,7 @@ pub(crate) async fn execute_programmable_transaction(
         .test_transaction_builder_with_sender(sender)
         .await;
     let gas_object = builder.gas_object();
-    let gas_price = DEFAULT_VALIDATOR_GAS_PRICE;
+    let gas_price = tc.test_cluster().get_reference_gas_price().await;
     let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
     let tx_data =
         TransactionData::new_programmable(sender, vec![gas_object], pt, gas_budget, gas_price);
@@ -246,7 +246,7 @@ pub(crate) async fn create_committee_key_server_onchain(
         .test_transaction_builder_with_sender(member_address)
         .await;
     let gas_object = test_builder.gas_object();
-    let gas_price = DEFAULT_VALIDATOR_GAS_PRICE;
+    let gas_price = cluster.get_reference_gas_price().await;
     let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
     let tx_data = TransactionData::new_programmable(
         member_address,

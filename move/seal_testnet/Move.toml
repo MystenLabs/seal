@@ -3,4 +3,3 @@ name = "seal_testnet"
 edition = "2024"
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
-# published-at = "0x41fee5f043ef36787add1f5747c3a484fb8c5dad74011667d5d406e6ff2d0b22"
