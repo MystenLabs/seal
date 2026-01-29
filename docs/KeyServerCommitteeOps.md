@@ -112,14 +112,13 @@ Run the publish-and-init script:
 python crates/dkg-cli/scripts/dkg-scripts.py publish-and-init -c dkg-state/dkg.yaml
 ```
 
-This script publishes the `seal_committee` package onchain and initializes the committee state. It also appends the committee identifiers to `dkg.yaml`, for example: 
+This script publishes the `seal_committee` package onchain, initializes the committee state, and creates an upgrade manager for package upgrades. It also appends the committee identifiers to `dkg.yaml`, for example:
 
 ```yaml
 COMMITTEE_PKG: 0x3358b7f7150efe9a0487ad354e5959771c56556737605848231b09cca5b791c6
 COMMITTEE_ID: 0x46540663327da161b688786cbebbafbd32e0f344c85f8dc3bfe874c65a613418
+UPGRADE_MANAGER_ID: 0x7f9c2e8a1b3d4c5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e
 ```
-
-TODO: Add notes on upgrade manager and update the script.
 
 3. **Distribute configuration and start Phase 1**
 
@@ -362,7 +361,7 @@ This command:
   - `COMMITTEE_ID`
   - `COMMITTEE_PKG`
   - `CURRENT_COMMITTEE_ID`
-
+  - `UPGRADE_MANAGER_ID` 
 After the command completes, share the updated `dkg.yaml` file with all members.
 
 3. **Run Phases 1–3**
@@ -565,87 +564,80 @@ rm -rf dkg-state
 
 ## Package Upgrade
 
-The committee can upgrade the `seal_committee` Move package through a voting process. A contract 
-upgrade only happens if a threshold of committee members approves.
+The committee can upgrade the `seal_committee` Move package through a voting process. A contract upgrade only happens if a threshold of committee members approves.
 
-The package upgrade follows these steps:
+The package upgrade process is simplified using the `upgrade-cli.py` script, which automatically computes package digests and calls the appropriate Move functions.
 
-1. **Build and verify the new package**: Committee members build the updated package locally and extract its digest.
-2. **Committee voting**: Committee members vote for the upgrade using the package digest.
-3. **Authorize upgrade**: Once quorum is reached, anyone can authorize the upgrade to get an upgrade ticket.
-4. **Execute upgrade**: Use the ticket to perform the actual package upgrade.
-5. **Commit upgrade**: Finalize the upgrade by committing the receipt.
+The upgrade follows these steps:
+
+1. **Compute package digest**: Build the updated package and extract its digest
+2. **Committee voting**: Committee members vote for the upgrade
+3. **Authorize upgrade**: Once threshold is reached, authorize the upgrade to get an upgrade ticket
+4. **Execute upgrade**: Perform the actual package upgrade
+5. **Commit upgrade**: Finalize the upgrade by committing the receipt
 
 ### Steps
 
-#### 1. Build the new package and get its digest
+**Note**: You only need the `KEY_SERVER_OBJ_ID` from your `dkg.yaml` file. The script will automatically fetch the committee ID, package ID, and upgrade manager ID from the blockchain.
 
-Build your updated package code and extract the package digest.
+#### 1. Compute the package digest
+
+Download the updated package code locally. Extract the package digest and verify that all committee members have the same digest and ready to upgrade.
 
 ```bash
-cd move/committee
-sui move build
+# in /seal
+python3 scripts/upgrade-cli.py package-digest --package-path move/committee
+```
 
-# Outputs package digest
-$PACKAGE_DIGEST
+This outputs:
+
+```
+Digest for package 'committee': 0xd0f13987e824f0f462911bc45d5a45004f4e3d752de2be939111274e862cc00c
 ```
 
 #### 2. Vote for the upgrade
 
-Each committee member votes for the upgrade by calling `vote_for_upgrade` with the package digest.
+Each committee member votes for the upgrade. The script automatically fetches all required IDs from the key server and submits the vote:
 
 ```bash
-sui client call \
-  --package <COMMITTEE_PKG> \
-  --module seal_committee \
-  --function vote_for_upgrade \
-  --args <UPGRADE_MANAGER_ID> <COMMITTEE_ID> \
-  --args "$PACKAGE_DIGEST" \
-  --gas-budget 10000000
+python3 scripts/upgrade-cli.py vote \
+  --package-path move/committee \
+  --key-server-id <KEY_SERVER_OBJ_ID>
 ```
 
 #### 3. Authorize the upgrade
 
-Once the threshold number of committee members have voted, a member can authorize the upgrade. It 
-outputs an `UpgradeTicket` object ID.
+Once the threshold number of committee members have voted, any member can authorize the upgrade. This outputs an `UpgradeTicket` object ID:
 
 ```bash
-sui client call \
-  --package <COMMITTEE_PKG> \
-  --module seal_committee \
-  --function authorize_upgrade \
-  --args <UPGRADE_MANAGER_ID> <COMMITTEE_ID> \
-  --args <PACKAGE_DIGEST> \
-  --gas-budget 10000000
-
-# outputs upgrade ticket object id
-UPGRADE_TICKET_OBJ_ID=0x..
+python3 scripts/upgrade-cli.py authorize \
+  --package-path move/committee \
+  --key-server-id <KEY_SERVER_OBJ_ID>
 ```
 
-#### 5. Perform the upgrade
+Look for the `UpgradeTicket` object ID in the transaction output.
 
-This member can use the `Upgradeticket` object to perform the actual package upgrade:
+#### 4. Perform the upgrade
+
+Use the upgrade ticket to perform the actual package upgrade. You can find the `UPGRADE_CAP_ID` in your `dkg.yaml` file (it was saved during `publish-and-init`):
 
 ```bash
-sui client upgrade \
+python3 scripts/upgrade-cli.py upgrade \
+  --package-path move/committee \
   --upgrade-capability <UPGRADE_CAP_ID> \
-  --upgrade-ticket <UPGRADE_TICKET_ID> \
-  --gas-budget 100000000
-
-# outputs upgrade receipt object id
-UPGRADE_RECEIPT_OBJ_ID
+  --upgrade-ticket <UPGRADE_TICKET_ID>
 ```
 
-#### 6. Commit the upgrade
+Look for the `UpgradeReceipt` object ID in the transaction output.
 
-Finally, commit the upgrade receipt to finalize the process. This updates the `UpgradeCap` with the 
-new package version and completes the upgrade.
+#### 5. Commit the upgrade
+
+Finally, commit the upgrade receipt to finalize the process:
 
 ```bash
-sui client call \
-  --package <COMMITTEE_PKG> \
-  --module seal_committee \
-  --function commit_upgrade \
-  --args <UPGRADE_MANAGER_ID> <UPGRADE_RECEIPT_ID> \
-  --gas-budget 10000000
+python3 scripts/upgrade-cli.py commit \
+  --key-server-id <KEY_SERVER_OBJ_ID> \
+  --upgrade-receipt <UPGRADE_RECEIPT_ID>
 ```
+
+The upgrade is now complete! The `UpgradeCap` has been updated with the new package version.

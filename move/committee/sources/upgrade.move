@@ -50,7 +50,6 @@ public struct UpgradeManager has key {
 /// Create a new upgrade manager for the committee. This should be called after deploying the
 /// package and obtaining the UpgradeCap.
 public fun new_upgrade_manager(committee: &mut Committee, cap: UpgradeCap, ctx: &mut TxContext) {
-    assert!(committee.is_finalized(), EInvalidState);
     assert!(!committee.has_upgrade_manager_set(), EUpgradeManagerAlreadySet);
 
     let upgrade_manager = UpgradeManager {

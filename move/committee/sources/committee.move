@@ -82,7 +82,8 @@ public struct Committee has key {
 /// Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
 /// state with empty members_info.
 public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
-    init_internal(threshold, members, option::none(), ctx)
+    std::debug::print(&"hello");
+    init_internal(threshold, members, option::none(), option::none(), ctx)
 }
 
 /// Create a committee for rotation from an existing finalized old committee. The new committee must
@@ -103,7 +104,7 @@ public fun init_rotation(
     });
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
-    init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
+    init_internal(threshold, members, option::some(object::id(old_committee)), old_committee.upgrade_manager_id, ctx);
 }
 
 /// Register a member with ecies pk, signing pk and URL. Append it to members_info.
@@ -221,6 +222,7 @@ fun init_internal(
     threshold: u16,
     members: vector<address>,
     old_committee_id: Option<ID>,
+    upgrade_manager_id: Option<ID>,
     ctx: &mut TxContext,
 ) {
     assert!(threshold > 1, EInvalidThreshold);
@@ -236,7 +238,7 @@ fun init_internal(
         members,
         state: State::Init { members_info: vec_map::empty() },
         old_committee_id,
-        upgrade_manager_id: option::none(),
+        upgrade_manager_id,
     });
 }
 
