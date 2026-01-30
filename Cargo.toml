@@ -14,7 +14,7 @@ fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "d2e
 bcs = "0.1.6"
 serde = "1.0.210"
 serde_json = "1.0.138"
-itertools = { version = "0.14.0" }
+itertools = "0.14.0"
 anyhow = "1.0"
 rand = "0.8.5"
 hex = "0.4"
