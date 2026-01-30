@@ -15,6 +15,7 @@ use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
+use move_package_alt::PackageLoader;
 use rand::thread_rng;
 use semver::VersionReq;
 use serde_json::json;
@@ -232,13 +233,46 @@ impl SealTestCluster {
         path: PathBuf,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
-        let mut move_config = if deps.is_empty() {
-            BuildConfig::new_for_testing()
-        } else {
-            BuildConfig::new_for_testing_replace_addresses(deps.clone())
-        };
+        // Use ephemeral package loader. This skips Published.toml and uses an ephemeral publication
+        // file instead.
+        let chain_id = cluster
+            .sui_client()
+            .read_api()
+            .get_chain_identifier()
+            .await
+            .unwrap_or_else(|_| "localnet".to_string());
+
+        let ephemeral_pub_file = PathBuf::from(format!("Published.test.{}.toml", chain_id));
+
+        let mut root_pkg = PackageLoader::new_ephemeral(
+            &path,
+            Some("testnet".to_string()),
+            chain_id.clone(),
+            ephemeral_pub_file.clone(),
+        )
+        .load()
+        .await
+        .unwrap();
+
+        let mut move_config = BuildConfig::new_for_testing();
+
+        for (addr_name, obj_id) in &deps {
+            move_config
+                .config
+                .additional_named_addresses
+                .insert((*addr_name).to_string(), (*obj_id).into());
+        }
+
         move_config.config.root_as_zero = true;
-        let compiled_package = move_config.build(&path).unwrap();
+        move_config.config.set_unpublished_deps_to_zero = true;
+
+        let compiled_package = move_config
+            .build_async_from_root_pkg(&mut root_pkg)
+            .await
+            .unwrap();
+
+        // Clean up ephemeral file immediately after build
+        std::fs::remove_file(&ephemeral_pub_file).ok();
 
         let mut dep_ids = compiled_package.get_dependency_storage_package_ids();
         // Add any dependencies we explicitly passed that aren't in the storage IDs
