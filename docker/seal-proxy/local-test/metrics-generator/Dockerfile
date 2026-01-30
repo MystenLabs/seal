@@ -1,4 +1,4 @@
-FROM rust:1.87-bookworm AS builder
+FROM rust:1.90-bullseye  AS builder
 
 WORKDIR /usr/src/app
 
