@@ -4546,6 +4546,7 @@ dependencies = [
  "jsonrpsee",
  "moka",
  "move-core-types",
+ "move-package-alt",
  "mvr-types",
  "mysten-service",
  "once_cell",

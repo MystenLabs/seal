@@ -13,12 +13,7 @@
 
 # Move build directory
 build
-!crates/sui-single-node-benchmark/tests/data/package_publish_from_bytecode/package_a/build
-!crates/sui-single-node-benchmark/tests/data/package_publish_from_bytecode/package_b/build
-storage
-!consensus/core/src/storage
-!crates/sui-types/src/storage
-!narwhal/storage
+Published.test.*.toml
 
 # Move-related files
 !crates/sui-framework/packages/move-stdlib/Move.lock
