@@ -18,6 +18,15 @@ rand.workspace = true
 anyhow.workspace = true
 sui-sdk-types.workspace = true
 tokio.workspace = true
+serde_yaml.workspace = true
+sui_sdk.workspace = true
+sui_types.workspace = true
+sui-move-build.workspace = true
+move-package-alt-compilation.workspace = true
+sui-package-alt.workspace = true
+sui-rpc.workspace = true
+prost-types.workspace = true
+dirs = "5.0"
 
 [[bin]]
 name = "dkg-cli"
