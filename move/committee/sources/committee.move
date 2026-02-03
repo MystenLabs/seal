@@ -218,7 +218,12 @@ fun propose_internal(
     pk: vector<u8>,
     ctx: &TxContext,
 ) {
-    // TODO: add sanity check for partial pks and pk as valid elements.
+    // Validate partial pks and pk as valid G2 elements.
+    let _ = g2_from_bytes(&pk);
+    partial_pks.do_ref!(|partial_pk| {
+        let _ = g2_from_bytes(partial_pk);
+    });
+
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
     assert!(partial_pks.length() == committee.members.length(), EInvalidProposal);
 
