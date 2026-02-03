@@ -5,9 +5,17 @@
 #[allow(unused_mut_ref, unused_variable, dead_code)]
 module seal_committee::seal_committee_tests;
 
-use seal_committee::{
-    seal_committee::{Self, Committee, propose_for_rotation, init_rotation},
-    upgrade::{Self, UpgradeManager}
+use seal_committee::seal_committee::{
+    Self,
+    Committee,
+    propose_for_rotation,
+    init_rotation,
+    new_upgrade_manager,
+    approve_digest_for_upgrade,
+    reject_digest_for_upgrade,
+    authorize_upgrade,
+    commit_upgrade,
+    reset_proposal
 };
 use seal_testnet::key_server::KeyServer;
 use std::string;
@@ -65,6 +73,13 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_partial_key_server!(key_server, ALICE, b"https://url0.com", g2_bytes, 0);
         assert_partial_key_server!(key_server, BOB, b"https://url1.com", g2_bytes, 1);
         assert_partial_key_server!(key_server, CHARLIE, b"https://url2.com", g2_bytes, 2);
+        test_scenario::return_shared(committee);
+
+        // Create upgrade manager for the first committee before rotation.
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared_by_id<Committee>(old_committee_id);
+        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Initialize rotation from old committee (2-of-3): A, B, C to new committee (3-of-4): B, A, D, E.
@@ -176,6 +191,31 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_partial_key_server!(key_server, ALICE, b"https://new_url0.com", g2_bytes, 1);
         assert_partial_key_server!(key_server, DAVE, b"https://new_url3.com", g2_bytes, 2);
         assert_partial_key_server!(key_server, EVE, b"https://new_url4.com", g2_bytes, 3);
+        test_scenario::return_shared(new_committee);
+
+        // Verify UpgradeManager was transferred to new committee by voting on an upgrade.
+        scenario.next_tx(BOB);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        let digest = test_digest(scenario.ctx());
+        approve_digest_for_upgrade(&mut new_committee, digest, scenario.ctx());
+        test_scenario::return_shared(new_committee);
+
+        scenario.next_tx(ALICE);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        approve_digest_for_upgrade(&mut new_committee, digest, scenario.ctx());
+        test_scenario::return_shared(new_committee);
+
+        scenario.next_tx(DAVE);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        approve_digest_for_upgrade(&mut new_committee, digest, scenario.ctx());
+        test_scenario::return_shared(new_committee);
+
+        // Authorize the upgrade to verify UpgradeManager is functional.
+        scenario.next_tx(BOB);
+        let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
+        let ticket = authorize_upgrade(&mut new_committee, digest);
+        let receipt = package::test_upgrade(ticket);
+        commit_upgrade(&mut new_committee, receipt);
         test_scenario::return_shared(new_committee);
 
         // BOB updates URL.
@@ -929,42 +969,36 @@ fun test_upgrade_manager_creation_and_voting() {
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
 
         // Create upgrade manager
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Vote for an upgrade with ALICE (approve)
         let digest = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // Vote with BOB (approve, should reach quorum for 2-of-3)
         scenario.next_tx(BOB);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // Authorize upgrade (quorum reached)
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        let ticket = upgrade::authorize_upgrade(&mut upgrade_manager, &committee, digest);
-        test_scenario::return_shared(committee);
+        let mut committee = scenario.take_shared<Committee>();
+        let ticket = authorize_upgrade(&mut committee, digest);
 
         // Simulate upgrade and commit
         let receipt = package::test_upgrade(ticket);
-        upgrade::commit_upgrade(&mut upgrade_manager, receipt);
+        commit_upgrade(&mut committee, receipt);
 
-        test_scenario::return_shared(upgrade_manager);
+        test_scenario::return_shared(committee);
     });
 }
 
-#[test, expected_failure(abort_code = upgrade::ENotAuthorized)]
+#[test, expected_failure(abort_code = seal_committee::ENotAuthorized)]
 fun test_upgrade_vote_fails_for_non_member() {
     test_tx!(|scenario| {
         let g2_bytes = *g2_generator().bytes();
@@ -977,21 +1011,19 @@ fun test_upgrade_vote_fails_for_non_member() {
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // CHARLIE (non-member) tries to vote - should fail
         let digest = test_digest(scenario.ctx());
         scenario.next_tx(CHARLIE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
     });
 }
 
-#[test, expected_failure(abort_code = upgrade::EDuplicateVote)]
+#[test, expected_failure(abort_code = seal_committee::EDuplicateVote)]
 fun test_upgrade_duplicate_vote_fails() {
     test_tx!(|scenario| {
         let g2_bytes = *g2_generator().bytes();
@@ -1004,30 +1036,26 @@ fun test_upgrade_duplicate_vote_fails() {
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         let digest = test_digest(scenario.ctx());
 
         // ALICE votes to approve
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // ALICE tries to vote approve again - should fail
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
     });
 }
 
-#[test, expected_failure(abort_code = upgrade::ENoProposalForDigest)]
+#[test, expected_failure(abort_code = seal_committee::ENoProposalForDigest)]
 fun test_upgrade_vote_fails_with_wrong_digest() {
     test_tx!(|scenario| {
         let g2_bytes = *g2_generator().bytes();
@@ -1040,26 +1068,22 @@ fun test_upgrade_vote_fails_with_wrong_digest() {
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // ALICE votes for digest1
         let digest1 = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest1, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest1, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // BOB tries to vote for digest2 - should fail
         let digest2 = test_digest(scenario.ctx());
         scenario.next_tx(BOB);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest2, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest2, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
     });
 }
 
@@ -1078,73 +1102,39 @@ fun test_upgrade_reset_proposal() {
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // ALICE proposes bad digest by voting approve
         let bad_digest = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(
-            &mut upgrade_manager,
-            &committee,
-            bad_digest,
-            true,
-            scenario.ctx(),
-        );
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // BOB and CHARLIE vote to reject (reaching threshold of 2 rejections)
         scenario.next_tx(BOB);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(
-            &mut upgrade_manager,
-            &committee,
-            bad_digest,
-            false,
-            scenario.ctx(),
-        );
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         scenario.next_tx(CHARLIE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(
-            &mut upgrade_manager,
-            &committee,
-            bad_digest,
-            false,
-            scenario.ctx(),
-        );
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // Now CHARLIE can reset the proposal (>= threshold rejections)
         scenario.next_tx(CHARLIE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::reset_proposal(&mut upgrade_manager, &committee, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        reset_proposal(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // Now they can vote for a good digest
         let good_digest = test_digest(scenario.ctx());
         scenario.next_tx(BOB);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(
-            &mut upgrade_manager,
-            &committee,
-            good_digest,
-            true,
-            scenario.ctx(),
-        );
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
     });
 }
 
@@ -1163,51 +1153,41 @@ fun test_upgrade_vote_change() {
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
         let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        upgrade::new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
         let digest = test_digest(scenario.ctx());
 
         // ALICE votes to approve
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // ALICE changes vote to reject
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, false, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // ALICE changes vote back to approve
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // BOB approves to reach threshold
         scenario.next_tx(BOB);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        upgrade::vote_for_upgrade(&mut upgrade_manager, &committee, digest, true, scenario.ctx());
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
 
         // Should be able to authorize upgrade now
         scenario.next_tx(ALICE);
-        let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
-        let committee = scenario.take_shared<Committee>();
-        let ticket = upgrade::authorize_upgrade(&mut upgrade_manager, &committee, digest);
+        let mut committee = scenario.take_shared<Committee>();
+        let ticket = authorize_upgrade(&mut committee, digest);
         let receipt = package::test_upgrade(ticket);
-        upgrade::commit_upgrade(&mut upgrade_manager, receipt);
+        commit_upgrade(&mut committee, receipt);
         test_scenario::return_shared(committee);
-        test_scenario::return_shared(upgrade_manager);
     });
 }

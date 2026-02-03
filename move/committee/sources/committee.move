@@ -17,6 +17,7 @@ use std::string::String;
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
     dynamic_object_field as dof,
+    package::{UpgradeCap, UpgradeTicket, UpgradeReceipt},
     vec_map::{Self, VecMap},
     vec_set::{Self, VecSet}
 };
@@ -33,6 +34,16 @@ const EAlreadyProposed: u64 = 6;
 const EInvalidProposal: u64 = 7;
 const EInvalidState: u64 = 8;
 const ENameAlreadyTaken: u64 = 9;
+
+// ===== Upgrade Errors =====
+
+const ENotAuthorized: u64 = 10;
+const EDuplicateVote: u64 = 11;
+const EInvalidPackageDigest: u64 = 12;
+const ENoProposalForDigest: u64 = 13;
+const ENotEnoughVotes: u64 = 14;
+const EWrongVersion: u64 = 15;
+const EUpgradeManagerAlreadySet: u64 = 16;
 
 // ===== Structs =====
 
@@ -72,9 +83,36 @@ public struct Committee has key {
     state: State,
     /// Old committee ID that this committee rotates from.
     old_committee_id: Option<ID>,
-    /// The upgrade manager ID for this committee's package.
-    /// Set by new_upgrade_manager after the committee is created.
-    upgrade_manager_id: Option<ID>,
+}
+
+// ===== Upgrade Structs =====
+
+/// Marker type for UpgradeManager DOF key.
+public struct UpgradeManagerKey has copy, drop, store {}
+
+/// New type for package digests ensuring 32 bytes length.
+public struct PackageDigest(vector<u8>) has copy, drop, store;
+
+/// An upgrade proposal containing the digest of the package to upgrade to and the approvals and
+/// rejections votes.
+public struct UpgradeProposal has drop, store {
+    /// The digest of the package to upgrade to.
+    digest: PackageDigest,
+    /// The version of the package to upgrade to.
+    version: u64,
+    /// The committee members that have approved this proposal.
+    approvals: VecSet<address>,
+    /// The committee members that have rejected this proposal.
+    rejections: VecSet<address>,
+}
+
+/// The upgrade manager object that contains the upgrade cap for the package and is used to
+/// authorize upgrades. Stored as a dynamic object field on Committee.
+public struct UpgradeManager has key, store {
+    id: UID,
+    cap: UpgradeCap,
+    /// The current active upgrade proposal. Only one proposal at a time.
+    upgrade_proposal: Option<UpgradeProposal>,
 }
 
 // ===== Public Functions =====
@@ -82,7 +120,7 @@ public struct Committee has key {
 /// Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
 /// state with empty members_info.
 public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
-    init_internal(threshold, members, option::none(), option::none(), ctx)
+    init_internal(threshold, members, option::none(), ctx)
 }
 
 /// Create a committee for rotation from an existing finalized old committee. The new committee must
@@ -103,13 +141,7 @@ public fun init_rotation(
     });
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
-    init_internal(
-        threshold,
-        members,
-        option::some(object::id(old_committee)),
-        old_committee.upgrade_manager_id,
-        ctx,
-    );
+    init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
 }
 
 /// Register a member with ecies pk, signing pk and URL. Append it to members_info.
@@ -185,32 +217,93 @@ public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut T
     key_server.update_member_url(url, ctx.sender());
 }
 
-// === Helper Functions for Upgrade Module ===
+// ===== Upgrade Public Functions =====
 
-/// Check if an address is a member of the committee.
-public(package) fun is_member(committee: &Committee, addr: address): bool {
-    committee.members.contains(&addr)
+/// Create a new upgrade manager and attach it as a DOF to the committee. Called after deploying the
+/// where the UpgradeCap is obtained.
+public fun new_upgrade_manager(committee: &mut Committee, cap: UpgradeCap, ctx: &mut TxContext) {
+    assert!(
+        !dof::exists_with_type<UpgradeManagerKey, UpgradeManager>(
+            &committee.id,
+            UpgradeManagerKey {},
+        ),
+        EUpgradeManagerAlreadySet,
+    );
+
+    let upgrade_manager = UpgradeManager {
+        id: object::new(ctx),
+        cap,
+        upgrade_proposal: option::none(),
+    };
+    dof::add(&mut committee.id, UpgradeManagerKey {}, upgrade_manager);
 }
 
-/// Get the threshold of the committee.
-public(package) fun threshold(committee: &Committee): u16 {
-    committee.threshold
+/// Approves the given digest for upgrade as a committee member. To change vote, call reject_digest_for_upgrade.
+public fun approve_digest_for_upgrade(
+    committee: &mut Committee,
+    digest: vector<u8>,
+    ctx: &TxContext,
+) {
+    vote_for_upgrade(committee, digest, true, ctx);
 }
 
-/// Set the upgrade manager ID for the committee.
-public(package) fun set_upgrade_manager_id(committee: &mut Committee, upgrade_manager_id: ID) {
-    committee.upgrade_manager_id = option::some(upgrade_manager_id);
+/// Rejects the given digest for upgrade as a committee member. To change vote, call approve_digest_for_upgrade.
+public fun reject_digest_for_upgrade(
+    committee: &mut Committee,
+    digest: vector<u8>,
+    ctx: &TxContext,
+) {
+    vote_for_upgrade(committee, digest, false, ctx);
 }
 
-/// Check if the committee has an upgrade manager with the given ID.
-public(package) fun has_upgrade_manager(committee: &Committee, upgrade_manager_id: ID): bool {
-    committee.upgrade_manager_id.contains(&upgrade_manager_id)
+/// Authorizes an upgrade that approvals count has reached threshold. Anyone can call this.
+public fun authorize_upgrade(committee: &mut Committee, digest: vector<u8>): UpgradeTicket {
+    assert!(committee.is_finalized(), EInvalidState);
+
+    let threshold = committee.threshold;
+
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+    assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
+
+    // Clear the proposal.
+    let proposal = upgrade_manager.upgrade_proposal.extract();
+
+    // Validate digest and version.
+    let parsed_digest = package_digest!(digest);
+    assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
+    assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
+
+    // Check threshold for approvals.
+    assert!(proposal.approvals.length() as u16 >= threshold, ENotEnoughVotes);
+
+    let policy = upgrade_manager.cap.policy();
+    upgrade_manager.cap.authorize(policy, parsed_digest.0)
 }
 
-/// Check if the committee has any upgrade manager set.
-public(package) fun has_upgrade_manager_set(committee: &Committee): bool {
-    committee.upgrade_manager_id.is_some()
+/// Commits an upgrade after authorize to finalize the upgrade.
+public fun commit_upgrade(committee: &mut Committee, receipt: UpgradeReceipt) {
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+    upgrade_manager.cap.commit(receipt)
 }
+
+/// Resets the current proposal if there are >= threshold rejections for the proposal.
+public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
+    assert!(committee.members.contains(&ctx.sender()), ENotAuthorized);
+    assert!(committee.is_finalized(), EInvalidState);
+
+    let threshold = committee.threshold;
+
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+    assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
+
+    let proposal = upgrade_manager.upgrade_proposal.borrow();
+    assert!((proposal.rejections.length() as u16) >= threshold, ENotEnoughVotes);
+
+    // Clear the proposal.
+    upgrade_manager.upgrade_proposal = option::none();
+}
+
+// ===== Internal Functions =====
 
 /// Helper function to check if a committee is finalized.
 public(package) fun is_finalized(committee: &Committee): bool {
@@ -220,14 +313,11 @@ public(package) fun is_finalized(committee: &Committee): bool {
     }
 }
 
-// ===== Internal Functions =====
-
 /// Internal function to initialize a shared committee object with optional old committee id.
 fun init_internal(
     threshold: u16,
     members: vector<address>,
     old_committee_id: Option<ID>,
-    upgrade_manager_id: Option<ID>,
     ctx: &mut TxContext,
 ) {
     assert!(threshold > 1, EInvalidThreshold);
@@ -243,7 +333,6 @@ fun init_internal(
         members,
         state: State::Init { members_info: vec_map::empty() },
         old_committee_id,
-        upgrade_manager_id,
     });
 }
 
@@ -329,9 +418,9 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
     }
 }
 
-/// Helper function to finalize rotation for the committee. Transfer the KeyServer from old
-/// committee to the new committee and destroys the old committee object. Add all new partial key
-/// server as df to key server.
+/// Helper function to finalize rotation for the committee. Update the key server's partial key
+/// servers df. Then transfer the updated KeyServer and UpgradeManager from old committee to the new
+/// committee and destroys the old committee object. Add all new partial key server as df to key server.
 fun try_finalize_for_rotation(
     committee: &mut Committee,
     mut old_committee: Committee,
@@ -341,9 +430,10 @@ fun try_finalize_for_rotation(
 
     match (&committee.state) {
         State::PostDKG { approvals, members_info, partial_pks, .. } => {
-            // Approvals count not reached, return key server back to old committee as dynamic object field.
+            let old_committee_id = object::id(&old_committee);
+
+            // Approvals count not reached, return key server back to old committee.
             if (approvals.length() != committee.members.length()) {
-                let old_committee_id = object::id(&old_committee);
                 dof::add<ID, KeyServer>(&mut old_committee.id, old_committee_id, key_server);
                 transfer::share_object(old_committee);
                 return
@@ -355,8 +445,18 @@ fun try_finalize_for_rotation(
                 partial_pks,
             );
             key_server.update_partial_key_servers(committee.threshold, partial_key_servers);
+
+            // Transfer the updated key server to the new committee.
             let committee_id = object::id(committee);
             dof::add<ID, KeyServer>(&mut committee.id, committee_id, key_server);
+
+            // Transfer upgrade manager from old to new committee.
+            let upgrade_manager: UpgradeManager = dof::remove(
+                &mut old_committee.id,
+                UpgradeManagerKey {},
+            );
+            dof::add(&mut committee.id, UpgradeManagerKey {}, upgrade_manager);
+
             committee.state = State::Finalized;
 
             // Destroy the old committee object.
@@ -400,6 +500,69 @@ fun check_rotation_consistency(self: &Committee, old_committee: &Committee) {
     assert!(self.old_committee_id.is_some(), EInvalidState);
     assert!(object::id(old_committee) == *self.old_committee_id.borrow(), EInvalidState);
     assert!(old_committee.is_finalized(), EInvalidState);
+}
+
+/// Helper function to vote approve or reject as a committee member. Each member can have one active
+/// vote (approve or reject) per proposal, and can change vote by voting again.
+fun vote_for_upgrade(
+    committee: &mut Committee,
+    digest: vector<u8>,
+    approve: bool, // true = approve, false = reject
+    ctx: &TxContext,
+) {
+    assert!(committee.members.contains(&ctx.sender()), ENotAuthorized);
+    assert!(committee.is_finalized(), EInvalidState);
+
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+
+    // Get or create the proposal.
+    let cap_version = upgrade_manager.cap.version();
+    if (upgrade_manager.upgrade_proposal.is_none()) {
+        let parsed_digest = package_digest!(digest);
+        upgrade_manager.upgrade_proposal =
+            option::some(UpgradeProposal {
+                digest: parsed_digest,
+                version: cap_version + 1,
+                approvals: vec_set::empty(),
+                rejections: vec_set::empty(),
+            });
+    };
+
+    let proposal = upgrade_manager.upgrade_proposal.borrow_mut();
+
+    // Validate digest and version.
+    let parsed_digest = package_digest!(digest);
+    assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
+    assert!(proposal.version == cap_version + 1, EWrongVersion);
+
+    let sender = ctx.sender();
+
+    // Check current vote status.
+    let in_approvals = proposal.approvals.contains(&sender);
+    let in_rejections = proposal.rejections.contains(&sender);
+
+    // Cannot vote for the same option twice, but can change vote.
+    if (approve) {
+        assert!(!in_approvals, EDuplicateVote);
+        if (in_rejections) proposal.rejections.remove(&sender);
+        proposal.approvals.insert(sender);
+    } else {
+        assert!(!in_rejections, EDuplicateVote);
+        if (in_approvals) proposal.approvals.remove(&sender);
+        proposal.rejections.insert(sender);
+    };
+}
+
+/// Creates a new package digest given a byte vector and check length is 32 bytes.
+macro fun package_digest($digest: vector<u8>): PackageDigest {
+    let digest = $digest;
+    assert!(digest.length() == 32, EInvalidPackageDigest);
+    PackageDigest(digest)
+}
+
+/// Helper function to borrow the UpgradeManager from the committee.
+fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
+    dof::borrow_mut<UpgradeManagerKey, UpgradeManager>(&mut committee.id, UpgradeManagerKey {})
 }
 
 /// Test-only function to borrow the KeyServer dynamic object field.
