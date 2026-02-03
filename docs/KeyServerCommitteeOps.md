@@ -34,39 +34,38 @@ Before running the DKG or key rotation workflows, both the coordinator and all c
 
 ```bash
 sui --version
-# at least 1.64
 ```
 
-2. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
+2. Make sure you have a CLI wallet ready on the expected network with gas. 
+
+```bash
+sui client active-env
+sui client active-address
+sui client gas
+
+# to create new wallet
+sui client new-address ed25519
+
+# switch if needed
+sui client switch --env testnet
+sui client switch --adress 0x...
+
+# to fund wallet gas: faucet.sui.io
+```
+
+3. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
 
 ```bash
 git clone https://github.com/MystenLabs/seal.git
 cd seal
 ```
 
-3. Install Python and required dependencies.
+4. Build the dkg-cli tool.
 
 ```bash
-brew install python # if needed
-
-# create a virtual environment (first-time setup)
-python -m venv .venv
-source .venv/bin/activate
-
-# install dependencies
-pip install -r crates/dkg-cli/scripts/requirements.txt
-
-# the cli is ready
-python crates/dkg-cli/scripts/dkg-scripts.py -h
+cargo run --bin dkg-cli -- --help
 ```
 
-4. Make sure you have a CLI wallet ready on the expected network with gas. 
-
-```bash
-sui client active-env
-sui client active-address
-sui client gas
-```
 
 ## Fresh DKG Process
 
@@ -80,43 +79,36 @@ a. Create a clean working directory named `dkg-state` and copy the example confi
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
-cp crates/dkg-cli/scripts/dkg.example.yaml dkg-state/dkg.yaml
+cp crates/dkg-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-b. Make sure your CLI has the expected network and active address with gas. 
-```bash
-sui client active-env
-sui client active-address
-
-# switch if needed
-sui client switch --env testnet
-sui client switch --adress 0x...
-```
-
-c. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
+b. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
 
 ```yaml
-NETWORK: Testnet # Target network
-THRESHOLD: 2 # Committee threshold (t of n)
-MEMBERS: # Addresses of all participating members
-  - 0x...
-  - 0x...
-  - 0x...
+init-params:
+  NETWORK: Testnet # Target network
+  THRESHOLD: 2 # Committee threshold (t of n)
+  MEMBERS: # Addresses of all participating members
+    - 0x...
+    - 0x...
+    - 0x...
 ```
 
 2. **Publish and initialize the committee**
 
-Run the publish-and-init script:
+Run the publish-and-init command:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py publish-and-init -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- publish-and-init
 ```
 
 This script publishes the `seal_committee` package onchain and initializes the committee state. It also appends the committee identifiers to `dkg.yaml`, for example: 
 
 ```yaml
-COMMITTEE_PKG: 0x3358b7f7150efe9a0487ad354e5959771c56556737605848231b09cca5b791c6
-COMMITTEE_ID: 0x46540663327da161b688786cbebbafbd32e0f344c85f8dc3bfe874c65a613418
+publish-and-init:
+  COMMITTEE_PKG: 0x5b788ac96879a752afbd3608a202207d75cf0f03387bcb744bfb4930cc544a70
+  COMMITTEE_ID: 0x55241859c52f51dd149763769b8aa1e54de39b55acacda3f3a67629691247985
+  COORDINATOR_ADDRESS: 0xef91ea73b4423e3a6176b0a1c9c6e4619de45c9c4e7c0b4aae358e292707d8c2
 ```
 
 3. **Distribute configuration and start Phase 1**
@@ -128,7 +120,7 @@ Share the updated dkg.yaml file with all committee members. Notify members to be
 Check on-chain registration status:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py check-committee -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
 ```
 
 The output shows which members have registered and which are still pending.
@@ -142,7 +134,7 @@ Once all members are registered:
 
 6. **Collect and share DKG messages**
 
-Collect all message files into a single directory and share it with members:
+Collect message files into a single directory and share it with members. The number of messages must equal to exactly the threshold of the current committee.
 
 ```bash
 mkdir dkg-messages
@@ -158,7 +150,7 @@ Notify members to begin **Phase 3 (Finalization)**.
 Monitor onchain state until all members have proposed and the committee is finalized:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py check-committee -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
 ```
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
@@ -215,12 +207,14 @@ Open `dkg.yaml` and verify the committee configuration (member addresses, thresh
 Then generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL> -n <MY_SERVER_NAME>
+cargo run --bin dkg-cli -- genkey-and-register \
+  -u https://seal-key-server-committee-ci-0.mystenlabs.com \
+  -n server-ci-0
 ```
 
 This command:
 
-- Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
+- Generates sensitive key material and state and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
@@ -229,7 +223,7 @@ This command:
 Wait for the coordinator to announce **Phase 2 (Message Creation)**. Then initialize your local DKG state and generate your message file:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py create-message -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- init-state
 ```
 
 This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
@@ -243,9 +237,7 @@ Move the directory into `dkg-state` and process the messages:
 ```bash
 mv path/to/dkg-messages dkg-state/
 
-python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
-    -c dkg-state/dkg.yaml \
-    -m dkg-state/dkg-messages
+cargo run --bin dkg-cli -- process-all-and-propose
 ```
 
 This command:
@@ -289,9 +281,9 @@ After your key server is running successfully, generate API credentials for aggr
 
 The coordinator passes these credentials to the aggregator operator, who uses them to authenticate requests to your key server.
 
-7. **Clean up local DKG state**
+7. **Backup and Clean up local DKG state**
 
-Once your key server is running successfully, you can safely delete the local DKG state directory:
+Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
 
 ```bash
 rm -rf dkg-state
@@ -316,7 +308,7 @@ a. Create a clean working directory named `dkg-state` and copy the rotation exam
 
 ```bash
 rm -rf dkg-state & mkdir dkg-state
-cp crates/dkg-cli/scripts/dkg-rotation.example.yaml dkg-state/dkg.yaml
+cp crates/dkg-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
 b. Make sure your CLI has the expected network and active address with gas. 
@@ -329,19 +321,22 @@ sui client switch --env testnet
 sui client switch --adress 0x...
 ```
 
-c. Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields. 
+c. Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields.
 
 You can obtain `KEY_SERVER_OBJ_ID` from the key server configuration of any continuing member in the current committee.
 
 ```yaml
-NETWORK: Testnet # Target network
-THRESHOLD: 3  # Threshold for the new committee (t of n)
-KEY_SERVER_OBJ_ID: 0x...  # Key server object ID from the current committee
-MEMBERS:  # New committee members (may include continuing members)
-  - 0x...
-  - 0x...
-  - 0x...
-  - 0x..
+init-params:
+  NETWORK: Testnet # Target network
+  THRESHOLD: 3  # Threshold for the new committee (t of n)
+  MEMBERS:  # New committee members (may include continuing members)
+    - 0x...
+    - 0x...
+    - 0x...
+    - 0x...
+
+init-rotation-params:
+  KEY_SERVER_OBJ_ID: 0x...  # Key server object ID from the current committee
 ```
 
 2. **Initialize the rotation**
@@ -349,17 +344,18 @@ MEMBERS:  # New committee members (may include continuing members)
 Instead of running `publish-and-init`, initialize the key rotation:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py init-rotation -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- init-rotation -c dkg-state/dkg.yaml
 ```
 
 This command:
 
 - Fetches the current key server object to determine the existing committee ID and package ID.
 - Initializes the new committee object onchain.
-- Appends the following fields to `dkg.yaml`:
-  - `COMMITTEE_ID`
-  - `COMMITTEE_PKG`
-  - `CURRENT_COMMITTEE_ID`
+- Appends the following fields to the `init-rotation` section in `dkg.yaml`:
+  - `COORDINATOR_ADDRESS`: Address executing the rotation
+  - `COMMITTEE_PKG`: Package ID of the committee contract
+  - `CURRENT_COMMITTEE_ID`: Current committee object ID
+  - `COMMITTEE_ID`: New committee object ID
 
 After the command completes, share the updated `dkg.yaml` file with all members.
 
@@ -414,7 +410,10 @@ Open `dkg.yaml` and verify the committee parameters (member addresses, threshold
 Then generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py genkey-and-register -c dkg-state/dkg.yaml -u <MY_SERVER_URL> -n <MY_SERVER_NAME>
+cargo run --bin dkg-cli -- genkey-and-register \
+  -c dkg-state/dkg.yaml \
+  --server-url <MY_SERVER_URL> \
+  --server-name <MY_SERVER_NAME>
 ```
 
 This command:
@@ -432,19 +431,18 @@ Wait for the coordinator to announce **Phase 2 (Message Creation)**.
 Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`):
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py create-message \
-    -c dkg-state/dkg.yaml \
-    --old-share <MASTER_SHARE_VX>
+cargo run --bin dkg-cli -- create-message \
+  -o <MASTER_SHARE_VX>
 ```
 
 This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
 
 **For new members**:
 
-Initialize your DKG state without providing an old share. No message file is generated.
+Initialize your DKG state. No message file is generated (new members don't create messages during rotation).
 
 ```bash
-python crates/dkg-cli/scripts/dkg-scripts.py init-state -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- init-state
 ```
 
 4. **Process messages and propose the rotation (Phase 3)**
@@ -456,9 +454,9 @@ Move the directory into `dkg-state` and process the messages:
 ```bash
 mv path/to/dkg-messages dkg-state/
 
-python crates/dkg-cli/scripts/dkg-scripts.py process-all-and-propose \
-    -c dkg-state/dkg.yaml \
-    -m dkg-state/dkg-messages
+cargo run --bin dkg-cli -- process-all-and-propose \
+  -c dkg-state/dkg.yaml \
+  --messages-dir dkg-state/dkg-messages
 ```
 
 This command:
@@ -555,8 +553,9 @@ rm -rf dkg-state
 | Committee version | Starts at `V0` | Rotates from `VX` to `VX+1` |
 | Coordinator init command | `publish-and-init` | `init-rotation` |
 | Continuing members required | N/A | Must meet current threshold |
-| Member Phase 2 action | All members create messages | Only continuing members create messages |
-| Old master share needed | N/A | Yes (for continuing members) |
+| Member Phase 2 command | All members: `create-message` | Continuing members: `create-message -o <OLD_SHARE>`<br>New members: `init-state` |
+| Old master share needed | N/A | Yes (continuing members must provide via `-o` flag) |
+| Message creation | All members create messages | Only continuing members create messages |
 | Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
 | Onchain proposal function | `propose` | `propose_for_rotation` |
 | Result | New key server object | Updated key server object's version |

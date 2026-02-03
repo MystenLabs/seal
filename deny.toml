@@ -43,8 +43,6 @@ ignore = [
     "RUSTSEC-2025-0009",
     # fxhash not maintained
     "RUSTSEC-2025-0057",
-    # number_prefix not maintained
-    "RUSTSEC-2025-0119",
     # rustls-pemfile is unmaintained
     "RUSTSEC-2025-0134",
     # lru only in dev dependencies
@@ -218,3 +216,12 @@ unknown-git = "warn"
 # if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # List of URLs for allowed Git repositories
+allow-git = [
+    "https://github.com/zhiburt/tabled",
+]
+
+[sources.allow-org]
+github = [
+    "mystenmark",
+    "mystenlabs",
+]
