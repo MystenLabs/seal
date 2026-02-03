@@ -196,7 +196,7 @@ async fn main() -> Result<()> {
             let threshold = get_threshold(&config_content)?;
 
             // Load wallet
-            let mut wallet = load_wallet(cli.wallet, cli.active_address)?;
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let coordinator_address = wallet.active_address()?;
 
             println!("Using coordinator address: {}", coordinator_address);
@@ -318,22 +318,13 @@ async fn main() -> Result<()> {
             println!("Created committee: {}", committee_id);
 
             // Update config
-            update_config_section(
+            update_config_bytes_val(
                 &config,
                 "publish-and-init",
                 vec![
-                    (
-                        "COMMITTEE_PKG",
-                        &Hex::encode_with_format(package_id.as_ref()),
-                    ),
-                    (
-                        "COMMITTEE_ID",
-                        &Hex::encode_with_format(committee_id.as_ref()),
-                    ),
-                    (
-                        "COORDINATOR_ADDRESS",
-                        &Hex::encode_with_format(coordinator_address.as_ref()),
-                    ),
+                    ("COMMITTEE_PKG", package_id.as_ref()),
+                    ("COMMITTEE_ID", committee_id.as_ref()),
+                    ("COORDINATOR_ADDRESS", coordinator_address.as_ref()),
                 ],
             )?;
 
@@ -375,7 +366,7 @@ async fn main() -> Result<()> {
             let threshold = get_threshold(&config_content)?;
 
             // Load wallet
-            let mut wallet = load_wallet(cli.wallet, cli.active_address)?;
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let coordinator_address = wallet.active_address()?;
 
             println!("Using coordinator address: {}", coordinator_address);
@@ -484,29 +475,23 @@ async fn main() -> Result<()> {
             println!("Committee package ID: {}", package_id);
 
             // Update config with current committee info
-            let coordinator_addr = Hex::encode_with_format(coordinator_address.as_ref());
-            let package_id = Hex::encode_with_format(package_id.as_ref());
-            let current_committee_id = Hex::encode_with_format(current_committee_id.inner());
-            update_config_section(
+            update_config_bytes_val(
                 &config,
                 "init-rotation",
                 vec![
-                    ("COMMITTEE_PKG", &package_id),
-                    ("CURRENT_COMMITTEE_ID", &current_committee_id),
-                    ("COORDINATOR_ADDRESS", coordinator_addr.as_str()),
+                    ("COMMITTEE_PKG", package_id.as_ref()),
+                    ("CURRENT_COMMITTEE_ID", current_committee_id.inner()),
+                    ("COORDINATOR_ADDRESS", coordinator_address.as_ref()),
                 ],
             )?;
 
-            println!("  init-rotation:");
-            println!("    COORDINATOR_ADDRESS: {}", coordinator_addr);
-            println!("    COMMITTEE_PKG: {}", package_id);
-            println!("    CURRENT_COMMITTEE_ID: {}", current_committee_id);
+            println!("\n✓ Updated {} init-rotation section with COMMITTEE_PKG, CURRENT_COMMITTEE_ID, COORDINATOR_ADDRESS", config.display());
 
             // Call init_rotation
             println!("\nInitializing rotation...");
             let mut rotation_builder = ProgrammableTransactionBuilder::new();
 
-            let current_committee_obj_id = ObjectID::from_hex_literal(&current_committee_id)?;
+            let current_committee_obj_id = ObjectID::new(current_committee_id.into_inner());
             let current_committee_arg = rotation_builder.obj(
                 get_shared_committee_arg(&mut grpc_client, current_committee_obj_id, false).await?,
             )?;
@@ -514,7 +499,7 @@ async fn main() -> Result<()> {
             let members_arg = rotation_builder.pure(members)?;
 
             rotation_builder.programmable_move_call(
-                package_id.parse()?,
+                package_id,
                 "seal_committee".parse()?,
                 "init_rotation".parse()?,
                 vec![],
@@ -545,20 +530,15 @@ async fn main() -> Result<()> {
             println!("Created new committee for rotation: {}", new_committee_id);
 
             // Update config with new committee ID
-            update_config_section(
+            update_config_bytes_val(
                 &config,
                 "init-rotation",
-                vec![(
-                    "COMMITTEE_ID",
-                    &Hex::encode_with_format(new_committee_id.as_ref()),
-                )],
+                vec![("COMMITTEE_ID", new_committee_id.as_ref())],
             )?;
 
-            println!("\nUpdated {} with:", config.display());
-            println!("  init-rotation:");
             println!(
-                "    COMMITTEE_ID: {}",
-                Hex::encode_with_format(new_committee_id.as_ref())
+                "\n✓ Updated {} init-rotation section with COMMITTEE_ID",
+                config.display()
             );
             println!("\nShare this file with committee members.");
         }
@@ -597,7 +577,7 @@ async fn main() -> Result<()> {
             }
 
             // Load wallet
-            let mut wallet = load_wallet(cli.wallet, cli.active_address)?;
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let my_address = wallet.active_address()?;
 
             println!("\n=== Getting active address from wallet ===");
@@ -606,12 +586,16 @@ async fn main() -> Result<()> {
             println!("Server Name: {}", server_name);
 
             // Update config with member info
-            let my_addr_hex = Hex::encode_with_format(my_address.as_ref());
-            update_config_section(
+            update_config_bytes_val(
+                &config,
+                "genkey-and-register",
+                vec![("MY_ADDRESS", my_address.as_ref())],
+            )?;
+            // Add plain string values
+            update_config_string_val(
                 &config,
                 "genkey-and-register",
                 vec![
-                    ("MY_ADDRESS", my_addr_hex.as_str()),
                     ("MY_SERVER_URL", server_url.as_str()),
                     ("MY_SERVER_NAME", server_name.as_str()),
                 ],
@@ -663,8 +647,9 @@ async fn main() -> Result<()> {
             let signing_pk = signing_kp.public().clone();
             let signing_sk = signing_kp.private();
 
-            let enc_pk_hex = format_pk_hex(&enc_pk)?;
-            let signing_pk_hex = format_pk_hex(&signing_pk)?;
+            // Serialize keys to BCS bytes (used for both config and onchain registration)
+            let enc_pk_bytes = bcs::to_bytes(&enc_pk)?;
+            let signing_pk_bytes = bcs::to_bytes(&signing_pk)?;
 
             let created_keys_file = KeysFile {
                 enc_sk,
@@ -680,22 +665,18 @@ async fn main() -> Result<()> {
             }
             write_secret_file(&keys_file, &json_content)?;
 
-            println!("Generated keys:");
-            println!("  DKG_ENC_PK: {}", enc_pk_hex);
-            println!("  DKG_SIGNING_PK: {}", signing_pk_hex);
-
-            // Update config with public keys
-            println!("\n=== Updating {} ===", config.display());
-            update_config_section(
+            // Update config with public keys (hex-encoded)
+            update_config_bytes_val(
                 &config,
                 "genkey-and-register",
                 vec![
-                    ("DKG_ENC_PK", enc_pk_hex.as_str()),
-                    ("DKG_SIGNING_PK", signing_pk_hex.as_str()),
+                    ("DKG_ENC_PK", &enc_pk_bytes),
+                    ("DKG_SIGNING_PK", &signing_pk_bytes),
                 ],
             )?;
             println!(
-                "Config updated with genkey-and-register section (DKG_ENC_PK and DKG_SIGNING_PK)"
+                "\n✓ Updated {} genkey-and-register section with DKG_ENC_PK, DKG_SIGNING_PK",
+                config.display()
             );
 
             // Register onchain
@@ -711,8 +692,6 @@ async fn main() -> Result<()> {
             let committee_arg = register_builder
                 .obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
 
-            let enc_pk_bytes = Hex::decode(&enc_pk_hex)?;
-            let signing_pk_bytes = Hex::decode(&signing_pk_hex)?;
             let enc_pk_arg = register_builder.pure(enc_pk_bytes)?;
             let signing_pk_arg = register_builder.pure(signing_pk_bytes)?;
             let url_arg = register_builder.pure(server_url.as_str())?;
@@ -762,7 +741,7 @@ async fn main() -> Result<()> {
             let keys_file = keys_file.unwrap_or_else(|| state_dir.join("dkg.key"));
 
             // Call shared function with no old share
-            create_dkg_state_and_message(state_dir, config, keys_file, None).await?;
+            create_dkg_state_and_message(&state_dir, &config, &keys_file, None).await?;
         }
 
         Commands::CreateMessage {
@@ -776,7 +755,7 @@ async fn main() -> Result<()> {
             let keys_file = keys_file.unwrap_or_else(|| state_dir.join("dkg.key"));
 
             // Call shared function - it will validate old_share based on onchain committee state
-            create_dkg_state_and_message(state_dir, config, keys_file, old_share).await?;
+            create_dkg_state_and_message(&state_dir, &config, &keys_file, old_share).await?;
         }
         Commands::ProcessAllAndPropose {
             state_dir,
@@ -857,24 +836,25 @@ async fn main() -> Result<()> {
             // Determine version
             let version = determine_committee_version(&network, &state.config.committee_id).await?;
 
-            // Extract key server PK and partial PKs
-            let key_server_pk = format_pk_hex(&output.vss_pk.c0())?;
+            // Extract key server PK and master share as raw bytes (will be hex-encoded)
+            let key_server_pk_bytes = bcs::to_bytes(&output.vss_pk.c0())?;
+            let master_share_bytes = if let Some(shares) = &output.shares {
+                shares
+                    .first()
+                    .map(|share| bcs::to_bytes(&share.value))
+                    .transpose()?
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            // Partial PKs need to be hex strings for YAML list serialization
             let mut partial_pks = Vec::new();
             for party_id in 0..state.config.nodes.num_nodes() {
                 let share_index = NonZeroU16::new(party_id as u16 + 1).expect("must be valid");
                 let partial_pk = output.vss_pk.eval(share_index);
-                partial_pks.push(format_pk_hex(&partial_pk.value)?);
+                partial_pks.push(to_hex(&partial_pk.value)?);
             }
-
-            let master_share = if let Some(shares) = &output.shares {
-                shares
-                    .first()
-                    .map(|share| format_pk_hex(&share.value))
-                    .transpose()?
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
 
             // Check if already written to config
             let master_share_key = format!("MASTER_SHARE_V{}", version);
@@ -905,16 +885,26 @@ async fn main() -> Result<()> {
             // Update config file
             println!("\n=== Updating {} ===", config.display());
 
-            // Serialize partial_pks as YAML list
+            // Serialize partial_pks as YAML list (for config storage)
             let partial_pks_yaml = serde_yaml::to_string(&partial_pks)?;
 
-            let mut updates = vec![];
-
             if version == 0 {
-                // For v0, add KEY_SERVER_PK first, then PARTIAL_PKS_V0, then MASTER_SHARE_V0
-                updates.push(("KEY_SERVER_PK", key_server_pk.as_str()));
-                updates.push((partial_pks_key.as_str(), partial_pks_yaml.trim()));
-                updates.push((master_share_key.as_str(), master_share.as_str()));
+                // For v0, add KEY_SERVER_PK, PARTIAL_PKS_V0, MASTER_SHARE_V0
+                update_config_bytes_val(
+                    &config,
+                    "process-all-and-propose",
+                    vec![("KEY_SERVER_PK", &key_server_pk_bytes)],
+                )?;
+                update_config_string_val(
+                    &config,
+                    "process-all-and-propose",
+                    vec![(partial_pks_key.as_str(), partial_pks_yaml.trim())],
+                )?;
+                update_config_bytes_val(
+                    &config,
+                    "process-all-and-propose",
+                    vec![(master_share_key.as_str(), &master_share_bytes)],
+                )?;
             } else {
                 // For rotation, verify KEY_SERVER_PK matches, then add PARTIAL_PKS_VX and MASTER_SHARE_VX
                 if let Some(existing_key_server_pk) = get_config_field(
@@ -927,34 +917,36 @@ async fn main() -> Result<()> {
                         .unwrap_or("")
                         .trim_matches('\'')
                         .trim_matches('"');
-                    if existing_pk != key_server_pk {
+                    let key_server_pk_hex = Hex::encode_with_format(&key_server_pk_bytes);
+                    if existing_pk != key_server_pk_hex {
                         bail!(
                             "KEY_SERVER_PK mismatch!\n  Expected (from v0): {}\n  Got (from rotation): {}",
                             existing_pk,
-                            key_server_pk
+                            key_server_pk_hex
                         );
                     }
                     println!("✓ KEY_SERVER_PK verification passed (unchanged from v0)");
                 }
-                updates.push((partial_pks_key.as_str(), partial_pks_yaml.trim()));
-                updates.push((master_share_key.as_str(), master_share.as_str()));
+                update_config_string_val(
+                    &config,
+                    "process-all-and-propose",
+                    vec![(partial_pks_key.as_str(), partial_pks_yaml.trim())],
+                )?;
+                update_config_bytes_val(
+                    &config,
+                    "process-all-and-propose",
+                    vec![(master_share_key.as_str(), &master_share_bytes)],
+                )?;
             }
-            update_config_section(&config, "process-all-and-propose", updates)?;
 
-            println!("✓ Config updated with:");
-            println!("  process-all-and-propose:");
             if version == 0 {
-                println!("    KEY_SERVER_PK: {}", key_server_pk);
+                println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
+            } else {
+                println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
             }
-            println!(
-                "    PARTIAL_PKS_V{}: {} entries",
-                version,
-                partial_pks.len()
-            );
-            println!("    MASTER_SHARE_V{}: {}", version, master_share);
 
             // Load wallet and propose onchain
-            let wallet = load_wallet(cli.wallet, cli.active_address)?;
+            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
 
             if is_rotation {
                 println!("\n=== Proposing committee rotation onchain ===");
@@ -995,8 +987,7 @@ async fn main() -> Result<()> {
                     vec![committee_arg, partial_pks_arg, current_committee_arg],
                 );
             } else {
-                // Decode hex-encoded key server PK to raw bytes
-                let key_server_pk_bytes = Hex::decode(&key_server_pk)?;
+                // Use key server PK bytes directly
                 let key_server_pk_arg = propose_builder.pure(key_server_pk_bytes)?;
 
                 propose_builder.programmable_move_call(
@@ -1030,7 +1021,6 @@ async fn main() -> Result<()> {
                 config.display()
             );
             println!("  Committee ID: {}", committee_id);
-            println!("  Key Server PK: {}", key_server_pk);
             println!("  Partial PKs: {} entries", partial_pks.len());
         }
 
@@ -1299,13 +1289,13 @@ async fn get_shared_committee_arg(
 
 /// Shared logic for creating DKG state and message.
 async fn create_dkg_state_and_message(
-    state_dir: PathBuf,
-    config: PathBuf,
-    keys_file: PathBuf,
+    state_dir: &Path,
+    config: &Path,
+    keys_file: &Path,
     old_share: Option<String>,
 ) -> Result<()> {
     // Load config to get parameters
-    let config_content = load_config(&config)?;
+    let config_content = load_config(config)?;
 
     // Get my_address from config
     let addr_str = get_config_field(&config_content, &["genkey-and-register"], "MY_ADDRESS")
@@ -1326,7 +1316,7 @@ async fn create_dkg_state_and_message(
     // Get network from config
     let network = get_network(&config_content)?;
 
-    let local_keys = KeysFile::load(&keys_file)?;
+    let local_keys = KeysFile::load(keys_file)?;
 
     // Parse old share from command argument if provided. Provided for continuing members
     // in key rotation.
@@ -1377,10 +1367,10 @@ async fn create_dkg_state_and_message(
             Signing PK Derived from secret: {}\n\
             Registered onchain: {}",
             my_address,
-            format_pk_hex(&local_keys.enc_pk)?,
-            format_pk_hex(&my_member_info.enc_pk)?,
-            format_pk_hex(&local_keys.signing_pk)?,
-            format_pk_hex(&my_member_info.signing_pk)?
+            to_hex(&local_keys.enc_pk)?,
+            to_hex(&my_member_info.enc_pk)?,
+            to_hex(&local_keys.signing_pk)?,
+            to_hex(&my_member_info.signing_pk)?
         ));
     }
     println!("Registered public keys onchain validated. My party ID: {my_party_id}");
@@ -1514,23 +1504,23 @@ async fn create_dkg_state_and_message(
         output: None,
     };
 
-    state.save(&state_dir)?;
+    state.save(state_dir)?;
     println!("State saved to {state_dir:?}. Wait for coordinator to announce phase 3.");
     Ok(())
 }
 
 /// Load wallet context from path.
 fn load_wallet(
-    wallet_path: Option<PathBuf>,
+    wallet_path: Option<&Path>,
     active_address: Option<SuiAddress>,
 ) -> Result<WalletContext> {
-    let config_path = wallet_path
-        .or_else(|| {
-            let mut default = dirs::home_dir()?;
-            default.extend([".sui", "sui_config", "client.yaml"]);
-            Some(default)
-        })
-        .ok_or_else(|| anyhow!("Cannot find wallet config path"))?;
+    let config_path = if let Some(path) = wallet_path {
+        path.to_path_buf()
+    } else {
+        let mut default = dirs::home_dir().ok_or_else(|| anyhow!("Cannot find home directory"))?;
+        default.extend([".sui", "sui_config", "client.yaml"]);
+        default
+    };
 
     let mut wallet = WalletContext::new(&config_path).context("Failed to load wallet context")?;
 
@@ -1554,9 +1544,9 @@ fn write_secret_file(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-/// Helper function to format a BCS-serializable value as hex string with 0x prefix.
-fn format_pk_hex<T: Serialize>(pk: &T) -> Result<String> {
-    Ok(Hex::encode_with_format(&bcs::to_bytes(pk)?))
+/// Helper function to BCS-serialize and format any serializable value as hex string with 0x prefix.
+fn to_hex<T: Serialize>(value: &T) -> Result<String> {
+    Ok(Hex::encode_with_format(&bcs::to_bytes(value)?))
 }
 
 /// Load YAML configuration file.
@@ -1666,8 +1656,21 @@ fn validate_required_fields(
     Ok(())
 }
 
-/// Update fields within a specific section of the YAML config.
-fn update_config_section(path: &Path, section: &str, updates: Vec<(&str, &str)>) -> Result<()> {
+/// Update fields within a specific section of the YAML config with hex-encoded byte values.
+fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8])>) -> Result<()> {
+    let string_updates: Vec<(&str, String)> = updates
+        .into_iter()
+        .map(|(key, bytes)| (key, Hex::encode_with_format(bytes)))
+        .collect();
+    let string_refs: Vec<(&str, &str)> = string_updates
+        .iter()
+        .map(|(k, v)| (*k, v.as_str()))
+        .collect();
+    update_config_string_val(path, section, string_refs)
+}
+
+/// Update fields within a specific section of the YAML config with string values.
+fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str)>) -> Result<()> {
     let content = fs::read_to_string(path)?;
     let mut config: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
