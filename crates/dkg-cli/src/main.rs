@@ -31,7 +31,7 @@ use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_sdk::rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse};
 use sui_sdk::wallet_context::WalletContext;
-use sui_sdk_types::Address;
+use sui_sdk_types::{Address, StructTag};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::transaction::SharedObjectMutability;
 use sui_types::transaction::{ObjectArg, TransactionData};
@@ -465,12 +465,8 @@ async fn main() -> Result<()> {
                 .ok_or_else(|| anyhow!("Committee object has no type"))?;
 
             // Parse the object type string (format: "package_id::module::Type")
-            // Extract package ID from the first part
-            let package_id_str = object_type
-                .split("::")
-                .next()
-                .ok_or_else(|| anyhow!("Could not extract package ID from object type"))?;
-            let package_id = ObjectID::from_hex_literal(package_id_str)?;
+            let struct_tag = StructTag::from_str(&object_type)?;
+            let package_id = ObjectID::new(struct_tag.address().into_inner());
 
             println!("Committee package ID: {}", package_id);
 
@@ -968,7 +964,7 @@ async fn main() -> Result<()> {
             // Decode hex strings to raw BLS point bytes for Move function
             let partial_pks_bytes: Vec<Vec<u8>> = partial_pks
                 .iter()
-                .map(|hex_str| Hex::decode(hex_str))
+                .map(|s| Hex::decode(s))
                 .collect::<Result<Vec<_>, _>>()?;
             let partial_pks_arg = propose_builder.pure(partial_pks_bytes)?;
 
@@ -1070,16 +1066,11 @@ async fn main() -> Result<()> {
                         .map(|entry| entry.key)
                         .collect();
 
-                    let mut registered = Vec::new();
-                    let mut not_registered = Vec::new();
-
-                    for member_addr in &committee.members {
-                        if registered_addrs.contains(member_addr) {
-                            registered.push(*member_addr);
-                        } else {
-                            not_registered.push(*member_addr);
-                        }
-                    }
+                    let (registered, not_registered): (Vec<_>, Vec<_>) = committee
+                        .members
+                        .iter()
+                        .copied()
+                        .partition(|member_addr| registered_addrs.contains(member_addr));
 
                     println!(
                         "\nRegistered members ({}/{}):",
@@ -1109,16 +1100,11 @@ async fn main() -> Result<()> {
                     let approved_addrs: HashSet<_> = approvals.contents.iter().cloned().collect();
 
                     // Show approval status
-                    let mut approved = Vec::new();
-                    let mut not_approved = Vec::new();
-
-                    for member_addr in &committee.members {
-                        if approved_addrs.contains(member_addr) {
-                            approved.push(*member_addr);
-                        } else {
-                            not_approved.push(*member_addr);
-                        }
-                    }
+                    let (approved, not_approved): (Vec<_>, Vec<_>) = committee
+                        .members
+                        .iter()
+                        .copied()
+                        .partition(|member_addr| approved_addrs.contains(member_addr));
 
                     println!(
                         "\nApproved members ({}/{}):",
