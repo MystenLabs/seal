@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
-use fastcrypto::groups::bls12381::{G2Element, Scalar as G2Scalar};
+use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
 use fastcrypto::traits::KeyPair as _;
 use fastcrypto_tbls::dkg_v1::Party;
@@ -560,8 +560,8 @@ async fn main() -> Result<()> {
 
             // Generate keys.
             println!("\n=== Generating DKG keys ===");
-            let enc_sk = PrivateKey::<G2Element>::new(&mut thread_rng());
-            let enc_pk = PublicKey::<G2Element>::from_private_key(&enc_sk);
+            let enc_sk = PrivateKey::<G1Element>::new(&mut thread_rng());
+            let enc_pk = PublicKey::<G1Element>::from_private_key(&enc_sk);
 
             let signing_kp = BLS12381KeyPair::generate(&mut thread_rng());
             let signing_pk = signing_kp.public().clone();
@@ -1246,7 +1246,7 @@ async fn create_dkg_state_and_message(
     let my_message = if old_threshold.is_none() || my_old_share.is_some() {
         println!("Creating DKG message for party {my_party_id}...");
         let random_oracle = RandomOracle::new(&committee_id.to_string());
-        let party = Party::<G2Element, G2Element>::new_advanced(
+        let party = Party::<G2Element, G1Element>::new_advanced(
             local_keys.enc_sk.clone(),
             Nodes::new(nodes.clone())?.clone(),
             committee.threshold,
@@ -1586,7 +1586,7 @@ fn process_dkg_messages(
     state: &mut DkgState,
     messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
-) -> Result<fastcrypto_tbls::dkg_v1::Output<G2Element, G2Element>> {
+) -> Result<fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>> {
     println!("Processing {} message(s)...", messages.len());
 
     // Validate message count.
@@ -1610,7 +1610,7 @@ fn process_dkg_messages(
     }
 
     // Create party.
-    let party = Party::<G2Element, G2Element>::new_advanced(
+    let party = Party::<G2Element, G1Element>::new_advanced(
         local_keys.enc_sk.clone(),
         state.config.nodes.clone(),
         state.config.threshold,

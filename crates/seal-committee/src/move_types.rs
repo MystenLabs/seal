@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
-use fastcrypto::groups::bls12381::G2Element;
+use fastcrypto::groups::bls12381::{G1Element, G2Element};
 use fastcrypto_tbls::ecies_v1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -88,7 +88,7 @@ pub struct PartialKeyServerInfo {
 #[derive(Deserialize, Debug)]
 pub struct MemberInfo {
     #[serde(deserialize_with = "deserialize_enc_pk")]
-    pub enc_pk: PublicKey<G2Element>,
+    pub enc_pk: PublicKey<G1Element>,
     #[serde(deserialize_with = "deserialize_signing_pk")]
     pub signing_pk: BLS12381PublicKey,
     pub url: String,
@@ -219,7 +219,7 @@ pub struct ParsedMemberInfo {
     pub name: String,
     pub party_id: u16,
     pub address: Address,
-    pub enc_pk: PublicKey<G2Element>,
+    pub enc_pk: PublicKey<G1Element>,
     pub signing_pk: BLS12381PublicKey,
 }
 
@@ -248,6 +248,6 @@ macro_rules! move_bytes_deserializer {
 }
 
 move_bytes_deserializer!(deserialize_move_bytes, Vec<u8>);
-move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G2Element>);
+move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G1Element>);
 move_bytes_deserializer!(deserialize_signing_pk, BLS12381PublicKey);
 move_bytes_deserializer!(deserialize_partial_pk, G2Element);
