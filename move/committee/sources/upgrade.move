@@ -17,7 +17,6 @@ const ENotEnoughVotes: u64 = 14;
 const EWrongVersion: u64 = 15;
 const EUpgradeManagerAlreadySet: u64 = 16;
 const EInvalidState: u64 = 17;
-const ECannotResetAfterThreshold: u64 = 18;
 
 // ===== Structs =====
 
@@ -31,8 +30,10 @@ public struct UpgradeProposal has drop, store {
     digest: PackageDigest,
     /// The version of the package to upgrade to.
     version: u64,
-    /// The committee members that have voted for this proposal.
-    voters: VecSet<address>,
+    /// The committee members that have approved this proposal.
+    approvals: VecSet<address>,
+    /// The committee members that have rejected this proposal.
+    rejections: VecSet<address>,
 }
 
 /// The upgrade manager object.
@@ -63,10 +64,12 @@ public fun new_upgrade_manager(committee: &mut Committee, cap: UpgradeCap, ctx: 
 }
 
 /// Vote for an upgrade given the digest of the package to upgrade to as a committee member.
+/// Each member can have one active vote (approve or reject) per proposal, and can change vote by voting again.
 public fun vote_for_upgrade(
     upgrade_manager: &mut UpgradeManager,
     committee: &Committee,
     digest: vector<u8>,
+    approve: bool, // true = approve, false = reject
     ctx: &TxContext,
 ) {
     assert!(committee.is_member(ctx.sender()), ENotAuthorized);
@@ -83,7 +86,8 @@ public fun vote_for_upgrade(
             option::some(UpgradeProposal {
                 digest: parsed_digest,
                 version: cap_version + 1,
-                voters: vec_set::empty(),
+                approvals: vec_set::empty(),
+                rejections: vec_set::empty(),
             });
     };
 
@@ -94,9 +98,22 @@ public fun vote_for_upgrade(
     assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
     assert!(proposal.version == cap_version + 1, EWrongVersion);
 
-    // Check not duplicate vote and add vote.
-    assert!(!proposal.voters.contains(&ctx.sender()), EDuplicateVote);
-    proposal.voters.insert(ctx.sender());
+    let sender = ctx.sender();
+
+    // Check current vote status.
+    let in_approvals = proposal.approvals.contains(&sender);
+    let in_rejections = proposal.rejections.contains(&sender);
+
+    // Cannot vote for the same option twice, but can change vote.
+    if (approve) {
+        assert!(!in_approvals, EDuplicateVote);
+        if (in_rejections) proposal.rejections.remove(&sender);
+        proposal.approvals.insert(sender);
+    } else {
+        assert!(!in_rejections, EDuplicateVote);
+        if (in_approvals) proposal.approvals.remove(&sender);
+        proposal.rejections.insert(sender);
+    };
 }
 
 /// Authorizes an upgrade that has reached threshold. Anyone can call this.
@@ -118,8 +135,8 @@ public fun authorize_upgrade(
     assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
     assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
 
-    // Check threshold.
-    assert!(proposal.voters.length() as u16 >= committee.threshold(), ENotEnoughVotes);
+    // Check threshold for approvals.
+    assert!(proposal.approvals.length() as u16 >= committee.threshold(), ENotEnoughVotes);
 
     let policy = upgrade_manager.cap.policy();
     upgrade_manager.cap.authorize(policy, parsed_digest.0)
@@ -130,17 +147,18 @@ public fun commit_upgrade(upgrade_manager: &mut UpgradeManager, receipt: Upgrade
     upgrade_manager.cap.commit(receipt)
 }
 
-/// Resets the current proposal if it hasn't reached threshold yet.
+/// Resets the current proposal if there are >= threshold rejections.
 public fun reset_proposal(
     upgrade_manager: &mut UpgradeManager,
     committee: &Committee,
     ctx: &TxContext,
 ) {
     assert!(committee.is_member(ctx.sender()), ENotAuthorized);
+    assert!(committee.is_finalized(), EInvalidState);
     assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
 
     let proposal = upgrade_manager.upgrade_proposal.borrow();
-    assert!((proposal.voters.length() as u16) < committee.threshold(), ECannotResetAfterThreshold);
+    assert!((proposal.rejections.length() as u16) >= committee.threshold(), ENotEnoughVotes);
 
     // Clear the proposal.
     upgrade_manager.upgrade_proposal = option::none();
