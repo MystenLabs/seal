@@ -138,7 +138,7 @@ Once all members are registered:
 Collect message files into a single directory and share it with members. The number of messages must equal to exactly the threshold of the current committee.
 
 ```bash
-mkdir dkg-messages
+rm -rf dkg-messages && mkdir dkg-messages
 mv path/to/message_0.json dkg-messages/
 mv path/to/message_1.json dkg-messages/
 mv path/to/message_2.json dkg-messages/
@@ -210,8 +210,8 @@ Then run the command to generate your keys and register them onchain by providin
 
 ```bash
 cargo run --bin dkg-cli -- genkey-and-register \
-  -u https://seal-key-server-committee-ci-0.mystenlabs.com \
-  -n server-ci-0
+  -u <YOUR_SERVER_URL> \
+  -n <YOUR_SERVER_NAME>
 ```
 
 This command:
@@ -232,7 +232,7 @@ This command outputs a file named `dkg-state/message_P.json`, where `P` is your 
 
 4. **Process messages and propose the committee (Phase C: Finalization)**
 
-Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing all members’ messages (for example, `path/to/dkg-messages`).
+Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing messages (for example, `path/to/dkg-messages`).
 
 Move the directory into `dkg-state` and process the messages:
 
@@ -410,14 +410,14 @@ rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml` and verify the committee parameters (member addresses, threshold, current committee ID) using a Sui Explorer.
+Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then generate your keys and register them onchain by providing your server URL and name:
+Then run the command to generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
 cargo run --bin dkg-cli -- genkey-and-register \
-  --server-url <MY_SERVER_URL> \
-  --server-name <MY_SERVER_NAME>
+  -u <YOUR_SERVER_URL> \
+  -n <YOUR_SERVER_NAME>
 ```
 
 This command:
