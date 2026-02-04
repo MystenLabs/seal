@@ -60,13 +60,12 @@ const REFRESH_INTERVAL_SECS: u64 = 30;
 
 /// Default SDK version requirement.
 fn default_ts_sdk_version_requirement() -> VersionReq {
-    // TODO: Update on first aggregator compatible SDK release.
-    VersionReq::parse(">=1000.0.0").expect("Failed to parse default SDK version requirement")
+    VersionReq::parse(">=0.10.0").expect("Failed to parse default SDK version requirement")
 }
 
 /// Default key server version requirement.
 fn default_key_server_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.5.14").expect("Failed to parse default key server version requirement")
+    VersionReq::parse(">=0.6.0").expect("Failed to parse default key server version requirement")
 }
 
 /// API credentials for a key server.
