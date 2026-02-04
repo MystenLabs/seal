@@ -15,7 +15,7 @@ use seal_testnet::key_server::{
 };
 use std::string::String;
 use sui::{
-    bls12381::g2_from_bytes,
+    bls12381::{g1_from_bytes, g2_from_bytes},
     dynamic_object_field as dof,
     vec_map::{Self, VecMap},
     vec_set::{Self, VecSet}
@@ -113,7 +113,7 @@ public fun register(
     ctx: &mut TxContext,
 ) {
     // TODO: maybe check PoP for the public keys.
-    let _ = g2_from_bytes(&enc_pk);
+    let _ = g1_from_bytes(&enc_pk);
     let _ = g2_from_bytes(&signing_pk);
 
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
@@ -218,7 +218,12 @@ fun propose_internal(
     pk: vector<u8>,
     ctx: &TxContext,
 ) {
-    // TODO: add sanity check for partial pks and pk as valid elements.
+    // Validate partial pks and pk as valid G2 elements.
+    let _ = g2_from_bytes(&pk);
+    partial_pks.do_ref!(|partial_pk| {
+        let _ = g2_from_bytes(partial_pk);
+    });
+
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
     assert!(partial_pks.length() == committee.members.length(), EInvalidProposal);
 

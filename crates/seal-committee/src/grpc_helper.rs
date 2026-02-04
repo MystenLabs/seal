@@ -191,7 +191,7 @@ mod tests {
     use crate::ParsedMemberInfo;
     use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
     use fastcrypto::encoding::{Encoding, Hex};
-    use fastcrypto::groups::bls12381::G2Element;
+    use fastcrypto::groups::bls12381::{G1Element, G2Element};
     use fastcrypto_tbls::ecies_v1::PublicKey;
     use std::str::FromStr;
 
@@ -203,9 +203,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_committee_members() {
-        // Test committee object on testnet set up with 3 members.
+        // Test committee object on testnet in Init state with G1Element encryption keys (48 bytes each).
         let committee_id =
-            Address::from_str("0xcadfbdfff2b6df35000ec7bd7a9532eb2b5f834a27bdf33f67d1440f99f6b476")
+            Address::from_str("0x3c9e055bb08775441a3d1a3c834b2b01f1029e4a0c0ba0158dd5d7b5d562cf1d")
                 .unwrap();
 
         let mut grpc_client = create_grpc_client(&Network::Testnet).unwrap();
@@ -215,23 +215,25 @@ mod tests {
         let members_info = committee.get_members_info().unwrap();
 
         let addresses = [
-            Address::from_str("0x0636157e9d013585ff473b3b378499ac2f1d207ed07d70e2cd815711725bca9d")
+            Address::from_str("0x0ceffe3ba385abe7a11f535e3428ae2ff4508eb4b6d370b829318b0d901c1152")
                 .unwrap(),
-            Address::from_str("0xe6a37ff5cd968b6a666fb033d85eabc674449f44f9fc2b600e55e27354211ed6")
+            Address::from_str("0x15ef03731c612580a2c604696da996641d0426c80a202b92f97beb7e55ceccae")
                 .unwrap(),
-            Address::from_str("0x223762117ab21a439f0f3f3b0577e838b8b26a37d9a1723a4be311243f4461b9")
+            Address::from_str("0xef91ea73b4423e3a6176b0a1c9c6e4619de45c9c4e7c0b4aae358e292707d8c2")
                 .unwrap(),
         ];
 
+        // G1Element encryption public keys (48 bytes each)
         let expected_enc_pks = [
-            from_hex_bcs::<PublicKey<G2Element>>("0xac92aa451bb120df26205693cf8724cbeb6781ee48ab62d84a165fea30aa78167f5bcfc5eadd801f67c2c88547584dec14e7e5c29107bbb5bbfec7aac302774c7861504158f4ec174f5d55b1b71d9ca022965729e6785bb7553ed99fb01bb96a"),
-            from_hex_bcs::<PublicKey<G2Element>>("0x8e67011155f8795e7d19d21b5b5c4bdc07499946cd80f151f2d7473830380215b7b768b1b3f179ed3764f47855db409217a2675f9f0cfd1c19c553ebc11a0e7289a91336165208bc5d3f58aaf09679427ab9b561abcef16e5da23791aefa6d58"),
-            from_hex_bcs::<PublicKey<G2Element>>("0x999ff841e7b2f8d565ad69b96b6e03f9478bdb52b037245f41d5ad1535271fb514b5c3c96f66ef5bd2122ef55cdaac48042c969d95ce66c629381a64cdefa3781ec521704818ccfd8bb070249a08072fc07d80ae572a1e5d5dbc2edc12bda8d1"),
+            from_hex_bcs::<PublicKey<G1Element>>("0x8730386961c9a2cb20e85a4c25f334481eb96a2e85df4c3ea0052aceeffa5d5c4ea5293bfd9b653f358e662c38e4e141"),
+            from_hex_bcs::<PublicKey<G1Element>>("0xa67011cc8940b3fb55f95a5ece7755d27e83340f71f5cc54c11e63853fa4c1bc90096993b0b9c2e98f21d49fcb700066"),
+            from_hex_bcs::<PublicKey<G1Element>>("0x8978be47813d6f4d243c024636d2d432655703b57511f36a3fa3eaa310a9f51ac7e3ec10b2748c8527a8a75da4582ff3"),
         ];
+        // G2Element signing public keys (96 bytes each)
         let expected_signing_pks = [
-            from_hex_bcs::<BLS12381PublicKey>("0xa265e1b0eff30db329c9abafe14005a31d3a7e5f8b4fad0d007a994aac9f21b4eae3f4e9ebc8ff268d11c93b2d8ba8df08b57a54bbf4900011df0be631dc087846a9cf233902a7d1d819d46df80db55c35e5310bc5557481bb618c765347958b"),
-            from_hex_bcs::<BLS12381PublicKey>("0xa83e3f4d171d1655d98830af433be591c6a97dcc2f9f054b8cf5c07ecd405daa2f33cdf5e19fea68b843e2946df49550138350f39ebd529b370d46b46254a093b349290564cca85676d9ecf5a90539f57563a55ea92b65a8a932314c19ab24ed"),
-            from_hex_bcs::<BLS12381PublicKey>("0x8604819b0729b376015bfbc30e4de554cba2eb28767407091328b154c83c53978221cbf1974b85b8e73287d0104a5462062558d6e7e6ef04457a50d5dd333f0c33315bbfadf399587b58a483f119168bd78bc8b2bffb5fd87e1518ffc93d4529"),
+            from_hex_bcs::<BLS12381PublicKey>("0x8e24bb14e03a5089a58883beae33c4290f7946d1f49ecaa71d201c03ba735797310489dadaac0a2f5ff81962e6c8a5ac06f57b48e4645859bea3b3b7675bfbae002d8f8d588e0ea7a36a1b4e55e0721f3fe7e41a01b2807b6c9b7471d0f2c024"),
+            from_hex_bcs::<BLS12381PublicKey>("0x9253b1638d92f3c58193d35fa8a4f61e22d419f50b10abbc60448862c2c5100c720183f64ca67a01cca89fbaec3948540c6d99dd4e34cb3e710d1df7eaaa2183f1cc0974d451d6feaf1ae71dbb7280dc1626e72f0163e7d7a4f43fa2a2ad713a"),
+            from_hex_bcs::<BLS12381PublicKey>("0x8f4b8feb60373e4f220512af981da323f85d2851339aec1f3f372bb5a2d31f5f971261b0db62f5fa70a09110ec66aefd06f1ee42536b577ff883a4eba3e70b6183fad1ddd16189ebdb3dafa607684ef75bfc09b10eddf73ca7b854277512b596"),
         ];
 
         for ParsedMemberInfo {
@@ -242,7 +244,7 @@ mod tests {
             signing_pk,
         } in members_info.values()
         {
-            assert_eq!(name, &format!("server{}", party_id + 1));
+            assert_eq!(name, &format!("server-ci-{}", party_id));
             assert_eq!(addresses[*party_id as usize], *address);
             assert_eq!(enc_pk, &expected_enc_pks[*party_id as usize]);
             assert_eq!(signing_pk, &expected_signing_pks[*party_id as usize]);

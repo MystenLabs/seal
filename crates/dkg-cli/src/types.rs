@@ -6,7 +6,7 @@
 use anyhow::Result;
 use fastcrypto::bls12381::min_sig::{BLS12381PrivateKey, BLS12381PublicKey, BLS12381Signature};
 use fastcrypto::encoding::{Encoding, Hex};
-use fastcrypto::groups::bls12381::{G2Element, Scalar as G2Scalar};
+use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::traits::{Signer, VerifyingKey};
 use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMessages};
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
@@ -43,8 +43,8 @@ macro_rules! json_hex_serde_module {
     };
 }
 
-json_hex_serde_module!(enc_sk_serde, PrivateKey<G2Element>);
-json_hex_serde_module!(enc_pk_serde, PublicKey<G2Element>);
+json_hex_serde_module!(enc_sk_serde, PrivateKey<G1Element>);
+json_hex_serde_module!(enc_pk_serde, PublicKey<G1Element>);
 json_hex_serde_module!(signing_sk_serde, BLS12381PrivateKey);
 json_hex_serde_module!(signing_pk_serde, BLS12381PublicKey);
 
@@ -52,9 +52,9 @@ json_hex_serde_module!(signing_pk_serde, BLS12381PublicKey);
 #[derive(Serialize, Deserialize)]
 pub struct KeysFile {
     #[serde(with = "enc_sk_serde")]
-    pub enc_sk: PrivateKey<G2Element>,
+    pub enc_sk: PrivateKey<G1Element>,
     #[serde(with = "enc_pk_serde")]
-    pub enc_pk: PublicKey<G2Element>,
+    pub enc_pk: PublicKey<G1Element>,
     #[serde(with = "signing_sk_serde")]
     pub signing_sk: BLS12381PrivateKey,
     #[serde(with = "signing_pk_serde")]
@@ -77,7 +77,7 @@ pub struct InitializedConfig {
     /// My party ID for this committee.
     pub my_party_id: u16,
     /// All nodes in the protocol.
-    pub nodes: Nodes<G2Element>,
+    pub nodes: Nodes<G1Element>,
     /// This committee ID, used for random oracle.
     pub committee_id: Address,
     /// Threshold for this committee.
@@ -102,18 +102,18 @@ pub struct DkgState {
     /// Configuration
     pub config: InitializedConfig,
     /// Messages created by this party.
-    pub my_message: Option<Message<G2Element, G2Element>>,
+    pub my_message: Option<Message<G2Element, G1Element>>,
     /// Messages received from other parties.
-    pub received_messages: HashMap<u16, Message<G2Element, G2Element>>,
+    pub received_messages: HashMap<u16, Message<G2Element, G1Element>>,
     /// Processed messages.
-    pub processed_messages: Vec<ProcessedMessage<G2Element, G2Element>>,
+    pub processed_messages: Vec<ProcessedMessage<G2Element, G1Element>>,
     /// Confirmation and used messages.
     pub confirmation: Option<(
-        fastcrypto_tbls::dkg_v1::Confirmation<G2Element>,
-        UsedProcessedMessages<G2Element, G2Element>,
+        fastcrypto_tbls::dkg_v1::Confirmation<G1Element>,
+        UsedProcessedMessages<G2Element, G1Element>,
     )>,
     /// Final output (if completed).
-    pub output: Option<Output<G2Element, G2Element>>,
+    pub output: Option<Output<G2Element, G1Element>>,
 }
 
 impl DkgState {
@@ -136,7 +136,7 @@ impl DkgState {
 /// Signed message struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SignedMessage {
-    pub(crate) message: Message<G2Element, G2Element>,
+    pub(crate) message: Message<G2Element, G1Element>,
     pub(crate) signature: BLS12381Signature,
     pub(crate) nizk_proof: DLNizk<G2Element>,
 }
@@ -153,7 +153,7 @@ impl std::str::FromStr for SignedMessage {
 
 /// Create BLS signature for signed message.
 pub(crate) fn sign_message(
-    message: Message<G2Element, G2Element>,
+    message: Message<G2Element, G1Element>,
     sk: &BLS12381PrivateKey,
     nizk_proof: DLNizk<G2Element>,
 ) -> SignedMessage {
@@ -184,7 +184,7 @@ mod tests {
     fn test_keys_file_serde() {
         // Generate random keys
         let mut rng = thread_rng();
-        let enc_sk = PrivateKey::<G2Element>::new(&mut rng);
+        let enc_sk = PrivateKey::<G1Element>::new(&mut rng);
         let enc_pk = PublicKey::from_private_key(&enc_sk);
 
         let signing_kp = BLS12381KeyPair::generate(&mut rng);

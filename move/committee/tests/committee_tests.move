@@ -23,10 +23,11 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         seal_committee::init_committee(2, vector[ALICE, BOB, CHARLIE], scenario.ctx());
 
         // Register all 3 members.
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
-        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"https://url2.com");
+        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"https://url2.com");
 
         // Assuming DKG is completed, all members propose with correct partial keys and master pk.
         let g2_gen = g2_generator();
@@ -91,7 +92,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             ALICE,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url0.com",
         );
@@ -99,7 +100,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             BOB,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url1.com",
         );
@@ -107,7 +108,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             DAVE,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url3.com",
         );
@@ -115,7 +116,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             EVE,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url4.com",
         );
@@ -211,7 +212,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             EVE,
             third_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://eve_url_3.com",
         );
@@ -219,7 +220,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             ALICE,
             third_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://alice_url_3.com",
         );
@@ -227,7 +228,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
             scenario,
             BOB,
             third_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://bob_url_3.com",
         );
@@ -327,10 +328,11 @@ fun test_init_committee_with_empty_members() {
 fun test_init_rotation_fails_with_not_enough_old_members() {
     test_tx!(|scenario| {
         // Init and finalize committee with BOB and CHARLIE.
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
         propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
         propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes], g2_bytes);
 
@@ -350,11 +352,12 @@ fun test_init_rotation_fails_with_not_enough_old_members() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_init_rotation_fails_with_non_finalized_old_committee() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
         propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes], g2_bytes);
         scenario.next_tx(BOB);
         let committee = scenario.take_shared<Committee>();
@@ -373,13 +376,14 @@ fun test_init_rotation_fails_with_non_finalized_old_committee() {
 #[test, expected_failure(abort_code = seal_committee::ENotMember)]
 fun test_register_fails_for_non_member() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
         scenario.next_tx(DAVE);
         let mut committee = scenario.take_shared<Committee>();
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url3"),
             string::utf8(b"server3"),
@@ -393,13 +397,14 @@ fun test_register_fails_for_non_member() {
 #[test, expected_failure(abort_code = seal_committee::EAlreadyRegistered)]
 fun test_register_fails_when_already_registered() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
         scenario.next_tx(BOB);
 
         let mut committee = scenario.take_shared<Committee>();
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url1"),
             string::utf8(b"server1"),
@@ -407,7 +412,7 @@ fun test_register_fails_when_already_registered() {
         );
         // Register again as same member fails.
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url2"),
             string::utf8(b"server2"),
@@ -421,11 +426,12 @@ fun test_register_fails_when_already_registered() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_register_fails_when_not_in_init_state() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
         propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
 
         // Now in Finalized state.
@@ -434,7 +440,7 @@ fun test_register_fails_when_not_in_init_state() {
 
         // Try to register in Finalized state - fails.
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url2"),
             string::utf8(b"server2"),
@@ -447,13 +453,14 @@ fun test_register_fails_when_not_in_init_state() {
 #[test, expected_failure(abort_code = seal_committee::ENameAlreadyTaken)]
 fun test_register_fails_with_duplicate_name() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url1"),
             string::utf8(b"server1"),
@@ -464,7 +471,7 @@ fun test_register_fails_with_duplicate_name() {
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
         committee.register(
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             string::utf8(b"url2"),
             string::utf8(b"server1"), // Same name as BOB
@@ -477,12 +484,13 @@ fun test_register_fails_with_duplicate_name() {
 #[test, expected_failure(abort_code = seal_committee::ENotMember)]
 fun test_propose_fails_for_non_member() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
         // Register members.
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
 
         // Non-member @0x3 tries to propose - fails.
         propose_member!(scenario, DAVE, vector[g2_bytes, g2_bytes], g2_bytes);
@@ -492,11 +500,12 @@ fun test_propose_fails_for_non_member() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidProposal)]
 fun test_propose_fails_with_wrong_partial_pks_count() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
 
         // Propose with only 1 partial_pk instead of 2 - fails.
         propose_member!(scenario, CHARLIE, vector[g2_bytes], g2_bytes);
@@ -506,13 +515,14 @@ fun test_propose_fails_with_wrong_partial_pks_count() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidProposal)]
 fun test_propose_fails_with_mismatched_pk() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         let g2_different_bytes =
             x"95a35c03681de93032e9a0544b9b8533ffd7fabe1e70b29a844030237e84789c0c34c0e5a5b12a33e345599ba90f096f17ddd3a8586a4a0de28c13e249c3767026a4bbdb4343885b50115931f8e8a77d735d269ac5a5eca05787d0b91c4a5ffb";
 
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
 
         propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes], g2_bytes);
         // BOB proposes with mismatched master pk, fails.
@@ -523,10 +533,11 @@ fun test_propose_fails_with_mismatched_pk() {
 #[test, expected_failure(abort_code = seal_committee::ENotRegistered)]
 fun test_propose_fails_when_not_all_registered() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url3");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url3");
 
         // @0x2 not registered, propose fails.
         propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
@@ -536,11 +547,12 @@ fun test_propose_fails_when_not_all_registered() {
 #[test, expected_failure(abort_code = seal_committee::EAlreadyProposed)]
 fun test_propose_fails_on_duplicate_approval() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
 
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
         // First proposal from CHARLIE.
         let partial_pks = vector[g2_bytes, g2_bytes];
         let pk = g2_bytes;
@@ -554,11 +566,12 @@ fun test_propose_fails_on_duplicate_approval() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_propose_fails_committee_has_old_committee_id() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         // Create and finalize first committee (2-of-2 with BOB and CHARLIE).
         seal_committee::init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"url1");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"url2");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
         propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
 
         scenario.next_tx(BOB);
@@ -579,8 +592,8 @@ fun test_propose_fails_committee_has_old_committee_id() {
         test_scenario::return_shared(new_committee);
 
         // Register BOB and CHARLIE for the new committee.
-        register_member_by_id!(scenario, BOB, new_committee_id, g2_bytes, g2_bytes, b"url1");
-        register_member_by_id!(scenario, CHARLIE, new_committee_id, g2_bytes, g2_bytes, b"url2");
+        register_member_by_id!(scenario, BOB, new_committee_id, g1_bytes, g2_bytes, b"url1");
+        register_member_by_id!(scenario, CHARLIE, new_committee_id, g1_bytes, g2_bytes, b"url2");
 
         // Try to call propose (instead of propose_for_rotation) on rotation committee.
         // This should fail because propose is only for fresh DKG committees.
@@ -594,11 +607,12 @@ fun test_propose_fails_committee_has_old_committee_id() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_finalize_for_rotation_mismatched_old_committee() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         // Create first committee (2-of-2).
         seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
-        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
 
         let partial_pks = vector[g2_bytes, g2_bytes];
         let master_pk = g2_bytes;
@@ -611,8 +625,8 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
 
         // Create second unrelated committee (2-of-2).
         seal_committee::init_committee(2, vector[DAVE, EVE], scenario.ctx());
-        register_member!(scenario, DAVE, g2_bytes, g2_bytes, b"https://url3.com");
-        register_member!(scenario, EVE, g2_bytes, g2_bytes, b"https://url4.com");
+        register_member!(scenario, DAVE, g1_bytes, g2_bytes, b"https://url3.com");
+        register_member!(scenario, EVE, g1_bytes, g2_bytes, b"https://url4.com");
         let partial_pks2 = vector[g2_bytes, g2_bytes];
         propose_member!(scenario, DAVE, partial_pks2, master_pk);
 
@@ -638,7 +652,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
             scenario,
             ALICE,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url0.com",
         );
@@ -646,7 +660,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
             scenario,
             BOB,
             new_committee_id,
-            g2_bytes,
+            g1_bytes,
             g2_bytes,
             b"https://new_url1.com",
         );
@@ -668,11 +682,12 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
 #[test, expected_failure(abort_code = seal_committee::EInvalidState)]
 fun test_finalize_for_rotation_invalid_state() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         // Create first committee (2-of-2).
         seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
-        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
+        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
 
         let partial_pks = vector[g2_bytes, g2_bytes];
         let master_pk = g2_bytes;
@@ -685,8 +700,8 @@ fun test_finalize_for_rotation_invalid_state() {
 
         // Create a second committee that is NOT a rotation (no old_committee_id) (2-of-2).
         seal_committee::init_committee(2, vector[DAVE, EVE], scenario.ctx());
-        register_member!(scenario, DAVE, g2_bytes, g2_bytes, b"https://url3.com");
-        register_member!(scenario, EVE, g2_bytes, g2_bytes, b"https://url4.com");
+        register_member!(scenario, DAVE, g1_bytes, g2_bytes, b"https://url3.com");
+        register_member!(scenario, EVE, g1_bytes, g2_bytes, b"https://url4.com");
         let partial_pks2 = vector[g2_bytes, g2_bytes];
         propose_member!(scenario, DAVE, partial_pks2, master_pk);
 
@@ -712,10 +727,11 @@ fun test_finalize_for_rotation_invalid_state() {
 #[test, expected_failure(abort_code = seal_committee::ENotMember)]
 fun test_update_url_fails_for_non_member() {
     test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
         let g2_bytes = *g2_generator().bytes();
         seal_committee::init_committee(2, vector[ALICE, CHARLIE], scenario.ctx());
-        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, CHARLIE, g2_bytes, g2_bytes, b"https://url2.com");
+        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"https://url2.com");
         propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
 
         scenario.next_tx(ALICE);
