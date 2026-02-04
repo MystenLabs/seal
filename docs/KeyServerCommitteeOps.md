@@ -73,7 +73,7 @@ cargo run --bin dkg-cli -- --help
 
 Follow these steps to initialize a new MPC committee using a fresh DKG.
 
-1. **Prepare the DKG state directory**
+1. **Prepare DKG configuration**
 
 a. Create a clean working directory named `dkg-state` and copy the example configuration file:
 
@@ -124,16 +124,16 @@ Check on-chain registration status:
 cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
 ```
 
-The output shows which members have registered and which are still pending.
+The output shows which members have registered and which are still pending. Wait till all are registered.
 
-5. **Notify Phase B (Message Creation) after registration completes**
+5. **Notify Phase B (Message Creation)**
 
 Once all members are registered:
 
 - Notify members to begin **Phase B (Message Creation)**.
 - Monitor the offchain storage location until all members upload their DKG message files.
 
-6. **Collect and share DKG messages**
+6. **Collect and share DKG messages and notify Phase C (Finalization)**
 
 Collect message files into a single directory and share it with members. The number of messages must equal to exactly the threshold of the current committee.
 
@@ -194,7 +194,7 @@ sui client switch --address <MY_ADDRESS>
 sui client switch --env testnet
 ```
 
-2. **Prepare your local DKG state**
+2. **Generate keys and register (Phase A: Registration)**
 
 Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
 
@@ -304,7 +304,7 @@ This guide assumes:
 
 Key rotation follows the same three-phase flow as a fresh DKG, with a few important differences outlined below.
 
-1. **Prepare the DKG state directory**
+1. **Prepare DKG configuration**
 
 a. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
 
@@ -338,6 +338,7 @@ init-params:
     - 0x...
     - 0x...
 
+# Rotation only params
 init-rotation-params:
   KEY_SERVER_OBJ_ID: 0x...  # Key server object ID from the current committee
 ```
@@ -397,7 +398,7 @@ Make sure:
 - Your wallet is connected to the correct network.
 - You have enough gas to submit transactions.
 
-2. **Prepare your local DKG state**
+2. **Generate keys and register (Phase A: Registration)**
 
 Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
 
@@ -425,7 +426,7 @@ This command:
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
-3. **Initialize DKG state and create messages (Phase B: Message Creation)**
+3. **Create and share your DKG message (Phase B: Message Creation)**
 
 Wait for the coordinator to announce **Phase B (Message Creation)**.
 
@@ -537,9 +538,9 @@ The coordinator forwards these credentials to the aggregator operator to update 
 
 **Note:** Continuing members typically do not need to share new credentials, since their existing API keys should already be configured in the aggregator. Share new credentials only if you are rotating your API keys.
 
-7. **Clean up local DKG state**
+7. **Backup and Clean up local DKG state**
 
-After your key server is running successfully, you can safely delete the local DKG state directory:
+Once your key server is running successfully, back up the `MASTER_SHARE_VX+1` value. Then you can safely delete the local DKG state directory:
 
 ```bash
 rm -rf dkg-state
