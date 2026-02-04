@@ -1023,38 +1023,6 @@ fun test_upgrade_vote_fails_for_non_member() {
     });
 }
 
-#[test, expected_failure(abort_code = seal_committee::EDuplicateVote)]
-fun test_upgrade_duplicate_vote_fails() {
-    test_tx!(|scenario| {
-        let g2_bytes = *g2_generator().bytes();
-        seal_committee::init_committee(2, vector[ALICE, BOB], scenario.ctx());
-        register_member!(scenario, ALICE, g2_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g2_bytes, g2_bytes, b"https://url1.com");
-        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
-        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
-
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        new_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        let digest = test_digest(scenario.ctx());
-
-        // ALICE votes to approve
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // ALICE tries to vote approve again - should fail
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
-        test_scenario::return_shared(committee);
-    });
-}
-
 #[test, expected_failure(abort_code = seal_committee::ENoProposalForDigest)]
 fun test_upgrade_vote_fails_with_wrong_digest() {
     test_tx!(|scenario| {

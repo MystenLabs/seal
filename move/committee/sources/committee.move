@@ -38,12 +38,11 @@ const ENameAlreadyTaken: u64 = 9;
 // ===== Upgrade Errors =====
 
 const ENotAuthorized: u64 = 10;
-const EDuplicateVote: u64 = 11;
-const EInvalidPackageDigest: u64 = 12;
-const ENoProposalForDigest: u64 = 13;
-const ENotEnoughVotes: u64 = 14;
-const EWrongVersion: u64 = 15;
-const EUpgradeManagerAlreadySet: u64 = 16;
+const EInvalidPackageDigest: u64 = 11;
+const ENoProposalForDigest: u64 = 12;
+const ENotEnoughVotes: u64 = 13;
+const EWrongVersion: u64 = 14;
+const EUpgradeManagerAlreadySet: u64 = 15;
 
 // ===== Structs =====
 
@@ -93,17 +92,21 @@ public struct UpgradeManagerKey has copy, drop, store {}
 /// New type for package digests ensuring 32 bytes length.
 public struct PackageDigest(vector<u8>) has copy, drop, store;
 
-/// An upgrade proposal containing the digest of the package to upgrade to and the approvals and
-/// rejections votes.
+/// Vote type for upgrade proposals.
+public enum Vote has copy, drop, store {
+    Approve,
+    Reject,
+}
+
+/// An upgrade proposal containing the digest of the package to upgrade to and the votes from
+/// committee members.
 public struct UpgradeProposal has drop, store {
     /// The digest of the package to upgrade to.
     digest: PackageDigest,
     /// The version of the package to upgrade to.
     version: u64,
-    /// The committee members that have approved this proposal.
-    approvals: VecSet<address>,
-    /// The committee members that have rejected this proposal.
-    rejections: VecSet<address>,
+    /// The votes from committee members.
+    votes: VecMap<address, Vote>,
 }
 
 /// The upgrade manager object that contains the upgrade cap for the package and is used to
@@ -244,7 +247,7 @@ public fun approve_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, true, ctx);
+    vote_for_upgrade(committee, digest, Vote::Approve, ctx);
 }
 
 /// Rejects the given digest for upgrade as a committee member. To change vote, call approve_digest_for_upgrade.
@@ -253,7 +256,7 @@ public fun reject_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, false, ctx);
+    vote_for_upgrade(committee, digest, Vote::Reject, ctx);
 }
 
 /// Authorizes an upgrade that approvals count has reached threshold. Anyone can call this.
@@ -274,7 +277,14 @@ public fun authorize_upgrade(committee: &mut Committee, digest: vector<u8>): Upg
     assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
 
     // Check threshold for approvals.
-    assert!(proposal.approvals.length() as u16 >= threshold, ENotEnoughVotes);
+    let mut approval_count = 0u16;
+    proposal.votes.keys().do!(|member| {
+        match (proposal.votes.get(&member)) {
+            Vote::Approve => approval_count = approval_count + 1,
+            Vote::Reject => {},
+        };
+    });
+    assert!(approval_count >= threshold, ENotEnoughVotes);
 
     let policy = upgrade_manager.cap.policy();
     upgrade_manager.cap.authorize(policy, parsed_digest.0)
@@ -297,7 +307,16 @@ public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
     assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
 
     let proposal = upgrade_manager.upgrade_proposal.borrow();
-    assert!((proposal.rejections.length() as u16) >= threshold, ENotEnoughVotes);
+
+    // Count rejections.
+    let mut rejection_count = 0u16;
+    proposal.votes.keys().do!(|member| {
+        match (proposal.votes.get(&member)) {
+            Vote::Reject => rejection_count = rejection_count + 1,
+            Vote::Approve => {},
+        };
+    });
+    assert!(rejection_count >= threshold, ENotEnoughVotes);
 
     // Clear the proposal.
     upgrade_manager.upgrade_proposal = option::none();
@@ -504,12 +523,7 @@ fun check_rotation_consistency(self: &Committee, old_committee: &Committee) {
 
 /// Helper function to vote approve or reject as a committee member. Each member can have one active
 /// vote (approve or reject) per proposal, and can change vote by voting again.
-fun vote_for_upgrade(
-    committee: &mut Committee,
-    digest: vector<u8>,
-    approve: bool, // true = approve, false = reject
-    ctx: &TxContext,
-) {
+fun vote_for_upgrade(committee: &mut Committee, digest: vector<u8>, vote: Vote, ctx: &TxContext) {
     assert!(committee.members.contains(&ctx.sender()), ENotAuthorized);
     assert!(committee.is_finalized(), EInvalidState);
 
@@ -523,8 +537,7 @@ fun vote_for_upgrade(
             option::some(UpgradeProposal {
                 digest: parsed_digest,
                 version: cap_version + 1,
-                approvals: vec_set::empty(),
-                rejections: vec_set::empty(),
+                votes: vec_map::empty(),
             });
     };
 
@@ -537,20 +550,12 @@ fun vote_for_upgrade(
 
     let sender = ctx.sender();
 
-    // Check current vote status.
-    let in_approvals = proposal.approvals.contains(&sender);
-    let in_rejections = proposal.rejections.contains(&sender);
-
-    // Cannot vote for the same option twice, but can change vote.
-    if (approve) {
-        assert!(!in_approvals, EDuplicateVote);
-        if (in_rejections) proposal.rejections.remove(&sender);
-        proposal.approvals.insert(sender);
-    } else {
-        assert!(!in_rejections, EDuplicateVote);
-        if (in_approvals) proposal.approvals.remove(&sender);
-        proposal.rejections.insert(sender);
+    // Remove existing vote if any, then insert new vote.
+    if (proposal.votes.contains(&sender)) {
+        proposal.votes.remove(&sender);
     };
+
+    proposal.votes.insert(sender, vote);
 }
 
 /// Creates a new package digest given a byte vector and check length is 32 bytes.
@@ -562,7 +567,7 @@ macro fun package_digest($digest: vector<u8>): PackageDigest {
 
 /// Helper function to borrow the UpgradeManager from the committee.
 fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
-    dof::borrow_mut<UpgradeManagerKey, UpgradeManager>(&mut committee.id, UpgradeManagerKey {})
+    dof::borrow_mut(&mut committee.id, UpgradeManagerKey {})
 }
 
 /// Test-only function to borrow the KeyServer dynamic object field.
