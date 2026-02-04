@@ -15,9 +15,9 @@ This document covers the following tasks:
 
 Both fresh DKG and key rotation follow the same three-phase process. The coordinator signals members when to move from one phase to the next:
 
-- **Phase 1 — Registration:** Members generate encryption keys and register them onchain.
-- **Phase 2 — Message Creation:** Members create and exchange DKG messages offchain.
-- **Phase 3 — Finalization:** Members process messages and propose the committee configuration onchain.
+- **Phase A — Registration:** Members generate encryption keys and register them onchain.
+- **Phase B — Message Creation:** Members create and exchange DKG messages offchain.
+- **Phase C — Finalization:** Members process messages and propose the committee configuration onchain.
 
 The guide is organized into four sections:
 
@@ -78,6 +78,7 @@ Follow these steps to initialize a new MPC committee using a fresh DKG.
 a. Create a clean working directory named `dkg-state` and copy the example configuration file:
 
 ```bash
+# in seal/
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
@@ -111,9 +112,9 @@ publish-and-init:
   COORDINATOR_ADDRESS: 0xef91ea73b4423e3a6176b0a1c9c6e4619de45c9c4e7c0b4aae358e292707d8c2
 ```
 
-3. **Distribute configuration and start Phase 1**
+3. **Distribute configuration and notify Phase A (Registration)**
 
-Share the updated dkg.yaml file with all committee members. Notify members to begin **Phase 1 (Registration)**.
+Share the updated `dkg.yaml` file with all committee members. Notify members to begin **Phase A (Registration)**.
 
 4. **Monitor member registration**
 
@@ -125,11 +126,11 @@ cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
 
 The output shows which members have registered and which are still pending.
 
-5. **Start Phase 2 after registration completes**
+5. **Notify Phase B (Message Creation) after registration completes**
 
 Once all members are registered:
 
-- Notify members to begin **Phase 2 (Message Creation)**.
+- Notify members to begin **Phase B (Message Creation)**.
 - Monitor the offchain storage location until all members upload their DKG message files.
 
 6. **Collect and share DKG messages**
@@ -138,12 +139,12 @@ Collect message files into a single directory and share it with members. The num
 
 ```bash
 mkdir dkg-messages
-mv message_0.json dkg-messages/
-mv message_1.json dkg-messages/
-mv message_2.json dkg-messages/
+mv path/to/message_0.json dkg-messages/
+mv path/to/message_1.json dkg-messages/
+mv path/to/message_2.json dkg-messages/
 ```
 
-Notify members to begin **Phase 3 (Finalization)**.
+Notify members to begin **Phase C (Finalization)**.
 
 7. **Confirm committee finalization**
 
@@ -193,18 +194,19 @@ sui client switch --address <MY_ADDRESS>
 sui client switch --env testnet
 ```
 
-2. **Prepare your local DKG state (Phase 1)**
+2. **Prepare your local DKG state**
 
-Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
+Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
 
 ```bash
+# in seal/
 rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
 Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then generate your keys and register them onchain by providing your server URL and name:
+Then run the command to generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
 cargo run --bin dkg-cli -- genkey-and-register \
@@ -214,23 +216,23 @@ cargo run --bin dkg-cli -- genkey-and-register \
 
 This command:
 
-- Generates sensitive key material and state and stores it in `dkg-state/`. Keep this directory secure.
+- Generates DKG key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
-3. **Create and share your DKG message (Phase 2)**
+3. **Create and share your DKG message (Phase B: Message Creation)**
 
-Wait for the coordinator to announce **Phase 2 (Message Creation)**. Then initialize your local DKG state and generate your message file:
+Wait for the coordinator to announce **Phase B (Message Creation)**. Then initialize your local DKG state and generate your message file:
 
 ```bash
-cargo run --bin dkg-cli -- init-state
+cargo run --bin dkg-cli -- create-message
 ```
 
 This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
 
-4. **Process messages and propose the committee (Phase 3)**
+4. **Process messages and propose the committee (Phase C: Finalization)**
 
-Wait for the coordinator to announce **Phase 3 (Finalization)** and provide a directory containing all members’ messages (for example, `path/to/dkg-messages`).
+Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing all members’ messages (for example, `path/to/dkg-messages`).
 
 Move the directory into `dkg-state` and process the messages:
 
@@ -307,6 +309,7 @@ Key rotation follows the same three-phase flow as a fresh DKG, with a few import
 a. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
 
 ```bash
+# in seal/
 rm -rf dkg-state & mkdir dkg-state
 cp crates/dkg-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
@@ -344,7 +347,7 @@ init-rotation-params:
 Instead of running `publish-and-init`, initialize the key rotation:
 
 ```bash
-cargo run --bin dkg-cli -- init-rotation -c dkg-state/dkg.yaml
+cargo run --bin dkg-cli -- init-rotation
 ```
 
 This command:
@@ -361,7 +364,7 @@ After the command completes, share the updated `dkg.yaml` file with all members.
 
 3. **Run Phases 1–3**
 
-Proceed through **Phase 1 (Registration)**, **Phase 2 (Message Creation)**, and **Phase 3 (Finalization)** using the **same steps as a fresh DKG**.
+Proceed through **Phase A (Registration)**, **Phase B (Message Creation)**, and **Phase C (Finalization)** using the **same steps as a fresh DKG**.
 
 As the coordinator:
 
@@ -394,13 +397,14 @@ Make sure:
 - Your wallet is connected to the correct network.
 - You have enough gas to submit transactions.
 
-2. **Prepare your local DKG state (Phase 1)**
+2. **Prepare your local DKG state**
 
-Wait for the coordinator to announce **Phase 1 (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
+Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
 
 Create a local working directory named `dkg-state` and move the file there:
 
 ```bash
+# in seal/
 rm -rf dkg-state & mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
@@ -411,7 +415,6 @@ Then generate your keys and register them onchain by providing your server URL a
 
 ```bash
 cargo run --bin dkg-cli -- genkey-and-register \
-  -c dkg-state/dkg.yaml \
   --server-url <MY_SERVER_URL> \
   --server-name <MY_SERVER_NAME>
 ```
@@ -422,17 +425,16 @@ This command:
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
-3. **Initialize DKG state and create messages (Phase 2)**
+3. **Initialize DKG state and create messages (Phase B: Message Creation)**
 
-Wait for the coordinator to announce **Phase 2 (Message Creation)**.
+Wait for the coordinator to announce **Phase B (Message Creation)**.
 
 **For continuing members**:
 
 Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`):
 
 ```bash
-cargo run --bin dkg-cli -- create-message \
-  -o <MASTER_SHARE_VX>
+cargo run --bin dkg-cli -- create-message -o <MASTER_SHARE_VX>
 ```
 
 This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
@@ -445,18 +447,16 @@ Initialize your DKG state. No message file is generated (new members don't creat
 cargo run --bin dkg-cli -- init-state
 ```
 
-4. **Process messages and propose the rotation (Phase 3)**
+4. **Process messages and propose the rotation (Phase C: Finalization)**
 
-Wait for the coordinator to announce **Phase 3 (Finalization)** and provide a directory containing all DKG messages (for example, `path/to/dkg-messages`).
+Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing all DKG messages (for example, `path/to/dkg-messages`).
 
 Move the directory into `dkg-state` and process the messages:
 
 ```bash
 mv path/to/dkg-messages dkg-state/
 
-cargo run --bin dkg-cli -- process-all-and-propose \
-  -c dkg-state/dkg.yaml \
-  --messages-dir dkg-state/dkg-messages
+cargo run --bin dkg-cli -- process-all-and-propose
 ```
 
 This command:
@@ -553,7 +553,7 @@ rm -rf dkg-state
 | Committee version | Starts at `V0` | Rotates from `VX` to `VX+1` |
 | Coordinator init command | `publish-and-init` | `init-rotation` |
 | Continuing members required | N/A | Must meet current threshold |
-| Member Phase 2 command | All members: `create-message` | Continuing members: `create-message -o <OLD_SHARE>`<br>New members: `init-state` |
+| Member Phase B command | All members: `create-message` | Continuing members: `create-message -o <OLD_SHARE>`<br>New members: `init-state` |
 | Old master share needed | N/A | Yes (continuing members must provide via `-o` flag) |
 | Message creation | All members create messages | Only continuing members create messages |
 | Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
