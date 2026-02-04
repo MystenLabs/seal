@@ -138,9 +138,9 @@ Collect message files into a single directory and share it with members. The num
 
 ```bash
 mkdir dkg-messages
-mv message_0.json dkg-messages/
-mv message_1.json dkg-messages/
-mv message_2.json dkg-messages/
+mv path/to/message_0.json dkg-messages/
+mv path/to/message_1.json dkg-messages/
+mv path/to/message_2.json dkg-messages/
 ```
 
 Notify members to begin **Phase 3 (Finalization)**.
@@ -204,7 +204,7 @@ mv path/to/dkg.yaml dkg-state/
 
 Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then generate your keys and register them onchain by providing your server URL and name:
+Then run the command to generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
 cargo run --bin dkg-cli -- genkey-and-register \
@@ -214,7 +214,7 @@ cargo run --bin dkg-cli -- genkey-and-register \
 
 This command:
 
-- Generates sensitive key material and state and stores it in `dkg-state/`. Keep this directory secure.
+- Generates DKG key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME` and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
 - Registers your public keys onchain.
 
@@ -223,7 +223,7 @@ This command:
 Wait for the coordinator to announce **Phase 2 (Message Creation)**. Then initialize your local DKG state and generate your message file:
 
 ```bash
-cargo run --bin dkg-cli -- init-state
+cargo run --bin dkg-cli -- create-message
 ```
 
 This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
