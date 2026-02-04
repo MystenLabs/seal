@@ -147,9 +147,9 @@ enum Commands {
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
 
-        /// Directory containing message_*.json files from all parties.
-        #[arg(short = 'm', long, default_value = "dkg-messages")]
-        messages_dir: PathBuf,
+        /// Directory containing message_*.json files (overrides default <state_dir>/dkg-messages).
+        #[arg(short = 'm', long)]
+        messages_dir: Option<PathBuf>,
 
         /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
         #[arg(short, long)]
@@ -668,6 +668,7 @@ async fn main() -> Result<()> {
             keys_file,
         } => {
             let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let full_messages_dir = messages_dir.unwrap_or_else(|| state_dir.join("dkg-messages"));
             let config_content = load_config(&config)?;
 
             let committee_pkg = get_committee_pkg(&config_content)?;
@@ -685,7 +686,7 @@ async fn main() -> Result<()> {
 
             // Process DKG messages.
             println!("\n=== Processing DKG messages ===");
-            println!("  Messages directory: {:?}", messages_dir);
+            println!("  Messages directory: {:?}", full_messages_dir);
             println!("  State directory: {:?}", state_dir);
             println!("  Keys file: {:?}\n", keys_file);
 
@@ -693,7 +694,7 @@ async fn main() -> Result<()> {
             let local_keys = KeysFile::load(&keys_file)?;
 
             // Load and process all messages.
-            let messages = load_messages_from_dir(&messages_dir)?;
+            let messages = load_messages_from_dir(&full_messages_dir)?;
             let output = process_dkg_messages(&mut state, messages, &local_keys)?;
 
             // Determine version.
