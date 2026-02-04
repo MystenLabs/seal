@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "test": "tsx simple-seal-server.test.ts",
-    "lint": "eslint ."
+    "prettier:check": "prettier -c --ignore-unknown .",
+    "prettier:fix": "prettier -w --ignore-unknown .",
+    "lint": "pnpm run prettier:check",
+    "lint:fix": "pnpm run prettier:fix"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +20,7 @@
     "@mysten/sui": "^1.37.6"
   },
   "devDependencies": {
+    "prettier": "^3.4.2",
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   }
