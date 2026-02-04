@@ -65,6 +65,9 @@ pub enum ServerMode {
         key_server_obj_id: Address,
         /// The state of the committee: Active or Rotation.
         committee_state: CommitteeState,
+        /// Server name fetched from onchain PartialKeyServer (populated during initialization).
+        #[serde(skip)]
+        server_name: String,
     },
 }
 

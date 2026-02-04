@@ -188,8 +188,11 @@ async fn main() -> Result<()> {
     let state = load_committee_state(options.clone(), metrics.clone()).await?;
 
     // Spawn background task to push metrics to seal-proxy if configured.
-    let _metrics_push_handle =
-        spawn_metrics_push_job(options.metrics_push_config.clone(), registry.clone());
+    let _metrics_push_handle = spawn_metrics_push_job(
+        options.metrics_push_config.clone(),
+        registry.clone(),
+        options.key_server_object_id,
+    );
 
     // Spawn background task to monitor committee member updates.
     {
@@ -573,6 +576,7 @@ fn handle_insufficient_responses(
 fn spawn_metrics_push_job(
     push_config: Option<MetricsPushConfig>,
     registry: Registry,
+    key_server_object_id: Address,
 ) -> JoinHandle<()> {
     if let Some(push_config) = push_config {
         tokio::spawn(async move {
@@ -583,8 +587,13 @@ fn spawn_metrics_push_job(
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let mut dynamic_config = push_config.clone();
+                        let mut labels = dynamic_config.labels.unwrap_or_default();
+                        labels.insert("key_server_object_id".to_string(), key_server_object_id.to_string().clone());
+                        dynamic_config.labels = Some(labels);
+
                         if let Err(error) = push_metrics(
-                            push_config.clone(),
+                            dynamic_config,
                             &client,
                             &registry,
                         ).await {
