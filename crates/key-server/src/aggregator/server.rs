@@ -224,7 +224,13 @@ async fn main() -> Result<()> {
             metrics.clone(),
             aggregator_metrics_middleware,
         ))
-        .layer(CorsLayer::new().allow_origin(Any));
+        .layer(
+            CorsLayer::new()
+                .allow_methods(Any)
+                .allow_origin(Any)
+                .allow_headers(Any)
+                .expose_headers(Any),
+        );
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

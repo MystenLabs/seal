@@ -39,7 +39,7 @@ async function testCorsHeaders(url: string, name: string, apiKeyName?: string, a
     const keyServerVersion = response.headers.get('x-keyserver-version');
     const exposedHeaders = response.headers.get('access-control-expose-headers');
     if (!keyServerVersion || !exposedHeaders|| !exposedHeaders!.includes('x-keyserver-version') && exposedHeaders !== '*') {
-        console.error(`missing header: ${name} ${keyServerVersion} ${exposedHeaders}`);
+        throw new Error(`Missing CORS headers for ${name}: keyServerVersion=${keyServerVersion}, exposedHeaders=${exposedHeaders}`);
     }
     return keyServerVersion;
 }
