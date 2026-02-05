@@ -370,9 +370,13 @@ async fn handle_fetch_key(
 
     // Collect responses until we have threshold, then abort remaining.
     let threshold = *state.threshold.read().await;
+    let total_committee_members = state.committee_members.read().await.0.contents.len();
     let mut responses = Vec::new();
     let mut errors = Vec::new();
+    let mut completed = 0;
+
     while let Some(result) = fetch_tasks.next().await {
+        completed += 1;
         match result {
             Ok((party_id, response)) => {
                 responses.push((party_id, response));
@@ -384,12 +388,26 @@ async fn handle_fetch_key(
                 errors.push(e);
             }
         }
+
+        // Early termination: check if threshold is still achievable
+        let tasks_remaining = total_committee_members - completed;
+        if responses.len() + tasks_remaining < threshold as usize {
+            warn!(
+                "Cannot reach threshold {} with {} responses and {} tasks remaining (req_id: {})",
+                threshold,
+                responses.len(),
+                tasks_remaining,
+                req_id
+            );
+            break;
+        }
     }
 
     info!(
-        "Collected {} responses, {} errors",
+        "Collected {} responses, {} errors, threshold {}",
         responses.len(),
-        errors.len()
+        errors.len(),
+        threshold
     );
 
     // If not enough responses, return majority error from key servers.
@@ -445,7 +463,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(8))
         .send()
         .await
         .map_err(|e| {
