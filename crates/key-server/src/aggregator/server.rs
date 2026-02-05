@@ -558,20 +558,20 @@ fn handle_insufficient_responses(
     InternalError::Failure(msg).into()
 }
 
-/// Check and warn about missing API credentials for committee members.
-fn check_missing_api_credentials(
-    members: &VecMap<Address, PartialKeyServer>,
-    api_credentials: &HashMap<String, ApiCredentials>,
-) {
-    for member in &members.0.contents {
-        if !api_credentials.contains_key(&member.value.name) {
-            warn!(
-                "Missing API credentials for committee member '{}' (party_id: {}, url: {})",
-                member.value.name, member.value.party_id, member.value.url
-            );
-        }
-    }
-}
+// /// Check and warn about missing API credentials for committee members.
+// fn check_missing_api_credentials(
+//     members: &VecMap<Address, PartialKeyServer>,
+//     api_credentials: &HashMap<String, ApiCredentials>,
+// ) {
+//     for member in &members.0.contents {
+//         if !api_credentials.contains_key(&member.value.name) {
+//             warn!(
+//                 "Missing API credentials for committee member '{}' (party_id: {}, url: {})",
+//                 member.value.name, member.value.party_id, member.value.url
+//             );
+//         }
+//     }
+// }
 
 /// Load committee state from onchain KeyServerV2 object.
 async fn load_committee_state(
@@ -585,7 +585,7 @@ async fn load_committee_state(
     let (threshold, members) = key_server_v2.extract_committee_info()?;
 
     // Check and warn about missing API credentials for current committee.
-    check_missing_api_credentials(&members, &options.api_credentials);
+    // check_missing_api_credentials(&members, &options.api_credentials);
 
     Ok(AppState {
         aggregator_metrics: metrics,
