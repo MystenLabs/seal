@@ -419,6 +419,7 @@ fn test_master_keys_committee_mode() {
         member_address: Address::ZERO,
         key_server_obj_id: Address::TWO,
         committee_state: CommitteeState::Rotation { target_version: 5 },
+        server_name: "test-server".to_string(),
     };
 
     with_vars(
@@ -453,6 +454,7 @@ fn test_master_keys_committee_mode() {
         member_address: Address::ZERO,
         key_server_obj_id: Address::TWO,
         committee_state: CommitteeState::Active,
+        server_name: "test-server".to_string(),
     };
 
     with_vars(
@@ -481,6 +483,7 @@ fn test_master_keys_committee_mode() {
         member_address: Address::ZERO,
         key_server_obj_id: Address::TWO,
         committee_state: CommitteeState::Rotation { target_version: 5 },
+        server_name: "test-server".to_string(),
     };
     with_vars(
         [("MASTER_SHARE_V5", Some(&master_share_v5_encoded))],

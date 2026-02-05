@@ -434,6 +434,7 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
             member_address: Address::new(member_address.to_inner()),
             key_server_obj_id: Address::new(key_server_id.into_bytes()),
             committee_state: CommitteeState::Rotation { target_version: 1 },
+            server_name: "test_committee_server".to_string(),
         },
         Some(0), // onchain_version starts at 0
         [

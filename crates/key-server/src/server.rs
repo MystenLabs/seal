@@ -73,7 +73,6 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{debug, error, info, warn};
 use valid_ptb::ValidPtb;
-
 mod cache;
 mod common;
 mod errors;
@@ -143,7 +142,21 @@ struct Server {
 }
 
 impl Server {
-    async fn new(options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
+    /// Helper to extract committee server parameters for metrics and other uses.
+    /// Returns (key_server_object_id, server_name).
+    /// Returns None if not in committee mode.
+    fn get_committee_server_params(&self) -> Option<(Address, String)> {
+        match &self.options.server_mode {
+            ServerMode::Committee {
+                key_server_obj_id,
+                server_name,
+                ..
+            } => Some((*key_server_obj_id, server_name.clone())),
+            _ => None,
+        }
+    }
+
+    async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
             SuiClientBuilder::default()
                 .request_timeout(options.rpc_config.timeout)
@@ -158,17 +171,32 @@ impl Server {
         );
         info!("Server started with network: {:?}", options.network);
 
-        // Fetch current committee version onchain for committee server.
-        let committee_version = match &options.server_mode {
+        // Fetch current committee version and server name onchain for committee server.
+        let committee_version = match &mut options.server_mode {
             ServerMode::Committee {
-                key_server_obj_id, ..
+                key_server_obj_id,
+                member_address,
+                server_name,
+                ..
             } => {
-                let version = fetch_committee_server_version(
-                    &mut sui_rpc_client.sui_grpc_client(),
+                let mut grpc_client = sui_rpc_client.sui_grpc_client();
+
+                let version = fetch_committee_server_version(&mut grpc_client, key_server_obj_id)
+                    .await
+                    .expect("Failed to fetch committee server version");
+
+                // Fetch server name from onchain PartialKeyServer
+                let member_info = get_partial_key_server_for_member(
+                    &mut grpc_client,
                     key_server_obj_id,
+                    member_address,
                 )
                 .await
-                .expect("Failed to fetch committee server version");
+                .expect("Failed to fetch PartialKeyServer info from onchain");
+
+                *server_name = member_info.name;
+                info!("Committee server name: {}", server_name);
+
                 Some(version)
             }
             _ => None,
@@ -604,6 +632,7 @@ impl Server {
     fn spawn_metrics_push_job(&self, registry: prometheus::Registry) -> JoinHandle<()> {
         let push_config = self.options.metrics_push_config.clone();
         if let Some(push_config) = push_config {
+            let params = self.get_committee_server_params();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(push_config.push_interval);
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -612,8 +641,16 @@ impl Server {
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
+                            let mut dynamic_config = push_config.clone();
+                            let mut labels = dynamic_config.labels.unwrap_or_default();
+                            if let Some((key_server_obj_id, server_name)) = &params {
+                                labels.insert("key_server_object_id".to_string(), key_server_obj_id.to_string());
+                                labels.insert("server_name".to_string(), server_name.clone());
+                            }
+                            dynamic_config.labels = Some(labels);
+
                             if let Err(error) = metrics_push::push_metrics(
-                                push_config.clone(),
+                                dynamic_config,
                                 &client,
                                 &registry,
                             ).await {
@@ -641,6 +678,7 @@ impl Server {
             member_address: _,
             key_server_obj_id,
             committee_state,
+            server_name: _,
         } = &self.options.server_mode
         else {
             return;

@@ -127,6 +127,7 @@ pub(crate) async fn create_committee_servers(
                 member_address,
                 key_server_obj_id,
                 committee_state: committee_state.clone(),
+                server_name: "test_committee_server".to_string(),
             },
             Some(onchain_version),
             vars_refs,
