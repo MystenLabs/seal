@@ -679,14 +679,22 @@ async fn monitor_members_update(mut state: AppState) {
 
         // Check for new members' API credentials by comparing with current state.
         let member_count = members.0.contents.len();
-        let current_members = state.committee_members.read().await;
-        let current_names: HashSet<_> = current_members
-            .0
-            .contents
-            .iter()
-            .map(|m| &m.value.name)
-            .collect();
+        let current_names: HashSet<String> = {
+            // Read lock and drop after.
+            let current_members = state.committee_members.read().await;
+            current_members
+                .0
+                .contents
+                .iter()
+                .map(|m| m.value.name.clone())
+                .collect()
+        };
 
+        info!(
+            "Fetched updated committee: {} members, current: {} members",
+            member_count,
+            current_names.len()
+        );
         for member in &members.0.contents {
             if !current_names.contains(&member.value.name)
                 && !state
