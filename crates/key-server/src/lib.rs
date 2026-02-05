@@ -7,4 +7,3 @@ pub mod aggregator;
 pub mod common;
 pub mod errors;
 pub mod metrics;
-pub mod metrics_push;
