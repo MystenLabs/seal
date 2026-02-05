@@ -17,7 +17,7 @@ use std::string::String;
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
     dynamic_object_field as dof,
-    package::{UpgradeCap, UpgradeTicket, UpgradeReceipt},
+    package::{Self, Publisher, UpgradeCap, UpgradeTicket, UpgradeReceipt},
     vec_map::{Self, VecMap},
     vec_set::{Self, VecSet}
 };
@@ -42,9 +42,19 @@ const EInvalidPackageDigest: u64 = 11;
 const ENoProposalForDigest: u64 = 12;
 const ENotEnoughVotes: u64 = 13;
 const EWrongVersion: u64 = 14;
-const EUpgradeManagerAlreadySet: u64 = 15;
+const EWrongUpgradeCap: u64 = 15;
 
 // ===== Structs =====
+
+/// One-time witness for claiming init cap.
+public struct SEAL_COMMITTEE has drop {}
+
+/// One-time initialization capability. Transferred to deployer and used to create the initial committe.
+/// Contains Publisher to verify the UpgradeCap belongs to this package.
+public struct InitCap has key, store {
+    id: UID,
+    publisher: Publisher,
+}
 
 /// Member information to register with two public keys and the key server URL.
 public struct MemberInfo has copy, drop, store {
@@ -120,14 +130,53 @@ public struct UpgradeManager has key, store {
 
 // ===== Public Functions =====
 
-/// Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
-/// state with empty members_info.
-public fun init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
-    init_internal(threshold, members, option::none(), ctx)
+/// Module initializer that transfers an InitCap to the deployer.
+/// The deployer receives both InitCap and UpgradeCap (sent by Sui) and must call init_committee.
+fun init(otw: SEAL_COMMITTEE, ctx: &mut TxContext) {
+    let publisher = package::claim(otw, ctx);
+    let init_cap = InitCap {
+        id: object::new(ctx),
+        publisher,
+    };
+    transfer::transfer(init_cap, ctx.sender());
+}
+
+/// Consumes the InitCap and UpgradeCap, and Create a committee for fresh DKG with a list of members and threshold. The committee is in Init
+/// state with empty members_infoattaches UpgradeManager,
+/// so only the deployer (who has the InitCap) can initialize with the correct UpgradeCap.
+public fun init_committee(
+    init_cap: InitCap,
+    cap: UpgradeCap,
+    threshold: u16,
+    members: vector<address>,
+    ctx: &mut TxContext,
+) {
+    let InitCap { id, publisher } = init_cap;
+    id.delete();
+
+    // Verify UpgradeCap belongs to this package
+    let cap_package_addr = cap.package().to_address().to_ascii_string();
+    assert!(cap_package_addr == *publisher.package(), EWrongUpgradeCap);
+
+    // Destroy publisher after validation (or keep for future use)
+    publisher.burn();
+
+    let mut committee = init_internal(threshold, members, option::none(), ctx);
+
+    // Attach the UpgradeManager
+    let upgrade_manager = UpgradeManager {
+        id: object::new(ctx),
+        cap,
+        upgrade_proposal: option::none(),
+    };
+    dof::add(&mut committee.id, UpgradeManagerKey {}, upgrade_manager);
+
+    transfer::share_object(committee);
 }
 
 /// Create a committee for rotation from an existing finalized old committee. The new committee must
-/// contain an old threshold of the old committee members.
+/// contain an old threshold of the old committee members. No InitCap needed since the UpgradeManager
+/// is transferred from the old committee during rotation finalization.
 public fun init_rotation(
     old_committee: &Committee,
     threshold: u16,
@@ -144,7 +193,8 @@ public fun init_rotation(
     });
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
-    init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
+    let committee = init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
+    transfer::share_object(committee);
 }
 
 /// Register a member with ecies pk, signing pk and URL. Append it to members_info.
@@ -221,25 +271,6 @@ public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut T
 }
 
 // ===== Upgrade Public Functions =====
-
-/// Create a new upgrade manager and attach it as a DOF to the committee. Called after deploying the
-/// where the UpgradeCap is obtained.
-public fun new_upgrade_manager(committee: &mut Committee, cap: UpgradeCap, ctx: &mut TxContext) {
-    assert!(
-        !dof::exists_with_type<UpgradeManagerKey, UpgradeManager>(
-            &committee.id,
-            UpgradeManagerKey {},
-        ),
-        EUpgradeManagerAlreadySet,
-    );
-
-    let upgrade_manager = UpgradeManager {
-        id: object::new(ctx),
-        cap,
-        upgrade_proposal: option::none(),
-    };
-    dof::add(&mut committee.id, UpgradeManagerKey {}, upgrade_manager);
-}
 
 /// Approves the given digest for upgrade as a committee member. To change vote, call reject_digest_for_upgrade.
 public fun approve_digest_for_upgrade(
@@ -332,13 +363,13 @@ public(package) fun is_finalized(committee: &Committee): bool {
     }
 }
 
-/// Internal function to initialize a shared committee object with optional old committee id.
+/// Internal function to create a committee object with validation.
 fun init_internal(
     threshold: u16,
     members: vector<address>,
     old_committee_id: Option<ID>,
     ctx: &mut TxContext,
-) {
+): Committee {
     assert!(threshold > 1, EInvalidThreshold);
     assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
     assert!(members.length() as u16 >= threshold, EInvalidThreshold);
@@ -346,13 +377,13 @@ fun init_internal(
     // Throws EKeyAlreadyExists if duplicate members are found.
     let _ = vec_set::from_keys(members);
 
-    transfer::share_object(Committee {
+    Committee {
         id: object::new(ctx),
         threshold,
         members,
         state: State::Init { members_info: vec_map::empty() },
         old_committee_id,
-    });
+    }
 }
 
 /// Internal function to handle propose logic for both fresh DKG and rotation.
@@ -568,6 +599,28 @@ macro fun package_digest($digest: vector<u8>): PackageDigest {
 /// Helper function to borrow the UpgradeManager from the committee.
 fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
     dof::borrow_mut(&mut committee.id, UpgradeManagerKey {})
+}
+
+/// Test-only function to create a committee without InitCap for testing.
+#[test_only]
+public fun test_init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
+    let committee = init_internal(threshold, members, option::none(), ctx);
+    transfer::share_object(committee);
+}
+
+/// Test-only function to attach an upgrade manager to a committee for testing.
+#[test_only]
+public fun test_attach_upgrade_manager(
+    committee: &mut Committee,
+    cap: UpgradeCap,
+    ctx: &mut TxContext,
+) {
+    let upgrade_manager = UpgradeManager {
+        id: object::new(ctx),
+        cap,
+        upgrade_proposal: option::none(),
+    };
+    dof::add(&mut committee.id, UpgradeManagerKey {}, upgrade_manager);
 }
 
 /// Test-only function to borrow the KeyServer dynamic object field.
