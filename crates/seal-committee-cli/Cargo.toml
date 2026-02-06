@@ -1,5 +1,5 @@
 [package]
-name = "dkg-cli"
+name = "seal-committee-cli"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -29,5 +29,5 @@ prost-types.workspace = true
 dirs = "5.0"
 
 [[bin]]
-name = "dkg-cli"
+name = "seal-committee-cli"
 path = "src/main.rs"

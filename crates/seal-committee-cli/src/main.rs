@@ -47,8 +47,8 @@ use std::os::unix::fs::PermissionsExt;
 use crate::types::{sign_message, verify_signature, SignedMessage};
 
 #[derive(Parser)]
-#[command(name = "dkg-cli")]
-#[command(about = "DKG and key rotation CLI tool", long_about = None)]
+#[command(name = "seal-committee-cli")]
+#[command(about = "Seal committee CLI tool for DKG ceremony and contract upgrades.", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
