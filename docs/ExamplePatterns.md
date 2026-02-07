@@ -12,7 +12,7 @@ Use this pattern when a single owner should control encrypted content. You store
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/account_based.move)
 
-Use this pattern when you want to encrypt data to a specific Sui address. The key ID is derived directly from the recipient's address, so anyone can encrypt a message for address B, but only the owner of that address can decrypt it. There's no on-chain state to manage — access is determined entirely by address ownership. It's a natural fit for end-to-end encrypted messaging, private notifications, or any scenario where you need to send encrypted data to a known recipient without setting up shared state first.
+Use this pattern when you want to encrypt data to a specific Sui address. The key ID is derived from the recipient's address, so anyone can encrypt a message for a given address but only the owner of that address can decrypt it. There is no on-chain state to manage; access is determined entirely by address ownership. It's a natural fit for end-to-end encrypted messaging, private notifications, or any scenario where you send encrypted data to a known recipient without shared state.
 
 ## Allowlist
 
@@ -48,4 +48,4 @@ Use this pattern to run a vote where ballots stay encrypted until completion. Yo
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/key_request.move)
 
-Use this pattern to separate access policy evaluation from the `seal_approve` step. Instead of checking the full policy inside `seal_approve`, your contract performs whatever authorization logic it needs (payment, role check, rate limit, etc.) and issues a `KeyRequest` object. The `seal_approve` function then only verifies that the `KeyRequest` is valid and unexpired, keeping policy evaluation outside of the Seal dry-run path. This is useful when your access policy is complex, when you need to guarantee safety during dry-run evaluation, or when you want to charge per key request. The pattern uses a witness type to bind each `KeyRequest` to the issuing package, preventing cross-contract forgery. See the test module in the source for a complete example combining this pattern with a whitelist.
+Use this pattern to separate your access policy from the Seal approval step. Your contract performs whatever authorization it needs (payment, role check, rate limit) and issues a key-request object; Seal then only verifies that the request is valid and unexpired. This keeps complex policy logic out of the approval path and lets you charge per request or enforce additional constraints. Useful when your access policy is too complex for a single approval function, when you want to guarantee safety during simulation, or when multiple contracts share the same encrypted content.
