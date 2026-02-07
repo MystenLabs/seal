@@ -12,7 +12,7 @@ Use this pattern when a single owner should control encrypted content. You store
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/account_based.move)
 
-Use this pattern when you want to encrypt data to a specific Sui address. The key ID is derived from the recipient's address, so anyone can encrypt a message for a given address but only the owner of that address can decrypt it. There is no on-chain state to manage; access is determined entirely by address ownership. It's a natural fit for end-to-end encrypted messaging, private notifications, or any scenario where you send encrypted data to a known recipient without shared state.
+Use this pattern when you want to encrypt data to a specific Sui address. The key ID is derived from the recipient's address, so anyone can encrypt a message for a given address, but only the owner of that address can decrypt it. There is no on-chain state to manage; access is determined entirely by address ownership. It's a natural fit for end-to-end encrypted messaging, private notifications, or any scenario where you send encrypted data to a known recipient without shared state.
 
 ## Allowlist
 
