@@ -72,8 +72,7 @@ git clone https://github.com/MystenLabs/seal.git
 cd seal
 ```
 
-4. Build the seal-committee-cli tool.
-
+4. Build the dkg-cli tool.
 ```bash
 cargo run --bin seal-committee-cli -- --help
 ```
@@ -89,8 +88,8 @@ Follow these steps to initialize a new MPC committee using a fresh DKG.
 a. Create a clean working directory named `dkg-state` and copy the example configuration file:
 ```bash
 # in seal/
-rm -rf dkg-state & mkdir dkg-state
-cp crates/seal-committee-cli/dkg.example.yaml dkg-state/dkg.yaml
+rm -rf dkg-state && mkdir dkg-state
+cp crates/dkg-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
 b. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
@@ -306,8 +305,8 @@ Key rotation follows the same three-phase flow as a fresh DKG, with a few import
 a. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
 ```bash
 # in seal/
-rm -rf dkg-state & mkdir dkg-state
-cp crates/seal-committee-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
+rm -rf dkg-state && mkdir dkg-state
+cp crates/dkg-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
 b. Make sure your CLI has the expected network and active address with gas.
