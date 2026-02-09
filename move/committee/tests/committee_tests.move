@@ -214,7 +214,7 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         // Authorize the upgrade to verify UpgradeManager is functional.
         scenario.next_tx(BOB);
         let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        let ticket = authorize_upgrade(&mut new_committee, digest, scenario.ctx());
+        let ticket = authorize_upgrade(&mut new_committee, scenario.ctx());
         let receipt = package::test_upgrade(ticket);
         commit_upgrade(&mut new_committee, receipt, scenario.ctx());
         test_scenario::return_shared(new_committee);
@@ -942,6 +942,24 @@ public macro fun assert_key_server_version_and_threshold(
     assert!(threshold == expected_threshold);
 }
 
+/// Helper macro to setup and finalize a 2-of-2 committee with ALICE and BOB, including UpgradeManager.
+public macro fun setup_2_of_2_committee($scenario: &mut Scenario) {
+    let scenario = $scenario;
+    let g1_bytes = *g1_generator().bytes();
+    let g2_bytes = *g2_generator().bytes();
+    test_init_committee(2, vector[ALICE, BOB], scenario.ctx());
+    register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
+    register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
+    propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
+    propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
+
+    scenario.next_tx(ALICE);
+    let mut committee = scenario.take_shared<Committee>();
+    let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
+    test_attach_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
+    test_scenario::return_shared(committee);
+}
+
 // ===== Upgrade Tests =====
 
 /// Generate a test digest (32 bytes)
@@ -973,44 +991,6 @@ fun test_package_upgrade_e2e() {
         test_attach_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
         test_scenario::return_shared(committee);
 
-        // Test vote changes
-        let digest1 = test_digest(scenario.ctx());
-
-        // ALICE votes to approve
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        approve_digest_for_upgrade(&mut committee, digest1, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // ALICE changes vote to reject
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, digest1, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // ALICE changes vote back to approve
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        approve_digest_for_upgrade(&mut committee, digest1, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // BOB approves to reach threshold (2-of-3)
-        scenario.next_tx(BOB);
-        let mut committee = scenario.take_shared<Committee>();
-        approve_digest_for_upgrade(&mut committee, digest1, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // Authorize upgrade (quorum reached)
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        let ticket = authorize_upgrade(&mut committee, digest1, scenario.ctx());
-
-        // Simulate upgrade and commit
-        let receipt = package::test_upgrade(ticket);
-        commit_upgrade(&mut committee, receipt, scenario.ctx());
-        test_scenario::return_shared(committee);
-
-        // Test proposal rejection and reset
         // ALICE proposes bad digest by voting approve
         let bad_digest = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
@@ -1018,12 +998,13 @@ fun test_package_upgrade_e2e() {
         approve_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
         test_scenario::return_shared(committee);
 
-        // BOB and CHARLIE vote to reject (reaching threshold of 2 rejections)
+        // BOB votes to reject
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
         reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
         test_scenario::return_shared(committee);
 
+        // CHARLIE votes to reject
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
         reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
@@ -1035,13 +1016,20 @@ fun test_package_upgrade_e2e() {
         reset_proposal(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
-        // Now they can vote for a good digest
+        // Now BOB votes approve
         let good_digest = test_digest(scenario.ctx());
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
         approve_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
         test_scenario::return_shared(committee);
 
+        // CHARLIE votes reject
+        scenario.next_tx(CHARLIE);
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // CHARLIE updates to approve
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
         approve_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
@@ -1050,7 +1038,7 @@ fun test_package_upgrade_e2e() {
         // Authorize and commit the good upgrade
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
-        let ticket = authorize_upgrade(&mut committee, good_digest, scenario.ctx());
+        let ticket = authorize_upgrade(&mut committee, scenario.ctx());
         let receipt = package::test_upgrade(ticket);
         commit_upgrade(&mut committee, receipt, scenario.ctx());
         test_scenario::return_shared(committee);
@@ -1060,19 +1048,7 @@ fun test_package_upgrade_e2e() {
 #[test, expected_failure(abort_code = seal_committee::ENotAuthorized)]
 fun test_upgrade_vote_fails_for_non_member() {
     test_tx!(|scenario| {
-        let g1_bytes = *g1_generator().bytes();
-        let g2_bytes = *g2_generator().bytes();
-        test_init_committee(2, vector[ALICE, BOB], scenario.ctx());
-        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
-        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
-        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
-
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        test_attach_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
-        test_scenario::return_shared(committee);
+        setup_2_of_2_committee!(scenario);
 
         // CHARLIE (non-member) tries to vote - should fail
         let digest = test_digest(scenario.ctx());
@@ -1086,19 +1062,7 @@ fun test_upgrade_vote_fails_for_non_member() {
 #[test, expected_failure(abort_code = seal_committee::ENoProposalForDigest)]
 fun test_upgrade_vote_fails_with_wrong_digest() {
     test_tx!(|scenario| {
-        let g1_bytes = *g1_generator().bytes();
-        let g2_bytes = *g2_generator().bytes();
-        test_init_committee(2, vector[ALICE, BOB], scenario.ctx());
-        register_member!(scenario, ALICE, g1_bytes, g2_bytes, b"https://url0.com");
-        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"https://url1.com");
-        propose_member!(scenario, ALICE, vector[g2_bytes, g2_bytes], g2_bytes);
-        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
-
-        scenario.next_tx(ALICE);
-        let mut committee = scenario.take_shared<Committee>();
-        let upgrade_cap = package::test_publish(object::id_from_address(@0x1), scenario.ctx());
-        test_attach_upgrade_manager(&mut committee, upgrade_cap, scenario.ctx());
-        test_scenario::return_shared(committee);
+        setup_2_of_2_committee!(scenario);
 
         // ALICE votes for digest1
         let digest1 = test_digest(scenario.ctx());
@@ -1112,6 +1076,76 @@ fun test_upgrade_vote_fails_with_wrong_digest() {
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
         approve_digest_for_upgrade(&mut committee, digest2, scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::ENotEnoughVotes)]
+fun test_authorize_upgrade_fails_without_threshold_approvals() {
+    test_tx!(|scenario| {
+        setup_2_of_2_committee!(scenario);
+
+        // Only 1 approval (ALICE), but threshold is 2.
+        let digest = test_digest(scenario.ctx());
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // Try to authorize with only 1 approval - fails.
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let ticket = authorize_upgrade(&mut committee, scenario.ctx());
+        let receipt = package::test_upgrade(ticket);
+        commit_upgrade(&mut committee, receipt, scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::ENotEnoughVotes)]
+fun test_reset_proposal_fails_without_threshold_rejections() {
+    test_tx!(|scenario| {
+        setup_2_of_2_committee!(scenario);
+
+        // Only 1 rejection (ALICE), but threshold is 2.
+        let digest = test_digest(scenario.ctx());
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // Try to reset with only 1 rejection - fails.
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        reset_proposal(&mut committee, scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::ENoProposalForDigest)]
+fun test_authorize_upgrade_fails_when_no_proposal_exists() {
+    test_tx!(|scenario| {
+        setup_2_of_2_committee!(scenario);
+
+        // Try to authorize without any proposal - fails.
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        let ticket = authorize_upgrade(&mut committee, scenario.ctx());
+        let receipt = package::test_upgrade(ticket);
+        commit_upgrade(&mut committee, receipt, scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::ENoProposalForDigest)]
+fun test_reset_proposal_fails_when_no_proposal_exists() {
+    test_tx!(|scenario| {
+        setup_2_of_2_committee!(scenario);
+
+        // Try to reset without any proposal - fails.
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        reset_proposal(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
     });
 }

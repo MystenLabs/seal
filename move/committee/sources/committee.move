@@ -292,11 +292,7 @@ public fun reject_digest_for_upgrade(
 
 /// Authorizes an upgrade as a committee member when approvals count has reached threshold. Returns
 /// an UpgradeTicket.
-public fun authorize_upgrade(
-    committee: &mut Committee,
-    digest: vector<u8>,
-    ctx: &TxContext,
-): UpgradeTicket {
+public fun authorize_upgrade(committee: &mut Committee, ctx: &TxContext): UpgradeTicket {
     assert!(committee.members.contains(&ctx.sender()), ENotAuthorized);
     assert!(committee.is_finalized(), EInvalidState);
 
@@ -308,9 +304,7 @@ public fun authorize_upgrade(
     // Clear the proposal.
     let proposal = upgrade_manager.upgrade_proposal.extract();
 
-    // Validate digest and version.
-    let parsed_digest = package_digest!(digest);
-    assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
+    // Validate version.
     assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
 
     // Check threshold for approvals.
@@ -324,7 +318,7 @@ public fun authorize_upgrade(
     assert!(approval_count >= threshold, ENotEnoughVotes);
 
     let policy = upgrade_manager.cap.policy();
-    upgrade_manager.cap.authorize(policy, parsed_digest.0)
+    upgrade_manager.cap.authorize(policy, proposal.digest.0)
 }
 
 /// Commits an upgrade with the upgrade receipt. Called after authorize upgrade and package upgrade
@@ -613,14 +607,18 @@ fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
 
 /// Test-only function to create a committee without InitCap for testing.
 #[test_only]
-public fun test_init_committee(threshold: u16, members: vector<address>, ctx: &mut TxContext) {
+public(package) fun test_init_committee(
+    threshold: u16,
+    members: vector<address>,
+    ctx: &mut TxContext,
+) {
     let committee = init_internal(threshold, members, option::none(), ctx);
     transfer::share_object(committee);
 }
 
 /// Test-only function to attach an upgrade manager to a committee for testing.
 #[test_only]
-public fun test_attach_upgrade_manager(
+public(package) fun test_attach_upgrade_manager(
     committee: &mut Committee,
     cap: UpgradeCap,
     ctx: &mut TxContext,
