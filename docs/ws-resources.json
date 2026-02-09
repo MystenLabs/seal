@@ -1,0 +1,96 @@
+{
+  "headers": {
+    "/markdown/Aggregator.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/Design.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/ExamplePatterns.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/GettingStarted.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/KeyServerCommitteeOps.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/KeyServerOps.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/Pricing.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/SealCLI.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/SecurityBestPractices.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/TermsOfService.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/UsingSeal.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/markdown/index.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  },
+  "routes": {
+    "/Aggregator": "/Aggregator/index.html",
+    "/Aggregator.html": "/Aggregator/index.html",
+    "/Aggregator.md": "/markdown/Aggregator.md",
+    "/Design": "/Design/index.html",
+    "/Design.html": "/Design/index.html",
+    "/Design.md": "/markdown/Design.md",
+    "/ExamplePatterns": "/ExamplePatterns/index.html",
+    "/ExamplePatterns.html": "/ExamplePatterns/index.html",
+    "/ExamplePatterns.md": "/markdown/ExamplePatterns.md",
+    "/GettingStarted": "/GettingStarted/index.html",
+    "/GettingStarted.html": "/GettingStarted/index.html",
+    "/GettingStarted.md": "/markdown/GettingStarted.md",
+    "/KeyServerCommitteeOps": "/KeyServerCommitteeOps/index.html",
+    "/KeyServerCommitteeOps.html": "/KeyServerCommitteeOps/index.html",
+    "/KeyServerCommitteeOps.md": "/markdown/KeyServerCommitteeOps.md",
+    "/KeyServerOps": "/KeyServerOps/index.html",
+    "/KeyServerOps.html": "/KeyServerOps/index.html",
+    "/KeyServerOps.md": "/markdown/KeyServerOps.md",
+    "/Pricing": "/Pricing/index.html",
+    "/Pricing.html": "/Pricing/index.html",
+    "/Pricing.md": "/markdown/Pricing.md",
+    "/SealCLI": "/SealCLI/index.html",
+    "/SealCLI.html": "/SealCLI/index.html",
+    "/SealCLI.md": "/markdown/SealCLI.md",
+    "/SecurityBestPractices": "/SecurityBestPractices/index.html",
+    "/SecurityBestPractices.html": "/SecurityBestPractices/index.html",
+    "/SecurityBestPractices.md": "/markdown/SecurityBestPractices.md",
+    "/TermsOfService": "/TermsOfService/index.html",
+    "/TermsOfService.html": "/TermsOfService/index.html",
+    "/TermsOfService.md": "/markdown/TermsOfService.md",
+    "/UsingSeal": "/UsingSeal/index.html",
+    "/UsingSeal.html": "/UsingSeal/index.html",
+    "/UsingSeal.md": "/markdown/UsingSeal.md"
+  },
+  "metadata": {
+    "link": "https://seal-docs.wal.app",
+    "image_url": null,
+    "description": "This is a Walrus Site for Seal documentation.",
+    "project_url": "https://seal.mystenlabs.com",
+    "creator": "MystenLabs"
+  },
+  "site_name": "Seal documentation",
+  "object_id": "0x62058626076bca5acb7dbf1f9c14571ed4ea704aee4c874adef11d66f288bdb1"
+}
