@@ -19,6 +19,13 @@ use sui_sdk_types::{Address, Object, StructTag, TypeTag};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
+/// Key struct for accessing UpgradeManager in dynamic object fields.
+/// Must match the Move struct definition in seal_committee.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UpgradeManagerKey {
+    dummy_field: bool,
+}
+
 /// Create gRPC client for a given network.
 pub fn create_grpc_client(network: &Network) -> Result<Client> {
     let rpc_url = match network {
@@ -59,6 +66,26 @@ async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
         .ok_or_else(|| anyhow!("Object is not a Move struct in {}", error_context))?;
     bcs::from_bytes(move_object.contents())
         .map_err(|e| anyhow!("Failed to deserialize {}: {}", error_context, e))
+}
+
+/// Fetch and deserialize a Field<Wrapper<K>, V> object given its object ID.
+/// Returns the deserialized FieldWrapper. Callers can extract `.value` or `.name.name` as needed.
+pub async fn extract_field_wrapper_value<K, V>(
+    grpc_client: &mut Client,
+    field_wrapper_id: &Address,
+) -> Result<crate::move_types::FieldWrapper<K, V>>
+where
+    K: serde::de::DeserializeOwned,
+    V: serde::de::DeserializeOwned,
+{
+    let fw_object: Object =
+        fetch_and_deserialize_move_object(grpc_client, field_wrapper_id, "Field wrapper").await?;
+    let fw_struct = fw_object
+        .as_struct()
+        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
+
+    bcs::from_bytes(fw_struct.contents())
+        .map_err(|e| anyhow!("Failed to deserialize FieldWrapper: {}", e))
 }
 
 /// Fetch seal Committee object onchain.
@@ -287,116 +314,8 @@ pub async fn fetch_upgrade_proposal(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<Option<UpgradeProposal>> {
-    // First, we need to get the committee package address to construct the correct type tag.
-    // We'll fetch the committee object to get its type.
-    let mut ledger_client = grpc_client.ledger_client();
-    let mut committee_request = GetObjectRequest::default();
-    committee_request.object_id = Some(committee_id.to_string());
-    committee_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["object_type".to_string()],
-    });
-
-    let committee_response = ledger_client
-        .get_object(committee_request)
-        .await
-        .map(|r| r.into_inner())?;
-
-    let object_type = committee_response
-        .object
-        .and_then(|obj| obj.object_type)
-        .ok_or_else(|| anyhow!("Committee object has no type"))?;
-
-    let struct_tag = std::str::FromStr::from_str(&object_type)?;
-    let package_addr: StructTag = struct_tag;
-    let committee_pkg_addr = package_addr.address();
-
-    // Define the UpgradeManagerKey struct to match Move definition.
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct UpgradeManagerKey {
-        dummy_field: bool,
-    }
-
-    let wrapper_key = Wrapper {
-        name: UpgradeManagerKey { dummy_field: false },
-    };
-    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
-
-    // The type tag for Wrapper<UpgradeManagerKey>.
-    let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag::new(
-        Address::TWO,
-        "dynamic_object_field".parse().unwrap(),
-        "Wrapper".parse().unwrap(),
-        vec![TypeTag::Struct(Box::new(StructTag::new(
-            *committee_pkg_addr,
-            "seal_committee".parse().unwrap(),
-            "UpgradeManagerKey".parse().unwrap(),
-            vec![],
-        )))],
-    )));
-
-    // Derive the field wrapper ID for UpgradeManager.
-    let field_wrapper_id =
-        committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
-
-    // Manually fetch and deserialize the field wrapper.
-    let mut fw_request = GetObjectRequest::default();
-    fw_request.object_id = Some(field_wrapper_id.to_string());
-    fw_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["bcs".to_string()],
-    });
-
-    let fw_response = ledger_client
-        .get_object(fw_request)
-        .await
-        .map(|r| r.into_inner());
-
-    // If the field wrapper doesn't exist, there's no UpgradeManager.
-    let fw_bcs = match fw_response {
-        Ok(response) => response
-            .object
-            .and_then(|obj| obj.bcs)
-            .and_then(|bcs| bcs.value),
-        Err(_) => return Ok(None),
-    };
-
-    let fw_bcs = match fw_bcs {
-        Some(bcs) => bcs,
-        None => return Ok(None),
-    };
-
-    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
-    let fw_struct = fw_object
-        .as_struct()
-        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
-
-    // Deserialize to get the UpgradeManager object ID.
-    #[derive(serde::Deserialize)]
-    #[allow(dead_code)]
-    struct UidWrapper {
-        id: Address,
-    }
-    #[derive(serde::Deserialize)]
-    struct WrapperKey {
-        #[allow(dead_code)]
-        name: UpgradeManagerKey,
-    }
-    #[derive(serde::Deserialize)]
-    #[allow(dead_code)]
-    struct FieldWrapperStruct {
-        id: UidWrapper,
-        name: WrapperKey,
-        value: Address,
-    }
-
-    let field_wrapper: FieldWrapperStruct = bcs::from_bytes(fw_struct.contents())?;
-    let upgrade_manager_id = field_wrapper.value;
-
-    // Fetch the UpgradeManager object.
-    let upgrade_manager: UpgradeManager =
-        fetch_and_deserialize_move_object(grpc_client, &upgrade_manager_id, "UpgradeManager")
-            .await?;
-
-    Ok(upgrade_manager.upgrade_proposal)
+    let upgrade_manager = fetch_upgrade_manager(grpc_client, committee_id).await?;
+    Ok(upgrade_manager.and_then(|mgr| mgr.upgrade_proposal))
 }
 
 /// Fetch the full UpgradeManager from the committee's UpgradeManager DOF.
@@ -428,12 +347,6 @@ pub async fn fetch_upgrade_manager(
     let struct_tag = StructTag::from_str(&object_type)?;
     let committee_pkg_addr = struct_tag.address();
 
-    // Define the UpgradeManagerKey struct to match Move definition.
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct UpgradeManagerKey {
-        dummy_field: bool,
-    }
-
     let wrapper_key = Wrapper {
         name: UpgradeManagerKey { dummy_field: false },
     };
@@ -488,25 +401,8 @@ pub async fn fetch_upgrade_manager(
         .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
 
     // Deserialize to get the UpgradeManager object ID.
-    #[derive(serde::Deserialize)]
-    #[allow(dead_code)]
-    struct UidWrapper {
-        id: Address,
-    }
-    #[derive(serde::Deserialize)]
-    struct WrapperKey {
-        #[allow(dead_code)]
-        name: UpgradeManagerKey,
-    }
-    #[derive(serde::Deserialize)]
-    #[allow(dead_code)]
-    struct FieldWrapperStruct {
-        id: UidWrapper,
-        name: WrapperKey,
-        value: Address,
-    }
-
-    let field_wrapper: FieldWrapperStruct = bcs::from_bytes(fw_struct.contents())?;
+    let field_wrapper: crate::move_types::FieldWrapper<UpgradeManagerKey, Address> =
+        bcs::from_bytes(fw_struct.contents())?;
     let upgrade_manager_id = field_wrapper.value;
 
     // Fetch the UpgradeManager object.

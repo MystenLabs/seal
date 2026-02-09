@@ -349,52 +349,9 @@ async fn main() -> Result<()> {
 
             println!("Published package: {}", package_id);
 
-            // Find UpgradeCap owned by deployer.
-            let upgrade_cap_id = effects
-                .created()
-                .iter()
-                .find_map(|obj_ref| {
-                    if matches!(obj_ref.owner, Owner::AddressOwner(_)) {
-                        // Check if this is the UpgradeCap by looking at object changes.
-                        response.object_changes.as_ref().and_then(|changes| {
-                            changes.iter().find_map(|change| {
-                                if let sui_sdk::rpc_types::ObjectChange::Created {
-                                    object_id,
-                                    object_type,
-                                    ..
-                                } = change
-                                    && object_type.to_string().contains("UpgradeCap")
-                                {
-                                    return Some(*object_id);
-                                }
-                                None
-                            })
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| anyhow!("Could not find UpgradeCap ID"))?;
-
-            // Find InitCap owned by deployer.
-            let init_cap_id = response
-                .object_changes
-                .as_ref()
-                .ok_or_else(|| anyhow!("No object changes in response"))?
-                .iter()
-                .find_map(|change| {
-                    if let sui_sdk::rpc_types::ObjectChange::Created {
-                        object_id,
-                        object_type,
-                        ..
-                    } = change
-                        && object_type.to_string().contains("InitCap")
-                    {
-                        return Some(*object_id);
-                    }
-                    None
-                })
-                .ok_or_else(|| anyhow!("Could not find InitCap ID"))?;
+            // Find UpgradeCap and InitCap.
+            let upgrade_cap_id = extract_created_object_by_type(&response, "UpgradeCap")?;
+            let init_cap_id = extract_created_object_by_type(&response, "InitCap")?;
 
             println!("UpgradeCap ID: {}", upgrade_cap_id);
             println!("InitCap ID: {}", init_cap_id);
@@ -527,24 +484,8 @@ async fn main() -> Result<()> {
                 .as_struct()
                 .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
 
-            // Deserialize as Field<Wrapper<ID>, ID> to extract committee ID.
-            #[derive(serde::Deserialize)]
-            #[allow(dead_code)]
-            struct UidWrapper {
-                id: Address,
-            }
-            #[derive(serde::Deserialize)]
-            struct Wrapper {
-                name: Address,
-            }
-            #[derive(serde::Deserialize)]
-            #[allow(dead_code)]
-            struct FieldWrapper {
-                id: UidWrapper,
-                name: Wrapper,
-                value: Address,
-            }
-            let field: FieldWrapper = bcs::from_bytes(fw_struct.contents())?;
+            let field: seal_committee::FieldWrapper<Address, Address> =
+                bcs::from_bytes(fw_struct.contents())?;
             let current_committee_id = field.name.name;
             println!("\nCurrent committee ID: {}", current_committee_id);
 
@@ -1464,32 +1405,34 @@ async fn execute_tx_and_log_status(
     Ok(response)
 }
 
+/// Extract a created object ID by type name from a transaction response.
+fn extract_created_object_by_type(
+    response: &SuiTransactionBlockResponse,
+    type_name: &str,
+) -> Result<ObjectID> {
+    response
+        .object_changes
+        .as_ref()
+        .ok_or_else(|| anyhow!("No object changes in response"))?
+        .iter()
+        .find_map(|change| {
+            if let sui_sdk::rpc_types::ObjectChange::Created {
+                object_id,
+                object_type,
+                ..
+            } = change
+                && object_type.to_string().contains(type_name)
+            {
+                return Some(*object_id);
+            }
+            None
+        })
+        .ok_or_else(|| anyhow!("Could not find created {} object", type_name))
+}
+
 /// Extract the committee object ID from a transaction response.
 fn extract_created_committee_id(response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
-    response
-        .effects
-        .as_ref()
-        .and_then(|_effects| {
-            response.object_changes.as_ref().and_then(|changes| {
-                changes.iter().find_map(|change| {
-                    if let sui_sdk::rpc_types::ObjectChange::Created {
-                        object_id,
-                        object_type,
-                        ..
-                    } = change
-                    {
-                        if object_type.to_string().contains("Committee") {
-                            Some(*object_id)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-            })
-        })
-        .ok_or_else(|| anyhow!("Could not find created Committee object"))
+    extract_created_object_by_type(response, "Committee")
 }
 
 /// Get shared object argument for a committee object using gRPC.
@@ -2275,7 +2218,9 @@ async fn vote_for_upgrade(
     let committee_obj_id = ObjectID::new(committee_id.into_inner());
     let committee_arg = vote_builder
         .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
-    let digest_arg = vote_builder.pure(digest.clone())?;
+
+    let digest_bytes = Hex::decode(&digest)?;
+    let digest_arg = vote_builder.pure(digest_bytes)?;
 
     let function_name = if approve {
         "approve_digest_for_upgrade"

@@ -77,6 +77,23 @@ pub struct Field<K, V> {
     pub value: V,
 }
 
+/// Helper struct for deserializing UID from Move objects.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct UidWrapper {
+    pub id: Address,
+}
+
+/// Dynamic field wrapper for deserializing Field<Wrapper<K>, V> from BCS.
+/// This includes the full UID structure as it appears in the Move object.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct FieldWrapper<K, V> {
+    pub id: UidWrapper,
+    pub name: Wrapper<K>,
+    pub value: V,
+}
+
 #[derive(Clone)]
 pub struct PartialKeyServerInfo {
     pub party_id: u16,
