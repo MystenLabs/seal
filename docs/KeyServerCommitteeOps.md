@@ -60,10 +60,10 @@ git clone https://github.com/MystenLabs/seal.git
 cd seal
 ```
 
-4. Build the dkg-cli tool.
+4. Build the seal-committee-cli tool.
 
 ```bash
-cargo run --bin dkg-cli -- --help
+cargo run --bin seal-committee-cli -- --help
 ```
 
 
@@ -80,7 +80,7 @@ a. Create a clean working directory named `dkg-state` and copy the example confi
 ```bash
 # in seal/
 rm -rf dkg-state & mkdir dkg-state
-cp crates/dkg-cli/dkg.example.yaml dkg-state/dkg.yaml
+cp crates/seal-committee-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
 b. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
@@ -100,7 +100,7 @@ init-params:
 Run the publish-and-init command:
 
 ```bash
-cargo run --bin dkg-cli -- publish-and-init
+cargo run --bin seal-committee-cli -- publish-and-init
 ```
 
 This script publishes the `seal_committee` package onchain and initializes the committee state. It also appends the committee identifiers to `dkg.yaml`, for example: 
@@ -121,7 +121,7 @@ Share the updated `dkg.yaml` file with all committee members. Notify members to 
 Check on-chain registration status:
 
 ```bash
-cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
+cargo run --bin seal-committee-cli -- check-committee -c dkg-state/dkg.yaml
 ```
 
 The output shows which members have registered and which are still pending. Wait till all are registered.
@@ -151,7 +151,7 @@ Notify members to begin **Phase C (Finalization)**.
 Monitor onchain state until all members have proposed and the committee is finalized:
 
 ```bash
-cargo run --bin dkg-cli -- check-committee -c dkg-state/dkg.yaml
+cargo run --bin seal-committee-cli -- check-committee -c dkg-state/dkg.yaml
 ```
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
@@ -209,7 +209,7 @@ Open `dkg.yaml` and verify the committee configuration (member addresses, thresh
 Then run the command to generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-cargo run --bin dkg-cli -- genkey-and-register \
+cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
   -n <YOUR_SERVER_NAME>
 ```
@@ -225,7 +225,7 @@ This command:
 Wait for the coordinator to announce **Phase B (Message Creation)**. Then initialize your local DKG state and generate your message file:
 
 ```bash
-cargo run --bin dkg-cli -- create-message
+cargo run --bin seal-committee-cli -- create-message
 ```
 
 This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
@@ -239,7 +239,7 @@ Move the directory into `dkg-state` and process the messages:
 ```bash
 mv path/to/dkg-messages dkg-state/
 
-cargo run --bin dkg-cli -- process-all-and-propose
+cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
 This command:
@@ -311,7 +311,7 @@ a. Create a clean working directory named `dkg-state` and copy the rotation exam
 ```bash
 # in seal/
 rm -rf dkg-state & mkdir dkg-state
-cp crates/dkg-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
+cp crates/seal-committee-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
 ```
 
 b. Make sure your CLI has the expected network and active address with gas. 
@@ -348,7 +348,7 @@ init-rotation-params:
 Instead of running `publish-and-init`, initialize the key rotation:
 
 ```bash
-cargo run --bin dkg-cli -- init-rotation
+cargo run --bin seal-committee-cli -- init-rotation
 ```
 
 This command:
@@ -415,7 +415,7 @@ Open `dkg.yaml` and verify the committee configuration (member addresses, thresh
 Then run the command to generate your keys and register them onchain by providing your server URL and name:
 
 ```bash
-cargo run --bin dkg-cli -- genkey-and-register \
+cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
   -n <YOUR_SERVER_NAME>
 ```
@@ -435,7 +435,7 @@ Wait for the coordinator to announce **Phase B (Message Creation)**.
 Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`):
 
 ```bash
-cargo run --bin dkg-cli -- create-message -o <MASTER_SHARE_VX>
+cargo run --bin seal-committee-cli -- create-message -o <MASTER_SHARE_VX>
 ```
 
 This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
@@ -445,7 +445,7 @@ This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Sha
 Initialize your DKG state. No message file is generated (new members don't create messages during rotation).
 
 ```bash
-cargo run --bin dkg-cli -- init-state
+cargo run --bin seal-committee-cli -- init-state
 ```
 
 4. **Process messages and propose the rotation (Phase C: Finalization)**
@@ -457,7 +457,7 @@ Move the directory into `dkg-state` and process the messages:
 ```bash
 mv path/to/dkg-messages dkg-state/
 
-cargo run --bin dkg-cli -- process-all-and-propose
+cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
 This command:
