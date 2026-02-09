@@ -81,7 +81,6 @@ allow = [
     "LicenseRef-ring",
     "Unlicense",
     "BSL-1.0",
-    "Unicode-DFS-2016",
     "Unicode-3.0",
     #"Apache-2.0 WITH LLVM-exception",
     "Zlib",
@@ -145,11 +144,9 @@ expression = "Apache-2.0"
 license-files = [
 ]
 [[licenses.clarify]]
-crate = "mvr-types"
+name = "mvr-types"
 expression = "Apache-2.0"
-license-files = [
-    { path = "../../LICENSE", hash = 0x002c7e6c },
-]
+license-files = []
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
