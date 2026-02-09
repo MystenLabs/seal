@@ -33,7 +33,7 @@ use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk::rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse};
 use sui_sdk::wallet_context::WalletContext;
-use sui_sdk_types::{Address, StructTag};
+use sui_sdk_types::Address;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::transaction::{ObjectArg, SharedObjectMutability, TransactionData};
 use sui_types::{
@@ -433,82 +433,15 @@ async fn main() -> Result<()> {
             let coordinator_address = wallet.active_address()?;
             println!("Using coordinator address: {}", coordinator_address);
 
-            // Fetch key server and extract current committee ID from owner field.
+            // Fetch committee ID and package ID from key server.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
             let mut grpc_client = create_grpc_client(&network)?;
-            let mut ledger_client = grpc_client.ledger_client();
-            let mut ks_request = GetObjectRequest::default();
-            ks_request.object_id = Some(key_server_obj_id.to_string());
-            ks_request.read_mask = Some(prost_types::FieldMask {
-                paths: vec!["owner".to_string()],
-            });
+            let key_server_addr = Address::from_hex(&key_server_obj_id)?;
+            let (current_committee_id, package_id) =
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
 
-            let ks_response = ledger_client
-                .get_object(ks_request)
-                .await
-                .map(|r| r.into_inner())?;
-            let ks_object = ks_response
-                .object
-                .ok_or_else(|| anyhow!("Key server object not found"))?;
-
-            let owner_data = ks_object
-                .owner
-                .ok_or_else(|| anyhow!("Key server object has no owner"))?;
-
-            // Parse owner as Address.
-            let owner_address = owner_data
-                .address
-                .ok_or_else(|| anyhow!("Owner has no address"))?;
-            let field_wrapper_id = Address::from_str(&owner_address)?;
-
-            // Fetch field wrapper and extract committee ID.
-            let mut fw_request = GetObjectRequest::default();
-            fw_request.object_id = Some(field_wrapper_id.to_string());
-            fw_request.read_mask = Some(prost_types::FieldMask {
-                paths: vec!["bcs".to_string()],
-            });
-
-            let fw_response = ledger_client
-                .get_object(fw_request)
-                .await
-                .map(|r| r.into_inner())?;
-            let fw_bcs = fw_response
-                .object
-                .and_then(|obj| obj.bcs)
-                .and_then(|bcs| bcs.value)
-                .ok_or_else(|| anyhow!("Field wrapper BCS data not found"))?;
-
-            let fw_object: sui_sdk_types::Object = bcs::from_bytes(&fw_bcs)?;
-            let fw_struct = fw_object
-                .as_struct()
-                .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
-
-            let field: seal_committee::FieldWrapper<Address, Address> =
-                bcs::from_bytes(fw_struct.contents())?;
-            let current_committee_id = field.name.name;
             println!("\nCurrent committee ID: {}", current_committee_id);
-
-            // Get package ID from type info.
-            let mut committee_request = GetObjectRequest::default();
-            committee_request.object_id = Some(current_committee_id.to_string());
-            committee_request.read_mask = Some(prost_types::FieldMask {
-                paths: vec!["object_type".to_string()],
-            });
-
-            let committee_response = ledger_client
-                .get_object(committee_request)
-                .await
-                .map(|r| r.into_inner())?;
-
-            let object_type = committee_response
-                .object
-                .and_then(|obj| obj.object_type)
-                .ok_or_else(|| anyhow!("Committee object has no type"))?;
-
-            // Parse from package_id::module::Type.
-            let struct_tag = StructTag::from_str(&object_type)?;
-            let package_id = ObjectID::new(struct_tag.address().into_inner());
             println!("Committee package ID: {}", package_id);
 
             // Update config.

@@ -68,24 +68,44 @@ async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
         .map_err(|e| anyhow!("Failed to deserialize {}: {}", error_context, e))
 }
 
-/// Fetch and deserialize a Field<Wrapper<K>, V> object given its object ID.
-/// Returns the deserialized FieldWrapper. Callers can extract `.value` or `.name.name` as needed.
-pub async fn extract_field_wrapper_value<K, V>(
+/// Fetch a field wrapper object and deserialize it. Returns None if the object doesn't exist.
+async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
     grpc_client: &mut Client,
     field_wrapper_id: &Address,
-) -> Result<crate::move_types::FieldWrapper<K, V>>
-where
-    K: serde::de::DeserializeOwned,
-    V: serde::de::DeserializeOwned,
-{
-    let fw_object: Object =
-        fetch_and_deserialize_move_object(grpc_client, field_wrapper_id, "Field wrapper").await?;
+) -> Result<Option<T>> {
+    let mut ledger_client = grpc_client.ledger_client();
+    let mut fw_request = GetObjectRequest::default();
+    fw_request.object_id = Some(field_wrapper_id.to_string());
+    fw_request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["bcs".to_string()],
+    });
+
+    let fw_response = ledger_client
+        .get_object(fw_request)
+        .await
+        .map(|r| r.into_inner());
+
+    // If the field wrapper doesn't exist, return None.
+    let fw_bcs = match fw_response {
+        Ok(response) => response
+            .object
+            .and_then(|obj| obj.bcs)
+            .and_then(|bcs| bcs.value),
+        Err(_) => return Ok(None),
+    };
+
+    let fw_bcs = match fw_bcs {
+        Some(bcs) => bcs,
+        None => return Ok(None),
+    };
+
+    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
     let fw_struct = fw_object
         .as_struct()
         .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
 
-    bcs::from_bytes(fw_struct.contents())
-        .map_err(|e| anyhow!("Failed to deserialize FieldWrapper: {}", e))
+    let field_wrapper: T = bcs::from_bytes(fw_struct.contents())?;
+    Ok(Some(field_wrapper))
 }
 
 /// Fetch seal Committee object onchain.
@@ -160,8 +180,9 @@ pub async fn fetch_key_server_by_committee(
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
     let field_wrapper: Field<Wrapper<Address>, Address> =
-        fetch_and_deserialize_move_object(grpc_client, &field_wrapper_id, "Field wrapper object")
-            .await?;
+        fetch_field_wrapper(grpc_client, &field_wrapper_id)
+            .await?
+            .ok_or_else(|| anyhow!("Field wrapper not found for committee"))?;
     let ks_obj_id = field_wrapper.value;
 
     let key_server_v2 = fetch_key_server_by_id(grpc_client, &ks_obj_id).await?;
@@ -226,63 +247,45 @@ pub async fn fetch_committee_from_key_server(
     use std::str::FromStr;
     use sui_types::base_types::ObjectID;
 
-    let mut ledger_client = grpc_client.ledger_client();
+    // Fetch key server object to get owner (field wrapper).
+    let field_wrapper_id = {
+        let mut ledger_client = grpc_client.ledger_client();
+        let mut ks_request = GetObjectRequest::default();
+        ks_request.object_id = Some(key_server_obj_id.to_string());
+        ks_request.read_mask = Some(prost_types::FieldMask {
+            paths: vec!["owner".to_string()],
+        });
 
-    // Fetch key server object to get owner (field wrapper) and type.
-    let mut ks_request = GetObjectRequest::default();
-    ks_request.object_id = Some(key_server_obj_id.to_string());
-    ks_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["owner".to_string(), "object_type".to_string()],
-    });
+        let ks_response = ledger_client
+            .get_object(ks_request)
+            .await
+            .map(|r| r.into_inner())?;
 
-    let ks_response = ledger_client
-        .get_object(ks_request)
-        .await
-        .map(|r| r.into_inner())?;
+        let ks_object = ks_response
+            .object
+            .ok_or_else(|| anyhow!("Key server object not found"))?;
 
-    let ks_object = ks_response
-        .object
-        .ok_or_else(|| anyhow!("Key server object not found"))?;
+        // Parse owner to get field wrapper ID.
+        let owner_data = ks_object
+            .owner
+            .ok_or_else(|| anyhow!("Key server object has no owner"))?;
 
-    // Parse owner to get field wrapper ID.
-    let owner_data = ks_object
-        .owner
-        .ok_or_else(|| anyhow!("Key server object has no owner"))?;
+        let owner_address = owner_data
+            .address
+            .ok_or_else(|| anyhow!("Owner has no address"))?;
 
-    let owner_address = owner_data
-        .address
-        .ok_or_else(|| anyhow!("Owner has no address"))?;
-
-    let field_wrapper_id = Address::from_str(&owner_address)?;
+        Address::from_str(&owner_address)?
+    };
 
     // Fetch field wrapper to extract committee ID.
-    let mut fw_request = GetObjectRequest::default();
-    fw_request.object_id = Some(field_wrapper_id.to_string());
-    fw_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["bcs".to_string()],
-    });
-
-    let fw_response = ledger_client
-        .get_object(fw_request)
-        .await
-        .map(|r| r.into_inner())?;
-
-    let fw_bcs = fw_response
-        .object
-        .and_then(|obj| obj.bcs)
-        .and_then(|bcs| bcs.value)
-        .ok_or_else(|| anyhow!("Field wrapper BCS data not found"))?;
-
-    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
-    let fw_struct = fw_object
-        .as_struct()
-        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
-
-    // Deserialize as Field<Wrapper<ID>, ID> to extract committee ID.
-    let field: Field<Wrapper<Address>, Address> = bcs::from_bytes(fw_struct.contents())?;
+    let field: Field<Wrapper<Address>, Address> =
+        fetch_field_wrapper(grpc_client, &field_wrapper_id)
+            .await?
+            .ok_or_else(|| anyhow!("Field wrapper not found for key server"))?;
     let committee_id = field.name.name;
 
     // Fetch committee object to get the correct package ID.
+    let mut ledger_client = grpc_client.ledger_client();
     let mut committee_request = GetObjectRequest::default();
     committee_request.object_id = Some(committee_id.to_string());
     committee_request.read_mask = Some(prost_types::FieldMask {
@@ -369,40 +372,12 @@ pub async fn fetch_upgrade_manager(
     let field_wrapper_id =
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
-    // Manually fetch and deserialize the field wrapper.
-    let mut fw_request = GetObjectRequest::default();
-    fw_request.object_id = Some(field_wrapper_id.to_string());
-    fw_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["bcs".to_string()],
-    });
-
-    let fw_response = ledger_client
-        .get_object(fw_request)
-        .await
-        .map(|r| r.into_inner());
-
-    // If the field wrapper doesn't exist, there's no UpgradeManager.
-    let fw_bcs = match fw_response {
-        Ok(response) => response
-            .object
-            .and_then(|obj| obj.bcs)
-            .and_then(|bcs| bcs.value),
-        Err(_) => return Ok(None),
-    };
-
-    let fw_bcs = match fw_bcs {
-        Some(bcs) => bcs,
-        None => return Ok(None),
-    };
-
-    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
-    let fw_struct = fw_object
-        .as_struct()
-        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
-
-    // Deserialize to get the UpgradeManager object ID.
+    // Fetch field wrapper. If it doesn't exist, there's no UpgradeManager.
     let field_wrapper: crate::move_types::FieldWrapper<UpgradeManagerKey, Address> =
-        bcs::from_bytes(fw_struct.contents())?;
+        match fetch_field_wrapper(grpc_client, &field_wrapper_id).await? {
+            Some(fw) => fw,
+            None => return Ok(None),
+        };
     let upgrade_manager_id = field_wrapper.value;
 
     // Fetch the UpgradeManager object.
