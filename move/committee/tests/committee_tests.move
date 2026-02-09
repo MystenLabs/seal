@@ -214,9 +214,9 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         // Authorize the upgrade to verify UpgradeManager is functional.
         scenario.next_tx(BOB);
         let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        let ticket = authorize_upgrade(&mut new_committee, digest);
+        let ticket = authorize_upgrade(&mut new_committee, digest, scenario.ctx());
         let receipt = package::test_upgrade(ticket);
-        commit_upgrade(&mut new_committee, receipt);
+        commit_upgrade(&mut new_committee, receipt, scenario.ctx());
         test_scenario::return_shared(new_committee);
 
         // BOB updates URL.
@@ -1003,11 +1003,11 @@ fun test_package_upgrade_e2e() {
         // Authorize upgrade (quorum reached)
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
-        let ticket = authorize_upgrade(&mut committee, digest1);
+        let ticket = authorize_upgrade(&mut committee, digest1, scenario.ctx());
 
         // Simulate upgrade and commit
         let receipt = package::test_upgrade(ticket);
-        commit_upgrade(&mut committee, receipt);
+        commit_upgrade(&mut committee, receipt, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Test proposal rejection and reset
@@ -1050,9 +1050,9 @@ fun test_package_upgrade_e2e() {
         // Authorize and commit the good upgrade
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
-        let ticket = authorize_upgrade(&mut committee, good_digest);
+        let ticket = authorize_upgrade(&mut committee, good_digest, scenario.ctx());
         let receipt = package::test_upgrade(ticket);
-        commit_upgrade(&mut committee, receipt);
+        commit_upgrade(&mut committee, receipt, scenario.ctx());
         test_scenario::return_shared(committee);
     });
 }
