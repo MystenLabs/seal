@@ -1,17 +1,3 @@
----
-title: Getting Started
-description: Learn how to quickly bootstrap your application with Seal for decentralized encryption and programmable access control on Sui.
-keywords:
-  - getting started
-  - Seal SDK
-  - encryption
-  - decryption
-  - access policy
-  - key servers
-  - TypeScript SDK
-  - bootstrap
----
-
 :::note
 
 This guide is meant to help you quickly bootstrap with Seal. Before deploying your app to production or Mainnet, review the full Seal documentation to understand the design, security best practices, and operational requirements.

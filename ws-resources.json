@@ -1,4 +1,54 @@
 {
+  "headers": {
+    "/content/Aggregator.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/Design.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/ExamplePatterns.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/GettingStarted.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/index.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/KeyServerCommitteeOps.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/KeyServerOps.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/Pricing.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/SealCLI.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/SecurityBestPractices.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/TermsOfService.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
+    "/content/UsingSeal.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    }
+  },
   "routes": {
     "/Aggregator": "/Aggregator/index.html",
     "/Aggregator.html": "/Aggregator/index.html",

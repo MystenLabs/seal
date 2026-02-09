@@ -127,3 +127,128 @@ code {
 .admonition {
   border-radius: 10px;
 }
+
+/* ---------------------------
+   PushFeedback modal: variables
+   --------------------------- */
+:root {
+  /* Typography */
+  --feedback-font-family: var(--ifm-font-family-base, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial);
+
+  /* Modal surface */
+  --feedback-modal-content-bg-color: var(--ifm-background-surface-color, #ffffff);
+  --feedback-modal-content-text-color: var(--ifm-font-color-base, #000000);
+  --feedback-modal-header-text-color: var(--ifm-font-color-base, #000000);
+  --feedback-modal-content-border-radius: var(--ifm-global-radius, 12px);
+  --feedback-modal-border-color: #E0E2E6;
+  --feedback-modal-input-border-color: #6C7584;
+  --feedback-modal-content-max-width: 450px;
+  --feedback-modal-text-border-radius: 12px;
+  --feedback-modal-input-border-radius: var(--feedback-modal-button-border-radius, 8px);
+
+  /* Buttons */
+  --feedback-modal-button-font-size: var(--ifm-font-size-base, 14px);
+  --feedback-modal-button-border-radius: var(--ifm-button-border-radius, 8px);
+  --feedback-modal-button-text-color: var(--ifm-font-color-base, #000000);
+  --feedback-modal-button-border-color: #A1A7B2;
+  --feedback-modal-button-border-color-active: #298DFF;
+  --feedback-modal-button-submit-bg-color: #298DFF;
+  --feedback-modal-button-submit-text-color: #ffffff;
+  --feedback-modal-rating-button-color: #000000;
+  --feedback-modal-rating-button--selected: #000000;
+  --feedback-modal-rating-button-selected-color: #000000;
+  --feedback-modal-close-color: #6C7584;
+}
+
+html[data-theme='dark'] {
+  --feedback-modal-text-border-color: var(--feedback-modal-button-border-color);
+  --feedback-modal-email-border-color: var(--feedback-modal-button-border-color);
+  --feedback-modal-content-bg-color: var(--ifm-background-surface-color, #131518);
+  --feedback-modal-content-text-color: var(--ifm-font-color-base, #E0E2E6);
+  --feedback-modal-header-text-color: var(--ifm-font-color-base, #E0E2E6);
+  --feedback-modal-border-color: #343940;
+  --feedback-modal-rating-button-color: #ffffff;
+  --feedback-modal-rating-button--selected: #ffffff;
+  --feedback-modal-rating-button-selected-color: #ffffff;
+  --feedback-modal-button-text-color: var(--ifm-font-color-base, #E0E2E6);
+  --feedback-modal-button-border-color: #343940;
+  --feedback-modal-input-border-color: #ffffff;
+    --feedback-modal-close-color: #ffffff;
+}
+
+.feedback-modal-content {
+  background-color: var(--feedback-modal-content-bg-color) !important;
+  color: var(--feedback-modal-content-text-color) !important;
+  border: 1px solid var(--feedback-modal-border-color) !important;
+  border-radius: var(--feedback-modal-content-border-radius) !important;
+  font-family: var(--feedback-font-family) !important;
+
+  opacity: 1 !important;
+  filter: none !important;
+  mix-blend-mode: normal !important;
+  backdrop-filter: none !important;
+}
+
+/* Header text color (title + close icon area) */
+.feedback-modal-header {
+  color: var(--feedback-modal-header-text-color) !important;
+}
+
+/* Base button styling uses the vars you listed */
+.feedback-modal-button {
+  background-color: transparent !important;
+  color: var(--feedback-modal-button-text-color) !important;
+  border: 1px solid var(--feedback-modal-button-border-color) !important;
+  border-radius: var(--feedback-modal-button-border-radius) !important;
+  font-size: var(--feedback-modal-button-font-size) !important;
+  font-family: var(--feedback-font-family) !important;
+}
+
+/* Submit button uses its dedicated vars */
+.feedback-modal-button--submit {
+  background-color: var(--feedback-modal-button-submit-bg-color) !important;
+  color: var(--feedback-modal-button-submit-text-color) !important;
+  border: 1px solid var(--feedback-modal-button-border-color-active) !important;
+}
+
+/* Optional: hover/focus states in line with Infima */
+.feedback-modal-button:hover,
+.feedback-modal-button:focus {
+  border-color: var(--feedback-modal-button-border-color-active) !important;
+}
+
+/* Keep it comfy on small screens */
+@media (max-width: 640px) {
+  .feedback-modal-content {
+    width: calc(100vw - 2rem) !important;
+    max-width: calc(100vw - 2rem) !important;
+    margin: 0 auto !important;
+  }
+}
+
+.feedback-modal-overlay,
+.feedback-modal-backdrop {
+  display: grid !important;
+  place-items: center !important;
+}
+
+/* Make the TOC item look native and not crowd the list */
+.toc-feedback {
+  list-style: none; /* TOC uses custom bullets; this keeps ours clean */
+  margin-top: var(--ifm-spacing-vertical);
+  padding-top: var(--ifm-spacing-vertical);
+  border-top: 1px solid #E0E2E6;
+}
+.toc-feedback__title {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+.toc-feedback__row {
+  display: flex;
+  gap: 0.5rem;
+}
+.toc-feedback .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}

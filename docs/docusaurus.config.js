@@ -20,16 +20,32 @@ const config = {
   },
 
   url: 'https://seal-docs.wal.app',
-
   baseUrl: '/',
+  
   organizationName: 'Mysten Labs',
   projectName: 'seal',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'warn',
+  onBrokenMarkdownLinks: 'warn',
+  
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
   },
+  
+  markdown: {
+    format: "detect",
+    mermaid: true,
+  },
+
+  clientModules: [require.resolve("./src/client/pushfeedback-toc.js")],
+  
+  plugins: [
+    //require.resolve('./src/plugins/framework'),
+    "docusaurus-plugin-copy-page-button",
+    require.resolve("./src/shared/plugins/plausible"),
+  ],
 
   presets: [
     [
@@ -48,7 +64,7 @@ const config = {
     ],
   ],
 
-themeConfig:
+  themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {

@@ -1,18 +1,3 @@
----
-title: Seal Design
-description: Learn how Seal uses Identity-Based Encryption (IBE) to provide secure, policy-driven data encryption with decentralized key management on Sui.
-keywords:
-  - Seal design
-  - identity-based encryption
-  - IBE
-  - key servers
-  - access policies
-  - time-lock encryption
-  - MPC committee
-  - threshold encryption
-  - decentralization
----
-
 > For a comprehensive technical analysis and formal security proofs, see the [Seal Whitepaper](./Seal_White_Paper_v1.pdf).
 
 ## Overview

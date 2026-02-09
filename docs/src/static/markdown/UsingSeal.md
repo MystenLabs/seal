@@ -1,19 +1,3 @@
----
-title: Using Seal
-description: Learn how to protect your app and user data with Seal, including access control management, encryption, decryption, and performance optimization.
-keywords:
-  - using Seal
-  - access control
-  - encryption
-  - decryption
-  - seal_approve
-  - SealClient
-  - SessionKey
-  - on-chain decryption
-  - performance optimization
-  - envelope encryption
----
-
 # Using Seal
 
 Use this guide to learn how to protect your app and user data with Seal.
