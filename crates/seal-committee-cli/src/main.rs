@@ -18,8 +18,9 @@ use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::grpc_helper::to_partial_key_servers;
 use seal_committee::{
-    build_new_to_old_map, create_grpc_client, fetch_committee_data, fetch_key_server_by_committee,
-    CommitteeState, Network, ServerType,
+    build_new_to_old_map, create_grpc_client, fetch_committee_data,
+    fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
+    fetch_upgrade_proposal, CommitteeState, KeyServerV2, Network, ServerType, UpgradeVote,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -166,6 +167,84 @@ enum Commands {
         #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
         config: PathBuf,
     },
+
+    /// Compute package digest for upgrade verification.
+    PackageDigest {
+        /// Path to the Move package to build and compute digest for.
+        #[arg(short, long, default_value = "move/committee")]
+        package_path: PathBuf,
+
+        /// Network to build for (Testnet or Mainnet).
+        #[arg(short, long)]
+        network: String,
+    },
+
+    /// Approve package upgrade (as committee member).
+    ApproveUpgrade {
+        /// Path to the Move package to upgrade to.
+        #[arg(short, long, default_value = "move/committee")]
+        package_path: PathBuf,
+
+        /// Key server object ID.
+        #[arg(short, long)]
+        key_server_id: String,
+
+        /// Network to use.
+        #[arg(short, long)]
+        network: String,
+    },
+
+    /// Reject package upgrade (as committee member).
+    RejectUpgrade {
+        /// Path to the Move package to upgrade to.
+        #[arg(short, long, default_value = "move/committee")]
+        package_path: PathBuf,
+
+        /// Key server object ID.
+        #[arg(short, long)]
+        key_server_id: String,
+
+        /// Network to use.
+        #[arg(short, long)]
+        network: String,
+    },
+
+    /// Authorize and execute package upgrade (after threshold of approvals is reached).
+    AuthorizeAndUpgrade {
+        /// Path to the Move package to upgrade to.
+        #[arg(short, long, default_value = "move/committee")]
+        package_path: PathBuf,
+
+        /// Key server object ID.
+        #[arg(short, long)]
+        key_server_id: String,
+
+        /// Network to use.
+        #[arg(short, long)]
+        network: String,
+    },
+
+    /// Reset upgrade proposal (if threshold of rejections is reached).
+    ResetProposal {
+        /// Key server object ID.
+        #[arg(short, long)]
+        key_server_id: String,
+
+        /// Network to use.
+        #[arg(short, long)]
+        network: String,
+    },
+
+    /// Check key server status, including the committee that owns it, and the UpgradeManager with proposal status held by this committee.
+    CheckKeyServerStatus {
+        /// Key server object ID.
+        #[arg(short, long)]
+        key_server_id: String,
+
+        /// Network to use.
+        #[arg(short, long)]
+        network: String,
+    },
 }
 
 #[tokio::main]
@@ -250,25 +329,86 @@ async fn main() -> Result<()> {
             println!("\nExecuting publish transaction...");
             let response = execute_tx_and_log_status(&wallet, tx_data).await?;
 
-            // Extract published package ID.
-            let package_id = response
+            // Extract published package ID, UpgradeCap, and InitCap.
+            let effects = response
                 .effects
                 .as_ref()
-                .and_then(|effects| {
-                    effects.created().iter().find_map(|obj_ref| {
-                        if matches!(obj_ref.owner, Owner::Immutable) {
-                            Some(obj_ref.reference.object_id)
-                        } else {
-                            None
-                        }
-                    })
+                .ok_or_else(|| anyhow!("No effects in transaction response"))?;
+
+            let package_id = effects
+                .created()
+                .iter()
+                .find_map(|obj_ref| {
+                    if matches!(obj_ref.owner, Owner::Immutable) {
+                        Some(obj_ref.reference.object_id)
+                    } else {
+                        None
+                    }
                 })
                 .ok_or_else(|| anyhow!("Could not find published package ID"))?;
 
             println!("Published package: {}", package_id);
 
-            // Initialize the committee.
+            // Find UpgradeCap owned by deployer.
+            let upgrade_cap_id = effects
+                .created()
+                .iter()
+                .find_map(|obj_ref| {
+                    if matches!(obj_ref.owner, Owner::AddressOwner(_)) {
+                        // Check if this is the UpgradeCap by looking at object changes.
+                        response.object_changes.as_ref().and_then(|changes| {
+                            changes.iter().find_map(|change| {
+                                if let sui_sdk::rpc_types::ObjectChange::Created {
+                                    object_id,
+                                    object_type,
+                                    ..
+                                } = change
+                                    && object_type.to_string().contains("UpgradeCap")
+                                {
+                                    return Some(*object_id);
+                                }
+                                None
+                            })
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| anyhow!("Could not find UpgradeCap ID"))?;
+
+            // Find InitCap owned by deployer.
+            let init_cap_id = response
+                .object_changes
+                .as_ref()
+                .ok_or_else(|| anyhow!("No object changes in response"))?
+                .iter()
+                .find_map(|change| {
+                    if let sui_sdk::rpc_types::ObjectChange::Created {
+                        object_id,
+                        object_type,
+                        ..
+                    } = change
+                        && object_type.to_string().contains("InitCap")
+                    {
+                        return Some(*object_id);
+                    }
+                    None
+                })
+                .ok_or_else(|| anyhow!("Could not find InitCap ID"))?;
+
+            println!("UpgradeCap ID: {}", upgrade_cap_id);
+            println!("InitCap ID: {}", init_cap_id);
+
+            // Initialize the committee with InitCap and UpgradeCap.
             let mut init_builder = ProgrammableTransactionBuilder::new();
+
+            // Get object args for InitCap and UpgradeCap.
+            let init_cap_ref = wallet.get_object_ref(init_cap_id).await?;
+            let init_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(init_cap_ref))?;
+
+            let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap_id).await?;
+            let upgrade_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(upgrade_cap_ref))?;
+
             let threshold_arg = init_builder.pure(threshold)?;
             let members_arg = init_builder.pure(members)?;
 
@@ -277,7 +417,7 @@ async fn main() -> Result<()> {
                 "seal_committee".parse()?,
                 "init_committee".parse()?,
                 vec![],
-                vec![threshold_arg, members_arg],
+                vec![init_cap_arg, upgrade_cap_arg, threshold_arg, members_arg],
             );
 
             let init_gas_coin_ref = wallet
@@ -976,28 +1116,324 @@ async fn main() -> Result<()> {
                             }
 
                             // Display partial key servers.
-                            println!("\nPartial Key Servers:");
-                            match to_partial_key_servers(&key_server).await {
-                                Ok(partial_key_servers) => {
-                                    for (addr, info) in partial_key_servers {
-                                        println!("  Address: {}", addr);
-                                        println!("    Name: {}", info.name);
-                                        println!("    URL: {}", info.url);
-                                        println!("    Party ID: {}", info.party_id);
-                                        println!();
-                                    }
-                                }
-                                Err(e) => {
-                                    println!(
-                                        "Warning: Could not fetch partial key server info: {e}"
-                                    );
-                                }
-                            }
+                            display_partial_key_servers(&key_server).await?;
                         }
                         Err(e) => {
                             println!("Warning: Could not fetch key server object: {e}");
                         }
                     }
+                }
+            }
+        }
+
+        Commands::PackageDigest {
+            package_path,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+
+            compute_package_digest(&package_path, &network)?;
+        }
+
+        Commands::ApproveUpgrade {
+            package_path,
+            key_server_id,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            vote_for_upgrade(
+                &package_path,
+                &key_server_id,
+                &network,
+                &mut wallet,
+                cli.gas_budget,
+                true, // approve
+            )
+            .await?;
+        }
+
+        Commands::RejectUpgrade {
+            package_path,
+            key_server_id,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            vote_for_upgrade(
+                &package_path,
+                &key_server_id,
+                &network,
+                &mut wallet,
+                cli.gas_budget,
+                false, // reject
+            )
+            .await?;
+        }
+
+        Commands::AuthorizeAndUpgrade {
+            package_path,
+            key_server_id,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+
+            // Load wallet.
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let executor_address = wallet.active_address()?;
+
+            println!("Executor address: {}", executor_address);
+            println!("Network: {:?}", network);
+
+            // Build package and compute digest.
+            let digest = get_package_digest(&package_path, &network)?;
+            println!("\nPackage digest: {}", digest);
+
+            // Build the package to get compiled modules and dependencies.
+            let compiled_package = create_build_config(&network).build(&package_path)?;
+            let compiled_modules_bytes = compiled_package.get_package_bytes(false);
+
+            // Fetch key server to get committee ID.
+            let mut grpc_client = create_grpc_client(&network)?;
+            let key_server_addr = Address::from_hex(&key_server_id)?;
+            let (committee_id, _) =
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+
+            // Fetch current package ID from UpgradeCap (not from Committee object type).
+            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
+                .await?
+                .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+            let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
+
+            println!("Committee ID: {}", committee_id);
+            println!("Current package: {}", committee_pkg);
+            println!("Package version: {}", upgrade_manager.cap.version);
+
+            let committee_obj_id = ObjectID::new(committee_id.into_inner());
+
+            // Get dependencies for upgrade.
+            let dependencies: Vec<ObjectID> = compiled_package
+                .dependency_ids
+                .published
+                .into_values()
+                .collect();
+
+            // Build upgrade transaction: authorize + upgrade + commit.
+            let mut upgrade_builder = ProgrammableTransactionBuilder::new();
+
+            // Call authorize_upgrade.
+            let committee_arg_auth = upgrade_builder
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+
+            let upgrade_ticket = upgrade_builder.programmable_move_call(
+                committee_pkg,
+                "seal_committee".parse()?,
+                "authorize_upgrade".parse()?,
+                vec![],
+                vec![committee_arg_auth],
+            );
+
+            // Perform upgrade.
+            let upgrade_receipt = upgrade_builder.upgrade(
+                committee_pkg,
+                upgrade_ticket,
+                dependencies,
+                compiled_modules_bytes,
+            );
+
+            // Commit upgrade.
+            let committee_arg_commit = upgrade_builder
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+
+            upgrade_builder.programmable_move_call(
+                committee_pkg,
+                "seal_committee".parse()?,
+                "commit_upgrade".parse()?,
+                vec![],
+                vec![committee_arg_commit, upgrade_receipt],
+            );
+
+            let (gas_price, gas_budget, gas_coin_ref) =
+                get_gas_params(&mut grpc_client, &wallet, executor_address, cli.gas_budget).await?;
+
+            let upgrade_tx_data = TransactionData::new_programmable(
+                executor_address,
+                vec![gas_coin_ref],
+                upgrade_builder.finish(),
+                gas_budget,
+                gas_price,
+            );
+
+            println!("\nExecuting authorize, upgrade, and commit in one ptb...");
+            let upgrade_response = execute_tx_and_log_status(&wallet, upgrade_tx_data).await?;
+
+            // Extract new package ID.
+            let new_package_id = upgrade_response
+                .effects
+                .as_ref()
+                .and_then(|effects| {
+                    effects.created().iter().find_map(|obj_ref| {
+                        if matches!(obj_ref.owner, Owner::Immutable) {
+                            Some(obj_ref.reference.object_id)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .ok_or_else(|| anyhow!("Could not find upgraded package ID"))?;
+
+            println!("\n✓ Successfully upgraded package!");
+            println!("New package ID: {}", new_package_id);
+        }
+
+        Commands::ResetProposal {
+            key_server_id,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+
+            // Load wallet.
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let member_address = wallet.active_address()?;
+
+            println!("Member address: {}", member_address);
+            println!("Network: {:?}", network);
+
+            // Fetch key server to get committee ID.
+            let mut grpc_client = create_grpc_client(&network)?;
+            let key_server_addr = Address::from_hex(&key_server_id)?;
+            let (committee_id, _) =
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+
+            // Fetch current package ID from UpgradeCap.
+            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
+                .await?
+                .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+            let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
+
+            println!("Committee ID: {}", committee_id);
+            println!("Current package: {}", committee_pkg);
+
+            // Build reset transaction.
+            let mut reset_builder = ProgrammableTransactionBuilder::new();
+            let committee_obj_id = ObjectID::new(committee_id.into_inner());
+            let committee_arg = reset_builder
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+
+            reset_builder.programmable_move_call(
+                committee_pkg,
+                "seal_committee".parse()?,
+                "reset_proposal".parse()?,
+                vec![],
+                vec![committee_arg],
+            );
+
+            let (gas_price, gas_budget, gas_coin_ref) =
+                get_gas_params(&mut grpc_client, &wallet, member_address, cli.gas_budget).await?;
+
+            let reset_tx_data = TransactionData::new_programmable(
+                member_address,
+                vec![gas_coin_ref],
+                reset_builder.finish(),
+                gas_budget,
+                gas_price,
+            );
+
+            println!("\nExecuting reset-proposal transaction...");
+            let _reset_response = execute_tx_and_log_status(&wallet, reset_tx_data).await?;
+
+            println!("\n✓ Successfully reset upgrade proposal!");
+        }
+
+        Commands::CheckKeyServerStatus {
+            key_server_id,
+            network,
+        } => {
+            let network = Network::from_str(&network.to_lowercase())
+                .map_err(|e| anyhow!("Invalid network: {}", e))?;
+
+            println!("Network: {:?}", network);
+            println!("Key Server ID: {}", key_server_id);
+
+            let mut grpc_client = create_grpc_client(&network)?;
+            let key_server_addr = Address::from_hex(&key_server_id)?;
+
+            // Fetch committee information.
+            let (committee_id, _committee_pkg) =
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+
+            println!("\n=== Committee Information ===");
+            let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
+            println!("Committee ID: {}", committee_id);
+            println!("Total members: {}", committee.members.len());
+            println!("Threshold: {}", committee.threshold);
+            println!("State: {:?}", committee.state);
+
+            // Fetch key server.
+            match fetch_key_server_by_committee(&mut grpc_client, &committee_id).await {
+                Ok((ks_obj_id, key_server)) => {
+                    println!("\n=== Key Server ===");
+                    println!("Key Server Object ID: {}", ks_obj_id);
+
+                    match key_server.server_type {
+                        ServerType::Committee { version, .. } => {
+                            println!("Committee Version: {}", version);
+                        }
+                        _ => {
+                            println!("Warning: KeyServer is not of type Committee");
+                        }
+                    }
+
+                    // Display partial key servers.
+                    display_partial_key_servers(&key_server).await?;
+                }
+                Err(e) => {
+                    println!("Warning: Could not fetch key server object: {}", e);
+                }
+            }
+
+            // Fetch and display package upgrade information.
+            println!("\n=== Package Information ===");
+            match fetch_upgrade_manager(&mut grpc_client, &committee_id).await {
+                Ok(Some(upgrade_manager)) => {
+                    println!("Current Package: {}", upgrade_manager.cap.package);
+                    println!("Package Version: {}", upgrade_manager.cap.version);
+                }
+                Ok(None) => {
+                    println!("No UpgradeManager found (package cannot be upgraded)");
+                }
+                Err(e) => {
+                    println!("Could not fetch package information: {}", e);
+                }
+            }
+
+            // Fetch upgrade proposal status.
+            println!("\n=== Upgrade Proposal Status ===");
+            match fetch_upgrade_proposal(&mut grpc_client, &committee_id).await {
+                Ok(Some(proposal)) => {
+                    println!("Active Proposal:");
+                    println!("  Digest: {}", Hex::encode_with_format(&proposal.digest.0));
+                    println!("  Version: {}", proposal.version);
+                    println!("  Threshold: {}", committee.threshold);
+
+                    for entry in &proposal.votes.0.contents {
+                        let vote_str = match entry.value {
+                            UpgradeVote::Approve => "Approve",
+                            UpgradeVote::Reject => "Reject",
+                        };
+                        println!("    {}: {}", entry.key, vote_str);
+                    }
+                }
+                Ok(None) => {
+                    println!("No active upgrade proposal.");
+                }
+                Err(e) => {
+                    println!("Could not fetch upgrade proposal: {}", e);
                 }
             }
         }
@@ -1750,4 +2186,125 @@ async fn determine_committee_version(
         println!("Fresh DKG, version will be: 0");
         Ok(0)
     }
+}
+
+/// Compute and display the package digest.
+fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> {
+    println!("Building package at: {}", package_path.display());
+    println!();
+
+    let digest = get_package_digest(package_path, network)?;
+    println!(
+        "Digest for package '{}': {}",
+        package_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy(),
+        digest
+    );
+
+    Ok(())
+}
+
+/// Compute package digest as hex string.
+fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> {
+    let build_config = create_build_config(network);
+    let compiled_package = build_config
+        .build(&package_path.canonicalize()?)
+        .context("Failed to build package")?;
+
+    let digest = compiled_package.get_package_digest(/* with_unpublished_deps */ false);
+    Ok(Hex::encode_with_format(digest))
+}
+
+/// Display partial key server information.
+async fn display_partial_key_servers(key_server: &KeyServerV2) -> Result<()> {
+    println!("\n=== Partial Key Servers ===");
+    match to_partial_key_servers(key_server).await {
+        Ok(partial_key_servers) => {
+            for (addr, info) in partial_key_servers {
+                println!("Address: {}", addr);
+                println!("  Name: {}", info.name);
+                println!("  URL: {}", info.url);
+                println!("  Party ID: {}", info.party_id);
+                println!();
+            }
+        }
+        Err(e) => {
+            println!("Warning: Could not fetch partial key server info: {}", e);
+        }
+    }
+    Ok(())
+}
+
+/// Helper function to vote (approve or reject) for package upgrade.
+async fn vote_for_upgrade(
+    package_path: &Path,
+    key_server_id: &str,
+    network: &Network,
+    wallet: &mut WalletContext,
+    gas_budget: u64,
+    approve: bool,
+) -> Result<()> {
+    let voter_address = wallet.active_address()?;
+
+    println!("Voter address: {}", voter_address);
+    println!("Network: {:?}", network);
+
+    // Build package and compute digest.
+    let digest = get_package_digest(package_path, network)?;
+    println!("\nPackage digest: {}", digest);
+
+    // Fetch key server to get committee ID.
+    let mut grpc_client = create_grpc_client(network)?;
+    let key_server_addr = Address::from_hex(key_server_id)?;
+    let (committee_id, _) =
+        fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+
+    // Fetch current package ID from UpgradeCap.
+    let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
+        .await?
+        .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+    let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
+
+    println!("Committee ID: {}", committee_id);
+    println!("Current package: {}", committee_pkg);
+
+    // Build vote transaction.
+    let mut vote_builder = ProgrammableTransactionBuilder::new();
+    let committee_obj_id = ObjectID::new(committee_id.into_inner());
+    let committee_arg = vote_builder
+        .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+    let digest_arg = vote_builder.pure(digest.clone())?;
+
+    let function_name = if approve {
+        "approve_digest_for_upgrade"
+    } else {
+        "reject_digest_for_upgrade"
+    };
+
+    vote_builder.programmable_move_call(
+        committee_pkg,
+        "seal_committee".parse()?,
+        function_name.parse()?,
+        vec![],
+        vec![committee_arg, digest_arg],
+    );
+
+    let (gas_price, gas_budget, gas_coin_ref) =
+        get_gas_params(&mut grpc_client, wallet, voter_address, gas_budget).await?;
+
+    let vote_tx_data = TransactionData::new_programmable(
+        voter_address,
+        vec![gas_coin_ref],
+        vote_builder.finish(),
+        gas_budget,
+        gas_price,
+    );
+
+    println!("\nExecuting {} vote transaction...", function_name);
+    let _vote_response = execute_tx_and_log_status(wallet, vote_tx_data).await?;
+
+    println!("\n✓ Successfully voted to {}!", function_name);
+    Ok(())
 }
