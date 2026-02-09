@@ -16,13 +16,15 @@
   "dependencies": {
     "@docusaurus/core": "3.9.2",
     "@docusaurus/preset-classic": "3.9.2",
-    "docusaurus-plugin-copy-page-button": "^0.3.5",
+    "@docusaurus/theme-search-algolia": "^3.9.2",
     "@mdx-js/react": "^3.0.0",
-    "clsx": "^2.0.0",
     "@plausible-analytics/tracker": "^0.4.3",
+    "clsx": "^2.0.0",
+    "docusaurus-plugin-copy-page-button": "^0.3.5",
+    "docusaurus-plugin-plausible": "^0.0.5",
+    "prism-react-renderer": "^2.3.0",
     "pushfeedback": "^0.1.73",
     "pushfeedback-react": "^0.1.73",
-    "prism-react-renderer": "^2.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
