@@ -7,12 +7,7 @@
 
 module seal_committee::seal_committee;
 
-use seal_testnet::key_server::{
-    KeyServer,
-    create_partial_key_server,
-    create_committee_v2,
-    PartialKeyServer
-};
+use seal::key_server::{KeyServer, create_partial_key_server, create_committee_v2, PartialKeyServer};
 use std::string::String;
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
@@ -254,8 +249,7 @@ public fun propose_for_rotation(
 ) {
     committee.check_rotation_consistency(&old_committee);
     let old_committee_id = object::id(&old_committee);
-    let key_server = dof::remove<ID, KeyServer>(&mut old_committee.id, old_committee_id);
-    key_server.assert_committee_server_v2();
+    let key_server: KeyServer = dof::remove(&mut old_committee.id, old_committee_id);
     committee.propose_internal(partial_pks, *key_server.pk(), ctx);
     committee.try_finalize_for_rotation(old_committee, key_server);
 }
