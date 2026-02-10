@@ -43,12 +43,12 @@ jobs:
         run: cd docs/site && pnpm install --frozen-lockfile
 
       - name: Build site
-        run: cd docs/src && pnpm run build
+        run: cd docs/site && pnpm run build
 
       - name: Copy ws-resources.json into built site
         run: |
           if [ -f ws-resources.json ]; then
-            cp ws-resources.json src/
+            cp ws-resources.json docs/site/
           else
             echo "ws-resources.json not found at repo root" >&2
             exit 1
