@@ -1,0 +1,19 @@
+{
+  "id": "TermsOfService",
+  "title": "Seal Terms of Service",
+  "description": "Effective Date: Sept 3, 2025",
+  "source": "@site/../content/TermsOfService.md",
+  "sourceDirName": ".",
+  "slug": "/TermsOfService",
+  "permalink": "/TermsOfService",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Seal Pricing",
+    "permalink": "/Pricing"
+  }
+}

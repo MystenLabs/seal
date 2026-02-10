@@ -1,0 +1,37 @@
+{
+  "id": "KeyServerCommitteeOps",
+  "title": "Key Server Operations for Committee Mode",
+  "description": "Learn how to set up and operate a key server in committee mode, including DKG ceremonies, key rotation, and aggregator configuration.",
+  "source": "@site/../content/KeyServerCommitteeOps.mdx",
+  "sourceDirName": ".",
+  "slug": "/KeyServerCommitteeOps",
+  "permalink": "/KeyServerCommitteeOps",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {
+    "title": "Key Server Operations for Committee Mode",
+    "description": "Learn how to set up and operate a key server in committee mode, including DKG ceremonies, key rotation, and aggregator configuration.",
+    "keywords": [
+      "key server operations",
+      "committee mode",
+      "DKG",
+      "distributed key generation",
+      "key rotation",
+      "aggregator server",
+      "MPC committee",
+      "coordinator",
+      "committee members"
+    ]
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Key Server Operations",
+    "permalink": "/KeyServerOps"
+  },
+  "next": {
+    "title": "Aggregator Server",
+    "permalink": "/Aggregator"
+  }
+}

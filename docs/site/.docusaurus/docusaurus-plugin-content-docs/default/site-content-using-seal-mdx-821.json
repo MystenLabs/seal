@@ -1,0 +1,38 @@
+{
+  "id": "UsingSeal",
+  "title": "Using Seal",
+  "description": "Learn how to protect your app and user data with Seal, including access control management, encryption, decryption, and performance optimization.",
+  "source": "@site/../content/UsingSeal.mdx",
+  "sourceDirName": ".",
+  "slug": "/UsingSeal",
+  "permalink": "/UsingSeal",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {
+    "title": "Using Seal",
+    "description": "Learn how to protect your app and user data with Seal, including access control management, encryption, decryption, and performance optimization.",
+    "keywords": [
+      "using Seal",
+      "access control",
+      "encryption",
+      "decryption",
+      "seal_approve",
+      "SealClient",
+      "SessionKey",
+      "on-chain decryption",
+      "performance optimization",
+      "envelope encryption"
+    ]
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Seal Design",
+    "permalink": "/Design"
+  },
+  "next": {
+    "title": "Access Policy Example Patterns",
+    "permalink": "/ExamplePatterns"
+  }
+}

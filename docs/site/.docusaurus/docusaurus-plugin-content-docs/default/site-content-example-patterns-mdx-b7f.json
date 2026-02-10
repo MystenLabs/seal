@@ -1,0 +1,37 @@
+{
+  "id": "ExamplePatterns",
+  "title": "Access Policy Example Patterns",
+  "description": "Explore common Seal access policy patterns including private data, allowlists, subscriptions, time-lock encryption, and secure voting implementations.",
+  "source": "@site/../content/ExamplePatterns.mdx",
+  "sourceDirName": ".",
+  "slug": "/ExamplePatterns",
+  "permalink": "/ExamplePatterns",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {
+    "title": "Access Policy Example Patterns",
+    "description": "Explore common Seal access policy patterns including private data, allowlists, subscriptions, time-lock encryption, and secure voting implementations.",
+    "keywords": [
+      "access policy",
+      "Seal patterns",
+      "private data",
+      "allowlist",
+      "subscription",
+      "time-lock encryption",
+      "secure voting",
+      "encrypted content",
+      "IBE"
+    ]
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Using Seal",
+    "permalink": "/UsingSeal"
+  },
+  "next": {
+    "title": "Security Best Practices and Risk Mitigations",
+    "permalink": "/SecurityBestPractices"
+  }
+}

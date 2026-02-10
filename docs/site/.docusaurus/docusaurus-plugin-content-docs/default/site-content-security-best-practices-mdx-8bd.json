@@ -1,0 +1,37 @@
+{
+  "id": "SecurityBestPractices",
+  "title": "Security Best Practices and Risk Mitigations",
+  "description": "Learn security best practices for using Seal, including threshold configuration, key server selection, encryption strategies, and risk mitigation approaches.",
+  "source": "@site/../content/SecurityBestPractices.mdx",
+  "sourceDirName": ".",
+  "slug": "/SecurityBestPractices",
+  "permalink": "/SecurityBestPractices",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {
+    "title": "Security Best Practices and Risk Mitigations",
+    "description": "Learn security best practices for using Seal, including threshold configuration, key server selection, encryption strategies, and risk mitigation approaches.",
+    "keywords": [
+      "security best practices",
+      "risk mitigation",
+      "threshold encryption",
+      "key server providers",
+      "envelope encryption",
+      "layered encryption",
+      "symmetric key",
+      "client-side encryption",
+      "audit logging"
+    ]
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Access Policy Example Patterns",
+    "permalink": "/ExamplePatterns"
+  },
+  "next": {
+    "title": "Key Server Operations",
+    "permalink": "/KeyServerOps"
+  }
+}

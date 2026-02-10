@@ -1,0 +1,88 @@
+{
+  "docusaurus-plugin-content-docs": {
+    "default": {
+      "path": "/",
+      "versions": [
+        {
+          "name": "current",
+          "label": "Next",
+          "isLast": true,
+          "path": "/",
+          "mainDocId": "index",
+          "docs": [
+            {
+              "id": "Aggregator",
+              "path": "/Aggregator",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "Design",
+              "path": "/Design",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "ExamplePatterns",
+              "path": "/ExamplePatterns",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "GettingStarted",
+              "path": "/GettingStarted",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "index",
+              "path": "/",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "KeyServerCommitteeOps",
+              "path": "/KeyServerCommitteeOps",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "KeyServerOps",
+              "path": "/KeyServerOps",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "Pricing",
+              "path": "/Pricing",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "SealCLI",
+              "path": "/SealCLI",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "SecurityBestPractices",
+              "path": "/SecurityBestPractices",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "TermsOfService",
+              "path": "/TermsOfService",
+              "sidebar": "docsSidebar"
+            },
+            {
+              "id": "UsingSeal",
+              "path": "/UsingSeal",
+              "sidebar": "docsSidebar"
+            }
+          ],
+          "draftIds": [],
+          "sidebars": {
+            "docsSidebar": {
+              "link": {
+                "path": "/",
+                "label": "index"
+              }
+            }
+          }
+        }
+      ],
+      "breadcrumbs": true
+    }
+  }
+}

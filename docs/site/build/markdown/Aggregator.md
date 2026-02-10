@@ -1,0 +1,75 @@
+# Aggregator Server
+
+The Aggregator Server supports Seal MPC committees by acting as a gateway between clients and committee member key servers. It fetches encrypted partial key shares from committee members, verifies their encrypted signatures, aggregates the shares into a single encrypted key, and returns the result to the client. The aggregator authenticates to member key servers using private API keys.
+
+## Overview
+
+The aggregator server performs the following tasks:
+
+1. Loads the committee's configuration from the network, including the threshold, member URLs, and partial public keys.
+2. Receives fetch key requests from clients.
+3. Fans out each request to committee member servers until it collects responses from enough members to satisfy the threshold.
+4. Verifies each encrypted signature using the corresponding partial public key.
+5. Aggregates the encrypted partial responses using Lagrange interpolation.
+6. Returns the aggregated encrypted key to the client.
+
+## Setup
+
+The aggregator authenticates with each committee member's key server using private API keys.
+
+### Initial setup (fresh DKG)
+
+After a fresh DKG completes, the coordinator shares the following information with the aggregator operator:
+
+- **Key server object ID** (`KEY_SERVER_OBJ_ID`): The object ID created when the committee is finalized on-chain.
+- **API credentials for all committee members**, including:
+    - The on-chain server name
+    - The API key name
+    - The API key
+
+The aggregator operator configures these values in `aggregator-config.yaml` and then deploys the aggregator server.
+
+### Key rotation
+
+If new members join the committee during key rotation, the coordinator shares their API credentials with the aggregator operator. The aggregator operator adds the new credentials to `aggregator-config.yaml` and restarts the server.
+
+The aggregator configuration can include credentials for both old and new member names. The aggregator periodically reads the current committee state from the network and uses the latest on-chain member list to determine which credentials to use.
+
+## Running the server
+
+Edit `aggregator-config.yaml` to match your environment. Set the target network, the key server object ID provided by the coordinator, and the API credentials for all committee members:
+```yaml
+# The network for the object.
+network: !Testnet
+# The committee server object ID.
+key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+
+# API credentials for committee members.
+api_credentials:
+    server1: # on-chain server name
+      api_key_name: keyname1
+      api_key: key1
+    server2:
+      api_key_name: keyname2
+      api_key: key2
+```
+
+Then run:
+```shell
+CONFIG_PATH=crates/key-server/src/aggregator/aggregator-config.yaml cargo run --bin aggregator-server
+```
+
+### Running with Docker
+
+Build the image:
+```shell
+docker build -f Dockerfile.aggregator -t aggregator-server:latest .
+```
+
+Run the server:
+```shell
+docker run -p 2024:2024 \
+  -v $(pwd)/crates/key-server/src/aggregator/aggregator-config.yaml:/config/aggregator-config.yaml \
+  -e CONFIG_PATH=/config/aggregator-config.yaml \
+  aggregator-server
+```

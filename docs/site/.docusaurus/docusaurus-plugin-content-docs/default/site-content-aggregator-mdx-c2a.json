@@ -1,0 +1,36 @@
+{
+  "id": "Aggregator",
+  "title": "Aggregator Server",
+  "description": "Learn how the Aggregator Server acts as a gateway between clients and Seal MPC committee member key servers, aggregating encrypted partial key shares.",
+  "source": "@site/../content/Aggregator.mdx",
+  "sourceDirName": ".",
+  "slug": "/Aggregator",
+  "permalink": "/Aggregator",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {
+    "title": "Aggregator Server",
+    "description": "Learn how the Aggregator Server acts as a gateway between clients and Seal MPC committee member key servers, aggregating encrypted partial key shares.",
+    "keywords": [
+      "aggregator server",
+      "Seal MPC",
+      "key server",
+      "committee members",
+      "encrypted signatures",
+      "DKG",
+      "API credentials",
+      "Lagrange interpolation"
+    ]
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Key Server Operations for Committee Mode",
+    "permalink": "/KeyServerCommitteeOps"
+  },
+  "next": {
+    "title": "Seal CLI",
+    "permalink": "/SealCLI"
+  }
+}

@@ -1,0 +1,21 @@
+import { __decorate } from "tslib";
+import { AsnProp, AsnPropTypes } from "@peculiar/asn1-schema";
+import { AttrSpec } from "./attr_spec";
+export class AAControls {
+    constructor(params = {}) {
+        this.permitUnSpecified = true;
+        Object.assign(this, params);
+    }
+}
+__decorate([
+    AsnProp({ type: AsnPropTypes.Integer, optional: true })
+], AAControls.prototype, "pathLenConstraint", void 0);
+__decorate([
+    AsnProp({ type: AttrSpec, implicit: true, context: 0, optional: true })
+], AAControls.prototype, "permittedAttrs", void 0);
+__decorate([
+    AsnProp({ type: AttrSpec, implicit: true, context: 1, optional: true })
+], AAControls.prototype, "excludedAttrs", void 0);
+__decorate([
+    AsnProp({ type: AsnPropTypes.Boolean, defaultValue: true })
+], AAControls.prototype, "permitUnSpecified", void 0);

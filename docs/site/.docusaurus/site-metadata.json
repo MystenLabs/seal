@@ -1,0 +1,51 @@
+{
+  "docusaurusVersion": "3.9.2",
+  "siteVersion": "0.0.0",
+  "pluginVersions": {
+    "docusaurus-plugin-css-cascade-layers": {
+      "type": "package",
+      "name": "@docusaurus/plugin-css-cascade-layers",
+      "version": "3.9.2"
+    },
+    "docusaurus-plugin-content-docs": {
+      "type": "package",
+      "name": "@docusaurus/plugin-content-docs",
+      "version": "3.9.2"
+    },
+    "docusaurus-plugin-content-blog": {
+      "type": "package",
+      "name": "@docusaurus/plugin-content-blog",
+      "version": "3.9.2"
+    },
+    "docusaurus-plugin-content-pages": {
+      "type": "package",
+      "name": "@docusaurus/plugin-content-pages",
+      "version": "3.9.2"
+    },
+    "docusaurus-plugin-sitemap": {
+      "type": "package",
+      "name": "@docusaurus/plugin-sitemap",
+      "version": "3.9.2"
+    },
+    "docusaurus-plugin-svgr": {
+      "type": "package",
+      "name": "@docusaurus/plugin-svgr",
+      "version": "3.9.2"
+    },
+    "docusaurus-theme-classic": {
+      "type": "package",
+      "name": "@docusaurus/theme-classic",
+      "version": "3.9.2"
+    },
+    "copy-page-button-plugin": {
+      "type": "package",
+      "name": "docusaurus-plugin-copy-page-button",
+      "version": "0.3.5"
+    },
+    "docusaurus-plugin-plausible": {
+      "type": "package",
+      "name": "docusaurus-plugin-plausible",
+      "version": "0.0.5"
+    }
+  }
+}

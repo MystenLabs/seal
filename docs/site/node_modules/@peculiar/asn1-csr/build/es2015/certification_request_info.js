@@ -1,0 +1,25 @@
+import { __decorate } from "tslib";
+import { AsnProp, AsnPropTypes } from "@peculiar/asn1-schema";
+import { Name, SubjectPublicKeyInfo } from "@peculiar/asn1-x509";
+import { Attributes } from "./attributes";
+export class CertificationRequestInfo {
+    constructor(params = {}) {
+        this.version = 0;
+        this.subject = new Name();
+        this.subjectPKInfo = new SubjectPublicKeyInfo();
+        this.attributes = new Attributes();
+        Object.assign(this, params);
+    }
+}
+__decorate([
+    AsnProp({ type: AsnPropTypes.Integer })
+], CertificationRequestInfo.prototype, "version", void 0);
+__decorate([
+    AsnProp({ type: Name })
+], CertificationRequestInfo.prototype, "subject", void 0);
+__decorate([
+    AsnProp({ type: SubjectPublicKeyInfo })
+], CertificationRequestInfo.prototype, "subjectPKInfo", void 0);
+__decorate([
+    AsnProp({ type: Attributes, implicit: true, context: 0, optional: true })
+], CertificationRequestInfo.prototype, "attributes", void 0);
