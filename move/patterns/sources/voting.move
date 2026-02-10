@@ -191,7 +191,7 @@ public fun finalize_vote(
 
 #[test]
 fun test_vote() {
-    use seal::key_server::{create_and_transfer_v1, KeyServer, destroy_for_testing as ks_destroy};
+    use seal::key_server::{create_and_transfer_v1, KeyServer, destroy as ks_destroy};
     use sui::test_scenario::{Self, next_tx, ctx};
 
     let addr1 = @0xA;
