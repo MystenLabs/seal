@@ -198,10 +198,18 @@ async fn main() -> Result<()> {
             println!("Threshold: {}", threshold);
 
             // Get committee package path.
+            // Try current directory first, then try from workspace root
             let committee_path = std::env::current_dir()?.join("move/committee");
+            let committee_path = if committee_path.exists() {
+                committee_path
+            } else {
+                // Try from workspace root (for tests and CI)
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../move/committee")
+            };
+
             if !committee_path.exists() {
                 bail!(
-                    "Committee package not found at: {}",
+                    "Committee package not found at: {}. Tried: current_dir/move/committee and workspace_root/move/committee",
                     committee_path.display()
                 );
             }
@@ -220,12 +228,26 @@ async fn main() -> Result<()> {
             let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            // Get RPC URL for localnet from wallet config
+            let rpc_url = if network == Network::Localnet {
+                Some(wallet.config.get_active_env()?.rpc.as_str())
+            } else {
+                None
+            };
+            let mut grpc_client = create_grpc_client(&network, rpc_url)?;
+
+            // Use higher gas budget for localnet
+            let gas_budget_override = if network == Network::Localnet {
+                100_000_000_000u64 // 100 SUI for localnet
+            } else {
+                cli.gas_budget
+            };
+
             let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
                 &mut grpc_client,
                 &wallet,
                 coordinator_address,
-                cli.gas_budget,
+                gas_budget_override,
             )
             .await?;
 
@@ -339,7 +361,8 @@ async fn main() -> Result<()> {
             // Fetch key server and extract current committee ID from owner field.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let rpc_url = get_rpc_url_for_network(&network, &wallet)?;
+            let mut grpc_client = create_grpc_client(&network, rpc_url.as_deref())?;
             let mut ledger_client = grpc_client.ledger_client();
             let mut ks_request = GetObjectRequest::default();
             ks_request.object_id = Some(key_server_obj_id.to_string());
@@ -601,7 +624,8 @@ async fn main() -> Result<()> {
 
             println!("\n=== Registering onchain ===");
             let network = get_network(&config_content)?;
-            let mut grpc_client = create_grpc_client(&network)?;
+            let rpc_url = get_rpc_url_for_network(&network, &wallet)?;
+            let mut grpc_client = create_grpc_client(&network, rpc_url.as_deref())?;
 
             // Register onchain.
             let mut register_builder = ProgrammableTransactionBuilder::new();
@@ -649,7 +673,15 @@ async fn main() -> Result<()> {
             let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
 
             // Call shared function with no old share.
-            create_dkg_state_and_message(&state_dir, &config, &keys_file, None).await?;
+            create_dkg_state_and_message(
+                &state_dir,
+                &config,
+                &keys_file,
+                None,
+                cli.wallet.as_deref(),
+                cli.active_address,
+            )
+            .await?;
         }
 
         Commands::CreateMessage {
@@ -659,7 +691,15 @@ async fn main() -> Result<()> {
             old_share,
         } => {
             let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
-            create_dkg_state_and_message(&state_dir, &config, &keys_file, old_share).await?;
+            create_dkg_state_and_message(
+                &state_dir,
+                &config,
+                &keys_file,
+                old_share,
+                cli.wallet.as_deref(),
+                cli.active_address,
+            )
+            .await?;
         }
         Commands::ProcessAllAndPropose {
             state_dir,
@@ -675,6 +715,9 @@ async fn main() -> Result<()> {
             let committee_id = get_committee_id(&config_content)?;
             let my_address = SuiAddress::from_bytes(get_my_address(&config_content)?.inner())?;
             let network = get_network(&config_content)?;
+
+            // Load wallet early for localnet RPC URL.
+            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
 
             // Check if this is a rotation.
             let current_committee_id =
@@ -698,7 +741,8 @@ async fn main() -> Result<()> {
             let output = process_dkg_messages(&mut state, messages, &local_keys)?;
 
             // Determine version.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let rpc_url = get_rpc_url_for_network(&network, &wallet)?;
+            let mut grpc_client = create_grpc_client(&network, rpc_url.as_deref())?;
             let version =
                 determine_committee_version(&mut grpc_client, &state.config.committee_id).await?;
 
@@ -797,9 +841,6 @@ async fn main() -> Result<()> {
                 println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
             }
 
-            // Load wallet.
-            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
-
             if is_rotation {
                 println!("\n=== Proposing committee rotation onchain ===");
                 println!("  New Committee ID: {}", committee_id);
@@ -875,8 +916,12 @@ async fn main() -> Result<()> {
             let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
             let network = get_network(&config_content)?;
 
+            // Load wallet for localnet RPC URL.
+            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+
             // Fetch committee from onchain.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let rpc_url = get_rpc_url_for_network(&network, &wallet)?;
+            let mut grpc_client = create_grpc_client(&network, rpc_url.as_deref())?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             println!("Committee ID: {committee_id}");
@@ -1105,6 +1150,8 @@ async fn create_dkg_state_and_message(
     config: &Path,
     keys_file: &Path,
     old_share: Option<String>,
+    wallet_path: Option<&Path>,
+    active_address: Option<SuiAddress>,
 ) -> Result<()> {
     // Load config to get parameters.
     let config_content = load_config(config)?;
@@ -1114,6 +1161,9 @@ async fn create_dkg_state_and_message(
 
     // Load local keys.
     let local_keys = KeysFile::load(keys_file)?;
+
+    // Load wallet for localnet RPC URL.
+    let wallet = load_wallet(wallet_path, active_address)?;
 
     // Parse old share from command argument if provided. Provided for continuing members in key rotation.
     let (my_old_share, my_old_pk) = if let Some(share_hex) = old_share {
@@ -1126,7 +1176,8 @@ async fn create_dkg_state_and_message(
     };
 
     // Fetch current committee from onchain.
-    let mut grpc_client = create_grpc_client(&network)?;
+    let rpc_url = get_rpc_url_for_network(&network, &wallet)?;
+    let mut grpc_client = create_grpc_client(&network, rpc_url.as_deref())?;
     let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
     // Validate committee state contains my address.
@@ -1303,6 +1354,15 @@ async fn create_dkg_state_and_message(
     state.save(state_dir)?;
     println!("State saved to {state_dir:?}. Wait for coordinator to announce phase 3.");
     Ok(())
+}
+
+/// Get RPC URL for localnet from wallet config.
+fn get_rpc_url_for_network(network: &Network, wallet: &WalletContext) -> Result<Option<String>> {
+    if *network == Network::Localnet {
+        Ok(Some(wallet.config.get_active_env()?.rpc.clone()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Get gas price, budget, and coin for a transaction.
@@ -1526,6 +1586,7 @@ fn create_build_config(network: &Network) -> BuildConfig {
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
+        Network::Localnet => testnet_environment(), // Use testnet environment for localnet
     };
 
     BuildConfig {

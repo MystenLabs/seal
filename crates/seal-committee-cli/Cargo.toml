@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "seal_committee_cli"
+path = "src/lib.rs"
+
 [dependencies]
 seal-committee = { path = "../seal-committee" }
 
@@ -27,6 +31,12 @@ sui-package-alt.workspace = true
 sui-rpc.workspace = true
 prost-types.workspace = true
 dirs = "5.0"
+
+[dev-dependencies]
+test-cluster.workspace = true
+move-core-types.workspace = true
+tempfile = "3.15.0"
+crypto = { path = "../crypto" }
 
 [[bin]]
 name = "seal-committee-cli"

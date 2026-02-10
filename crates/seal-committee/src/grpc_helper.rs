@@ -16,12 +16,16 @@ use sui_sdk_types::{Address, Object, StructTag, TypeTag};
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
 /// Create gRPC client for a given network.
-pub fn create_grpc_client(network: &Network) -> Result<Client> {
-    let rpc_url = match network {
+/// For localnet, you must provide the RPC URL via the rpc_url parameter.
+pub fn create_grpc_client(network: &Network, rpc_url: Option<&str>) -> Result<Client> {
+    let url = match network {
         Network::Mainnet => Client::MAINNET_FULLNODE,
         Network::Testnet => Client::TESTNET_FULLNODE,
+        Network::Localnet => rpc_url.ok_or_else(|| {
+            anyhow::anyhow!("Localnet requires an explicit RPC URL via the rpc_url parameter")
+        })?,
     };
-    Ok(Client::new(rpc_url)?)
+    Ok(Client::new(url)?)
 }
 
 /// Fetch an object's BCS data and deserialize as type T.
@@ -208,7 +212,7 @@ mod tests {
             Address::from_str("0x3c9e055bb08775441a3d1a3c834b2b01f1029e4a0c0ba0158dd5d7b5d562cf1d")
                 .unwrap();
 
-        let mut grpc_client = create_grpc_client(&Network::Testnet).unwrap();
+        let mut grpc_client = create_grpc_client(&Network::Testnet, None).unwrap();
         let committee = fetch_committee_data(&mut grpc_client, &committee_id)
             .await
             .unwrap();

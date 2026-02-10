@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
 /// Network enum for DKG and Seal CLI operations.
-/// Only supports mainnet and testnet.
+/// Supports mainnet, testnet, and localnet.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
     Testnet,
     Mainnet,
+    Localnet,
 }
 
 impl FromStr for Network {
@@ -19,9 +20,8 @@ impl FromStr for Network {
         match s {
             "mainnet" => Ok(Network::Mainnet),
             "testnet" => Ok(Network::Testnet),
-            _ => Err(format!(
-                "Unknown network: {s}. Only 'mainnet' and 'testnet' are supported"
-            )),
+            "localnet" => Ok(Network::Localnet),
+            _ => Err(format!("Unknown network: {s}")),
         }
     }
 }
@@ -31,6 +31,7 @@ impl Display for Network {
         match self {
             Network::Mainnet => write!(f, "mainnet"),
             Network::Testnet => write!(f, "testnet"),
+            Network::Localnet => write!(f, "localnet"),
         }
     }
 }
