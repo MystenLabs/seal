@@ -23,7 +23,7 @@ Seal consists of two main components:
 - **Off-chain Key Servers:** Key servers are off-chain services, each holding a single IBE master secret key. Users can request a derived secret key for a specific identity. The key server returns the derived key only if the associated onchain access policy approves the request.
 
 Consider the following basic example for realizing time-lock encryption:
-```rust
+```move
 module patterns::tle;
 
 use sui::bcs;
@@ -37,7 +37,7 @@ const ENoAccess : u64 = 1;
 /// The following function accepts only the inner identity, i.e., [bcs::to_bytes(time)], and Seal extends it with the namespace.
 entry fun seal_approve(id: vector<u8>, c: &clock::Clock) {
     // Convert the identity to u64.
-    let mut prepared: BCS = bcs::new(id);
+    let mut prepared = bcs::new(id);
     let t = prepared.peel_u64();
     let leftovers = prepared.into_remainder_bytes();
 

@@ -42,8 +42,11 @@ Use the SDK to encrypt data before storing it:
 ```typescript
 const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt({
     threshold: 2,
-    packageId: fromHEX(packageId),
-    id: fromHEX(id),
+    // The contract corresponding to this `packageId` should be the original version.
+    packageId: originalPackageId,
+    // Use `objectId` as the requested identity.
+    // When decrypting this encryptedData, need to pass the same `objectId` as the first parameter.
+    id: objectId,
     data,
 });
 ```
@@ -62,13 +65,15 @@ When a user requests access, Seal checks your onchain policy. If approved, decry
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
 tx.moveCall({
+    // If the contract has been upgraded, can pass the latest packageId here.
     target: `${packageId}::${moduleName}::seal_approve`, 
     arguments: [
-        tx.pure.vector("u8", fromHEX(id)),
+        // The first parameter is the requested identity without prefix.
+        tx.pure.vector("u8", fromHex(id)),
         // other arguments
    ]
  });  
-const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true })
+const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true });
 const decryptedBytes = await client.decrypt({
     data: encryptedBytes,
     sessionKey,
