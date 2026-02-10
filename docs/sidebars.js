@@ -1,3 +1,6 @@
+// Copyright (c), Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // @ts-check
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)

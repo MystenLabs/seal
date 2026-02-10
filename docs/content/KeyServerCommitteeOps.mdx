@@ -17,7 +17,7 @@ keywords:
 
 This guide explains how to set up and operate a key server in committee mode. It walks you through participating in a Distributed Key Generation (DKG) ceremony to generate cryptographic key shares, and then shows you how to configure and run a key server using those shares. If the committee later needs to change membership, the guide also covers key rotation and how to update a running key server accordingly.
 
-In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator Server](./Aggregator.mdx).
+In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator Server](/Aggregator).
 
 A DKG process involves two roles: a **coordinator**, which orchestrates the workflow, and a set of **committee members**, which participate in key generation and key rotation.
 
@@ -171,7 +171,7 @@ The coordinator shares the following information with the aggregator operator:
     - The API key
 - The committee's `KEY_SERVER_OBJ_ID` from the previous step.
 
-With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](./Aggregator.mdx).
+With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
 
 ### Member runbook
 
@@ -376,7 +376,7 @@ The coordinator shares the following information with the aggregator operator fo
 - The API key name
 - The API key
 
-The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see [Aggregator Server](./Aggregator.mdx).
+The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see [Aggregator Server](/Aggregator).
 
 ### Member runbook
 

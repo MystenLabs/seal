@@ -20,11 +20,7 @@ Use this guide to learn how to protect your app and user data with Seal.
 
 :::tip
 
-<<<<<<< HEAD
 Read the [Seal Design document](/Design) first to understand the underlying architecture and concepts before using this guide.
-=======
-Read the [Seal Design document](/docs/Design) first to understand the underlying architecture and concepts before using this guide.
->>>>>>> 59efe92 (merge main)
 
 :::
 
@@ -37,11 +33,7 @@ Packages should define `seal_approve*` functions in their modules to control acc
 - If access is not granted, the function should abort without returning a value.
 - To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a versioned shared global object with the latest version (see [allowlist](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/subscription.move) examples).
 
-<<<<<<< HEAD
 See [Example patterns](/ExamplePatterns) for additional examples and high-level patterns.
-=======
-See [Example patterns](/docs/ExamplePatterns) for additional examples and high-level patterns.
->>>>>>> 59efe92 (merge main)
 
 As `seal_approve*` functions are standard Move functions, they can be tested locally using Move tests.
 Building and publishing the code can be done using the [Sui CLI](https://docs.sui.io/references/cli), for example:
@@ -94,11 +86,7 @@ Anyone can create an on-chain `KeyServer` object that references a known URL (su
 
 :::
 
-<<<<<<< HEAD
 Apps can define a list of Seal key server object IDs from the [verified key servers](/Pricing#verified-key-servers) available in each environment. You can use any `Open` mode key server directly. For a `Permissioned` mode key server, contact the key server provider to register your access policy package ID and receive the corresponding object ID.
-=======
-Apps can define a list of Seal key server object IDs from the [verified key servers](/docs/Pricing#verified-key-servers) available in each environment. You can use any `Open` mode key server directly. For a `Permissioned` mode key server, contact the key server provider to register your access policy package ID and receive the corresponding object ID.
->>>>>>> 59efe92 (merge main)
 
 Next, the app should create a `SealClient` object for the selected key servers.
 ```typescript
@@ -144,11 +132,7 @@ Next, the app can call the `encrypt` method on the `client` instance. This funct
 
 - The encryption threshold
 - The package ID of the deployed contract containing the `seal_approve*` functions
-<<<<<<< HEAD
 - The ID associated with the access control policy (without the prefix of the package ID discussed in [Seal Design](/Design))
-=======
-- The ID associated with the access control policy (without the prefix of the package ID discussed in [Seal Design](/docs/Design))
->>>>>>> 59efe92 (merge main)
 - The data to encrypt
 
 The `encrypt` function returns two values: the encrypted object, and the symmetric key used for encryption (that is, the key from the DEM component of the KEM/DEM scheme). The symmetric key can either be ignored or returned to the user as a backup for disaster recovery. If retained, the user can decrypt the data manually using the CLI and the `symmetric-decrypt` command.
@@ -200,11 +184,7 @@ sessionKey.setPersonalMessageSignature(signature); // Initialization complete
 
 1. You can also optionally initialize a `SessionKey` with a passed in `Signer` in the constructor. This is useful for classes that extend `Signer`, for example, `EnokiSigner`.
 2. You can optionally set an `mvr_name` value in the `SessionKey`. This should be the [Move Package Registry](https://www.moveregistry.com/) name for the package. Seal requires the MVR name to be registered to the first version of the package for this to work. If this is set, the message shown to the user in the wallet would use the much more readable MVR package name instead of `packageId`.
-<<<<<<< HEAD
-3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class.
-=======
 3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class.
->>>>>>> 59efe92 (merge main)
 
 :::
 
@@ -399,8 +379,4 @@ Hardware, runtime (browser vs. Node.js), and object size vary. Try both direct `
 
 :::
 
-<<<<<<< HEAD
 Envelope encryption is also recommended for highly sensitive data and enables safer key rotation and updates without re-encrypting large blobs. See [Use layered encryption for critical or large data](/SecurityBestPractices#use-layered-encryption-for-critical-or-large-data).
-=======
-Envelope encryption is also recommended for highly sensitive data and enables safer key rotation and updates without re-encrypting large blobs. See [Use layered encryption for critical or large data](/docs/SecurityBestPractices#use-layered-encryption-for-critical-or-large-data).
->>>>>>> 59efe92 (merge main)
