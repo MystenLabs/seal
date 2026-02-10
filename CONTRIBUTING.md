@@ -24,7 +24,7 @@ Is something missing or incorrect in our documentation? You can make a PR if you
 
 ### Documentation on Walrus Sites
 
-Seal’s documentation is published as a [Walrus Site](https://github.com/MystenLabs/walrus-sites) ay [seal-docs.wal.app](https://seal-docs.wal.app). The site is built using [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), a static site generator that supports clean, customizable documentation.
+Seal's documentation is published as a [Walrus Site](https://github.com/MystenLabs/walrus-sites) at [seal-docs.wal.app](https://seal-docs.wal.app). The site is built using [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), a static site generator that supports clean, customizable documentation.
 
 You’ll find all documentation content inside the [docs directory](./docs), with site configuration defined in [mkdocs.yml](./mkdocs.yml).
 
