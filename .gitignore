@@ -22,7 +22,10 @@ Published.test.*.toml
 !crates/sui-framework/packages/deepbook/Move.lock
 .trace
 .coverage_map.mvcov
+
 /move/committee/Published.toml
+/move/patterns/Published.toml
+
 # Thumbnails
 ._*
 
