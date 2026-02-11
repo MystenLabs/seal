@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SealClient, SessionKey, NoAccessError, EncryptedObject } from '@mysten/seal';
-import { SuiClient } from '@mysten/sui/client';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import React from 'react';
 
@@ -11,7 +11,7 @@ export type MoveCallConstructor = (tx: Transaction, id: string) => void;
 export const downloadAndDecrypt = async (
   blobIds: string[],
   sessionKey: SessionKey,
-  suiClient: SuiClient,
+  suiClient: SuiJsonRpcClient,
   sealClient: SealClient,
   moveCallConstructor: (tx: Transaction, id: string) => void,
   setError: (error: string | null) => void,
@@ -68,7 +68,7 @@ export const downloadAndDecrypt = async (
     ids.forEach((id) => moveCallConstructor(tx, id));
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
-      await sealClient.fetchKeys({ ids, txBytes, sessionKey, threshold: 2 });
+      await sealClient.fetchKeys({ ids, txBytes, sessionKey, threshold: 1 });
     } catch (err) {
       console.log(err);
       const errorMsg =

@@ -21,10 +21,10 @@
     "test": "tests"
   },
   "dependencies": {
-    "@mysten/bcs": "^1.6.0",
-    "@mysten/dapp-kit": "^0.17.7",
-    "@mysten/seal": "0.5.2",
-    "@mysten/sui": "^1.37.6",
+    "@mysten/bcs": "^2.0.2",
+    "@mysten/dapp-kit": "^1.0.3",
+    "@mysten/seal": "^1.0.0",
+    "@mysten/sui": "^2.3.2",
     "@radix-ui/colors": "^3.0.0",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/react-label": "^2.1.2",
