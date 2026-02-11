@@ -145,13 +145,13 @@ jobs:
       - name: Deploy site to Walrus and verify
         run: |
           set -euo pipefail
-          ls -la /docs/site || true
+          ls -la docs/site || true
           export RUST_LOG=info
 
           # Retry deploy up to 4 times with backoff to handle transient network timeouts
           for attempt in 1 2 3 4; do
             echo "Deploy attempt $attempt"
-            if ./site-builder deploy /docs/site/build --epochs 50; then
+            if ./site-builder deploy docs/site/build --epochs 50; then
               echo "Deploy succeeded on attempt $attempt";
               break
             fi
