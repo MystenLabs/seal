@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use sui_sdk_types::Address;
 use sui_types::collection_types::VecSet;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
 
 #[derive(Deserialize, Debug)]
@@ -74,6 +74,23 @@ pub struct Wrapper<T> {
 pub struct Field<K, V> {
     pub id: Address,
     pub name: K,
+    pub value: V,
+}
+
+/// Helper struct for deserializing UID from Move objects.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct UidWrapper {
+    pub id: Address,
+}
+
+/// Dynamic field wrapper for deserializing Field<Wrapper<K>, V> from BCS.
+/// This includes the full UID structure as it appears in the Move object.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct FieldWrapper<K, V> {
+    pub id: UidWrapper,
+    pub name: Wrapper<K>,
     pub value: V,
 }
 
@@ -251,3 +268,48 @@ move_bytes_deserializer!(deserialize_move_bytes, Vec<u8>);
 move_bytes_deserializer!(deserialize_enc_pk, PublicKey<G1Element>);
 move_bytes_deserializer!(deserialize_signing_pk, BLS12381PublicKey);
 move_bytes_deserializer!(deserialize_partial_pk, G2Element);
+
+// ===== Upgrade Manager Types =====
+
+/// Vote type for upgrade proposals.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum UpgradeVote {
+    Approve,
+    Reject,
+}
+
+/// Package digest newtype (32 bytes).
+#[derive(Deserialize, Debug, Clone)]
+pub struct PackageDigest(pub Vec<u8>);
+
+/// Upgrade proposal.
+#[derive(Deserialize, Debug, Clone)]
+pub struct UpgradeProposal {
+    pub digest: PackageDigest,
+    pub version: u64,
+    pub votes: VecMap<Address, UpgradeVote>,
+}
+
+/// UpgradeCap object.
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+pub struct UpgradeCap {
+    pub id: UidStruct,
+    pub package: Address,
+    pub version: u64,
+    pub policy: u8,
+}
+
+/// UpgradeManager object.
+#[derive(Deserialize, Debug)]
+pub struct UpgradeManager {
+    pub id: UidStruct,
+    pub cap: UpgradeCap,
+    pub upgrade_proposal: Option<UpgradeProposal>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UidStruct {
+    pub id: Address,
+}

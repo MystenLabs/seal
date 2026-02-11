@@ -79,20 +79,30 @@ cargo run --bin seal-committee-cli -- --help
 
 ## Fresh DKG process
 
-### Coordinator runbook
+### Fresh DKG coordinator runbook
 
 Follow these steps to initialize a new MPC committee using a fresh DKG.
 
 1. **Prepare DKG configuration**
 
-a. Create a clean working directory named `dkg-state` and copy the example configuration file:
+a. Make sure your CLI has the expected network and active address with gas.
+```bash
+sui client active-env
+sui client active-address
+
+# switch if needed
+sui client switch --env testnet
+sui client switch --address 0x...
+```
+
+b. Create a clean working directory named `dkg-state` and copy the example configuration file:
 ```bash
 # in seal/
 rm -rf dkg-state && mkdir dkg-state
 cp crates/seal-committee-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-b. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
+c. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
 ```yaml
 init-params:
   NETWORK: Testnet # Target network
@@ -110,7 +120,14 @@ Run the publish-and-init command:
 cargo run --bin seal-committee-cli -- publish-and-init
 ```
 
-This script publishes the `seal_committee` package on-chain and initializes the committee state. It also appends the committee identifiers to `dkg.yaml`, for example:
+This command:
+
+- Publishes the `seal_committee` package onchain with upgrade capability
+- Extracts the InitCap and UpgradeCap from the publish transaction
+- Initializes the committee state and attaches the UpgradeManager (which holds the UpgradeCap) to the committee
+- Appends the committee identifiers to `dkg.yaml`
+
+For example: 
 ```yaml
 publish-and-init:
   COMMITTEE_PKG: 0x5b788ac96879a752afbd3608a202207d75cf0f03387bcb744bfb4930cc544a70
@@ -126,7 +143,7 @@ Share the updated `dkg.yaml` file with all committee members. Notify members to 
 
 Check on-chain registration status:
 ```bash
-cargo run --bin seal-committee-cli -- check-committee -c dkg-state/dkg.yaml
+cargo run --bin seal-committee-cli -- check-committee
 ```
 
 The output shows which members have registered and which are still pending. Wait until all are registered.
@@ -136,7 +153,7 @@ The output shows which members have registered and which are still pending. Wait
 Once all members are registered:
 
 - Notify members to begin **Phase B (Message creation)**.
-- Monitor the off-chain storage location until all members upload their DKG message files.
+- Monitor the off-chain storage (e.g. group chat) until all members upload their DKG message files.
 
 6. **Collect and share DKG messages and notify Phase C (Finalization)**
 
@@ -145,7 +162,7 @@ Collect message files into a single directory and share it with members. The num
 rm -rf dkg-messages && mkdir dkg-messages
 mv path/to/message_0.json dkg-messages/
 mv path/to/message_1.json dkg-messages/
-mv path/to/message_2.json dkg-messages/
+# repeat till the number of messages equals the threshold
 ```
 
 Notify members to begin **Phase C (Finalization)**.
@@ -154,16 +171,16 @@ Notify members to begin **Phase C (Finalization)**.
 
 Monitor on-chain state until all members have proposed and the committee is finalized:
 ```bash
-cargo run --bin seal-committee-cli -- check-committee -c dkg-state/dkg.yaml
+cargo run --bin seal-committee-cli -- check-committee
 ```
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
 
-8. **Set up the aggregator server**
+8. **Collect API keys for aggregator server**
 
-After all committee members have their key servers running, complete the aggregator setup.
+After all committee members have their key servers running, ask each member to generate API credentials for the aggregator.
 
-The coordinator shares the following information with the aggregator operator:
+Collect and share the following with the aggregator operator:
 
 - API credentials for each committee member, including:
     - The on-chain server name (the `PartialKeyServer.name` field)
@@ -171,9 +188,9 @@ The coordinator shares the following information with the aggregator operator:
     - The API key
 - The committee's `KEY_SERVER_OBJ_ID` from the previous step.
 
-With this information, the aggregator operator can deploy and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
+With this information, the aggregator operator can set up the configuration and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
 
-### Member runbook
+### Fresh DKG member runbook
 
 Follow these steps to participate as a member in a fresh DKG.
 
@@ -198,16 +215,16 @@ sui client switch --env testnet
 
 2. **Generate keys and register (Phase A: Registration)**
 
-Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
+a. Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file containing `COMMITTEE_PKG` and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
 ```bash
 # in seal/
 rm -rf dkg-state && mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
+b. Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then run the command to generate your keys and register them on-chain by providing your server URL and name:
+c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
 ```bash
 cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
@@ -222,12 +239,14 @@ This command:
 
 3. **Create and share your DKG message (Phase B: Message creation)**
 
-Wait for the coordinator to announce **Phase B (Message creation)**. Then initialize your local DKG state and generate your message file:
+a. Wait for the coordinator to announce **Phase B (Message creation)**. Then initialize your local DKG state and generate your message file:
 ```bash
 cargo run --bin seal-committee-cli -- create-message
 ```
 
-This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
+This command outputs a file named `dkg-state/message_P.json`, where `P` is your party ID. 
+
+b. Share this file with the coordinator.
 
 4. **Process messages and propose the committee (Phase C: Finalization)**
 
@@ -251,9 +270,9 @@ This command:
 
 5. **Configure and start your key server**
 
-Wait for the coordinator to confirm that the DKG is complete and share the `KEY_SERVER_OBJ_ID`.
+a. Wait for the coordinator to confirm that the DKG is complete and share the `KEY_SERVER_OBJ_ID`.
 
-Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and the key server object ID (`KEY_SERVER_OBJ_ID`), and set the committee state to active:
+b. Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and the key server object ID (`KEY_SERVER_OBJ_ID`), and set the committee state to active:
 
 Example config file:
 ```yaml
@@ -263,7 +282,7 @@ server_mode: !Committee
   committee_state: !Active
 ```
 
-Start the key server, setting the config path and your master key share from `dkg.yaml` (use `MASTER_SHARE_V0` for a fresh DKG):
+c. Start the key server, setting the config path and your master key share from `dkg.yaml` (use `MASTER_SHARE_V0` for a fresh DKG):
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
@@ -293,23 +312,14 @@ Use key rotation to update the committee membership. When rotating a committee, 
 
 This guide assumes:
 
-- The current on-chain committee version is X, and
-- The rotation produces the next committee version X + 1.
+- The current committee version is `X`, and
+- The rotation produces the next committee version `X+1`.
 
-### Coordinator runbook
-
-Key rotation follows the same three-phase flow as a fresh DKG, with a few important differences outlined in the following sections.
+### Key rotation coordinator runbook
 
 1. **Prepare DKG configuration**
 
-a. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
-```bash
-# in seal/
-rm -rf dkg-state && mkdir dkg-state
-cp crates/seal-committee-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
-```
-
-b. Make sure your CLI has the expected network and active address with gas.
+a. Make sure your CLI has the expected network and active address with gas.
 ```bash
 sui client active-env
 sui client active-address
@@ -319,9 +329,17 @@ sui client switch --env testnet
 sui client switch --address 0x...
 ```
 
+b. Create a clean working directory named `dkg-state` and copy the rotation example configuration:
+```bash
+# in seal/
+rm -rf dkg-state && mkdir dkg-state
+cp crates/seal-committee-cli/dkg-rotation.example.yaml dkg-state/dkg.yaml
+```
+
 c. Collect the addresses of all members in the **new committee** (including continuing members). Open `dkg-state/dkg.yaml` and update the following fields.
 
 You can obtain `KEY_SERVER_OBJ_ID` from the key server configuration of any continuing member in the current committee.
+
 ```yaml
 init-params:
   NETWORK: Testnet # Target network
@@ -339,7 +357,6 @@ init-rotation-params:
 
 2. **Initialize the rotation**
 
-Instead of running `publish-and-init`, initialize the key rotation:
 ```bash
 cargo run --bin seal-committee-cli -- init-rotation
 ```
@@ -354,31 +371,61 @@ This command:
   - `CURRENT_COMMITTEE_ID`: Current committee object ID
   - `COMMITTEE_ID`: New committee object ID
 
-After the command completes, share the updated `dkg.yaml` file with all members.
+3. **Distribute configuration and notify Phase A (Registration)**
 
-3. **Run Phases A–C**
+Share the updated `dkg.yaml` file with all committee members. Notify members to begin **Phase A (Registration)**.
 
-Proceed through **Phase A (Registration)**, **Phase B (Message creation)**, and **Phase C (Finalization)** using the **same steps as a fresh DKG**.
+4. **Monitor member registration**
 
-As the coordinator:
+Check on-chain registration status:
+```bash
+cargo run --bin seal-committee-cli -- check-committee
+```
 
-- Announce the start of each phase to all members.
-- Monitor progress during each phase.
-- Announce completion once the key rotation finalizes on-chain.
+The output shows which members have registered and which are still pending. Wait until all are registered.
 
-4. **Update the aggregator configuration**
+5. **Notify Phase B (Message creation)**
 
-If new members join the committee during rotation, update the aggregator configuration to include them.
+Once all members are registered:
 
-The coordinator shares the following information with the aggregator operator for each new committee member:
+- Notify members to begin **Phase B (Message creation)**.
+- Monitor the off-chain storage (e.g. group chat) until all members upload their DKG message files.
 
-- The on-chain server name (the `PartialKeyServer.name` field)
-- The API key name
-- The API key
+6. **Collect and share DKG messages and notify Phase C (Finalization)**
 
-The aggregator operator updates the configuration with the new member entries and restarts the aggregator server. For details on updating and restarting the aggregator, see [Aggregator Server](/Aggregator).
+a. Collect message files into a single directory and share it with members. The number of messages must equal exactly the threshold of the current committee.
+```bash
+rm -rf dkg-messages && mkdir dkg-messages
+mv path/to/message_0.json dkg-messages/
+mv path/to/message_1.json dkg-messages/
+# repeat till the number of messages equals the threshold
+```
 
-### Member runbook
+b. Notify members to begin **Phase C (Finalization)**. 
+
+c. Remind members that the current committee is at version `X` (e.g. 0) and it is rotating to target version `X+1` (e.g. 1). This is used to annotate `MASTER_SHARE_VX` and `MASTER_SHARE_VX+1` in the member commands.
+
+7. **Confirm committee finalization**
+
+Monitor on-chain state until all members have proposed and the committee is finalized:
+```bash
+cargo run --bin seal-committee-cli -- check-committee
+```
+
+8. **Collect API keys for aggregator server**
+
+If new members join the committee during rotation or existing members change API credentials, ask each member to send API credentials for the aggregator.
+
+Collect and share the following with the aggregator operator:
+
+- API credentials for each committee member, including:
+    - The on-chain server name (the `PartialKeyServer.name` field)
+    - The API key name
+    - The API key
+
+With this information, the aggregator operator can update the configuration and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
+
+### Key rotation member runbook
 
 Follow these steps to participate as a member in a key rotation.
 
@@ -393,18 +440,16 @@ Make sure:
 
 2. **Generate keys and register (Phase A: Registration)**
 
-Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`.
-
-Create a local working directory named `dkg-state` and move the file there:
+a. Wait for the coordinator to announce **Phase A (Registration)** and send you the `dkg.yaml` file. The file includes `COMMITTEE_PKG`, `CURRENT_COMMITTEE_ID`, and `COMMITTEE_ID`. Create a local working directory named `dkg-state` and move the file there:
 ```bash
 # in seal/
 rm -rf dkg-state && mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
+b. Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
 
-Then run the command to generate your keys and register them on-chain by providing your server URL and name:
+c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
 ```bash
 cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
@@ -423,12 +468,14 @@ Wait for the coordinator to announce **Phase B (Message creation)**.
 
 **For continuing members**:
 
-Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`):
+a. Initialize your DKG state and generate your message file. You must pass your current master share (`MASTER_SHARE_VX`). This is the master share environment variable value that your key server is currently running with.
 ```bash
 cargo run --bin seal-committee-cli -- create-message -o <MASTER_SHARE_VX>
 ```
 
-This command outputs `dkg-state/message_P.json`, where `P` is your party ID. Share this file with the coordinator.
+This command outputs `dkg-state/message_P.json`, where `P` is your party ID. 
+
+b. Share this file with the coordinator.
 
 **For new members**:
 
@@ -458,7 +505,12 @@ This command:
 
 5. **Start or update your key server**
 
-Update `key-server-config.yaml` to **Rotation** mode and set the target committee version to `X + 1`. Leave other settings unchanged.
+**For continuing members:**
+a. Update `key-server-config.yaml`
+
+- The committee state from *Active* to **Rotation** mode.
+- Set the target committee version to `X+1` (increment 1 from the current version `X`). If you are not sure what `X` is in this rotation, check with your cooridinator.
+- Leave other settings unchanged.
 
 Example config file:
 ```yaml
@@ -469,9 +521,7 @@ server_mode: !Committee
     target_version: <X+1> # Increment this
 ```
 
-**For continuing members:**
-
-a. Restart the key server with both the old and new master shares. The server monitors on-chain state and selects the correct share automatically.
+b. Restart the key server with both the old and new master shares (`MASTER_SHARE_VX` corresponds to the current committee version `X` and `MASTER_SHARE_VX+1` corresponds to the next committee version `X+1`). The server monitors on-chain state and selects the correct share automatically.
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX=<MASTER_SHARE_VX> \
@@ -479,13 +529,16 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-b. Wait for the coordinator to confirm that rotation is complete. Then update the config to **Active** mode and restart the server with only the new master share:
+c. Wait for the coordinator to confirm that rotation is complete. Then update the config to **Active** mode and restart the server with only the new master share.
+
+Example config file:
 ```yaml
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Active
 ```
+
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1> \
@@ -494,13 +547,17 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
 
 **For new members:**
 
-Since `X + 1` is your first committee version, start the key server directly in **Active** mode using only `MASTER_SHARE_VX+1`:
+a. Create `key-server-config.yaml`. Since `X+1` is your first committee version, start the key server directly in **Active** mode.
+
+Example config file:
 ```yaml
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Active
 ```
+
+b. Start the key server with the new master share `MASTER_SHARE_VX+1` that corresponds to the new committee version `X+1`.
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1> \
@@ -511,13 +568,13 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
 
 If you are joining the committee as a new member during rotation, generate API credentials after your key server is up and running and share them with the coordinator.
 
-1. Generate an **API key name** and **API key** for your key server.
-2. Share the following with the coordinator:
+a. Generate an **API key name** and **API key** for your key server.
+b. Share the following with the coordinator:
    - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the on-chain `PartialKeyServer.name`)
    - API key name
    - API key
 
-The coordinator forwards these credentials to the aggregator operator to update the aggregator configuration.
+The coordinator passes these credentials to the aggregator operator, who uses them to authenticate requests to your key server.
 
 :::note
 
@@ -531,6 +588,103 @@ Once your key server is running successfully, back up the `MASTER_SHARE_VX+1` va
 ```bash
 rm -rf dkg-state
 ```
+
+## Package Upgrade
+
+The committee can upgrade the `seal_committee` Move package through a voting process. A contract upgrade can only happen if a threshold of committee members approves the new package digest.
+
+The upgrade follows these steps:
+
+1. **Compute package digest**: Build the updated package and extract its digest.
+2. **Committee voting**: Committee members vote for the new package digest.
+3. **Execute the upgrade**: Once threshold is reached, authorize, execute and commit the upgrade.
+
+### Prerequisites
+
+1. Make sure you are on the expected network.
+2. Make sure you are using the same address as the one you used to participate in the current active committee.
+3. `<KEY_SERVER_OBJ_ID>` can be found in your server's config file `key-server-config.yaml`.
+
+```bash
+sui client active-env
+sui client active-address
+
+# Verify the current key server status and its committee members (that contains your address).
+cargo run --bin seal-committee-cli -- check-key-server-status \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+### Steps
+
+#### 1. Compute the package digest
+
+Pull the updated package code locally and verify updates. This command computes the package digest for the committee package (`move/committee`). Make sure that all committee members have the same digest and are ready for upgrade.
+
+```bash
+# in seal/
+cargo run --bin seal-committee-cli -- package-digest -n <NETWORK>
+```
+
+This outputs:
+
+```
+Digest for package 'committee': 0xd0f13987e824f0f462911bc45d5a45004f4e3d752de2be939111274e862cc00c
+```
+
+#### 2. Approve the upgrade
+
+Each committee member approves for the upgrade using the locally built package, run:
+
+```bash
+cargo run --bin seal-committee-cli -- approve-upgrade \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+**Notes:** 
+
+1. To check the current upgrade proposal status (digest, votes, threshold), run:
+
+```bash
+cargo run --bin seal-committee-cli -- check-key-server-status \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+2. If needed, the local package is not what you want to approve, run this to reject it onchain.
+
+```bash
+cargo run --bin seal-committee-cli -- reject-upgrade \
+  -p <PACKAGE_PATH>
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+3. If needed, can run `approve-upgrade` or `reject-upgrade` again to change your vote option. 
+
+4. If needed, if a threshold of committee members reject the upgrade, any member can reset the proposal to allow a new upgrade proposal.
+
+```bash
+cargo run --bin seal-committee-cli -- reset-proposal \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+#### 3. Authorize, execute and commit the upgrade
+
+Once the threshold number of committee members approves the digest, any member run this to execute the upgrade:
+
+```bash
+cargo run --bin seal-committee-cli -- authorize-and-upgrade \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK>
+```
+
+This command:
+- Authorizes the upgrade (gets an UpgradeTicket).
+- Performs the package upgrade with the ticket (gets an UpgradeReceipt).
+- Commits the upgrade receipt.
 
 ## Quick reference: Fresh DKG vs Key rotation
 
