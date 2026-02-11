@@ -68,11 +68,11 @@ async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
         .map_err(|e| anyhow!("Failed to deserialize {}: {}", error_context, e))
 }
 
-/// Fetch a field wrapper object and deserialize it. Returns None if the object doesn't exist.
+/// Fetch a field wrapper object and deserialize it.
 async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
     grpc_client: &mut Client,
     field_wrapper_id: &Address,
-) -> Result<Option<T>> {
+) -> Result<T> {
     let mut ledger_client = grpc_client.ledger_client();
     let mut fw_request = GetObjectRequest::default();
     fw_request.object_id = Some(field_wrapper_id.to_string());
@@ -85,18 +85,13 @@ async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
         .await
         .map(|r| r.into_inner());
 
-    // If the field wrapper doesn't exist, return None.
     let fw_bcs = match fw_response {
         Ok(response) => response
             .object
             .and_then(|obj| obj.bcs)
-            .and_then(|bcs| bcs.value),
-        Err(_) => return Ok(None),
-    };
-
-    let fw_bcs = match fw_bcs {
-        Some(bcs) => bcs,
-        None => return Ok(None),
+            .and_then(|bcs| bcs.value)
+            .ok_or_else(|| anyhow!("Field wrapper object not found"))?,
+        Err(e) => return Err(anyhow!("Failed to fetch field wrapper: {}", e)),
     };
 
     let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
@@ -105,7 +100,7 @@ async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
         .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
 
     let field_wrapper: T = bcs::from_bytes(fw_struct.contents())?;
-    Ok(Some(field_wrapper))
+    Ok(field_wrapper)
 }
 
 /// Fetch seal Committee object onchain.
@@ -180,9 +175,7 @@ pub async fn fetch_key_server_by_committee(
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
     let field_wrapper: Field<Wrapper<Address>, Address> =
-        fetch_field_wrapper(grpc_client, &field_wrapper_id)
-            .await?
-            .ok_or_else(|| anyhow!("Field wrapper not found for committee"))?;
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
     let ks_obj_id = field_wrapper.value;
 
     let key_server_v2 = fetch_key_server_by_id(grpc_client, &ks_obj_id).await?;
@@ -279,9 +272,7 @@ pub async fn fetch_committee_from_key_server(
 
     // Fetch field wrapper to extract committee ID.
     let field: Field<Wrapper<Address>, Address> =
-        fetch_field_wrapper(grpc_client, &field_wrapper_id)
-            .await?
-            .ok_or_else(|| anyhow!("Field wrapper not found for key server"))?;
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
     let committee_id = field.name.name;
 
     // Fetch committee object to get the correct package ID.
@@ -318,15 +309,14 @@ pub async fn fetch_upgrade_proposal(
     committee_id: &Address,
 ) -> Result<Option<UpgradeProposal>> {
     let upgrade_manager = fetch_upgrade_manager(grpc_client, committee_id).await?;
-    Ok(upgrade_manager.and_then(|mgr| mgr.upgrade_proposal))
+    Ok(upgrade_manager.upgrade_proposal)
 }
 
 /// Fetch the full UpgradeManager from the committee's UpgradeManager DOF.
-/// Returns None if there is no UpgradeManager.
 pub async fn fetch_upgrade_manager(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<Option<UpgradeManager>> {
+) -> Result<UpgradeManager> {
     use std::str::FromStr;
 
     // First, we need to get the committee package address to construct the correct type tag.
@@ -372,12 +362,9 @@ pub async fn fetch_upgrade_manager(
     let field_wrapper_id =
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
-    // Fetch field wrapper. If it doesn't exist, there's no UpgradeManager.
+    // Fetch field wrapper.
     let field_wrapper: crate::move_types::FieldWrapper<UpgradeManagerKey, Address> =
-        match fetch_field_wrapper(grpc_client, &field_wrapper_id).await? {
-            Some(fw) => fw,
-            None => return Ok(None),
-        };
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
     let upgrade_manager_id = field_wrapper.value;
 
     // Fetch the UpgradeManager object.
@@ -385,7 +372,7 @@ pub async fn fetch_upgrade_manager(
         fetch_and_deserialize_move_object(grpc_client, &upgrade_manager_id, "UpgradeManager")
             .await?;
 
-    Ok(Some(upgrade_manager))
+    Ok(upgrade_manager)
 }
 
 #[cfg(test)]

@@ -176,7 +176,7 @@ enum Commands {
 
         /// Network to build for (Testnet or Mainnet).
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 
     /// Approve package upgrade (as committee member).
@@ -187,11 +187,11 @@ enum Commands {
 
         /// Key server object ID.
         #[arg(short, long)]
-        key_server_id: String,
+        key_server_id: Address,
 
         /// Network to use.
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 
     /// Reject package upgrade (as committee member).
@@ -202,11 +202,11 @@ enum Commands {
 
         /// Key server object ID.
         #[arg(short, long)]
-        key_server_id: String,
+        key_server_id: Address,
 
         /// Network to use.
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 
     /// Authorize and execute package upgrade (after threshold of approvals is reached).
@@ -217,33 +217,33 @@ enum Commands {
 
         /// Key server object ID.
         #[arg(short, long)]
-        key_server_id: String,
+        key_server_id: Address,
 
         /// Network to use.
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 
     /// Reset upgrade proposal (if threshold of rejections is reached).
     ResetProposal {
         /// Key server object ID.
         #[arg(short, long)]
-        key_server_id: String,
+        key_server_id: Address,
 
         /// Network to use.
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 
     /// Check key server status, including the committee that owns it, and the UpgradeManager with proposal status held by this committee.
     CheckKeyServerStatus {
         /// Key server object ID.
         #[arg(short, long)]
-        key_server_id: String,
+        key_server_id: Address,
 
         /// Network to use.
         #[arg(short, long)]
-        network: String,
+        network: Network,
     },
 }
 
@@ -1004,9 +1004,6 @@ async fn main() -> Result<()> {
             package_path,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
-
             compute_package_digest(&package_path, &network)?;
         }
 
@@ -1015,8 +1012,6 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
                 &package_path,
@@ -1034,8 +1029,6 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
                 &package_path,
@@ -1053,9 +1046,6 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
-
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let executor_address = wallet.active_address()?;
@@ -1073,14 +1063,11 @@ async fn main() -> Result<()> {
 
             // Fetch key server to get committee ID.
             let mut grpc_client = create_grpc_client(&network)?;
-            let key_server_addr = Address::from_hex(&key_server_id)?;
             let (committee_id, _) =
-                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
             // Fetch current package ID from UpgradeCap (not from Committee object type).
-            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
-                .await?
-                .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id).await?;
             let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
 
             println!("Committee ID: {}", committee_id);
@@ -1168,9 +1155,6 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
-
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let member_address = wallet.active_address()?;
@@ -1180,14 +1164,11 @@ async fn main() -> Result<()> {
 
             // Fetch key server to get committee ID.
             let mut grpc_client = create_grpc_client(&network)?;
-            let key_server_addr = Address::from_hex(&key_server_id)?;
             let (committee_id, _) =
-                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
             // Fetch current package ID from UpgradeCap.
-            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
-                .await?
-                .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+            let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id).await?;
             let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
 
             println!("Committee ID: {}", committee_id);
@@ -1228,18 +1209,14 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
         } => {
-            let network = Network::from_str(&network.to_lowercase())
-                .map_err(|e| anyhow!("Invalid network: {}", e))?;
-
             println!("Network: {:?}", network);
             println!("Key Server ID: {}", key_server_id);
 
             let mut grpc_client = create_grpc_client(&network)?;
-            let key_server_addr = Address::from_hex(&key_server_id)?;
 
             // Fetch committee information.
             let (committee_id, _committee_pkg) =
-                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
             println!("\n=== Committee Information ===");
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
@@ -1274,12 +1251,9 @@ async fn main() -> Result<()> {
             // Fetch and display package upgrade information.
             println!("\n=== Package Information ===");
             match fetch_upgrade_manager(&mut grpc_client, &committee_id).await {
-                Ok(Some(upgrade_manager)) => {
+                Ok(upgrade_manager) => {
                     println!("Current Package: {}", upgrade_manager.cap.package);
                     println!("Package Version: {}", upgrade_manager.cap.version);
-                }
-                Ok(None) => {
-                    println!("No UpgradeManager found (package cannot be upgraded)");
                 }
                 Err(e) => {
                     println!("Could not fetch package information: {}", e);
@@ -2116,7 +2090,7 @@ async fn display_partial_key_servers(key_server: &KeyServerV2) -> Result<()> {
 /// Helper function to vote (approve or reject) for package upgrade.
 async fn vote_for_upgrade(
     package_path: &Path,
-    key_server_id: &str,
+    key_server_id: &Address,
     network: &Network,
     wallet: &mut WalletContext,
     gas_budget: u64,
@@ -2133,14 +2107,11 @@ async fn vote_for_upgrade(
 
     // Fetch key server to get committee ID.
     let mut grpc_client = create_grpc_client(network)?;
-    let key_server_addr = Address::from_hex(key_server_id)?;
     let (committee_id, _) =
-        fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+        fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 
     // Fetch current package ID from UpgradeCap.
-    let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id)
-        .await?
-        .ok_or_else(|| anyhow!("No UpgradeManager found for committee"))?;
+    let upgrade_manager = fetch_upgrade_manager(&mut grpc_client, &committee_id).await?;
     let committee_pkg = ObjectID::new(upgrade_manager.cap.package.into_inner());
 
     println!("Committee ID: {}", committee_id);
