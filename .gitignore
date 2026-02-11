@@ -83,3 +83,6 @@ lcov.info
 **/build/**
 
 Move.lock
+
+# local configs
+*.local.yaml

@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "tsx simple-seal-server.test.ts",
+    "load-test": "tsx load-test.ts",
     "prettier:check": "prettier -c --ignore-unknown .",
     "prettier:fix": "prettier -w --ignore-unknown .",
     "lint": "pnpm run prettier:check",
