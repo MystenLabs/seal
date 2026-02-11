@@ -153,74 +153,6 @@ async function runTest(
   });
 
   assert.deepEqual(decryptedData, testData);
-  console.log("✅ Test passed!");
-}
-
-async function main(
-  network: "testnet" | "mainnet",
-  keyServerConfigs: {
-    objectId: string;
-    apiKeyName?: string;
-    apiKey?: string;
-  }[],
-) {
-  await runTest(
-    network,
-    keyServerConfigs.map(({ objectId, apiKeyName, apiKey }) => ({
-      objectId,
-      apiKeyName,
-      apiKey,
-      weight: 1,
-    })),
-    {
-      verifyKeyServers: true,
-      threshold: keyServerConfigs.length,
-    },
-  );
-}
-
-async function testCommittee(
-  network: "testnet" | "mainnet",
-  committeeConfig: {
-    objectId: string;
-    aggregatorUrl: string;
-    apiKeyName?: string;
-    apiKey?: string;
-  },
-  independentConfigs: {
-    objectId: string;
-    apiKeyName?: string;
-    apiKey?: string;
-  }[],
-) {
-  const serverConfigs = [
-    {
-      objectId: committeeConfig.objectId,
-      aggregatorUrl: committeeConfig.aggregatorUrl,
-      apiKeyName: committeeConfig.apiKeyName,
-      apiKey: committeeConfig.apiKey,
-      weight: 1,
-    },
-    ...independentConfigs.map(({ objectId, apiKeyName, apiKey }) => ({
-      objectId,
-      apiKeyName,
-      apiKey,
-      weight: 1,
-    })),
-  ];
-
-  await runTest(network, serverConfigs, {
-    verifyKeyServers: false,
-    threshold: 1 + independentConfigs.length,
-    corsTests: [
-      {
-        url: committeeConfig.aggregatorUrl,
-        name: "Committee Aggregator",
-        apiKeyName: committeeConfig.apiKeyName,
-        apiKey: committeeConfig.apiKey,
-      },
-    ],
-  });
 }
 
 // Parse command line arguments
@@ -234,10 +166,10 @@ const { values } = parseArgs({
       type: "string",
       default: "testnet",
     },
-    committee: {
+    servers: {
       type: "string",
     },
-    servers: {
+    threshold: {
       type: "string",
     },
   },
@@ -249,102 +181,114 @@ if (network !== "testnet" && network !== "mainnet") {
   process.exit(1);
 }
 
-// Parse committee config if provided (JSON format)
-let committeeConfig:
-  | {
-      objectId: string;
-      aggregatorUrl: string;
-      apiKeyName?: string;
-      apiKey?: string;
-    }
-  | undefined;
-if (values.committee) {
-  try {
-    committeeConfig = JSON.parse(values.committee);
-    if (!committeeConfig.objectId || !committeeConfig.aggregatorUrl) {
-      console.error("Error: committee must have objectId and aggregatorUrl");
-      console.error(
-        'Example: --committee \'{"objectId":"0x123","aggregatorUrl":"https://example.com"}\'',
-      );
-      process.exit(1);
-    }
-  } catch (error) {
-    console.error("Error: committee must be valid JSON");
-    console.error(
-      'Example: --committee \'{"objectId":"0x123","aggregatorUrl":"https://example.com"}\'',
-    );
-    process.exit(1);
-  }
-}
-
 // Parse servers (JSON format or legacy colon-delimited format)
 if (!values.servers) {
   console.error("Error: --servers is required");
-  console.error('Example: --servers \'[{"objectId":"0x123"}]\'');
   console.error(
-    'With API key: --servers \'[{"objectId":"0x123","apiKeyName":"key","apiKey":"secret"}]\'',
+    'Example (JSON): --servers \'[{"objectId":"0x123","aggregatorUrl":"http://localhost:3000"}]\' --threshold 1',
   );
-  console.error('Legacy format: --servers "0x123:apiKeyName:apiKeyValue"');
+  console.error(
+    'Example (legacy with API keys): --servers "0x123abc:myKey:mySecret,0x456def:otherKey:otherSecret"',
+  );
   process.exit(1);
 }
 
-let serverConfigs: { objectId: string; apiKeyName?: string; apiKey?: string }[];
+type ServerConfig = {
+  objectId: string;
+  aggregatorUrl?: string;
+  apiKeyName?: string;
+  apiKey?: string;
+  weight?: number;
+};
+
+let serverConfigs: ServerConfig[];
 
 // Try JSON format first
-if (values.servers.trim().startsWith("[")) {
-  try {
-    serverConfigs = JSON.parse(values.servers);
-    if (!Array.isArray(serverConfigs) || serverConfigs.length === 0) {
-      console.error("Error: servers must be a non-empty JSON array");
-      process.exit(1);
-    }
-    for (const config of serverConfigs) {
-      if (!config.objectId) {
-        console.error("Error: each server must have an objectId");
-        process.exit(1);
-      }
-    }
-  } catch (error) {
-    console.error("Error: servers must be valid JSON array");
-    console.error('Example: --servers \'[{"objectId":"0x123"}]\'');
+try {
+  serverConfigs = JSON.parse(values.servers);
+  if (!Array.isArray(serverConfigs) || serverConfigs.length === 0) {
+    console.error("Error: servers must be a non-empty JSON array");
     process.exit(1);
   }
-} else {
+  for (const config of serverConfigs) {
+    if (!config.objectId) {
+      console.error("Error: each server must have an objectId");
+      process.exit(1);
+    }
+  }
+} catch (error) {
   // Legacy colon-delimited format (backwards compatibility)
-  const serverSpecs = values.servers.split(",").map((s) => s.trim());
-  serverConfigs = serverSpecs.map((spec) => {
-    const parts = spec.split(":");
+  // Format: "objectId1,objectId2" or "objectId1:apiKeyName:apiKey,objectId2:apiKeyName:apiKey"
+  const serverStrings = values.servers.split(",");
+  serverConfigs = serverStrings.map((serverStr) => {
+    const parts = serverStr.trim().split(":");
     if (parts.length === 1) {
+      // Just object ID
       return { objectId: parts[0] };
     } else if (parts.length === 3) {
+      // Object ID with API key
       return {
         objectId: parts[0],
         apiKeyName: parts[1],
         apiKey: parts[2],
       };
     } else {
-      console.error(`Invalid server specification: ${spec}`);
-      console.error('Format: "objectId" or "objectId:apiKeyName:apiKeyValue"');
-      console.error('Or use JSON: --servers \'[{"objectId":"0x123"}]\'');
+      console.error(
+        `Error: Invalid server format "${serverStr}". Expected "objectId" or "objectId:apiKeyName:apiKey"`,
+      );
       process.exit(1);
     }
   });
+
+  if (serverConfigs.length === 0) {
+    console.error("Error: No servers provided");
+    process.exit(1);
+  }
 }
 
-if (committeeConfig) {
-  console.log(`Running committee mode test on ${network}`);
-  console.log("Committee config:", committeeConfig);
-  console.log("Independent servers:", serverConfigs);
-
-  testCommittee(network, committeeConfig, serverConfigs).catch((error) => {
-    console.error("Committee test failed:", error);
+// Parse threshold
+let threshold: number;
+if (values.threshold) {
+  threshold = parseInt(values.threshold, 10);
+  if (isNaN(threshold) || threshold <= 0) {
+    console.error("Invalid threshold.");
     process.exit(1);
-  });
+  }
 } else {
-  console.log(`Running test on ${network} with servers:`, serverConfigs);
+  // Default threshold is all servers
+  threshold = serverConfigs.length;
+}
 
-  main(network, serverConfigs).catch((error) => {
+console.log(`Running test on ${network}`);
+console.log("Servers:", serverConfigs);
+console.log(`Threshold: ${threshold}/${serverConfigs.length}`);
+
+// Build server configs with weights (all weight 1)
+const serverConfigsWithWeights = serverConfigs.map((config) => ({
+  ...config,
+  weight: 1,
+}));
+
+// Collect CORS test URLs (for committee servers with aggregatorUrl)
+const corsTests = serverConfigs
+  .filter((config) => config.aggregatorUrl)
+  .map((config) => ({
+    url: config.aggregatorUrl!,
+    name: `Aggregator (${config.objectId.slice(0, 10)}...)`,
+    apiKeyName: config.apiKeyName,
+    apiKey: config.apiKey,
+  }));
+
+runTest(network, serverConfigsWithWeights, {
+  verifyKeyServers: false,
+  threshold,
+  corsTests: corsTests.length > 0 ? corsTests : undefined,
+})
+  .then(() => {
+    console.log("✅ Test passed!");
+    process.exit(0);
+  })
+  .catch((error) => {
     console.error("Test failed:", error);
     process.exit(1);
   });
-}
