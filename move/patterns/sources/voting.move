@@ -125,7 +125,7 @@ public fun cast_vote(vote: &mut Vote, encrypted_vote: vector<u8>, ctx: &mut TxCo
 
     // Check that the encryptions were created for this vote.
     assert!(encrypted_vote.id() == vote.id(), EInvalidVote);
-    assert!(encrypted_vote.package_id() == @patterns, EInvalidVote);
+    assert!(encrypted_vote.package_id() == @0x0, EInvalidVote);
 
     // This aborts if the sender is not a voter.
     let index = vote.voters.find_index!(|voter| voter == ctx.sender()).destroy_some();
@@ -157,7 +157,7 @@ public fun finalize_vote(
     // Verify the derived keys
     let verified_derived_keys: vector<VerifiedDerivedKey> = verify_derived_keys(
         &derived_keys.map_ref!(|k| g1_from_bytes(k)),
-        @patterns,
+        @0x0,
         vote.id(),
         &key_servers
             .map_ref!(|ks1| vote.key_servers.find_index!(|ks2| ks1 == ks2).destroy_some())
