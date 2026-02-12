@@ -10,7 +10,7 @@
 // map of partial key servers that contains the member's partial public key, party ID and URL. The
 // partial public keys and party IDs can be updated while the key server public key is unchanged.
 //
-// A key server can be registered permissionlessly onchain. The server allows users to request a 
+// A key server can be registered permissionlessly onchain. The server allows users to request a
 // key for a given Seal policy.
 
 module seal::key_server;

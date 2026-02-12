@@ -84,17 +84,18 @@ fun independent_server() {
 
     let pk = g2_generator();
     let mut s: KeyServer = scenario.take_from_sender();
-    assert_eq!(key_server::name(&s), b"mysten".to_string());
-    assert_eq!(key_server::url(&s), b"https:/mysten-labs.com".to_string());
-    assert_eq!(*key_server::pk(&s), *pk.bytes());
-    key_server::update(&mut s, b"https:/mysten-labs2.com".to_string());
-    assert_eq!(key_server::url(&s), b"https:/mysten-labs2.com".to_string());
+    assert_eq!(s.name(), b"mysten".to_string());
+    assert_eq!(s.url(), b"https:/mysten-labs.com".to_string());
+    assert_eq!(*s.pk(), *pk.bytes());
 
-    key_server::upgrade_v1_to_independent_v2(&mut s);
-    assert_eq!(key_server::last_version(&s), 2);
+    s.update(b"https:/mysten-labs2.com".to_string());
+    assert_eq!(s.url(), b"https:/mysten-labs2.com".to_string());
 
-    key_server::update(&mut s, b"https:/mysten-labs3.com".to_string());
-    assert_eq!(key_server::url(&s), b"https:/mysten-labs3.com".to_string());
+    s.upgrade_v1_to_independent_v2();
+    assert_eq!(s.last_version(), 2);
+
+    s.update(b"https:/mysten-labs3.com".to_string());
+    assert_eq!(s.url(), b"https:/mysten-labs3.com".to_string());
 
     s.destroy_for_testing();
     scenario.end();
@@ -109,19 +110,19 @@ fun committee_v2_server() {
     let s = create_2_of_2_committee_server_v2(addr1, addr2, 2, scenario.ctx());
     let pk = g2_generator();
 
-    assert_eq!(key_server::name(&s), b"committee".to_string());
-    assert_eq!(*key_server::pk(&s), *pk.bytes());
-    assert_eq!(key_server::key_type(&s), 0);
+    assert_eq!(s.name(), b"committee".to_string());
+    assert_eq!(*s.pk(), *pk.bytes());
+    assert_eq!(s.key_type(), 0);
 
-    let (version, threshold) = key_server::committee_version_and_threshold(&s);
+    let (version, threshold) = s.committee_version_and_threshold();
     assert_eq!(version, 0);
     assert_eq!(threshold, 2);
 
-    let partial1 = key_server::partial_key_server_for_member(&s, addr1);
+    let partial1 = s.partial_key_server_for_member(addr1);
     assert_eq!(partial1.partial_ks_url(), b"https://server1.com".to_string());
     assert_eq!(partial1.partial_ks_party_id(), 0);
 
-    let partial2 = key_server::partial_key_server_for_member(&s, addr2);
+    let partial2 = s.partial_key_server_for_member(addr2);
     assert_eq!(partial2.partial_ks_url(), b"https://server2.com".to_string());
     assert_eq!(partial2.partial_ks_party_id(), 1);
 
@@ -191,7 +192,7 @@ fun update_member_url_not_member() {
     let mut s = create_2_of_2_committee_server_v2(addr1, addr2, 2, scenario.ctx());
 
     // Try to update URL for non-member should fail
-    key_server::update_member_url(&mut s, b"https://server3.com".to_string(), addr3);
+    s.update_member_url(b"https://server3.com".to_string(), addr3);
     s.destroy_for_testing();
     scenario.end();
 }
@@ -205,10 +206,10 @@ fun update_member_url_on_independent_server() {
     scenario.next_tx(addr1);
 
     let mut s: KeyServer = scenario.take_from_sender();
-    key_server::upgrade_v1_to_independent_v2(&mut s);
+    s.upgrade_v1_to_independent_v2();
 
     // Try to update member URL on independent server should fail
-    key_server::update_member_url(&mut s, b"https://newurl.com".to_string(), addr1);
+    s.update_member_url(b"https://newurl.com".to_string(), addr1);
     s.destroy_for_testing();
     scenario.end();
 }
@@ -222,10 +223,10 @@ fun upgrade_v1_to_v2_twice() {
     scenario.next_tx(addr1);
 
     let mut s: KeyServer = scenario.take_from_sender();
-    key_server::upgrade_v1_to_independent_v2(&mut s);
+    s.upgrade_v1_to_independent_v2();
 
     // Try to upgrade again should fail
-    key_server::upgrade_v1_to_independent_v2(&mut s);
+    s.upgrade_v1_to_independent_v2();
     s.destroy_for_testing();
     scenario.end();
 }
