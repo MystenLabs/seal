@@ -6,7 +6,7 @@ use moka::sync::Cache;
 use std::hash::Hash;
 use std::time::Duration;
 
-pub(crate) const DEFAULT_SIZE: u64 = 1000;
+pub(crate) const DEFAULT_SIZE: u64 = 0;
 pub(crate) const DEFAULT_TTL_IN_MILLIS: u64 = 60 * 60 * 1000; // 1 hour
 
 /// Creates a new thread-safe LRU cache with the specified TTL and size.
