@@ -16,7 +16,13 @@
 module seal::key_server;
 
 use std::string::String;
-use sui::{bls12381::{G2, g2_from_bytes}, dynamic_field as df, group_ops::Element, vec_map::VecMap};
+use sui::{
+    bls12381::{G2, g2_from_bytes},
+    dynamic_field as df,
+    group_ops::Element,
+    vec_map::VecMap,
+    vec_set
+};
 
 const KEY_TYPE_BONEH_FRANKLIN_BLS12381: u8 = 0;
 const EInvalidKeyType: u64 = 1;
@@ -191,6 +197,7 @@ public fun update_member_url(s: &mut KeyServer, url: String, member: address) {
 // ===== V1 Public Functions =====
 
 // Entry function to register a key server v1 object and transfer it to the caller.
+#[deprecated(note = b"Use `key_server::create_and_transfer_v2_independent_server` instead")]
 entry fun create_and_transfer_v1(
     name: String,
     url: String,
@@ -199,6 +206,33 @@ entry fun create_and_transfer_v1(
     ctx: &mut TxContext,
 ) {
     let key_server = create_v1(name, url, key_type, pk, ctx);
+    transfer::transfer(key_server, ctx.sender());
+}
+
+// Entry function to register a key server v2 object as independent mode and transfer it to the caller.
+entry fun create_and_transfer_v2_independent_server(
+    name: String,
+    url: String,
+    key_type: u8,
+    pk: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    assert!(key_type == KEY_TYPE_BONEH_FRANKLIN_BLS12381, EInvalidKeyType);
+    let _ = g2_from_bytes(&pk);
+
+    let mut key_server = KeyServer {
+        id: object::new(ctx),
+        first_version: 2,
+        last_version: 2,
+    };
+
+    let key_server_v2 = KeyServerV2 {
+        name,
+        key_type,
+        pk,
+        server_type: ServerType::Independent { url },
+    };
+    df::add(&mut key_server.id, V2, key_server_v2);
     transfer::transfer(key_server, ctx.sender());
 }
 
@@ -302,10 +336,11 @@ fun validate_partial_key_servers(
     partial_key_servers: &VecMap<address, PartialKeyServer>,
 ) {
     assert!(threshold > 1, EInvalidThreshold);
-    assert!(partial_key_servers.length() as u16 >= threshold, EInvalidThreshold);
 
     let n = partial_key_servers.length() as u16;
-    let mut party_ids = sui::vec_set::empty();
+    assert!(n >= threshold, EInvalidThreshold);
+
+    let mut party_ids = vec_set::empty();
     partial_key_servers.keys().do_ref!(|key| {
         let partial_key_server = partial_key_servers.get(key);
 
@@ -426,17 +461,6 @@ public fun committee_version_and_threshold(s: &KeyServer): (u32, u16) {
 #[test_only]
 public fun last_version(s: &KeyServer): u64 {
     s.last_version
-}
-
-#[test_only]
-public fun create_v1_for_testing(
-    name: String,
-    url: String,
-    key_type: u8,
-    pk: vector<u8>,
-    ctx: &mut TxContext,
-): KeyServer {
-    create_v1(name, url, key_type, pk, ctx)
 }
 
 #[test_only]

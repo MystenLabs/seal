@@ -11,7 +11,8 @@ use seal::key_server::{
     EInvalidPartyId,
     ENotMember,
     EInvalidServerType,
-    EInvalidVersion
+    EInvalidVersion,
+    pk
 };
 use std::unit_test::assert_eq;
 use sui::{bls12381::g2_generator, test_scenario::{Self, ctx}, vec_map};
@@ -57,45 +58,64 @@ public fun create_2_of_2_committee_server_v2(
     )
 }
 
-/// Helper function to create and transfer a V1 key server for testing.
-fun create_and_transfer_v1_test(ctx: &mut TxContext) {
-    let pk = g2_generator();
-    let pk_bytes = *pk.bytes();
-
-    let key_server = key_server::create_v1_for_testing(
-        b"mysten".to_string(),
-        b"https:/mysten-labs.com".to_string(),
-        0,
-        pk_bytes,
-        ctx,
-    );
-    transfer::public_transfer(key_server, ctx.sender());
-}
-
 // ==== Tests ====
 
 #[test]
+#[allow(deprecated_usage)]
 fun independent_server() {
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
 
-    create_and_transfer_v1_test(scenario.ctx());
+    // Test v1 create.
+    let pk = g2_generator();
+    key_server::create_and_transfer_v1(
+        b"mysten".to_string(),
+        b"https:/mysten-labs.com".to_string(),
+        0,
+        *pk.bytes(),
+        scenario.ctx(),
+    );
     scenario.next_tx(addr1);
 
-    let pk = g2_generator();
     let mut s: KeyServer = scenario.take_from_sender();
     assert_eq!(s.name(), b"mysten".to_string());
     assert_eq!(s.url(), b"https:/mysten-labs.com".to_string());
     assert_eq!(*s.pk(), *pk.bytes());
 
+    // Verify url update.
     s.update(b"https:/mysten-labs2.com".to_string());
     assert_eq!(s.url(), b"https:/mysten-labs2.com".to_string());
 
+    // Test v1 upgrade to v2 independent.
     s.upgrade_v1_to_independent_v2();
     assert_eq!(s.last_version(), 2);
 
     s.update(b"https:/mysten-labs3.com".to_string());
     assert_eq!(s.url(), b"https:/mysten-labs3.com".to_string());
+
+    s.destroy_for_testing();
+
+    // Test fresh v2 independent create.
+    let pk = g2_generator();
+    key_server::create_and_transfer_v2_independent_server(
+        b"mysten_v2".to_string(),
+        b"https://mysten-labs-v2.com".to_string(),
+        0,
+        *pk.bytes(),
+        scenario.ctx(),
+    );
+    scenario.next_tx(addr1);
+
+    let mut s: KeyServer = scenario.take_from_sender();
+    assert_eq!(s.name(), b"mysten_v2".to_string());
+    assert_eq!(s.url(), b"https://mysten-labs-v2.com".to_string());
+    assert_eq!(*s.pk(), *pk.bytes());
+    assert_eq!(s.key_type(), 0);
+    assert_eq!(s.last_version(), 2);
+
+    // Verify url update.
+    s.update(b"https://mysten-labs-updated.com".to_string());
+    assert_eq!(s.url(), b"https://mysten-labs-updated.com".to_string());
 
     s.destroy_for_testing();
     scenario.end();
@@ -136,7 +156,7 @@ fun create_committee_v2_invalid_threshold() {
     let addr2 = @0xB;
     let mut scenario = test_scenario::begin(addr1);
 
-    // Threshold of 1 should fail (must be > 1)
+    // Threshold of 1 should fail.
     let s = create_2_of_2_committee_server_v2(addr1, addr2, 1, scenario.ctx());
     s.destroy_for_testing();
     scenario.end();
@@ -191,7 +211,7 @@ fun update_member_url_not_member() {
 
     let mut s = create_2_of_2_committee_server_v2(addr1, addr2, 2, scenario.ctx());
 
-    // Try to update URL for non-member should fail
+    // Try to update URL for non-member should fail.
     s.update_member_url(b"https://server3.com".to_string(), addr3);
     s.destroy_for_testing();
     scenario.end();
@@ -202,30 +222,47 @@ fun update_member_url_on_independent_server() {
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
 
-    create_and_transfer_v1_test(scenario.ctx());
+    let pk = g2_generator();
+    let pk_bytes = *pk.bytes();
+
+    key_server::create_and_transfer_v2_independent_server(
+        b"mysten_v2".to_string(),
+        b"https://mysten-labs-v2.com".to_string(),
+        0,
+        pk_bytes,
+        scenario.ctx(),
+    );
     scenario.next_tx(addr1);
 
-    let mut s: KeyServer = scenario.take_from_sender();
-    s.upgrade_v1_to_independent_v2();
-
     // Try to update member URL on independent server should fail
+    let mut s: KeyServer = scenario.take_from_sender();
     s.update_member_url(b"https://newurl.com".to_string(), addr1);
     s.destroy_for_testing();
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = EInvalidVersion)]
+#[allow(deprecated_usage)]
 fun upgrade_v1_to_v2_twice() {
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
 
-    create_and_transfer_v1_test(scenario.ctx());
+    let pk = g2_generator();
+    let pk_bytes = *pk.bytes();
+
+    key_server::create_and_transfer_v1(
+        b"mysten".to_string(),
+        b"https:/mysten-labs.com".to_string(),
+        0,
+        pk_bytes,
+        scenario.ctx(),
+    );
     scenario.next_tx(addr1);
 
     let mut s: KeyServer = scenario.take_from_sender();
     s.upgrade_v1_to_independent_v2();
 
-    // Try to upgrade again should fail
+    // Try to upgrade again should fail.
     s.upgrade_v1_to_independent_v2();
     s.destroy_for_testing();
     scenario.end();
