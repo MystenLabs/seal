@@ -48,8 +48,10 @@ if [[ "$1" == "status" || "$1" == "--status" ]]; then
 
   # Check aggregator
   echo "=== Aggregator ==="
+  AGGREGATOR_UP=false
   if curl -s -f http://localhost:3000/health > /dev/null 2>&1; then
     echo "✓ Aggregator (http://localhost:3000) - UP"
+    AGGREGATOR_UP=true
   else
     echo "✗ Aggregator (http://localhost:3000) - DOWN"
   fi
@@ -73,10 +75,15 @@ if [[ "$1" == "status" || "$1" == "--status" ]]; then
 
   echo ""
   echo "=== Summary ==="
+  TOTAL_UP=$UP_COUNT
+  if [ "$AGGREGATOR_UP" = true ]; then
+    ((TOTAL_UP++))
+  fi
+  echo "Total Servers UP: ${TOTAL_UP}/21 (1 Aggregator + 20 Key Servers)"
   echo "Key Servers UP: ${UP_COUNT}/20"
   echo "Key Servers DOWN: ${DOWN_COUNT}/20"
 
-  if [ $DOWN_COUNT -eq 0 ]; then
+  if [ "$AGGREGATOR_UP" = true ] && [ $DOWN_COUNT -eq 0 ]; then
     echo "✓ All servers are running!"
     exit 0
   else
@@ -245,7 +252,7 @@ for i in "${!MEMBER_ADDRS[@]}"; do
     PORT="${PORT}" \
     CONFIG_PATH="crates/key-server/key-server-config-${i}.local.yaml" \
     "MASTER_SHARE_V${VERSION}=${MASTER_SHARES[$i]}" \
-    cargo run --bin key-server 2>&1 | sed "s/^/[SERVER-${i}] /" &
+    ./target/release/key-server 2>&1 | sed "s/^/[SERVER-${i}] /" &
 
   PID=$!
   SERVER_PIDS+=($PID)
@@ -256,7 +263,7 @@ done
 RUST_LOG=info \
   PORT=3000 \
   CONFIG_PATH=crates/key-server/src/aggregator/aggregator-config-test.local.yaml \
-  cargo run --bin aggregator-server 2>&1 | sed 's/^/[AGGREGATOR] /' &
+  ./target/release/aggregator-server 2>&1 | sed 's/^/[AGGREGATOR] /' &
 PID_AGG=$!
 echo "Aggregator started on http://localhost:3000 (PID: $PID_AGG)"
 
