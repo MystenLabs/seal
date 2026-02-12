@@ -20,8 +20,7 @@ use crate::errors::InternalError::Failure;
 use crate::signed_message::signed_request;
 use crate::tests::externals::get_key;
 use crate::tests::test_utils::{
-    build_partial_key_servers, create_committee_key_server_onchain, create_test_server,
-    execute_programmable_transaction,
+    add_partial_key_server, create_test_server, execute_programmable_transaction,
 };
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
@@ -53,6 +52,7 @@ use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_sdk::rpc_types::ObjectChange;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
@@ -376,7 +376,7 @@ async fn test_fetch_key() {
 
 #[tokio::test]
 async fn test_committee_server_hot_reload_and_verify_pop() {
-    let tc = SealTestCluster::new(0, "seal_testnet").await;
+    let tc = SealTestCluster::new(0, "seal").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc.registry;
 
@@ -398,18 +398,58 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
 
     let master_pk = G2Element::zero();
     let member_address = tc.test_cluster().get_address_0();
+    let member2_address = tc.test_cluster().get_address_1();
 
-    // Create on-chain a committee mode KeyServer with one partial key server (party_id_0, partial_pk_0).
-    let key_server_id = create_committee_key_server_onchain(
-        tc.test_cluster(),
+    // Create on-chain a committee mode KeyServer with 2 partial key servers.
+    let mut builder = ProgrammableTransactionBuilder::new();
+    let partial_key_servers = add_partial_key_server(
+        &mut builder,
         package_id,
+        None, // Create new VecMap
         member_address,
         &partial_pk_0,
         party_id_0,
-        &master_pk,
-        1, // threshold
-    )
-    .await;
+    );
+    let partial_key_servers = add_partial_key_server(
+        &mut builder,
+        package_id,
+        Some(partial_key_servers),
+        member2_address,
+        &partial_pk_0, // Use test partial pk
+        party_id_1,
+    );
+
+    // Create committee
+    let name = builder.pure("test_committee".to_string()).unwrap();
+    let threshold_arg = builder.pure(2u16).unwrap();
+    let master_pk_bytes = builder.pure(master_pk.to_byte_array().to_vec()).unwrap();
+    let key_server = builder.programmable_move_call(
+        package_id,
+        sui_types::Identifier::new("key_server").unwrap(),
+        sui_types::Identifier::new("create_committee_v2").unwrap(),
+        vec![],
+        vec![name, threshold_arg, master_pk_bytes, partial_key_servers],
+    );
+    builder.transfer_arg(member_address, key_server);
+
+    let response = execute_programmable_transaction(&tc, member_address, builder.finish()).await;
+    let key_server_id = response
+        .object_changes
+        .unwrap()
+        .into_iter()
+        .find_map(|change| {
+            if let ObjectChange::Created {
+                object_type,
+                object_id,
+                ..
+            } = change
+                && object_type.name.as_str() == "KeyServer"
+            {
+                return Some(object_id);
+            }
+            None
+        })
+        .expect("KeyServer object not found in transaction response");
 
     // Get object version and digest for later update.
     let key_server_obj = tc
@@ -457,14 +497,24 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
     // Current version is 0.
     assert_eq!(current_version.load(Ordering::Relaxed), 0);
 
-    // Update partial key servers on-chain to new partial key server (party_id_1, partial_pk_1).
+    // Update partial key servers on-chain with 2 servers.
     let mut builder = ProgrammableTransactionBuilder::new();
-    let partial_key_servers = build_partial_key_servers(
+
+    let partial_key_servers = add_partial_key_server(
         &mut builder,
         package_id,
+        None, // Create new VecMap
         member_address,
         &partial_pk_1,
         party_id_1,
+    );
+    let partial_key_servers = add_partial_key_server(
+        &mut builder,
+        package_id,
+        Some(partial_key_servers),
+        member2_address,
+        &partial_pk_1,
+        party_id_0,
     );
 
     let key_server_obj = builder
@@ -475,7 +525,7 @@ async fn test_committee_server_hot_reload_and_verify_pop() {
         )))
         .unwrap();
 
-    let threshold = builder.pure(1u16).unwrap();
+    let threshold = builder.pure(2u16).unwrap();
     builder.programmable_move_call(
         package_id,
         sui_types::Identifier::new("key_server").unwrap(),

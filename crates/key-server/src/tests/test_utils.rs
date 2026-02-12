@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::rpc_types::{ObjectChange, SuiTransactionBlockResponse};
+use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -34,7 +34,6 @@ use sui_types::transaction::{
     TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE,
 };
 use sui_types::{Identifier, TypeTag};
-use test_cluster::TestCluster;
 
 /// Helper function to create a test server with any ServerMode.
 pub(crate) async fn create_test_server(
@@ -163,20 +162,22 @@ pub(crate) async fn execute_programmable_transaction(
     response
 }
 
-/// Helper function to create a VecMap of one member (address, partial_pk, url, party_id).
-pub(crate) fn build_partial_key_servers(
+/// Helper function to add a partial key server to an existing VecMap or create a new one.
+/// If vec_map is None, creates a new empty VecMap first.
+pub(crate) fn add_partial_key_server(
     builder: &mut ProgrammableTransactionBuilder,
     package_id: ObjectID,
+    vec_map: Option<Argument>,
     member_address: SuiAddress,
     partial_pk: &G2Element,
     party_id: u16,
 ) -> Argument {
+    // Create partial key server
     let partial_pk_bytes = builder.pure(partial_pk.to_byte_array().to_vec()).unwrap();
     let url_arg = builder.pure("testurl.com".to_string()).unwrap();
     let name_arg = builder.pure("testserver".to_string()).unwrap();
     let party_id_arg = builder.pure(party_id).unwrap();
-
-    let partial_key_server_arg = builder.programmable_move_call(
+    let partial_key_server = builder.programmable_move_call(
         package_id,
         Identifier::new("key_server").unwrap(),
         Identifier::new("create_partial_key_server").unwrap(),
@@ -192,90 +193,25 @@ pub(crate) fn build_partial_key_servers(
         type_params: vec![],
     }));
 
-    // Create a vecmap and insert the member.
-    let vec_map = builder.programmable_move_call(
-        vec_map_module,
-        Identifier::new("vec_map").unwrap(),
-        Identifier::new("empty").unwrap(),
-        vec![TypeTag::Address, partial_key_server_type.clone()],
-        vec![],
-    );
+    // Create new VecMap if needed
+    let vec_map = vec_map.unwrap_or_else(|| {
+        builder.programmable_move_call(
+            vec_map_module,
+            Identifier::new("vec_map").unwrap(),
+            Identifier::new("empty").unwrap(),
+            vec![TypeTag::Address, partial_key_server_type.clone()],
+            vec![],
+        )
+    });
+
+    // Insert into VecMap
     let member_addr_arg = builder.pure(member_address).unwrap();
     builder.programmable_move_call(
         vec_map_module,
         Identifier::new("vec_map").unwrap(),
         Identifier::new("insert").unwrap(),
         vec![TypeTag::Address, partial_key_server_type],
-        vec![vec_map, member_addr_arg, partial_key_server_arg],
+        vec![vec_map, member_addr_arg, partial_key_server],
     );
     vec_map
-}
-
-/// Helper function to create a committee KeyServer on-chain and return its ObjectID.
-pub(crate) async fn create_committee_key_server_onchain(
-    cluster: &TestCluster,
-    package_id: ObjectID,
-    member_address: SuiAddress,
-    partial_pk: &G2Element,
-    party_id: u16,
-    master_pk: &G2Element,
-    threshold: u16,
-) -> ObjectID {
-    let mut builder = ProgrammableTransactionBuilder::new();
-    let partial_key_servers = build_partial_key_servers(
-        &mut builder,
-        package_id,
-        member_address,
-        partial_pk,
-        party_id,
-    );
-
-    let name = builder.pure("test_committee".to_string()).unwrap();
-    let threshold_arg = builder.pure(threshold).unwrap();
-    let master_pk_bytes = builder.pure(master_pk.to_byte_array().to_vec()).unwrap();
-    let key_server = builder.programmable_move_call(
-        package_id,
-        Identifier::new("key_server").unwrap(),
-        Identifier::new("create_committee_v2").unwrap(),
-        vec![],
-        vec![name, threshold_arg, master_pk_bytes, partial_key_servers],
-    );
-    builder.transfer_arg(member_address, key_server);
-
-    let pt = builder.finish();
-    let test_builder = cluster
-        .test_transaction_builder_with_sender(member_address)
-        .await;
-    let gas_object = test_builder.gas_object();
-    let gas_price = cluster.get_reference_gas_price().await;
-    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
-    let tx_data = TransactionData::new_programmable(
-        member_address,
-        vec![gas_object],
-        pt,
-        gas_budget,
-        gas_price,
-    );
-
-    let response = cluster.sign_and_execute_transaction(&tx_data).await;
-    assert!(response.status_ok().unwrap());
-
-    // Extract the created KeyServer object ID.
-    response
-        .object_changes
-        .unwrap()
-        .into_iter()
-        .find_map(|change| {
-            if let ObjectChange::Created {
-                object_type,
-                object_id,
-                ..
-            } = change
-                && object_type.name.as_str() == "KeyServer"
-            {
-                return Some(object_id);
-            }
-            None
-        })
-        .expect("KeyServer object not found in transaction response")
 }
