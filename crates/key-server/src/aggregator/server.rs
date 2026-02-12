@@ -119,6 +119,7 @@ impl NetworkConfig for AggregatorOptions {
 struct AppState {
     aggregator_metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
+    http_client: reqwest::Client,
     threshold: Arc<RwLock<u16>>,
     committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
     options: AggregatorOptions,
@@ -318,6 +319,7 @@ async fn handle_fetch_key(
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
     let metrics = state.aggregator_metrics.clone();
+    let http_client = state.http_client.clone();
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -331,6 +333,7 @@ async fn handle_fetch_key(
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             let metrics = metrics.clone();
+            let http_client = http_client.clone();
             async move {
                 // Check if API credentials exist for this server.
                 let creds = match api_creds {
@@ -351,6 +354,7 @@ async fn handle_fetch_key(
                     req_id,
                     &ks_version_req,
                     creds,
+                    &http_client,
                 )
                 .await
                 {
@@ -446,13 +450,12 @@ async fn fetch_from_member(
     req_id: &str,
     ks_version_req: &VersionReq,
     api_credentials: ApiCredentials,
+    client: &reqwest::Client,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
         member.party_id, member.url, req_id
     );
-
-    let client = reqwest::Client::new();
     let request_builder = client
         .post(format!("{}/v1/fetch_key", member.url))
         .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
@@ -667,6 +670,7 @@ async fn load_committee_state(
     Ok(AppState {
         aggregator_metrics: metrics,
         grpc_client,
+        http_client: reqwest::Client::new(),
         committee_members: Arc::new(RwLock::new(members)),
         threshold: Arc::new(RwLock::new(threshold)),
         options,
@@ -841,10 +845,12 @@ mod tests {
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
+        let http_client = reqwest::Client::new();
 
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
+            http_client,
             threshold: Arc::new(RwLock::new(threshold)),
             committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
                 contents: committee_contents,
