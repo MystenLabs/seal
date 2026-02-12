@@ -6,14 +6,25 @@
 use std::collections::HashMap;
 
 use crate::{
-    move_types::{Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, Wrapper},
+    move_types::{
+        Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeManager,
+        UpgradeProposal, Wrapper,
+    },
     Network,
 };
 use anyhow::{anyhow, Result};
 use sui_rpc::client::Client;
+use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk_types::{Address, Object, StructTag, TypeTag};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
+
+/// Key struct for accessing UpgradeManager in dynamic object fields.
+/// Must match the Move struct definition in seal_committee.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UpgradeManagerKey {
+    dummy_field: bool,
+}
 
 /// Create gRPC client for a given network.
 pub fn create_grpc_client(network: &Network) -> Result<Client> {
@@ -31,7 +42,7 @@ async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
     error_context: &str,
 ) -> Result<T> {
     let mut ledger_client = grpc_client.ledger_client();
-    let mut request = sui_rpc::proto::sui::rpc::v2::GetObjectRequest::default();
+    let mut request = GetObjectRequest::default();
     request.object_id = Some(object_id.to_string());
     request.read_mask = Some(prost_types::FieldMask {
         paths: vec!["bcs".to_string()],
@@ -55,6 +66,41 @@ async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
         .ok_or_else(|| anyhow!("Object is not a Move struct in {}", error_context))?;
     bcs::from_bytes(move_object.contents())
         .map_err(|e| anyhow!("Failed to deserialize {}: {}", error_context, e))
+}
+
+/// Fetch a field wrapper object and deserialize it.
+async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
+    grpc_client: &mut Client,
+    field_wrapper_id: &Address,
+) -> Result<T> {
+    let mut ledger_client = grpc_client.ledger_client();
+    let mut fw_request = GetObjectRequest::default();
+    fw_request.object_id = Some(field_wrapper_id.to_string());
+    fw_request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["bcs".to_string()],
+    });
+
+    let fw_response = ledger_client
+        .get_object(fw_request)
+        .await
+        .map(|r| r.into_inner());
+
+    let fw_bcs = match fw_response {
+        Ok(response) => response
+            .object
+            .and_then(|obj| obj.bcs)
+            .and_then(|bcs| bcs.value)
+            .ok_or_else(|| anyhow!("Field wrapper object not found"))?,
+        Err(e) => return Err(anyhow!("Failed to fetch field wrapper: {}", e)),
+    };
+
+    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
+    let fw_struct = fw_object
+        .as_struct()
+        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
+
+    let field_wrapper: T = bcs::from_bytes(fw_struct.contents())?;
+    Ok(field_wrapper)
 }
 
 /// Fetch seal Committee object onchain.
@@ -129,8 +175,7 @@ pub async fn fetch_key_server_by_committee(
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
     let field_wrapper: Field<Wrapper<Address>, Address> =
-        fetch_and_deserialize_move_object(grpc_client, &field_wrapper_id, "Field wrapper object")
-            .await?;
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
     let ks_obj_id = field_wrapper.value;
 
     let key_server_v2 = fetch_key_server_by_id(grpc_client, &ks_obj_id).await?;
@@ -185,6 +230,151 @@ pub async fn to_partial_key_servers(
         _ => Err(anyhow!("KeyServer is not of type Committee")),
     }
 }
+
+/// Fetch committee ID and package ID from a key server object ID.
+/// Returns (committee_id, package_id).
+pub async fn fetch_committee_from_key_server(
+    grpc_client: &mut Client,
+    key_server_obj_id: &Address,
+) -> Result<(Address, sui_types::base_types::ObjectID)> {
+    use std::str::FromStr;
+    use sui_types::base_types::ObjectID;
+
+    // Fetch key server object to get owner (field wrapper).
+    let field_wrapper_id = {
+        let mut ledger_client = grpc_client.ledger_client();
+        let mut ks_request = GetObjectRequest::default();
+        ks_request.object_id = Some(key_server_obj_id.to_string());
+        ks_request.read_mask = Some(prost_types::FieldMask {
+            paths: vec!["owner".to_string()],
+        });
+
+        let ks_response = ledger_client
+            .get_object(ks_request)
+            .await
+            .map(|r| r.into_inner())?;
+
+        let ks_object = ks_response
+            .object
+            .ok_or_else(|| anyhow!("Key server object not found"))?;
+
+        // Parse owner to get field wrapper ID.
+        let owner_data = ks_object
+            .owner
+            .ok_or_else(|| anyhow!("Key server object has no owner"))?;
+
+        let owner_address = owner_data
+            .address
+            .ok_or_else(|| anyhow!("Owner has no address"))?;
+
+        Address::from_str(&owner_address)?
+    };
+
+    // Fetch field wrapper to extract committee ID.
+    let field: Field<Wrapper<Address>, Address> =
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
+    let committee_id = field.name.name;
+
+    // Fetch committee object to get the correct package ID.
+    let mut ledger_client = grpc_client.ledger_client();
+    let mut committee_request = GetObjectRequest::default();
+    committee_request.object_id = Some(committee_id.to_string());
+    committee_request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["object_type".to_string()],
+    });
+
+    let committee_response = ledger_client
+        .get_object(committee_request)
+        .await
+        .map(|r| r.into_inner())?;
+
+    let committee_object = committee_response
+        .object
+        .ok_or_else(|| anyhow!("Committee object not found"))?;
+
+    let committee_type = committee_object
+        .object_type
+        .ok_or_else(|| anyhow!("Committee has no type"))?;
+
+    let committee_struct_tag = StructTag::from_str(&committee_type)?;
+    let package_id = ObjectID::new(committee_struct_tag.address().into_inner());
+
+    Ok((committee_id, package_id))
+}
+
+/// Fetch upgrade proposal from the committee's UpgradeManager DOF.
+/// Returns None if there is no active proposal.
+pub async fn fetch_upgrade_proposal(
+    grpc_client: &mut Client,
+    committee_id: &Address,
+) -> Result<Option<UpgradeProposal>> {
+    let upgrade_manager = fetch_upgrade_manager(grpc_client, committee_id).await?;
+    Ok(upgrade_manager.upgrade_proposal)
+}
+
+/// Fetch the full UpgradeManager from the committee's UpgradeManager DOF.
+pub async fn fetch_upgrade_manager(
+    grpc_client: &mut Client,
+    committee_id: &Address,
+) -> Result<UpgradeManager> {
+    use std::str::FromStr;
+
+    // First, we need to get the committee package address to construct the correct type tag.
+    let mut ledger_client = grpc_client.ledger_client();
+    let mut committee_request = GetObjectRequest::default();
+    committee_request.object_id = Some(committee_id.to_string());
+    committee_request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["object_type".to_string()],
+    });
+
+    let committee_response = ledger_client
+        .get_object(committee_request)
+        .await
+        .map(|r| r.into_inner())?;
+
+    let object_type = committee_response
+        .object
+        .and_then(|obj| obj.object_type)
+        .ok_or_else(|| anyhow!("Committee object has no type"))?;
+
+    let struct_tag = StructTag::from_str(&object_type)?;
+    let committee_pkg_addr = struct_tag.address();
+
+    let wrapper_key = Wrapper {
+        name: UpgradeManagerKey { dummy_field: false },
+    };
+    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
+
+    // The type tag for Wrapper<UpgradeManagerKey>.
+    let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag::new(
+        Address::TWO,
+        "dynamic_object_field".parse().unwrap(),
+        "Wrapper".parse().unwrap(),
+        vec![TypeTag::Struct(Box::new(StructTag::new(
+            *committee_pkg_addr,
+            "seal_committee".parse().unwrap(),
+            "UpgradeManagerKey".parse().unwrap(),
+            vec![],
+        )))],
+    )));
+
+    // Derive the field wrapper ID for UpgradeManager.
+    let field_wrapper_id =
+        committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
+
+    // Fetch field wrapper.
+    let field_wrapper: crate::move_types::FieldWrapper<UpgradeManagerKey, Address> =
+        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
+    let upgrade_manager_id = field_wrapper.value;
+
+    // Fetch the UpgradeManager object.
+    let upgrade_manager: UpgradeManager =
+        fetch_and_deserialize_move_object(grpc_client, &upgrade_manager_id, "UpgradeManager")
+            .await?;
+
+    Ok(upgrade_manager)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

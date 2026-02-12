@@ -20,35 +20,26 @@ pnpm --version
 pnpm i
 ```
 
-### Independent Key Server Tests
+### Test
 
-Test multiple independent key servers with threshold encryption/decryption.
+Run the following test to run end to end encrypt and decrypt test against the provided servers.
 
-```bash
-# Format: --servers "objectId" or "objectId:apiKeyName:apiKeyValue"
-
-# Servers without API keys
-pnpm test --network testnet --servers "0xabc123,0xdef456"
-
-# Servers with API keys (for permissioned servers)
-pnpm test --network mainnet --servers "0x123abc:myKey:mySecret,0x456def:otherKey:otherSecret"
-
-# Mixed configuration (some with API keys, some without)
-pnpm test --network testnet --servers "0xabc123,0xdef456:apiKey:apiValue"
-```
-
-### Committee Mode Tests
-
-Test committee aggregator (managing a committee of key servers) combined with independent servers.
+Options:
+`--network`: Provide the network.
+`--servers`: Provide a list of servers with their object IDs, optionally provide API key name and value. Supports independent servers (open or permissioned) and committee servers. For a committee server, provide an aggregator URL.
+`--threshold`: Provide a threshold, default to the count of all servers.
 
 ```bash
-# Committee without API keys
-pnpm test --network testnet \
-  --committee '{"objectId":"0xa5d2b47e7c649a3c6f9730967a5514abb8e21f19f908ad78a6ad943970c6ad02","aggregatorUrl":"https://seal-aggregator-ci.mystenlabs.com"}' \
-  --servers '[{"objectId":"0x71a3962c5d06a94d1ef5a9c0e7d63ad72cefb48acc93001eaa7ba13fab52786e"}]'
-
-# Committee with API keys
+# Independent servers with API keys.
 pnpm test --network mainnet \
-  --committee '{"objectId":"0xcommitteeId","aggregatorUrl":"https://aggregator.example.com","apiKeyName":"apiKeyName","apiKey":"apiKeyValue"}' \
-  --servers '[{"objectId":"0xserver1","apiKeyName":"apiKey1","apiKey":"apiValue1"},{"objectId":"0xserver2","apiKeyName":"apiKey2","apiKey":"apiValue2"}]'
+  --servers '[{"objectId":"0xserver1","apiKeyName":"apiKey1","apiKey":"apiValue1"},{"objectId":"0xserver2","apiKeyName":"apiKey2","apiKey":"apiValue2"}]' \
+  --threshold 2
+
+# Committee server with aggregator URL and default threshold (1/1).
+pnpm test --network testnet \
+  --servers '[{"objectId":"0x8a0e2e09a4c5255336d234b11014642b350634f07d07df6fc4c17bf07430c872","aggregatorUrl":"https://aggregator.example.com"}]'
+
+# Committee and independent server.
+pnpm test --network mainnet \
+  --servers '[{"objectId":"0xcommitteeId","aggregatorUrl":"https://aggregator.example.com","apiKeyName":"apiKeyName","apiKey":"apiKeyValue"}, {"objectId":"0xindependentServer"}]'
 ```
