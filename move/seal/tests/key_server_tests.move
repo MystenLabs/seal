@@ -96,7 +96,7 @@ fun independent_server() {
     key_server::update(&mut s, b"https:/mysten-labs3.com".to_string());
     assert_eq!(key_server::url(&s), b"https:/mysten-labs3.com".to_string());
 
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -125,7 +125,7 @@ fun committee_v2_server() {
     assert_eq!(partial2.partial_ks_url(), b"https://server2.com".to_string());
     assert_eq!(partial2.partial_ks_party_id(), 1);
 
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -137,7 +137,7 @@ fun create_committee_v2_invalid_threshold() {
 
     // Threshold of 1 should fail (must be > 1)
     let s = create_2_of_2_committee_server_v2(addr1, addr2, 1, scenario.ctx());
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -177,7 +177,7 @@ fun create_committee_v2_duplicate_party_ids() {
         partial_key_servers,
         scenario.ctx(),
     );
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -192,7 +192,7 @@ fun update_member_url_not_member() {
 
     // Try to update URL for non-member should fail
     key_server::update_member_url(&mut s, b"https://server3.com".to_string(), addr3);
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -209,7 +209,7 @@ fun update_member_url_on_independent_server() {
 
     // Try to update member URL on independent server should fail
     key_server::update_member_url(&mut s, b"https://newurl.com".to_string(), addr1);
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }
 
@@ -226,6 +226,6 @@ fun upgrade_v1_to_v2_twice() {
 
     // Try to upgrade again should fail
     key_server::upgrade_v1_to_independent_v2(&mut s);
-    s.destroy();
+    s.destroy_for_testing();
     scenario.end();
 }

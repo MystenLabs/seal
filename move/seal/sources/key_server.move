@@ -10,14 +10,8 @@
 // map of partial key servers that contains the member's partial public key, party ID and URL. The
 // partial public keys and party IDs can be updated while the key server public key is unchanged.
 //
-// A key server can be registered permissionlessly onchain. The server should expose two endpoints
-// at its URL:
-// 1. /service: For V1 or V2 independent server, it returns the registered object id of its key server
-// (to prevent impersonation) and a PoP(key=IBE key, m=[key_server_id | IBE public key]). For V2
-// committee based server it returns the key server object ID and a PoP(key=IBE key,
-// m=[key_server_id | party_id | partial public key]).
-//
-// 2. /fetch_key: It allows users to request a key for a given policy.
+// A key server can be registered permissionlessly onchain. The server allows users to request a 
+// key for a given Seal policy.
 
 module seal::key_server;
 
@@ -31,6 +25,9 @@ const EInvalidServerType: u64 = 3;
 const EInvalidThreshold: u64 = 4;
 const EInvalidPartyId: u64 = 5;
 const ENotMember: u64 = 6;
+
+const V1: u64 = 1;
+const V2: u64 = 2;
 
 /// KeyServer should always be guarded as it's a capability
 /// on its own. It should either be an owned object, wrapped object,
@@ -103,8 +100,8 @@ public fun create_committee_v2(
     // Key server version starts at 2.
     let mut key_server = KeyServer {
         id: object::new(ctx),
-        first_version: 2,
-        last_version: 2,
+        first_version: V2,
+        last_version: V2,
     };
 
     // Committee version starts at 0.
@@ -116,14 +113,14 @@ public fun create_committee_v2(
     };
 
     // Add KeyServerV2 as df.
-    df::add(&mut key_server.id, 2u64, key_server_v2);
+    df::add(&mut key_server.id, V2, key_server_v2);
     key_server
 }
 
 /// Upgrade the current key server's to v2 by adding a df to KeyServerV2, still a single owner object.
 public fun upgrade_v1_to_independent_v2(ks: &mut KeyServer) {
-    assert!(ks.first_version == 1, EInvalidVersion);
-    assert!(ks.last_version == 1, EInvalidVersion);
+    assert!(ks.first_version == V1, EInvalidVersion);
+    assert!(ks.last_version == V1, EInvalidVersion);
     assert!(!ks.has_v2(), EInvalidVersion);
 
     let v1 = ks.v1();
@@ -134,8 +131,8 @@ public fun upgrade_v1_to_independent_v2(ks: &mut KeyServer) {
         server_type: ServerType::Independent { url: v1.url },
     };
 
-    df::add(&mut ks.id, 2u64, key_server_v2);
-    ks.last_version = 2;
+    df::add(&mut ks.id, V2, key_server_v2);
+    ks.last_version = V2;
 }
 
 /// Create a PartialKeyServer with respective fields.
@@ -164,7 +161,7 @@ public fun update_partial_key_servers(
     validate_partial_key_servers(threshold, &partial_key_servers);
     s.assert_committee_server_v2();
 
-    let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2u64);
+    let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, V2);
     match (&mut v2.server_type) {
         ServerType::Committee { partial_key_servers: value, threshold: t, version: v } => {
             *value = partial_key_servers;
@@ -180,7 +177,7 @@ public fun update_partial_key_servers(
 public fun update_member_url(s: &mut KeyServer, url: String, member: address) {
     s.assert_committee_server_v2();
 
-    let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2u64);
+    let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, V2);
     match (&mut v2.server_type) {
         ServerType::Committee { partial_key_servers, .. } => {
             assert!(partial_key_servers.contains(&member), ENotMember);
@@ -208,7 +205,7 @@ entry fun create_and_transfer_v1(
 /// Update server URL. Can only be called on V1 or V2 independent server type KeyServer.
 public fun update(s: &mut KeyServer, url: String) {
     if (s.has_v2()) {
-        let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, 2u64);
+        let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, V2);
         match (&mut v2.server_type) {
             ServerType::Independent { url: value } => {
                 *value = url;
@@ -216,7 +213,7 @@ public fun update(s: &mut KeyServer, url: String) {
             _ => abort EInvalidServerType,
         }
     } else if (s.has_v1()) {
-        let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, 1u64);
+        let v1: &mut KeyServerV1 = df::borrow_mut(&mut s.id, V1);
         v1.url = url;
     } else {
         abort EInvalidVersion
@@ -226,7 +223,7 @@ public fun update(s: &mut KeyServer, url: String) {
 /// Get KeyServerV1 from KeyServer.
 public fun v1(s: &KeyServer): &KeyServerV1 {
     assert!(s.has_v1(), EInvalidVersion);
-    df::borrow(&s.id, 1u64)
+    df::borrow(&s.id, V1)
 }
 
 /// Get name of key server. Supports both V1 and V2.
@@ -322,10 +319,10 @@ fun validate_partial_key_servers(
 
 /// Check if KeyServer is v2 and is a committee server type.
 fun assert_committee_server_v2(s: &KeyServer) {
-    assert!(s.first_version <= 2 && s.last_version >= 2, EInvalidVersion);
-    assert!(df::exists_(&s.id, 2u64), EInvalidVersion);
+    assert!(s.first_version <= V2 && s.last_version >= V2, EInvalidVersion);
+    assert!(df::exists_(&s.id, V2), EInvalidVersion);
 
-    let v2: &KeyServerV2 = df::borrow(&s.id, 2u64);
+    let v2: &KeyServerV2 = df::borrow(&s.id, V2);
     assert!(
         match (&v2.server_type) {
             ServerType::Committee { .. } => true,
@@ -337,19 +334,19 @@ fun assert_committee_server_v2(s: &KeyServer) {
 
 /// Check if KeyServer has v2.
 fun has_v2(s: &KeyServer): bool {
-    df::exists_(&s.id, 2u64)
+    df::exists_(&s.id, V2)
 }
 
 /// Get KeyServerV2 of a key server.
 fun v2(s: &KeyServer): &KeyServerV2 {
     assert!(s.has_v2(), EInvalidVersion);
-    assert!(s.first_version <= 2 && s.last_version >= 2, EInvalidVersion);
-    df::borrow(&s.id, 2u64)
+    assert!(s.first_version <= V2 && s.last_version >= V2, EInvalidVersion);
+    df::borrow(&s.id, V2)
 }
 
 /// Check if KeyServer has v1.
 fun has_v1(s: &KeyServer): bool {
-    df::exists_(&s.id, 1u64)
+    df::exists_(&s.id, V1)
 }
 
 // ==== V1 Internal Functions ====
@@ -378,7 +375,7 @@ fun create_v1(
         key_type,
         pk,
     };
-    df::add(&mut key_server.id, 1u64, key_server_v1);
+    df::add(&mut key_server.id, V1, key_server_v1);
     key_server
 }
 
@@ -388,7 +385,7 @@ fun create_v1(
 #[test_only]
 public fun partial_key_server_for_member(s: &KeyServer, member: address): PartialKeyServer {
     s.assert_committee_server_v2();
-    let v2: &KeyServerV2 = df::borrow(&s.id, 2u64);
+    let v2: &KeyServerV2 = df::borrow(&s.id, V2);
     match (&v2.server_type) {
         ServerType::Committee { partial_key_servers, .. } => {
             *partial_key_servers.get(&member)
@@ -419,7 +416,7 @@ public fun partial_ks_party_id(partial: &PartialKeyServer): u16 {
 #[test_only]
 public fun committee_version_and_threshold(s: &KeyServer): (u32, u16) {
     s.assert_committee_server_v2();
-    let v2: &KeyServerV2 = df::borrow(&s.id, 2u64);
+    let v2: &KeyServerV2 = df::borrow(&s.id, V2);
     match (&v2.server_type) {
         ServerType::Committee { version, threshold, .. } => (*version, *threshold),
         _ => abort EInvalidServerType,
@@ -443,7 +440,7 @@ public fun create_v1_for_testing(
 }
 
 #[test_only]
-public fun destroy(self: KeyServer) {
+public fun destroy_for_testing(self: KeyServer) {
     let KeyServer { id, first_version: _, last_version: _ } = self;
     id.delete();
 }
