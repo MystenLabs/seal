@@ -86,45 +86,138 @@ Anyone can create an on-chain `KeyServer` object that references a known URL (su
 
 :::
 
-Apps can define a list of Seal key server object IDs from the [verified key servers](/Pricing#verified-key-servers) available in each environment. You can use any `Open` mode key server directly. For a `Permissioned` mode key server, contact the key server provider to register your access policy package ID and receive the corresponding object ID.
+### Choosing key servers
+
+Select key server object IDs from the [verified key servers](/Pricing#verified-key-servers) available in each environment.
+
+Seal supports two server types - **independent** and **committee** - which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
+
+#### Option 1: Committee-only (recommended for most apps)
+
+Use a single committee server to get distributed trust and member rotation benefits:
+- **What you need**: Committee key server object ID + aggregator URL
+- **Benefits**: The committee has its own internal threshold (e.g., 3-of-5 members), so you get distributed trust without managing multiple server relationships
+- **Best for**: Apps that want built-in distributed trust and simplified configuration
+
+#### Option 2: Hybrid
+
+Combine committee and independent servers in your threshold configuration:
+- **What you need**: Committee key server object ID + aggregator URL + independent server object IDs (e.g., a 2-of-3 threshold with one committee server and two independent servers)
+- **Benefits**: Additional flexibility in trust distribution or cost management by combining both server types
+- **Best for**: Apps that want additional flexibility in trust distribution or cost management
+
+#### Option 3: Independent-only
+
+Use only independent servers in your threshold configuration:
+- **What you need**: One or more independent server object IDs
+- **Benefits**: Simpler setup and complete control over server selection
+- **Best for**: Development/testing, or apps with specific trust requirements
+
+:::note
+
+Each key server (whether independent or committee) counts as one server in your threshold configuration. From your app's perspective, they all work the same way through the SDK.
+
+:::
 
 Next, the app should create a `SealClient` object for the selected key servers.
+
+**Example - Independent servers only:**
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
-// Replace this with a list of custom key server object IDs.
-// Replace with the Seal server object IDs.
-const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
-
+// Independent server object IDs from https://seal-docs.wal.app/Pricing
 const client = new SealClient({
   suiClient,
-  serverConfigs: serverObjectIds.map((id) => ({
-    objectId: id,
-    weight: 1,
-  })),
+  serverConfigs: [
+    {
+      objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+      weight: 1,
+    },
+    {
+      objectId: "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8",
+      weight: 1,
+    }
+  ],
   verifyKeyServers: false,
 });
 ```
 
-The `serverConfigs` is a list of objects, where each object contains a key server object ID and its weight. Recall that the weight indicates how many times the key server can contribute towards reaching the decryption threshold. In this example, all key servers are given equal weight 1.
+**Example - Committee server only:**
+```typescript
+const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+// Committee server from https://seal-docs.wal.app/Pricing
+const client = new SealClient({
+  suiClient,
+  serverConfigs: [
+    {
+      objectId: "0xCOMMITTEE_KEY_SERVER_OBJECT_ID",
+      aggregatorUrl: "https://aggregator.example.com",
+      weight: 1,
+      // Include if the aggregator requires API key authentication:
+      // apiKeyName: "x-api-key",
+      // apiKey: "your-aggregator-api-key",
+    }
+  ],
+  verifyKeyServers: false,
+});
+```
+
+**Example - Hybrid (committee + independent):**
+```typescript
+const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+const client = new SealClient({
+  suiClient,
+  serverConfigs: [
+    // Committee server
+    {
+      objectId: "0xCOMMITTEE_KEY_SERVER_OBJECT_ID",
+      aggregatorUrl: "https://aggregator.example.com",
+      weight: 1,
+    },
+    // Independent server
+    {
+      objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+      weight: 1,
+    }
+  ],
+  verifyKeyServers: false,
+});
+```
+
+The `serverConfigs` is a list of objects, where each object contains:
+- **`objectId`** (required): The key server object ID
+- **`weight`** (required): How many times the key server can contribute towards reaching the decryption threshold
+- **`aggregatorUrl`** (required for committee servers): The aggregator endpoint URL
+- **`apiKeyName`** and **`apiKey`** (optional): Required if the server requires API key authentication
+  - For **committee servers**: Include if the aggregator is configured to require API keys
+  - For **independent servers**: Include if using Permissioned mode
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described in the preceding section. Enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
 
 :::tip
 
-A key server **can** require an API key for requests. If so, include the fields `apiKeyName` and `apiKey` in the server configuration object. The SDK sends these as an HTTP header in the format `apiKeyName: apiKey`. 
+**API Key Authentication:**
 
-For example, if a key server expects the header `x-api-key: my123api456key`, configure the server object as follows:
+Some servers require API keys for authentication:
+- **Committee servers**: If the aggregator is configured to require API keys (check with the committee operator)
+- **Independent servers (Permissioned mode)**: Always require API keys (contact the provider)
+
+Include the fields `apiKeyName` and `apiKey` in the server configuration object when required. The SDK sends these as an HTTP header in the format `apiKeyName: apiKey`.
+
+For example, if a server expects the header `x-api-key: my123api456key`, configure the server object as follows:
 ```typescript
 {
   objectId: id,
   weight: 1,
   apiKeyName: "x-api-key",
-  apiKey: "my123api456key"
+  apiKey: "my123api456key",
+  // aggregatorUrl: "...", // Include for committee servers
 }
 ```
 
-Different key servers can use different header names. Confirm the header name and API key value with each such key server provider before you include it in your threshold configuration.
+Different servers can use different header names. Confirm the header name and API key value with each provider before including it in your threshold configuration.
 
 :::
 
