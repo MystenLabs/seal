@@ -1,6 +1,6 @@
 ---
-title: Key Server Operations for Committee Mode
-description: Learn how to set up and operate a key server in committee mode, including DKG ceremonies, key rotation, and aggregator configuration.
+title: Key Server Operations for Committee Server Type
+description: Learn how to set up and operate a key server as a committee server type, including DKG ceremonies, key rotation, and aggregator configuration.
 keywords:
   - key server operations
   - committee mode
@@ -13,29 +13,31 @@ keywords:
   - committee members
 ---
 
-# Key server operations for committee mode
+# Key server operations for committee server type
 
-This guide explains how to set up and operate a key server in committee mode. It walks you through participating in a Distributed Key Generation (DKG) ceremony to generate cryptographic key shares, and then shows you how to configure and run a key server using those shares. If the committee later needs to change membership, the guide also covers key rotation and how to update a running key server accordingly.
+This guide explains how to set up and operate a key server as a committee server type. For an overview of committee vs independent server types, see [Seal Server Overview](/ServerOverview).
 
-In addition to the committee and individual key servers, committee mode requires an **aggregator server**. The aggregator collects partial key shares from committee members and combines them into a usable decryption key for clients. For details on configuring and running the aggregator, see [Aggregator Server](/Aggregator).
+## Overview
 
-A DKG process involves two roles: a **coordinator**, which orchestrates the workflow, and a set of **committee members**, which participate in key generation and key rotation.
+Committee server type uses distributed key generation (DKG) to split cryptographic keys across multiple operators. In addition to the committee member key servers, an **aggregator server** is required to collect partial key shares from members and combine them into usable decryption keys for clients. For aggregator setup, see [Aggregator Server](/Aggregator).
 
-This document covers the following tasks:
+**What you'll learn:**
+- Running a fresh DKG to initialize a new committee and generate an initial key share
+- Configuring and starting a committee member key server
+- Performing key rotation to update committee membership while maintaining the same public key
+- Updating a running key server to use the new key share after rotation
 
-- Running a fresh DKG to initialize a new committee and generate an initial key share (`MASTER_SHARE_V0`)
-- Configuring and starting a key server using the key share produced by the DKG
-- Performing key rotation to update committee membership or keys and generate a new key share (`MASTER_SHARE_VX+1`)
-- Updating a running key server to transition to the new key share after rotation
+**How DKG works:**
 
-Both fresh DKG and key rotation follow the same three-phase process. The coordinator signals members when to move from one phase to the next:
+The DKG process involves two roles: a **coordinator** orchestrates the workflow, and **committee members** participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
 
-- **Phase A — Registration:** Members generate encryption keys and register them on-chain.
-- **Phase B — Message creation:** Members create and exchange DKG messages off-chain.
-- **Phase C — Finalization:** Members process messages and propose the committee configuration on-chain.
+- **Phase A — Registration:** Members generate encryption keys and register them on-chain
+- **Phase B — Message creation:** Members create and exchange DKG messages off-chain
+- **Phase C — Finalization:** Members process messages and propose the committee configuration on-chain
 
-The guide is organized into four sections:
+The coordinator signals members when to move from one phase to the next.
 
+**Guide organization:**
 - Fresh DKG coordinator runbook
 - Fresh DKG member runbook (includes key server setup)
 - Key rotation coordinator runbook
@@ -508,8 +510,8 @@ This command:
 **For continuing members:**
 a. Update `key-server-config.yaml`
 
-- The committee state from *Active* to **Rotation** mode.
-- Set the target committee version to `X+1` (increment 1 from the current version `X`). If you are not sure what `X` is in this rotation, check with your cooridinator.
+- Change the committee state from *Active* to **Rotation** mode.
+- Set the target committee version to `X+1` (increment 1 from the current version `X`). If you are not sure what `X` is in this rotation, check with your coordinator.
 - Leave other settings unchanged.
 
 Example config file:
