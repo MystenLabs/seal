@@ -36,6 +36,10 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
     },
+    "/markdown/ServerOverview.md": {
+      "Content-Disposition": "inline",
+      "content-type": "text/markdown; charset=utf-8"
+    },
     "/markdown/TermsOfService.md": {
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8"
@@ -77,6 +81,9 @@
     "/SecurityBestPractices": "/SecurityBestPractices/index.html",
     "/SecurityBestPractices.html": "/SecurityBestPractices/index.html",
     "/SecurityBestPractices.md": "/markdown/SecurityBestPractices.md",
+    "/ServerOverview": "/ServerOverview/index.html",
+    "/ServerOverview.html": "/ServerOverview/index.html",
+    "/ServerOverview.md": "/markdown/ServerOverview.md",
     "/TermsOfService": "/TermsOfService/index.html",
     "/TermsOfService.html": "/TermsOfService/index.html",
     "/TermsOfService.md": "/markdown/TermsOfService.md",
