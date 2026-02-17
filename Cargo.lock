@@ -2006,7 +2006,7 @@ checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 
 [[package]]
 name = "crypto"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bcs",
  "fastcrypto",
@@ -4532,7 +4532,7 @@ dependencies = [
 
 [[package]]
 name = "key-server"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "axum 0.8.7",
@@ -8240,7 +8240,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "seal-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bcs",
  "clap",
@@ -8259,7 +8259,7 @@ dependencies = [
 
 [[package]]
 name = "seal-committee"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "bcs",
@@ -8275,7 +8275,7 @@ dependencies = [
 
 [[package]]
 name = "seal-committee-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "bcs",
@@ -8301,7 +8301,7 @@ dependencies = [
 
 [[package]]
 name = "seal-proxy"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "axum 0.8.7",
@@ -8331,7 +8331,7 @@ dependencies = [
 
 [[package]]
 name = "seal-sdk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bcs",
  "chrono",
