@@ -13,8 +13,6 @@ keywords:
   - deployment options
 ---
 
-# Seal server overview
-
 Seal supports two fundamentally different server types for key management: **Committee** (requires an aggregator server) and **Independent**.
 
 ## Committee server type
@@ -58,9 +56,7 @@ Use cases for the committee server include:
 When using committee servers, consider the following:
 
 - Key share setup and rotation require coordination among parties.
-- The setup requires an additional aggregator server component for client communication.
-
-Learn more about [[key server operations for committee server types](https://claude.ai/KeyServerCommitteeOps)](/KeyServerCommitteeOps).
+- The setup requires an additional aggregator server component for client communication. The aggregator is trustless and no key storage is required.
 
 ## Independent server type
 
@@ -74,7 +70,7 @@ From the operator perspective, a single entity operates the key server with two 
   - **Open mode**: Uses a single master key to serve all access policies across all packages; accepts decryption requests for any on-chain package without restrictions; no client management or API keys required
   - **Permissioned mode**: Restricts access to a manually approved list of packages; each client is associated with specific package IDs; each client is served using a dedicated master key derived from a master seed; clients must obtain API keys for access; supports key import and export for disaster recovery or key server rotation
 
-### Benefits of using 
+### Benefits
 
 **Open mode**: Simple setup and configuration, no client management required
 
@@ -105,25 +101,6 @@ Consider the following when using independent servers:
 - Permissioned mode: Requires client registration and management, manual approval process for new packages, higher operational overhead
 
 Learn more about [key server operations for independent server types](/KeyServerOps).
-
-## Common considerations
-
-### Key servers (committee and independent)
-
-**Requirements:** 
-- Trusted access to a Sui full node for policy validation
-- HTTPS/TLS exposure (ideally behind an API gateway or reverse proxy)
-- Rate limiting enforced at the gateway
-- Optional authentication via API keys or access tokens
-- Monitoring with Prometheus metrics on port `9184` and a health check endpoint on port `2024`
-- Secure key storage using a KMS or hardware/software vault
-
-### Aggregator servers (committee only)
-
-**Properties:** 
-- Trustless component (anyone can run one)
-- No key storage required
-- Coordinates with committee member key servers to collect and combine partial key responses
 
 ## Next steps
 
