@@ -21,15 +21,15 @@ This guide explains how to set up and operate a key server as a committee server
 
 Committee server type uses distributed key generation (DKG) to split cryptographic keys across multiple operators. In addition to the committee member key servers, an **aggregator server** is required to collect partial key shares from members and combine them into usable decryption keys for clients. For aggregator setup, see [Aggregator Server](/Aggregator).
 
-**What you'll learn:**
-- Running a fresh DKG to initialize a new committee and generate an initial key share
-- Configuring and starting a committee member key server
-- Performing key rotation to update committee membership while maintaining the same public key
-- Updating a running key server to use the new key share after rotation
+**What you’ll learn:**
+- How to run a fresh DKG to bootstrap a new committee and generate the initial key shares
+- How to configure and start a key server for a committee member
+- How to rotate keys to update committee membership while preserving the same public key
+- How to update a running key server to use the new key share after rotation
 
 **How DKG works:**
 
-The DKG process involves two roles: a **coordinator** orchestrates the workflow, and **committee members** participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
+The DKG process involves two roles: a **coordinator** that orchestrates the workflow, and **committee members** participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
 
 - **Phase A — Registration:** Members generate encryption keys and register them on-chain
 - **Phase B — Message creation:** Members create and exchange DKG messages off-chain

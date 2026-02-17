@@ -90,19 +90,19 @@ Anyone can create an on-chain `KeyServer` object that references a known URL (su
 
 Select key server object IDs from the [verified key servers](/Pricing#verified-key-servers) available in each environment.
 
-Seal supports two server types - **independent** and **committee** - which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
+Seal supports two server types, **independent** and **committee**, which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
 
 #### Option 1: Committee-only (recommended for most apps)
 
 Use a single committee server to get distributed trust and member rotation benefits:
-- **What you need**: Committee key server object ID + aggregator URL
-- **Benefits**: The committee has its own internal threshold (e.g., 3-of-5 members), so you get distributed trust without managing multiple server relationships
+- **What you need**: Committee key server object ID and aggregator URL
+- **Benefits**: The committee has its own internal threshold (such as 3-of-5 members), so you get distributed trust without managing multiple server relationships
 - **Best for**: Apps that want built-in distributed trust and simplified configuration
 
 #### Option 2: Hybrid
 
 Combine committee and independent servers in your threshold configuration:
-- **What you need**: Committee key server object ID + aggregator URL + independent server object IDs (e.g., a 2-of-3 threshold with one committee server and two independent servers)
+- **What you need**: Committee key server object ID, aggregator URL, and independent server object IDs (such as a 2-of-3 threshold with one committee server and two independent servers)
 - **Benefits**: Additional flexibility in trust distribution or cost management by combining both server types
 - **Best for**: Apps that want additional flexibility in trust distribution or cost management
 
@@ -111,9 +111,9 @@ Combine committee and independent servers in your threshold configuration:
 Use only independent servers in your threshold configuration:
 - **What you need**: One or more independent server object IDs
 - **Benefits**: Simpler setup and complete control over server selection
-- **Best for**: Development/testing, or apps with specific trust requirements
+- **Best for**: Development, testing, or apps with specific trust requirements
 
-:::note
+:::info
 
 Each key server (whether independent or committee) counts as one server in your threshold configuration. From your app's perspective, they all work the same way through the SDK.
 
@@ -121,7 +121,7 @@ Each key server (whether independent or committee) counts as one server in your 
 
 Next, the app should create a `SealClient` object for the selected key servers.
 
-**Example - Independent servers only:**
+### Example: Independent servers only
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
@@ -142,7 +142,7 @@ const client = new SealClient({
 });
 ```
 
-**Example - Committee server only:**
+### Example: Committee server only
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
@@ -163,7 +163,7 @@ const client = new SealClient({
 });
 ```
 
-**Example - Hybrid (committee + independent):**
+### Example: Hybrid (committee and independent):
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
@@ -198,7 +198,7 @@ Set `verifyKeyServers` to `true` if the app or user needs to confirm that the pr
 
 :::tip
 
-**API Key Authentication:**
+## API key authentication
 
 Some servers require API keys for authentication:
 - **Committee servers**: If the aggregator is configured to require API keys (check with the committee operator)
