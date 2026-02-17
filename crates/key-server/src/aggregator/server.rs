@@ -65,7 +65,7 @@ fn default_ts_sdk_version_requirement() -> VersionReq {
 
 /// Default key server version requirement.
 fn default_key_server_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.6.0").expect("Failed to parse default key server version requirement")
+    VersionReq::parse(">=0.6.1").expect("Failed to parse default key server version requirement")
 }
 
 /// API credentials for a key server.

@@ -335,7 +335,7 @@ fn default_ts_sdk_version_requirement() -> VersionReq {
 }
 
 fn default_aggregator_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.6.0").expect("Failed to parse default aggregator version requirement")
+    VersionReq::parse(">=0.6.1").expect("Failed to parse default aggregator version requirement")
 }
 
 #[test]
