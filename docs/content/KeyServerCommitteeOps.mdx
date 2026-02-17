@@ -13,13 +13,13 @@ keywords:
   - committee members
 ---
 
-# Key server operations for committee server type
+import InfrastructureRequirements from './_InfrastructureRequirements.mdx';
 
 This guide explains how to set up and operate a key server as a committee server type. For an overview of committee vs independent server types, see [Seal Server Overview](/ServerOverview).
 
 ## Overview
 
-Committee server type uses distributed key generation (DKG) to split cryptographic keys across multiple operators. In addition to the committee member key servers, an **aggregator server** is required to collect partial key shares from members and combine them into usable decryption keys for clients. For aggregator setup, see [Aggregator Server](/Aggregator).
+Committee server type uses distributed key generation (DKG) to split cryptographic keys across multiple operators. Anyone can set up a committee — there is no central authority or permission required. In addition to the committee member key servers, an **[aggregator server](/Aggregator)** is required to collect partial key shares from members and combine them into usable decryption keys for clients. Because the aggregator is trustless and holds no key material, it can be operated by anyone, including a third party.
 
 **What you’ll learn:**
 - How to run a fresh DKG to bootstrap a new committee and generate the initial key shares
@@ -178,7 +178,7 @@ cargo run --bin seal-committee-cli -- check-committee
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
 
-8. **Collect API keys for aggregator server**
+8. **Collect API keys for [aggregator server](/Aggregator)**
 
 After all committee members have their key servers running, ask each member to generate API credentials for the aggregator.
 
@@ -289,7 +289,9 @@ c. Start the key server, setting the config path and your master key share from 
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
 
-6. **Generate API credentials for the aggregator**
+For infrastructure and deployment recommendations, see [Infrastructure requirements](#infrastructure-requirements).
+
+6. **Generate API credentials for the [aggregator](/Aggregator)**
 
 After your key server is running successfully, generate API credentials for aggregator access and share them with the coordinator.
 
@@ -414,7 +416,7 @@ Monitor on-chain state until all members have proposed and the committee is fina
 cargo run --bin seal-committee-cli -- check-committee
 ```
 
-8. **Collect API keys for aggregator server**
+8. **Collect API keys for [aggregator server](/Aggregator)**
 
 If new members join the committee during rotation or existing members change API credentials, ask each member to send API credentials for the aggregator.
 
@@ -566,7 +568,9 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-6. **Generate API credentials for the aggregator (new members only)**
+For infrastructure and deployment recommendations, see [Infrastructure requirements](#infrastructure-requirements).
+
+6. **Generate API credentials for the [aggregator](/Aggregator) (new members only)**
 
 If you are joining the committee as a new member during rotation, generate API credentials after your key server is up and running and share them with the coordinator.
 
@@ -702,3 +706,9 @@ This command:
 | Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
 | on-chain proposal function | `propose` | `propose_for_rotation` |
 | Result | New key server object | Updated key server object's version |
+
+## Infrastructure requirements
+
+The committee type server is initialized with a master share generated during the DKG ceremony, which must be kept secure. You can store it using a cloud-based Key Management System (KMS), or in a self-managed software or hardware vault.
+
+<InfrastructureRequirements />
