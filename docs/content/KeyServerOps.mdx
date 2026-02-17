@@ -17,7 +17,7 @@ keywords:
 
 # Key server operations for Independent server type
 
-This guide covers how to set up and operate an **Independent server type** key server. For an overview of committee vs independent server types, see [Seal Server Overview](/ServerOverview).
+This guide covers how to set up and operate an **independent server type** key server. For an overview comparing committee and independent server types, see [Seal Server Overview](/ServerOverview).
 
 Use this guide to operate a Seal key server in either of the following scenarios:
 
@@ -103,10 +103,10 @@ cargo run --bin seal-cli gen-seed
 Seed: <MASTER_SEED>
 ```
 
-Next, create a configuration file in .yaml format following the instructions in the [example config](https://github.com/MystenLabs/seal/tree/main/crates/key-server/key-server-config.yaml) and with the following properties:
+Next, create a configuration file in `.yaml` format following the instructions in the [example configuration](https://github.com/MystenLabs/seal/tree/main/crates/key-server/key-server-config.yaml) and with the following properties:
 
 - Set the mode to `!Permissioned`.
-- Initialize with empty client configs (clients can be added later).
+- Initialize with empty client configurations (clients can be added later).
 ```yaml
   server_mode: !Permissioned
     client_configs:
