@@ -9,6 +9,7 @@ use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
+use fastcrypto::hash::{Blake2b256, HashFunction};
 use fastcrypto::traits::KeyPair as _;
 use fastcrypto_tbls::dkg_v1::Party;
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
@@ -709,7 +710,7 @@ async fn main() -> Result<()> {
 
             // Load and process all messages.
             let messages = load_messages_from_dir(&full_messages_dir)?;
-            let output = process_dkg_messages(&mut state, messages, &local_keys)?;
+            let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
             // Determine version.
             let mut grpc_client = create_grpc_client(&network)?;
@@ -833,6 +834,8 @@ async fn main() -> Result<()> {
                 .collect::<Result<Vec<_>, _>>()?;
             let partial_pks_arg = propose_builder.pure(partial_pks_bytes)?;
 
+            let messages_hash_arg = propose_builder.pure(messages_hash)?;
+
             if is_rotation {
                 let current_committee_obj_id = current_committee_id.unwrap();
                 let current_committee_arg = propose_builder.obj(
@@ -845,7 +848,12 @@ async fn main() -> Result<()> {
                     "seal_committee".parse()?,
                     "propose_for_rotation".parse()?,
                     vec![],
-                    vec![committee_arg, partial_pks_arg, current_committee_arg],
+                    vec![
+                        committee_arg,
+                        partial_pks_arg,
+                        messages_hash_arg,
+                        current_committee_arg,
+                    ],
                 );
             } else {
                 // Use key server PK bytes directly.
@@ -856,7 +864,12 @@ async fn main() -> Result<()> {
                     "seal_committee".parse()?,
                     "propose".parse()?,
                     vec![],
-                    vec![committee_arg, partial_pks_arg, key_server_pk_arg],
+                    vec![
+                        committee_arg,
+                        partial_pks_arg,
+                        key_server_pk_arg,
+                        messages_hash_arg,
+                    ],
                 );
             }
 
@@ -1868,13 +1881,29 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
     Ok(messages)
 }
 
-/// Process DKG messages and complete the protocol.
+/// Process DKG messages and complete the protocol. Returns the DKG output and a consistency hash
+/// over all received messages `Blake2b256(BCS(msg_1) || ... || BCS(msg_n))` where messages are
+/// sorted by sender party ID.
 fn process_dkg_messages(
     state: &mut DkgState,
     messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
-) -> Result<fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>> {
+) -> Result<(
+    fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>,
+    Vec<u8>,
+)> {
     println!("Processing {} message(s)...", messages.len());
+
+    // Compute hash over messages sorted by sender party ID.
+    let messages_hash = {
+        let mut sorted = messages.iter().collect::<Vec<_>>();
+        sorted.sort_by_key(|m| m.message.sender);
+        let mut hasher = Blake2b256::default();
+        for msg in sorted {
+            hasher.update(&bcs::to_bytes(&msg.message)?);
+        }
+        hasher.finalize().digest.to_vec()
+    };
 
     // Validate message count.
     if let Some(old_threshold) = state.config.old_threshold {
@@ -2000,7 +2029,7 @@ fn process_dkg_messages(
     };
 
     state.output = Some(output.clone());
-    Ok(output)
+    Ok((output, messages_hash))
 }
 
 /// Determine the committee version from the network.

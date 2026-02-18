@@ -122,6 +122,7 @@ pub enum CommitteeState {
         partial_pks: Vec<Vec<u8>>,
         #[serde(deserialize_with = "deserialize_move_bytes")]
         pk: Vec<u8>,
+        messages_hash: Vec<u8>,
         approvals: VecSet<Address>,
     },
     Finalized,

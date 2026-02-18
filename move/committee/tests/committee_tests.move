@@ -573,6 +573,35 @@ fun test_propose_fails_with_mismatched_pk() {
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::EInvalidProposal)]
+fun test_propose_fails_with_mismatched_messages_hash() {
+    test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
+        let g2_bytes = *g2_generator().bytes();
+
+        test_init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
+
+        // CHARLIE proposes with one messages_hash.
+        scenario.next_tx(CHARLIE);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.propose(
+            vector[g2_bytes, g2_bytes],
+            g2_bytes,
+            b"hash_from_charlie",
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(committee);
+
+        // BOB proposes with a different messages_hash - fails with EInvalidProposal.
+        scenario.next_tx(BOB);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, b"hash_from_bob", scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
 #[test, expected_failure(abort_code = seal_committee::ENotRegistered)]
 fun test_propose_fails_when_not_all_registered() {
     test_tx!(|scenario| {
@@ -642,7 +671,7 @@ fun test_propose_fails_committee_has_old_committee_id() {
         // This should fail because propose is only for fresh DKG committees.
         scenario.next_tx(BOB);
         let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        new_committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, scenario.ctx());
+        new_committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, b"test_hash", scenario.ctx());
         test_scenario::return_shared(new_committee);
     });
 }
@@ -715,6 +744,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
         let wrong_committee = scenario.take_shared_by_id<Committee>(second_committee_id);
         new_committee.propose_for_rotation(
             new_partial_pks,
+            b"test_hash",
             wrong_committee,
             scenario.ctx(),
         );
@@ -760,6 +790,7 @@ fun test_finalize_for_rotation_invalid_state() {
         let first_committee = scenario.take_shared_by_id<Committee>(first_committee_id);
         second_committee.propose_for_rotation(
             new_partial_pks,
+            b"test_hash",
             first_committee,
             scenario.ctx(),
         );
@@ -873,7 +904,7 @@ public macro fun propose_member(
 
     scenario.next_tx(member);
     let mut committee = scenario.take_shared<Committee>();
-    committee.propose(partial_pks, pk, scenario.ctx());
+    committee.propose(partial_pks, pk, b"test_hash", scenario.ctx());
     test_scenario::return_shared(committee);
 }
 
@@ -894,7 +925,7 @@ public macro fun propose_for_rotation_member(
     scenario.next_tx(member);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
     let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
-    new_committee.propose_for_rotation(partial_pks, old_committee, scenario.ctx());
+    new_committee.propose_for_rotation(partial_pks, b"test_hash", old_committee, scenario.ctx());
     test_scenario::return_shared(new_committee);
 }
 

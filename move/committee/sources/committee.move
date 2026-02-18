@@ -66,12 +66,19 @@ public struct MemberInfo has copy, drop, store {
 /// Valid states of the committee that holds state specific infos.
 public enum State has drop, store {
     Init {
+        /// Each member and its registration info.
         members_info: VecMap<address, MemberInfo>,
     },
     PostDKG {
+        /// Each member and its registration info.
         members_info: VecMap<address, MemberInfo>,
+        /// The partial pks finalized for each member.
         partial_pks: vector<vector<u8>>,
+        /// The finalized pk for the key server.
         pk: vector<u8>,
+        /// Hash of all received DKG messages by member.
+        messages_hash: vector<u8>,
+        /// Members that approved the partial pks, pk, and messages hash after DKG.
         approvals: VecSet<address>,
     },
     Finalized,
@@ -221,36 +228,39 @@ public fun register(
     }
 }
 
-/// Propose a fresh DKG committee with a list partial pks (in the order of committee's members list)
-/// and master pk. Add the caller to approvals list. If already in PostDKG state, check the submitted
-/// partial_pks and pk are consistent with the onchain state, then add the caller to approvals list.
-/// If all members have approved, finalize the committee by creating a KeyServerV2 and transfer it
-/// to the committee.
+/// Propose a fresh DKG committee with a list partial pks (in the order of committee's members list),
+/// master pk, and a hash of all received DKG messages. Add the caller to approvals list. If already
+/// in PostDKG state, check the submitted partial_pks, pk, and messages_hash are consistent with the
+/// onchain state, then add the caller to approvals list. If all members have approved, finalize the
+/// committee by creating a KeyServerV2 and transfer it to the committee.
 public fun propose(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
     pk: vector<u8>,
+    messages_hash: vector<u8>,
     ctx: &mut TxContext,
 ) {
     // For fresh DKG committee only.
     assert!(committee.old_committee_id.is_none(), EInvalidState);
-    committee.propose_internal(partial_pks, pk, ctx);
+    committee.propose_internal(partial_pks, pk, messages_hash, ctx);
     committee.try_finalize(ctx);
 }
 
-/// Propose a rotation from old committee to new one with a list of partial pks. Add the caller to
-/// approvals list. If already in PostDKG state, checks that submitted partial_pks are consistent
-/// with the onchain state, then add the caller to approvals list.
+/// Propose a rotation from old committee to new one with a list of partial pks and a hash of all
+/// received DKG messages. Add the caller to approvals list. If already in PostDKG state, checks
+/// that submitted partial_pks and messages_hash are consistent with the onchain state, then add the
+/// caller to approvals list.
 public fun propose_for_rotation(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
+    messages_hash: vector<u8>,
     mut old_committee: Committee,
     ctx: &mut TxContext,
 ) {
     committee.check_rotation_consistency(&old_committee);
     let old_committee_id = object::id(&old_committee);
     let key_server: KeyServer = dof::remove(&mut old_committee.id, old_committee_id);
-    committee.propose_internal(partial_pks, *key_server.pk(), ctx);
+    committee.propose_internal(partial_pks, *key_server.pk(), messages_hash, ctx);
     committee.try_finalize_for_rotation(old_committee, key_server);
 }
 
@@ -390,6 +400,7 @@ fun propose_internal(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
     pk: vector<u8>,
+    messages_hash: vector<u8>,
     ctx: &TxContext,
 ) {
     // Validate partial pks and pk as valid G2 elements.
@@ -413,6 +424,7 @@ fun propose_internal(
                     approvals: vec_set::singleton(ctx.sender()),
                     partial_pks,
                     pk,
+                    messages_hash,
                 };
         },
         State::PostDKG {
@@ -420,10 +432,12 @@ fun propose_internal(
             members_info: _,
             partial_pks: existing_partial_pks,
             pk: existing_pk,
+            messages_hash: existing_messages_hash,
         } => {
-            // Check that submitted partial_pks and pk are consistent.
+            // Check that submitted partial_pks, pk, and messages_hash are all consistent.
             assert!(partial_pks == *existing_partial_pks, EInvalidProposal);
             assert!(pk == *existing_pk, EInvalidProposal);
+            assert!(messages_hash == *existing_messages_hash, EInvalidProposal);
 
             // Insert approval and make sure if approval was not inserted before.
             assert!(!approvals.contains(&ctx.sender()), EAlreadyProposed);
@@ -440,7 +454,7 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
     assert!(committee.old_committee_id.is_none(), EInvalidState);
 
     match (&committee.state) {
-        State::PostDKG { approvals, members_info, partial_pks, pk } => {
+        State::PostDKG { approvals, members_info, partial_pks, pk, .. } => {
             // Approvals count not reached, exit immediately.
             if (approvals.length() != committee.members.length()) {
                 return
@@ -478,7 +492,7 @@ fun try_finalize_for_rotation(
     committee.check_rotation_consistency(&old_committee);
 
     match (&committee.state) {
-        State::PostDKG { approvals, members_info, partial_pks, .. } => {
+        State::PostDKG { approvals, members_info, partial_pks, messages_hash: _, .. } => {
             let old_committee_id = object::id(&old_committee);
 
             // Approvals count not reached, return key server back to old committee.
