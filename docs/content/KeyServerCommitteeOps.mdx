@@ -159,12 +159,12 @@ Once all members are registered:
 
 6. **Collect and share DKG messages and notify Phase C (Finalization)**
 
-Collect message files into a single directory and share it with members. The number of messages must equal exactly the threshold of the current committee.
+Collect message files into a single directory and share it with members. The number of messages must equal exactly the total number of committee members.
 ```bash
 rm -rf dkg-messages && mkdir dkg-messages
 mv path/to/message_0.json dkg-messages/
 mv path/to/message_1.json dkg-messages/
-# repeat till the number of messages equals the threshold
+# repeat until all n members have contributed a message
 ```
 
 Notify members to begin **Phase C (Finalization)**.
