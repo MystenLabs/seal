@@ -8,7 +8,7 @@
 <script key="docusaurus-plugin-plausible-script" async defer="defer" data-domain="https://seal-docs.wal.app" src="https://plausible.io/js/plausible.js"></script>
 <script key="docusaurus-plugin-plausible-custom-events">window.plausible=window.plausible||function(){(window.plausible.q=window.plausible.q||[]).push(arguments)}</script>
 <meta name="algolia-site-verification" content="BCA21DA2879818D2"><link rel="stylesheet" href="/seal/pr-preview/pr-482/assets/css/styles.05dc90f7.css">
-<script src="/seal/pr-preview/pr-482/assets/js/runtime~main.8e6cda1e.js" defer="defer"></script>
+<script src="/seal/pr-preview/pr-482/assets/js/runtime~main.ce8dd032.js" defer="defer"></script>
 <script src="/seal/pr-preview/pr-482/assets/js/main.19e42edb.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -105,8 +105,8 @@
 <ol start="6">
 <li class=""><strong>Collect and share DKG messages and notify Phase C (Finalization)</strong></li>
 </ol>
-<p>Collect message files into a single directory and share it with members. The number of messages must equal exactly the threshold of the current committee.</p>
-<div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">rm -rf dkg-messages &amp;&amp; mkdir dkg-messages</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/message_0.json dkg-messages/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/message_1.json dkg-messages/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain"># repeat till the number of messages equals the threshold</span><br></span></code></pre></div></div>
+<p>Collect message files into a single directory and share it with members. The number of messages must equal exactly the total number of committee members.</p>
+<div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">rm -rf dkg-messages &amp;&amp; mkdir dkg-messages</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/message_0.json dkg-messages/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/message_1.json dkg-messages/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain"># repeat until all n members have contributed a message</span><br></span></code></pre></div></div>
 <p>Notify members to begin <strong>Phase C (Finalization)</strong>.</p>
 <ol start="7">
 <li class=""><strong>Confirm committee finalization</strong></li>
