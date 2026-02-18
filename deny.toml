@@ -48,7 +48,10 @@ ignore = [
     # lru only in dev dependencies
     "RUSTSEC-2026-0002",
     # bincode is unmaintained
-    "RUSTSEC-2025-0141"
+    "RUSTSEC-2025-0141",
+    # keccak v0.1.5 unsoundness in opt-in ARMv8 asm backend (asm feature is off by default);
+    # transitive dep of fastcrypto
+    "RUSTSEC-2026-0012"
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
