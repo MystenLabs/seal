@@ -997,12 +997,12 @@ async fn main() -> Result<()> {
                             println!("  ✗ party {}: {addr}", committee.get_party_id(addr)?);
                         }
                         println!(
-                            "\nWaiting for {} member(s) to register before proceeding to phase 2.",
+                            "\nWaiting for {} member(s) to register before proceeding to Phase B (Message creation).",
                             not_registered.len()
                         );
                     } else {
                         println!();
-                        println!("✓ All members registered! Good to proceed to phase 2.");
+                        println!("✓ All members registered! Good to proceed to Phase B (Message creation).");
                     }
                 }
                 CommitteeState::PostDKG { approvals, .. } => {
@@ -1699,7 +1699,9 @@ async fn create_dkg_state_and_message(
     };
 
     state.save(state_dir)?;
-    println!("State saved to {state_dir:?}. Wait for coordinator to announce phase 3.");
+    println!(
+        "State saved to {state_dir:?}. Wait for coordinator to announce Phase C (Finalization)."
+    );
     Ok(())
 }
 
