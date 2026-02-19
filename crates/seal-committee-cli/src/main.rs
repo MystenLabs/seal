@@ -30,6 +30,7 @@ use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
@@ -62,6 +63,30 @@ macro_rules! bcs_hex_decode {
         bcs::from_bytes::<$ty>(&Hex::decode($s)?)
     };
 }
+/// Default gas budgets in MIST.
+mod gas_defaults {
+    /// Higher budget for package ops: publish, authorize-and-upgrade.
+    pub const PACKAGE_OPS_TESTNET: u64 = 100_000_000; // 0.1 SUI
+    pub const PACKAGE_OPS_MAINNET: u64 = 100_000_000; // 0.1 SUI
+
+    /// Smaller budget for single PTB operations.
+    pub const REGULAR_TESTNET: u64 = 10_000_000; // 0.01 SUI
+    pub const REGULAR_MAINNET: u64 = 10_000_000; // 0.01 SUI
+}
+
+fn package_ops_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
+    gas_budget.unwrap_or(match network {
+        Network::Testnet => gas_defaults::PACKAGE_OPS_TESTNET,
+        Network::Mainnet => gas_defaults::PACKAGE_OPS_MAINNET,
+    })
+}
+
+fn regular_gas_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
+    gas_budget.unwrap_or(match network {
+        Network::Testnet => gas_defaults::REGULAR_TESTNET,
+        Network::Mainnet => gas_defaults::REGULAR_MAINNET,
+    })
+}
 
 #[derive(Parser)]
 #[command(name = "seal-committee-cli")]
@@ -78,9 +103,10 @@ struct Cli {
     #[arg(long, global = true)]
     active_address: Option<SuiAddress>,
 
-    /// Gas budget for transactions (default: 100000000 = 0.1 SUI).
-    #[arg(long, global = true, default_value = "100000000")]
-    gas_budget: u64,
+    /// Gas budget for transactions in MIST. Defaults vary per command:
+    /// publish/authorize-and-upgrade = 0.1 SUI; all others = 0.01 SUI.
+    #[arg(long, global = true)]
+    gas_budget: Option<u64>,
 }
 
 #[derive(Subcommand)]
@@ -261,6 +287,15 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
     },
+
+    /// Generate a new Ed25519 address, save to local wallet keystore, and set as active.
+    NewAddress,
+
+    /// Print the active Sui address from the wallet.
+    ActiveAddress,
+
+    /// Show gas coins for the active address.
+    Gas,
 }
 
 #[tokio::main]
@@ -320,7 +355,7 @@ async fn main() -> Result<()> {
                 &mut grpc_client,
                 &wallet,
                 coordinator_address,
-                cli.gas_budget,
+                package_ops_budget(cli.gas_budget, &network),
             )
             .await?;
 
@@ -494,7 +529,7 @@ async fn main() -> Result<()> {
                 &mut grpc_client,
                 &wallet,
                 coordinator_address,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
             )
             .await?;
 
@@ -650,8 +685,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg, enc_pk_arg, signing_pk_arg, url_arg, name_arg],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, my_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                my_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let register_tx_data = TransactionData::new_programmable(
                 my_address,
@@ -882,8 +922,13 @@ async fn main() -> Result<()> {
                 );
             }
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, my_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                my_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let propose_tx_data = TransactionData::new_programmable(
                 my_address,
@@ -1040,7 +1085,7 @@ async fn main() -> Result<()> {
                 &key_server_id,
                 &network,
                 &mut wallet,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
                 true, // approve
             )
             .await?;
@@ -1057,7 +1102,7 @@ async fn main() -> Result<()> {
                 &key_server_id,
                 &network,
                 &mut wallet,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
                 false, // reject
             )
             .await?;
@@ -1140,8 +1185,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg_commit, upgrade_receipt],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, executor_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                executor_address,
+                package_ops_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let upgrade_tx_data = TransactionData::new_programmable(
                 executor_address,
@@ -1210,8 +1260,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, member_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                member_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let reset_tx_data = TransactionData::new_programmable(
                 member_address,
@@ -1225,6 +1280,42 @@ async fn main() -> Result<()> {
             let _reset_response = execute_tx_and_log_status(&wallet, reset_tx_data).await?;
 
             println!("\n✓ Successfully reset upgrade proposal!");
+        }
+
+        Commands::NewAddress => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let generated = wallet
+                .config
+                .keystore
+                .generate(None, GenerateOptions::Default)
+                .await?;
+            wallet.config.active_address = Some(generated.address);
+            wallet.config.save()?;
+            println!("{}", generated.address);
+        }
+
+        Commands::ActiveAddress => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let address = wallet.active_address()?;
+            println!("{}", address);
+        }
+
+        Commands::Gas => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let address = wallet.active_address()?;
+            println!("Active address: {}", address);
+
+            let gas_objects = wallet.gas_objects(address).await?;
+
+            if gas_objects.is_empty() {
+                println!("No gas coins found.");
+                return Ok(());
+            }
+            println!("\nGas Objects:");
+            for (balance, obj) in &gas_objects {
+                let sui = *balance as f64 / 1_000_000_000.0;
+                println!("| {:<68} | {:>11.4} SUI |", obj.object_id, sui);
+            }
         }
 
         Commands::CheckKeyServerStatus {
