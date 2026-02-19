@@ -50,6 +50,7 @@ test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580
 move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-package-alt-compilation" }
 sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-package-alt" }
 
+sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "sui-keys" }
 sui-sdk-types = { version = "0.2.0", features = ["serde"] }
 sui-rpc = "0.2.0"
 

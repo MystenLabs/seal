@@ -26,6 +26,7 @@ move-package-alt-compilation.workspace = true
 sui-package-alt.workspace = true
 sui-rpc.workspace = true
 prost-types.workspace = true
+sui_keys.workspace = true
 dirs = "5.0"
 
 [[bin]]

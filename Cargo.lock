@@ -8290,6 +8290,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
+ "sui-keys",
  "sui-move-build",
  "sui-package-alt",
  "sui-rpc 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
