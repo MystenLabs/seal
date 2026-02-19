@@ -47,12 +47,14 @@ The coordinator signals members when to move from one phase to the next.
 
 Before running the DKG or key rotation workflows, both the coordinator and all committee members must complete the following steps.
 
-1. Install Sui by following the [official installation guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
+1. Establish a trusted communication channel (e.g. group chat, email) with all other participants. This channel is used for the coordinator and members to share files at certain steps of the workflow, for the coordinator to announce phase transitions, and to verify each other's on-chain addresses. Address verification can also happen on-chain (for example, via a governance action).
+
+2. Install Sui by following the [official installation guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
 ```bash
 sui --version
 ```
 
-2. Make sure you have a CLI wallet ready on the expected network with gas.
+3. Make sure you have a CLI wallet ready on the expected network with gas. This is the address you will use throughout the rest of the workflows, and the one you should share with the group for verification.
 ```bash
 sui client active-env
 sui client active-address
@@ -65,16 +67,16 @@ sui client new-address ed25519
 sui client switch --env testnet
 sui client switch --address 0x...
 
-# to fund wallet gas: faucet.sui.io
+# to fund wallet gas on testnet: faucet.sui.io
 ```
 
-3. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
+4. Clone the [Seal repository](https://github.com/MystenLabs/seal) and set it as your working directory.
 ```bash
 git clone https://github.com/MystenLabs/seal.git
 cd seal
 ```
 
-4. Build the seal-committee-cli tool.
+5. Build the seal-committee-cli tool.
 ```bash
 cargo run --bin seal-committee-cli -- --help
 ```
@@ -224,7 +226,7 @@ rm -rf dkg-state && mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-b. Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
+b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both `dkg.yaml` and the addresses shared in the trusted communication channel.
 
 c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
 ```bash
@@ -451,7 +453,7 @@ rm -rf dkg-state && mkdir dkg-state
 mv path/to/dkg.yaml dkg-state/
 ```
 
-b. Open `dkg.yaml` and verify the committee configuration (member addresses, threshold, committee ID) using a Sui Explorer.
+b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both `dkg.yaml` and the addresses shared in the trusted communication channel.
 
 c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
 ```bash
