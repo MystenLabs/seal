@@ -7,6 +7,7 @@ const sidebars = {
   docsSidebar: [
     'index',
     'GettingStarted',
+    'ServerOverview',
     {
       type: 'category',
       label: 'Developer Guide',

@@ -32,8 +32,8 @@ const config = {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
-  url: 'https://seal-docs.wal.app',
-  baseUrl: '/',
+  url: process.env.DOCUSAURUS_BASE_URL ? 'https://MystenLabs.github.io' : 'https://seal-docs.wal.app',
+  baseUrl: process.env.DOCUSAURUS_BASE_URL || '/',
   
   organizationName: 'Mysten Labs',
   projectName: 'seal',

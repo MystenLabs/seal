@@ -12,9 +12,13 @@ keywords:
   - Lagrange interpolation
 ---
 
+import InfrastructureRequirements from './_InfrastructureRequirements.mdx';
+
 # Aggregator Server
 
 The Aggregator Server supports Seal MPC committees by acting as a gateway between clients and committee member key servers. It fetches encrypted partial key shares from committee members, verifies their encrypted signatures, aggregates the shares into a single encrypted key, and returns the result to the client. The aggregator authenticates to member key servers using private API keys.
+
+Because the aggregator never holds or stores cryptographic key material, it is trustless — anyone can run one. The aggregator's correctness can be verified independently: all partial shares are cryptographically signed by their respective committee members, so a misbehaving aggregator cannot produce a valid response without honest member participation.
 
 ## Overview
 
@@ -88,3 +92,7 @@ docker run -p 2024:2024 \
   -e CONFIG_PATH=/config/aggregator-config.yaml \
   aggregator-server
 ```
+
+## Infrastructure requirements
+
+<InfrastructureRequirements />
