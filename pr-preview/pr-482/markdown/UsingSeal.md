@@ -76,30 +76,20 @@ Select key server object IDs from the [verified key servers](/Pricing#verified-k
 
 Seal supports two server types, **independent** and **committee**, which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
 
-#### Option 1: Committee-only (recommended for most apps)
+#### Option 1: Committee-only
 
-Use a single committee server to get distributed trust and member rotation benefits:
-- **What you need**: Committee key server object ID and aggregator URL
-- **Benefits**: The committee has its own internal threshold (such as 3-of-5 members), so you get distributed trust without managing multiple server relationships
-- **Best for**: Apps that want built-in distributed trust and simplified configuration
+Use a single committee server to get built-in distributed trust and rotation support.
 
-#### Option 2: Hybrid
+#### Option 2: Hybrid (Committee + Independent)
 
-Combine committee and independent servers in your threshold configuration:
-- **What you need**: Committee key server object ID, aggregator URL, and independent server object IDs (such as a 2-of-3 threshold with one committee server and two independent servers)
-- **Benefits**: Additional flexibility in trust distribution or cost management by combining both server types
-- **Best for**: Apps that want additional flexibility in trust distribution or cost management
+Flexible trust distribution and cost control.
 
 #### Option 3: Independent-only
 
-Use only independent servers in your threshold configuration:
-- **What you need**: One or more independent server object IDs
-- **Benefits**: Simpler setup and complete control over server selection
-- **Best for**: Development, testing, or apps with specific trust requirements
-
+Direct operator model with simpler infrastructure relationships.
 :::info
 
-Each key server (whether independent or committee) counts as one server in your threshold configuration. From your app's perspective, they all work the same way through the SDK.
+Each key server (whether independent or committee) counts as one server in your threshold configuration and integrates through the same `SealClient` interface.
 
 :::
 
