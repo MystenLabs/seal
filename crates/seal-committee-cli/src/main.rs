@@ -1900,7 +1900,7 @@ fn process_dkg_messages(
         sorted.sort_by_key(|m| m.message.sender);
         let mut hasher = Blake2b256::default();
         for msg in sorted {
-            hasher.update(&bcs::to_bytes(&msg.message)?);
+            hasher.update(&bcs::to_bytes(&msg)?);
         }
         hasher.finalize().digest.to_vec()
     };
