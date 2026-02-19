@@ -6,7 +6,7 @@ mod types;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
-use fastcrypto::encoding::{Base64, Encoding, Hex};
+use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -21,7 +21,8 @@ use seal_committee::grpc_helper::to_partial_key_servers;
 use seal_committee::{
     build_new_to_old_map, create_grpc_client, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
-    fetch_upgrade_proposal, CommitteeState, KeyServerV2, Network, ServerType, UpgradeVote,
+    fetch_upgrade_proposal, get_committee_rotation_info, CommitteeState, KeyServerV2, Network,
+    ServerType, UpgradeVote,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -47,6 +48,20 @@ use types::{DkgState, InitializedConfig, KeysFile};
 use std::os::unix::fs::PermissionsExt;
 
 use crate::types::{sign_message, verify_signature, SignedMessage};
+
+/// BCS-serialize a value and hex-encode the result.
+macro_rules! bcs_hex_encode {
+    ($val:expr) => {
+        Hex::encode(bcs::to_bytes($val)?)
+    };
+}
+
+/// Hex-decode a string and BCS-deserialize to the given type.
+macro_rules! bcs_hex_decode {
+    ($ty:ty, $s:expr) => {
+        bcs::from_bytes::<$ty>(&Hex::decode($s)?)
+    };
+}
 
 #[derive(Parser)]
 #[command(name = "seal-committee-cli")]
@@ -139,8 +154,8 @@ enum Commands {
         keys_file: Option<PathBuf>,
 
         /// Old share for key rotation (hex-encoded BCS, required for continuing members in rotation).
-        #[arg(short = 'o', long)]
-        old_share: Option<String>,
+        #[arg(short = 'o', long, value_parser = parse_old_share)]
+        old_share: Option<G2Scalar>,
     },
 
     /// Process all messages and propose committee onchain (member operation).
@@ -712,10 +727,10 @@ async fn main() -> Result<()> {
             let messages = load_messages_from_dir(&full_messages_dir)?;
             let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
-            // Determine version.
+            // Determine version and fetch old key server PK (for rotation).
             let mut grpc_client = create_grpc_client(&network)?;
-            let version =
-                determine_committee_version(&mut grpc_client, &state.config.committee_id).await?;
+            let (next_version, old_key_server_pk) =
+                get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
 
             // Extract key server PK and master share.
             let key_server_pk_bytes = bcs::to_bytes(&output.vss_pk.c0())?;
@@ -730,8 +745,8 @@ async fn main() -> Result<()> {
             };
 
             // Check if already written to config.
-            let master_share_key = format!("MASTER_SHARE_V{}", version);
-            let partial_pks_key = format!("PARTIAL_PKS_V{}", version);
+            let master_share_key = format!("MASTER_SHARE_V{}", next_version);
+            let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
 
             if get_config_field(
                 &config_content,
@@ -759,7 +774,7 @@ async fn main() -> Result<()> {
             }
             let partial_pks_yaml = serde_yaml::to_string(&partial_pks)?;
 
-            if version == 0 {
+            if next_version == 0 {
                 // For v0, add KEY_SERVER_PK, PARTIAL_PKS_V0, MASTER_SHARE_V0.
                 update_config_bytes_val(
                     &config,
@@ -777,22 +792,16 @@ async fn main() -> Result<()> {
                     vec![(master_share_key.as_str(), &master_share_bytes)],
                 )?;
             } else {
-                // For rotation, verify KEY_SERVER_PK matches, then add PARTIAL_PKS_VX and MASTER_SHARE_VX.
-                if let Some(existing_key_server_pk) = get_config_field(
-                    &config_content,
-                    &["process-all-and-propose"],
-                    "KEY_SERVER_PK",
-                ) {
-                    let existing_pk = existing_key_server_pk.as_str().unwrap_or("");
-                    let key_server_pk_hex = Hex::encode_with_format(&key_server_pk_bytes);
-                    if existing_pk != key_server_pk_hex {
+                // For rotation, verify KEY_SERVER_PK matches the onchain old committee's key server PK.
+                if let Some(onchain_pk) = old_key_server_pk {
+                    if onchain_pk != key_server_pk_bytes {
                         bail!(
-                            "KEY_SERVER_PK mismatch!\n  Expected (from v0): {}\n  Got (from rotation): {}",
-                            existing_pk,
-                            key_server_pk_hex
+                            "KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (from rotation DKG): {}",
+                            Hex::encode_with_format(&onchain_pk),
+                            Hex::encode_with_format(&key_server_pk_bytes),
                         );
                     }
-                    println!("✓ KEY_SERVER_PK unchanged.");
+                    println!("✓ KEY_SERVER_PK matches onchain old committee.");
                 }
                 update_config_string_val(
                     &config,
@@ -806,10 +815,10 @@ async fn main() -> Result<()> {
                 )?;
             }
 
-            if version == 0 {
-                println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
+            if next_version == 0 {
+                println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             } else {
-                println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
+                println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             }
 
             // Load wallet.
@@ -890,7 +899,7 @@ async fn main() -> Result<()> {
             println!("\n✓ Successfully processed messages and proposed committee onchain!");
             println!(
                 "  MASTER_SHARE_V{} can be found in {} that will be used later to start the key server. Back it up securely and do not share it with anyone.",
-                version,
+                next_version,
                 config.display()
             );
             println!("  Partial PKs: {} entries", partial_pks.len());
@@ -933,14 +942,14 @@ async fn main() -> Result<()> {
                         committee.members.len()
                     );
                     for addr in &registered {
-                        println!("  ✓ {addr}");
+                        println!("  ✓ party {}: {addr}", committee.get_party_id(addr)?);
                     }
 
                     if !not_registered.is_empty() {
                         println!();
                         println!("⚠ Missing members ({}):", not_registered.len());
                         for addr in &not_registered {
-                            println!("  ✗ {addr}");
+                            println!("  ✗ party {}: {addr}", committee.get_party_id(addr)?);
                         }
                         println!(
                             "\nWaiting for {} member(s) to register before proceeding to phase 2.",
@@ -1403,7 +1412,7 @@ async fn create_dkg_state_and_message(
     state_dir: &Path,
     config: &Path,
     keys_file: &Path,
-    old_share: Option<String>,
+    old_share: Option<G2Scalar>,
 ) -> Result<()> {
     // Load config to get parameters.
     let config_content = load_config(config)?;
@@ -1414,9 +1423,8 @@ async fn create_dkg_state_and_message(
     // Load local keys.
     let local_keys = KeysFile::load(keys_file)?;
 
-    // Parse old share from command argument if provided. Provided for continuing members in key rotation.
-    let (my_old_share, my_old_pk) = if let Some(share_hex) = old_share {
-        let key_share: G2Scalar = bcs::from_bytes(&Hex::decode(&share_hex)?)?;
+    // Compute old public key from old share if provided. Provided for continuing members in key rotation.
+    let (my_old_share, my_old_pk) = if let Some(key_share) = old_share {
         let key_pk = G2Element::generator() * key_share;
         println!("Continuing member for key rotation, old share parsed.");
         (Some(key_share), Some(key_pk))
@@ -1561,11 +1569,11 @@ async fn create_dkg_state_and_message(
         let signed_message = sign_message(message.clone(), &local_keys.signing_sk, nizk_proof);
 
         // Write message to file.
-        let message_base64 = Base64::encode(bcs::to_bytes(&signed_message)?);
+        let message_hex = bcs_hex_encode!(&signed_message);
         let message_file = state_dir.join(format!("message_{my_party_id}.json"));
 
         let message_json = serde_json::json!({
-            "message": message_base64
+            "message": message_hex
         });
         fs::write(&message_file, serde_json::to_string_pretty(&message_json)?)?;
 
@@ -1858,12 +1866,12 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| anyhow!("Failed to parse {}: {}", path.display(), e))?;
 
-        let message_base64 = json["message"]
+        let message_hex = json["message"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing 'message' field in {}", path.display()))?;
 
-        let signed_message: SignedMessage = bcs::from_bytes(&Base64::decode(message_base64)?)
-            .map_err(|e| {
+        let signed_message: SignedMessage =
+            bcs_hex_decode!(SignedMessage, message_hex).map_err(|e| {
                 anyhow!(
                     "Failed to deserialize message from {}: {}",
                     path.display(),
@@ -1969,6 +1977,7 @@ fn process_dkg_messages(
                 .get(old_party_id)
                 .ok_or_else(|| anyhow!("Partial PK not found for old party {}", old_party_id))?;
 
+            // For rotation, nizk proof is not needed for security but it's checked here for consistency.
             party
                 .process_message_with_checks(
                     signed_msg.message.clone(),
@@ -1989,10 +1998,12 @@ fn process_dkg_messages(
         };
 
         if let Some(complaint) = &processed.complaint {
+            let complaint_hex = bcs_hex_encode!(complaint);
             bail!(
-                "Do NOT propose onchain. Complaint found {:?} for party {}",
-                complaint,
-                processed.message.sender
+                "Do NOT propose onchain. Complaint against party {}.\n\
+                Abort the protocol and share the following proof with the coordinator:\n  {}",
+                processed.message.sender,
+                complaint_hex,
             );
         }
         println!("Successfully processed message from party {sender_party_id}");
@@ -2004,8 +2015,9 @@ fn process_dkg_messages(
 
     if !confirmation.complaints.is_empty() {
         bail!(
-            "Do NOT propose onchain. Complaint(s) found: {:?}",
-            confirmation.complaints
+            "Do NOT propose onchain. {} complaint(s) found.\n\
+            Abort the protocol and share with the coordinator.",
+            confirmation.complaints.len()
         );
     }
 
@@ -2032,39 +2044,9 @@ fn process_dkg_messages(
     Ok((output, messages_hash))
 }
 
-/// Determine the committee version from the network.
-async fn determine_committee_version(
-    grpc_client: &mut sui_rpc::client::Client,
-    committee_id: &Address,
-) -> Result<u32> {
-    let committee = fetch_committee_data(grpc_client, committee_id).await?;
-
-    if let Some(old_committee_id) = committee.old_committee_id {
-        // Rotation: fetch the old committee's KeyServer version then increment by 1.
-        match fetch_key_server_by_committee(grpc_client, &old_committee_id).await {
-            Ok((_, key_server_v2)) => match key_server_v2.server_type {
-                ServerType::Committee { version, .. } => {
-                    println!(
-                        "Old committee version: {}, new version will be: {}",
-                        version,
-                        version + 1
-                    );
-                    Ok(version + 1)
-                }
-                _ => bail!("Old KeyServer is not of type Committee"),
-            },
-            Err(e) => {
-                bail!(
-                    "Failed to fetch old committee's KeyServer for rotation: {}",
-                    e
-                );
-            }
-        }
-    } else {
-        // Fresh DKG: version is 0.
-        println!("Fresh DKG, version will be: 0");
-        Ok(0)
-    }
+/// Parse a hex-encoded BCS-serialized G2Scalar from a CLI argument.
+fn parse_old_share(s: &str) -> anyhow::Result<G2Scalar> {
+    Ok(bcs_hex_decode!(G2Scalar, s)?)
 }
 
 /// Compute and display the package digest.

@@ -12,7 +12,7 @@ use crate::{
     },
     Network,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use sui_rpc::client::Client;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk_types::{Address, Object, StructTag, TypeTag};
@@ -373,6 +373,44 @@ pub async fn fetch_upgrade_manager(
             .await?;
 
     Ok(upgrade_manager)
+}
+
+/// Get next committee version and key server pk if exists. For fresh DKG, the next version is 0,
+/// old pk is None. For rotation, the next version is the old committee's KeyServer version + 1.
+/// Old pk is returned as Some from the key server object.
+pub async fn get_committee_rotation_info(
+    grpc_client: &mut Client,
+    committee_id: &Address,
+) -> Result<(u32, Option<Vec<u8>>)> {
+    let committee = fetch_committee_data(grpc_client, committee_id).await?;
+
+    if let Some(old_committee_id) = committee.old_committee_id {
+        // Rotation: fetch the old committee's KeyServer version then increment by 1.
+        match fetch_key_server_by_committee(grpc_client, &old_committee_id).await {
+            Ok((_, key_server_v2)) => {
+                let pk = key_server_v2.pk;
+                match key_server_v2.server_type {
+                    ServerType::Committee { version, .. } => {
+                        println!(
+                            "Old committee version: {}, new version will be: {}",
+                            version,
+                            version + 1
+                        );
+                        Ok((version + 1, Some(pk)))
+                    }
+                    _ => bail!("Old KeyServer is not of type Committee"),
+                }
+            }
+            Err(e) => {
+                bail!(
+                    "Failed to fetch old committee's KeyServer for rotation: {}",
+                    e
+                );
+            }
+        }
+    } else {
+        Ok((0, None))
+    }
 }
 
 #[cfg(test)]
