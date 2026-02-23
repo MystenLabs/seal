@@ -60,6 +60,51 @@ async function testCorsHeaders(
   return keyServerVersion;
 }
 
+async function runSingleTest(
+  client: SealClient,
+  suiClient: SuiClient,
+  network: "testnet" | "mainnet",
+  threshold: number,
+  verbose: boolean = true,
+  sharedSessionKey?: SessionKey,
+  sharedTxBytes?: Uint8Array,
+  sharedAddress?: string,
+) {
+  // Setup - use shared address or generate new one
+  const suiAddress = sharedAddress || Ed25519Keypair.generate().getPublicKey().toSuiAddress();
+  const testData = crypto.getRandomValues(new Uint8Array(1000));
+  const packageId = PACKAGE_IDS[network];
+
+  // Encrypt data
+  if (verbose) console.log(`Encrypting with threshold: ${threshold}`);
+  const { encryptedObject: encryptedBytes } = await client.encrypt({
+    threshold: threshold,
+    packageId,
+    id: suiAddress,
+    data: testData,
+  });
+
+  // Use shared session key (required if using shared address)
+  if (!sharedSessionKey) {
+    throw new Error("Session key required for load testing");
+  }
+
+  // Use shared tx bytes (required if using shared address)
+  if (!sharedTxBytes) {
+    throw new Error("Transaction bytes required for load testing");
+  }
+
+  // Decrypt data
+  if (verbose) console.log("Decrypting data...");
+  const decryptedData = await client.decrypt({
+    data: encryptedBytes,
+    sessionKey: sharedSessionKey,
+    txBytes: sharedTxBytes,
+  });
+
+  assert.deepEqual(decryptedData, testData);
+}
+
 async function runTest(
   network: "testnet" | "mainnet",
   serverConfigs: Array<{
@@ -84,7 +129,6 @@ async function runTest(
   const keypair = Ed25519Keypair.generate();
   const suiAddress = keypair.getPublicKey().toSuiAddress();
   const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
-  const testData = crypto.getRandomValues(new Uint8Array(1000));
   const packageId = PACKAGE_IDS[network];
   console.log(`packageId: ${packageId}`);
   console.log(`test address: ${suiAddress}`);
@@ -114,16 +158,7 @@ async function runTest(
   }
   console.log("✅ All servers have proper CORS configuration");
 
-  // Encrypt data
-  console.log(`Encrypting with threshold: ${options.threshold}`);
-  const { encryptedObject: encryptedBytes } = await client.encrypt({
-    threshold: options.threshold,
-    packageId,
-    id: suiAddress,
-    data: testData,
-  });
-
-  // Create session key
+  // For single test, create session key and tx bytes using the existing keypair
   const sessionKey = await SessionKey.create({
     address: suiAddress,
     packageId,
@@ -132,7 +167,6 @@ async function runTest(
     suiClient,
   });
 
-  // Construct transaction bytes for seal_approve
   const tx = new Transaction();
   const keyIdArg = tx.pure.vector("u8", fromHex(suiAddress));
   tx.moveCall({
@@ -144,15 +178,206 @@ async function runTest(
     onlyTransactionKind: true,
   });
 
-  // Decrypt data
-  console.log("Decrypting data...");
-  const decryptedData = await client.decrypt({
-    data: encryptedBytes,
-    sessionKey,
-    txBytes,
+  await runSingleTest(client, suiClient, network, options.threshold, true, sessionKey, txBytes, suiAddress);
+}
+
+async function runLoadTest(
+  network: "testnet" | "mainnet",
+  serverConfigs: Array<{
+    objectId: string;
+    aggregatorUrl?: string;
+    apiKeyName?: string;
+    apiKey?: string;
+    weight: number;
+  }>,
+  options: {
+    verifyKeyServers: boolean;
+    threshold: number;
+    concurrent: number;
+    duration: number;
+    corsTests?: Array<{
+      url: string;
+      name: string;
+      apiKeyName?: string;
+      apiKey?: string;
+    }>;
+  },
+) {
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`LOAD TEST: ${options.concurrent} concurrent requests for ${options.duration} seconds`);
+  console.log(`${"=".repeat(60)}`);
+
+  // Setup shared client (reuse to avoid RPC rate limits)
+  const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
+  const packageId = PACKAGE_IDS[network];
+  console.log(`packageId: ${packageId}`);
+
+  const client = new SealClient({
+    suiClient,
+    serverConfigs,
+    verifyKeyServers: options.verifyKeyServers,
   });
 
-  assert.deepEqual(decryptedData, testData);
+  // Test CORS headers once
+  if (options.corsTests) {
+    for (const { url, name, apiKeyName, apiKey } of options.corsTests) {
+      await testCorsHeaders(url, name, apiKeyName, apiKey);
+    }
+  }
+  const keyServers = await client.getKeyServers();
+  for (const config of serverConfigs.filter((c) => !c.aggregatorUrl)) {
+    const keyServer = keyServers.get(config.objectId)!;
+    await testCorsHeaders(
+      keyServer.url,
+      keyServer.name,
+      config.apiKeyName,
+      config.apiKey,
+    );
+  }
+  console.log("✅ All servers have proper CORS configuration\n");
+
+  // Pre-create shared session key and tx bytes (reuse same address for all requests)
+  console.log("Creating shared session key and transaction bytes...");
+  const sharedKeypair = Ed25519Keypair.generate();
+  const sharedAddress = sharedKeypair.getPublicKey().toSuiAddress();
+
+  const sharedSessionKey = await SessionKey.create({
+    address: sharedAddress,
+    packageId,
+    ttlMin: 10,
+    signer: sharedKeypair,
+    suiClient,
+  });
+
+  const tx = new Transaction();
+  const keyIdArg = tx.pure.vector("u8", fromHex(sharedAddress));
+  tx.moveCall({
+    target: `${packageId}::account_based::seal_approve`,
+    arguments: [keyIdArg],
+  });
+  const sharedTxBytes = await tx.build({
+    client: suiClient,
+    onlyTransactionKind: true,
+  });
+
+  console.log("✅ Shared resources created (all requests will use same address)\n");
+
+  const startTime = Date.now();
+  const endTime = startTime + options.duration * 1000;
+
+  type Result = {
+    latency: number;
+    success: boolean;
+    error?: string;
+    statusCode?: number;
+    requestId?: string;
+  };
+  const results: Result[] = [];
+  let activeRequests = 0;
+
+  // Worker function
+  const worker = async () => {
+    while (Date.now() < endTime) {
+      const reqStart = Date.now();
+      try {
+        await runSingleTest(
+          client,
+          suiClient,
+          network,
+          options.threshold,
+          false,
+          sharedSessionKey,
+          sharedTxBytes,
+          sharedAddress
+        );
+        const latency = Date.now() - reqStart;
+        results.push({ latency, success: true });
+      } catch (error: any) {
+        const latency = Date.now() - reqStart;
+        results.push({
+          latency,
+          success: false,
+          error: error?.message || (error ? String(error) : "Unknown error"),
+          statusCode: error?.status,
+          requestId: error?.requestId,
+        });
+      }
+    }
+  };
+
+  // Start concurrent workers
+  console.log(`Starting ${options.concurrent} concurrent workers...`);
+  console.log(`Start time: ${new Date().toISOString()}\n`);
+
+  const workers = Array(options.concurrent).fill(0).map(() => worker());
+  await Promise.all(workers);
+
+  console.log(`\nEnd time: ${new Date().toISOString()}`);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log("📊 PERFORMANCE METRICS");
+  console.log(`${"=".repeat(60)}\n`);
+
+  // Calculate metrics
+  const total = results.length;
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  console.log(`Total requests: ${total}`);
+  console.log(`Successful: ${successful.length} (${((successful.length / total) * 100).toFixed(1)}%)`);
+  console.log(`Failed: ${failed.length} (${((failed.length / total) * 100).toFixed(1)}%)`);
+  console.log();
+
+  if (successful.length > 0) {
+    const latencies = successful.map((r) => r.latency).sort((a, b) => a - b);
+    const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+    const p50 = latencies[Math.floor(latencies.length * 0.50)];
+    const p95 = latencies[Math.floor(latencies.length * 0.95)];
+    const p99 = latencies[Math.floor(latencies.length * 0.99)];
+
+    console.log("Latency (milliseconds):");
+    console.log(`  Min:    ${latencies[0]}ms`);
+    console.log(`  Avg:    ${Math.round(avg)}ms`);
+    console.log(`  p50:    ${p50}ms`);
+    console.log(`  p95:    ${p95}ms`);
+    console.log(`  p99:    ${p99}ms`);
+    console.log(`  Max:    ${latencies[latencies.length - 1]}ms`);
+    console.log();
+
+    const rps = successful.length / options.duration;
+    console.log(`Throughput: ${rps.toFixed(2)} requests/second`);
+  }
+
+  // Show sample errors with details
+  if (failed.length > 0) {
+    console.log();
+    console.log(`Sample errors (showing first 5):`);
+    console.log(`${"-".repeat(60)}`);
+    for (let i = 0; i < Math.min(5, failed.length); i++) {
+      const err = failed[i];
+      console.log(`\nError ${i + 1}:`);
+      console.log(`  Latency: ${err.latency}ms`);
+      console.log(`  Status Code: ${err.statusCode || "undefined"}`);
+      console.log(`  Request ID: ${err.requestId || "N/A"}`);
+      console.log(`  Message: ${err.error || "Unknown error"}`);
+    }
+
+    // Show error distribution
+    console.log();
+    console.log("Error distribution:");
+    const errorCounts = failed.reduce((acc, r) => {
+      const key = `${r.statusCode || "undefined"}: ${r.error}`;
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    Object.entries(errorCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([error, count]) => {
+        console.log(`  ${count}x - ${error}`);
+      });
+  }
+
+  console.log(`\n${"=".repeat(60)}\n`);
 }
 
 // Parse command line arguments
@@ -171,6 +396,18 @@ const { values } = parseArgs({
     },
     threshold: {
       type: "string",
+    },
+    loadTest: {
+      type: "boolean",
+      default: false,
+    },
+    concurrent: {
+      type: "string",
+      default: "20",
+    },
+    duration: {
+      type: "string",
+      default: "60",
     },
   },
 });
@@ -259,9 +496,27 @@ if (values.threshold) {
   threshold = serverConfigs.length;
 }
 
-console.log(`Running test on ${network}`);
+// Parse load test parameters
+const loadTest = values.loadTest || false;
+const concurrent = parseInt(values.concurrent || "20", 10);
+const duration = parseInt(values.duration || "60", 10);
+
+if (loadTest && (isNaN(concurrent) || concurrent <= 0)) {
+  console.error("Invalid --concurrent value");
+  process.exit(1);
+}
+if (loadTest && (isNaN(duration) || duration <= 0)) {
+  console.error("Invalid --duration value");
+  process.exit(1);
+}
+
+console.log(`Running ${loadTest ? "LOAD TEST" : "test"} on ${network}`);
 console.log("Servers:", serverConfigs);
 console.log(`Threshold: ${threshold}/${serverConfigs.length}`);
+if (loadTest) {
+  console.log(`Concurrent: ${concurrent}`);
+  console.log(`Duration: ${duration}s`);
+}
 
 // Build server configs with weights (all weight 1)
 const serverConfigsWithWeights = serverConfigs.map((config) => ({
@@ -279,11 +534,22 @@ const corsTests = serverConfigs
     apiKey: config.apiKey,
   }));
 
-runTest(network, serverConfigsWithWeights, {
-  verifyKeyServers: false,
-  threshold,
-  corsTests: corsTests.length > 0 ? corsTests : undefined,
-})
+// Run test or load test
+const testPromise = loadTest
+  ? runLoadTest(network, serverConfigsWithWeights, {
+      verifyKeyServers: false,
+      threshold,
+      concurrent,
+      duration,
+      corsTests: corsTests.length > 0 ? corsTests : undefined,
+    })
+  : runTest(network, serverConfigsWithWeights, {
+      verifyKeyServers: false,
+      threshold,
+      corsTests: corsTests.length > 0 ? corsTests : undefined,
+    });
+
+testPromise
   .then(() => {
     console.log("✅ Test passed!");
     process.exit(0);
