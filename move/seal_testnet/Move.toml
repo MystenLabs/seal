@@ -1,0 +1,5 @@
+[package]
+name = "seal_testnet"
+edition = "2024"
+# license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
+# authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]

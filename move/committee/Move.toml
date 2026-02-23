@@ -3,4 +3,4 @@ name = "seal_committee"
 edition = "2024"
 
 [dependencies]
-seal = { local = "../seal" }
+seal_testnet = { local = "../seal_testnet" }

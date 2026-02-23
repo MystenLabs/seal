@@ -125,7 +125,7 @@ public fun cast_vote(vote: &mut Vote, encrypted_vote: vector<u8>, ctx: &mut TxCo
 
     // Check that the encryptions were created for this vote.
     assert!(encrypted_vote.id() == vote.id(), EInvalidVote);
-    assert!(encrypted_vote.package_id() == @0x0, EInvalidVote);
+    assert!(encrypted_vote.package_id() == @patterns, EInvalidVote);
 
     // This aborts if the sender is not a voter.
     let index = vote.voters.find_index!(|voter| voter == ctx.sender()).destroy_some();
@@ -157,7 +157,7 @@ public fun finalize_vote(
     // Verify the derived keys
     let verified_derived_keys: vector<VerifiedDerivedKey> = verify_derived_keys(
         &derived_keys.map_ref!(|k| g1_from_bytes(k)),
-        @0x0,
+        @patterns,
         vote.id(),
         &key_servers
             .map_ref!(|ks1| vote.key_servers.find_index!(|ks2| ks1 == ks2).destroy_some())
@@ -191,11 +191,7 @@ public fun finalize_vote(
 
 #[test]
 fun test_vote() {
-    use seal::key_server::{
-        create_and_transfer_v2_independent_server,
-        KeyServer,
-        destroy_for_testing as ks_destroy,
-    };
+    use seal::key_server::{create_and_transfer_v1, KeyServer, destroy_for_testing as ks_destroy};
     use sui::test_scenario::{Self, next_tx, ctx};
 
     let addr1 = @0xA;
@@ -204,7 +200,7 @@ fun test_vote() {
     // Setup key servers.
     let pk0 =
         x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
-    create_and_transfer_v2_independent_server(
+    create_and_transfer_v1(
         b"mysten0".to_string(),
         b"https://mysten-labs.com".to_string(),
         0,
@@ -216,7 +212,7 @@ fun test_vote() {
 
     let pk1 =
         x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
-    create_and_transfer_v2_independent_server(
+    create_and_transfer_v1(
         b"mysten1".to_string(),
         b"https://mysten-labs.com".to_string(),
         0,
@@ -228,7 +224,7 @@ fun test_vote() {
 
     let pk2 =
         x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
-    create_and_transfer_v2_independent_server(
+    create_and_transfer_v1(
         b"mysten2".to_string(),
         b"https://mysten-labs.com".to_string(),
         0,

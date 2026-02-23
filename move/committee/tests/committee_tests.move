@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[test_only]
+#[allow(unused_mut_ref, unused_variable, dead_code)]
 module seal_committee::seal_committee_tests;
 
-use seal::key_server::KeyServer;
 use seal_committee::seal_committee::{
     Self,
     Committee,
@@ -18,6 +18,7 @@ use seal_committee::seal_committee::{
     commit_upgrade,
     reset_proposal
 };
+use seal_testnet::key_server::KeyServer;
 use std::string;
 use sui::{bls12381::{g1_generator, g2_generator}, package, test_scenario::{Self, Scenario}};
 

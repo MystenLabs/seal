@@ -7,7 +7,12 @@
 
 module seal_committee::seal_committee;
 
-use seal::key_server::{KeyServer, create_partial_key_server, create_committee_v2, PartialKeyServer};
+use seal_testnet::key_server::{
+    KeyServer,
+    create_partial_key_server,
+    create_committee_v2,
+    PartialKeyServer
+};
 use std::string::String;
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
