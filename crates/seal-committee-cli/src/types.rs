@@ -157,6 +157,7 @@ pub(crate) fn sign_message(
     sk: &BLS12381PrivateKey,
     nizk_proof: DLNizk<G2Element>,
 ) -> SignedMessage {
+    // TODO: why not include the nizk in the signed message?
     let message_bytes = bcs::to_bytes(&message).expect("Serialization failed");
     let signature = sk.sign(&message_bytes);
     SignedMessage {
