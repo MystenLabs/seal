@@ -74,6 +74,8 @@ public enum ServerType has drop, store {
         threshold: u16,
         /// Maps of current members' addresses to their partial key server info. Updated on every
         /// rotation of the committee.
+
+        // TODO: why do we need "address" as the key? isn't that a property of the committee and where we should only care about the index = party id?
         partial_key_servers: VecMap<address, PartialKeyServer>,
     },
 }
@@ -93,6 +95,8 @@ public struct PartialKeyServer has copy, drop, store {
 // ===== V2 Public Functions =====
 
 /// Create a key server object with df of KeyServerV2 of committee server type.
+
+// TODO: should be private entry so we can remove it in the future?
 public fun create_committee_v2(
     name: String,
     threshold: u16,
@@ -124,6 +128,9 @@ public fun create_committee_v2(
 }
 
 /// Upgrade the current key server's to v2 by adding a df to KeyServerV2, still a single owner object.
+
+// TODO: should be private entry so we can remove it in the future?
+// TODO: how would future upgrades from v2 to v3 would look like with the committee? (e.g., if there is a bug that requires a new version)
 public fun upgrade_v1_to_independent_v2(ks: &mut KeyServer) {
     assert!(ks.first_version == V1, EInvalidVersion);
     assert!(ks.last_version == V1, EInvalidVersion);
@@ -180,6 +187,8 @@ public fun update_partial_key_servers(
 
 /// Updates URL for a partial key server for a given member. Can only be called on V2 committee
 /// server type KeyServer.
+
+// TODO: should this be index based instead of member: address?
 public fun update_member_url(s: &mut KeyServer, url: String, member: address) {
     s.assert_committee_server_v2();
 
@@ -197,6 +206,8 @@ public fun update_member_url(s: &mut KeyServer, url: String, member: address) {
 // ===== V1 Public Functions =====
 
 // Entry function to register a key server v1 object and transfer it to the caller.
+// TODO: can remove this function, no?
+
 #[deprecated(note = b"Use `key_server::create_and_transfer_v2_independent_server` instead")]
 entry fun create_and_transfer_v1(
     name: String,
@@ -237,6 +248,10 @@ entry fun create_and_transfer_v2_independent_server(
 }
 
 /// Update server URL. Can only be called on V1 or V2 independent server type KeyServer.
+
+// TODO: this only updates v2 if exists, but if old sdks depend on v1 then it's not enough
+// let's update both versions
+
 public fun update(s: &mut KeyServer, url: String) {
     if (s.has_v2()) {
         let v2: &mut KeyServerV2 = df::borrow_mut(&mut s.id, V2);
@@ -331,6 +346,8 @@ public fun pk_as_bf_bls12381(s: &KeyServer): Element<G2> {
 // ===== V2 Internal Functions =====
 
 /// Validates threshold and party IDs are unique and in range.
+// TODO: check that names are unique?
+
 fun validate_partial_key_servers(
     threshold: u16,
     partial_key_servers: &VecMap<address, PartialKeyServer>,
