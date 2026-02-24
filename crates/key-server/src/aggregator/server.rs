@@ -466,6 +466,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
+        // TODO: make it part of the config
         .timeout(Duration::from_secs(8))
         .send()
         .await
