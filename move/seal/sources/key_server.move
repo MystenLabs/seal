@@ -56,6 +56,8 @@ public struct KeyServerV1 has store {
 // ===== V2 Structs =====
 
 /// KeyServerV2, supports both single and committee-based key servers.
+
+// TODO: let's double check that what is needed for onchain decryption can work
 public struct KeyServerV2 has store {
     name: String,
     key_type: u8,
