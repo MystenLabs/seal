@@ -685,12 +685,11 @@ impl Server {
         };
 
         // Check if we're in rotation mode.
-        let target_version = match committee_state {
-            CommitteeState::Active => {
-                info!("Active mode: no rotation needed. Do not start version monitor.");
-                return;
-            }
-            CommitteeState::Rotation { target_version } => *target_version,
+        let target_version = if let CommitteeState::Rotation { target_version } = committee_state {
+            *target_version
+        } else {
+            info!("Active mode: no rotation needed. Do not start version monitor.");
+            return;
         };
 
         // Load current version from MasterKeys. This is initialized during MasterKeys::load().
