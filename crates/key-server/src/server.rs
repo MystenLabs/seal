@@ -9,7 +9,6 @@ use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::sui_rpc_client::RpcError;
 use crate::time::{checked_duration_since, from_mins};
 use crate::types::{MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
@@ -56,7 +55,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc_client::SuiRpcClient;
+use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
@@ -519,8 +518,6 @@ impl Server {
             self.options.rgp_update_interval,
             get_reference_gas_price,
             "RGP",
-            None::<fn(u64)>,
-            None::<fn(Duration)>,
             metrics.map(|m| status_callback(&m.get_reference_gas_price_status)),
         )
         .await
@@ -569,7 +566,8 @@ impl Server {
 
     /// Spawns a background task that fetches committee key server version from onchain and updates
     /// the committee version in MasterKeys::Committee. Only spawns a task if in Committee mode
-    /// during rotation and current version is 1 behind target version.
+    /// during rotation and current version is 1 behind target version, and the task is stopped once
+    /// the version is updated.
     async fn spawn_committee_version_updater(&self) {
         // Load committee state from config.
         let ServerMode::Committee {
