@@ -573,20 +573,13 @@ impl Server {
         let ServerMode::Committee {
             member_address: _,
             key_server_obj_id,
-            committee_state,
+            committee_state: CommitteeState::Rotation { target_version },
             server_name: _,
         } = &self.options.server_mode
         else {
             return;
         };
-
-        // Check if we're in rotation mode.
-        let target_version = if let CommitteeState::Rotation { target_version } = committee_state {
-            *target_version
-        } else {
-            info!("Active mode: no rotation needed. Do not start version monitor.");
-            return;
-        };
+        let target_version = *target_version;
 
         // Load current version from MasterKeys. This is initialized during MasterKeys::load().
         let current_version = match &self.master_keys {
