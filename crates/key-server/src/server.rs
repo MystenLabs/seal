@@ -10,7 +10,6 @@ use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::sui_rpc_client::RpcError;
 use crate::time::{checked_duration_since, from_mins};
 use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
@@ -621,8 +620,6 @@ impl Server {
             self.options.rgp_update_interval,
             get_reference_gas_price,
             "RGP",
-            None::<fn(u64)>,
-            None::<fn(Duration)>,
             metrics.map(|m| status_callback(&m.get_reference_gas_price_status)),
         )
         .await
@@ -671,7 +668,8 @@ impl Server {
 
     /// Spawns a background task that fetches committee key server version from onchain and updates
     /// the committee version in MasterKeys::Committee. Only spawns a task if in Committee mode
-    /// during rotation and current version is 1 behind target version.
+    /// during rotation and current version is 1 behind target version, and the task is stopped once
+    /// the version is updated.
     async fn spawn_committee_version_updater(&self) {
         // Load committee state from config.
         let ServerMode::Committee {
@@ -709,63 +707,42 @@ impl Server {
             "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
         );
 
-        {
-            // Define the fetch function for the periodic updater.
-            let key_server_obj_id_clone = *key_server_obj_id;
-            let fetch_fn = move |client: SuiRpcClient| async move {
-                let mut grpc = client.sui_grpc_client();
-                fetch_committee_server_version(&mut grpc, &key_server_obj_id_clone)
-                    .await
-                    .map(|v| v as u64)
-                    .map_err(|e| RpcError::new(e.to_string()))
-            };
+        let key_server_obj_id_clone = *key_server_obj_id;
+        let mut grpc = self.sui_rpc_client.sui_grpc_client();
+        let server = self.clone();
 
-            // Define the periodic updater.
-            let (receiver, updater_handle) = spawn_periodic_updater(
-                &self.sui_rpc_client,
-                Duration::from_secs(30),
-                fetch_fn,
-                "committee key server version",
-                None::<fn(u64)>,
-                None::<fn(Duration)>,
-                None::<fn(bool)>,
-            )
-            .await;
+        let update_interval = Duration::from_secs(30);
+        let mut interval = tokio::time::interval(update_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-            let mut receiver_clone = receiver;
-            let server = self.clone();
-
-            // Spawn the background task to monitor version changes.
-            tokio::spawn(async move {
-                loop {
-                    match receiver_clone.changed().await {
-                        Ok(_) => {
-                            // TODO: Make the updater generic from u64 to avoid this cast.
-                            let version = *receiver_clone.borrow() as u32;
-
-                            // Rotation completes, refresh committee server version and PoP.
-                            if version == target_version {
-                                server.refresh_committee_server().await;
-                                info!("Rotation complete at version {version}. Exiting version monitor.");
-                                updater_handle.abort();
-                                break;
-                            } else if target_version == version + 1 {
-                                continue; // Still in rotation, keep monitoring.
-                            } else {
-                                // Unexpected version state - onchain version skipped or went backwards.
-                                panic!(
-                                    "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
-                                    target_version - 1
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            panic!("Version monitor channel closed unexpectedly: {e}");
+        tokio::task::spawn(async move {
+            loop {
+                match fetch_committee_server_version(&mut grpc, &key_server_obj_id_clone).await {
+                    Ok(version) => {
+                        // Rotation completes, refresh committee server version and PoP.
+                        if version == target_version {
+                            server.refresh_committee_server().await;
+                            info!(
+                                "Rotation complete at version {version}. Exiting version monitor."
+                            );
+                            break;
+                        } else if target_version == version + 1 {
+                            // Still in rotation, keep monitoring.
+                        } else {
+                            // Unexpected version state - onchain version skipped or went backwards.
+                            panic!(
+                                "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
+                                target_version - 1
+                            );
                         }
                     }
+                    Err(e) => {
+                        info!("Failed to fetch committee server version. Will retry: {e}");
+                    }
                 }
-            });
-        }
+                interval.tick().await;
+            }
+        });
     }
 }
 
