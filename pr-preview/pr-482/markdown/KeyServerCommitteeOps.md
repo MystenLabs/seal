@@ -2,17 +2,21 @@ This guide explains how to set up and operate a key server as a committee server
 
 ## Overview
 
-Committee server type uses distributed key generation (DKG) to split cryptographic keys across multiple operators. Anyone can set up a committee — there is no central authority or permission required. In addition to the committee member key servers, an **[aggregator server](/Aggregator)** is required to collect partial key shares from members and combine them into usable decryption keys for clients. Because the aggregator is trustless and holds no key material, it can be operated by anyone, including a third party.
+Committee server type embeds distributed key trust directly into the infrastructure layer. To your application, it looks like a single logical key server. Internally, it enforces threshold cryptography across multiple independent operators.
 
-**What you’ll learn:**
+Anyone can set up a committee — there is no central authority or permission required. Operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. No single operator ever holds the full master key.
+
+In addition to the committee member key servers, an **[aggregator server](/Aggregator)** is required. The aggregator collects encrypted partial responses from operators and combines them into a single encrypted result for clients. Because the aggregator is trustless and holds no key material, it can be operated by anyone, including a third party.
+
+**What you'll learn:**
 - How to run a fresh DKG to bootstrap a new committee and generate the initial key shares
 - How to configure and start a key server for a committee member
-- How to rotate keys to update committee membership while preserving the same public key
+- How to perform coordinated rotation ceremonies to update membership while preserving the same public key and object ID
 - How to update a running key server to use the new key share after rotation
 
 **How DKG works:**
 
-The DKG process involves two roles: a **coordinator** that orchestrates the workflow, and **committee members** participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
+The DKG process involves two roles: a **coordinator** that orchestrates the workflow, and **committee members** that participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
 
 - **Phase A — Registration:** Members generate encryption keys and register them on-chain
 - **Phase B — Message creation:** Members create and exchange DKG messages off-chain
