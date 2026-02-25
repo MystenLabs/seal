@@ -107,14 +107,13 @@ impl MasterKeys {
                             // If old share doesn't exist, server starts but won't serve traffic
                             // until rotation completes.
                             let master_share = load_master_share(committee_version).ok();
-                            let next_master_share = load_master_share(target)?;
-
                             if master_share.is_none() {
                                 info!(
                                     "Starting in rotation mode without old share v{}. Will not serve traffic until rotation completes.",
                                     committee_version
                                 );
                             }
+                            let next_master_share = load_master_share(target)?;
 
                             CommitteeKeyState::Rotation {
                                 master_share,
