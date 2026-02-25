@@ -28,7 +28,6 @@ fn load_master_share(version: u32) -> anyhow::Result<IbeMasterKey> {
 }
 
 /// Represents the set of master keys held by a key server.
-#[derive(Clone)]
 pub enum MasterKeys {
     /// In open mode, the key server has a single master key used for all packages.
     Open { master_key: IbeMasterKey },
@@ -41,7 +40,7 @@ pub enum MasterKeys {
     Committee {
         key_state: CommitteeKeyState,
         /// The current version, atomically updated when rotation completes.
-        committee_version: Arc<AtomicU32>,
+        committee_version: AtomicU32,
     },
 }
 
@@ -135,7 +134,7 @@ impl MasterKeys {
 
                 Ok(MasterKeys::Committee {
                     key_state,
-                    committee_version: Arc::new(AtomicU32::new(committee_version)),
+                    committee_version: AtomicU32::new(committee_version),
                 })
             }
             ServerMode::Permissioned { client_configs } => {

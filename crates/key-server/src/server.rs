@@ -135,7 +135,7 @@ struct FetchKeyRequest {
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
-    master_keys: MasterKeys,
+    master_keys: Arc<MasterKeys>,
     key_server_oid_to_pop: Arc<RwLock<HashMap<ObjectID, MasterKeyPOP>>>,
     options: KeyServerOptions,
 }
@@ -214,7 +214,7 @@ impl Server {
 
         Server {
             sui_rpc_client,
-            master_keys,
+            master_keys: Arc::new(master_keys),
             key_server_oid_to_pop: Arc::new(RwLock::new(key_server_oid_to_pop)),
             options,
         }
@@ -228,7 +228,7 @@ impl Server {
             next_master_share,
             member_address,
             key_server_obj_id,
-        ) = match (&self.master_keys, &self.options.server_mode) {
+        ) = match (self.master_keys.as_ref(), &self.options.server_mode) {
             (
                 MasterKeys::Committee {
                     committee_version,
@@ -684,7 +684,7 @@ impl Server {
         let target_version = *target_version;
 
         // Load current version from MasterKeys. This is initialized during MasterKeys::load().
-        let current_version = match &self.master_keys {
+        let current_version = match self.master_keys.as_ref() {
             MasterKeys::Committee {
                 committee_version, ..
             } => committee_version.load(Ordering::Relaxed),
