@@ -19,25 +19,30 @@ Seal supports two server types for key management: **Committee** and **Independe
 
 A committee server appears onchain as a single logical key server — one object ID and public key — while internally being operated by multiple independent providers coordinating through threshold cryptography. The committee maintains a stable public key with rotatable membership, allowing operators to be added, removed, or replaced over time without client updates or data re-encryption.
 
+Behind the scenes, operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. When a client requests a decryption key, the request flows through an aggregator, which collects encrypted partial responses from operators and combines them into a single encrypted result. The client then decrypts the final key locally.
+
+Importantly, no single operator ever holds the full master key. The aggregator cannot decrypt data. And the public key exposed onchain remains stable even if membership changes.
+
+Distributed trust becomes infrastructure-native, while your integration remains unchanged.
+
 ### How it works
 
-**Open committee deployment**
-- Any operator group can coordinate and deploy their own committee.
-- Operators participate in a DKG ceremony and run their key servers with the DKG finalized key shares.
-- Membership can be added, removed, or replaced through coordinated DKG rotations.
-- The onchain object ID and public key remain unchanged, so clients are unaware of membership changes and existing encrypted data and configurations remain valid.
+**Open deployment**
+- Anyone can set up a committee with its own operators.
+- Operators participate in a DKG ceremony and run their key servers with the generated key shares.
+- Membership can be added, removed, or replaced through coordinated rotation ceremonies.
+- The onchain object ID and public key remain stable, so clients are unaware of membership changes and existing encrypted data and configurations remain valid.
 
-**Aggregator-mediated architecture**
-- Clients send requests to an aggregator, which fans out to committee key servers and returns a single aggregated response.
+**Aggregator gateway**
+- Clients send requests to an aggregator, which coordinates partial key responses from committee member key servers and returns a single aggregated response.
 - Committee members return partial responses encrypted under the user's public key.
-- The aggregator is trust-minimized and cannot read key material or decrypt on its own.
+- The aggregator is trustless — it holds no key material and cannot decrypt data on its own. Anyone can run one.
 
-### Key properties
+## Key properties
 
-- No single entity holds the complete master key — the key is distributed across committee members.
-- Clients connect to a single aggregator rather than individual committee member key servers, simplifying client integration.
 - The onchain object ID and public key remain stable even as membership changes — no client updates or data re-encryption required.
-- Key share setup and rotation require coordination among parties.
+- Clients connect to a single aggregator rather than individual committee member key servers, simplifying client integration.
+- No single entity holds the complete master key — the key is distributed across committee members.
 - All packages are supported without requiring an allowlist or per-client approval.
 
 ### Use cases
@@ -48,11 +53,11 @@ A committee server appears onchain as a single logical key server — one object
 
 ## Independent server type
 
-Independent servers are operated by a single entity. They offer two modes: **Open**, which anyone can use for any package, and **Permissioned**, per-client access control with approved package IDs.
+Independent servers are operated by a single entity. They offer two modes: **Open**, which anyone can use for any package, and **Permissioned**, which provides per-client access control with approved package IDs.
 
 ### How it works
 
-An independent server is registered with one object ID and one server URL. Clients configure the threshold and communicate directly with the key servers. Encryption is tied to the specific set of key servers and threshold — changing key server membership or the threshold configuration requires re-encryption of existing data.
+An independent server is registered with one object ID and one server URL. Clients configure the threshold and communicate directly with the key servers. Each independent server counts as one server in your threshold configuration. Changing the selection of key servers requires re-encryption of existing data, since public keys change.
 
 **Open mode**
 - Uses a single master key to serve all access policies across all packages.
