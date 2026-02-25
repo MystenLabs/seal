@@ -1,8 +1,10 @@
 ---
-title: Key Server Operations
-description: Learn how to operate a Seal key server in Open or Permissioned mode as a service provider or for your own development and testing.
+title: Key Server Operations for Independent Server Type
+description: Learn how to operate a Seal key server as an independent server type in Open or Permissioned mode as a service provider or for your own development and testing.
 keywords:
   - key server operations
+  - independent server type
+  - committee server type
   - Open mode
   - Permissioned mode
   - master key
@@ -13,28 +15,36 @@ keywords:
   - infrastructure requirements
 ---
 
-# Key server operations
+import InfrastructureRequirements from './_InfrastructureRequirements.mdx';
+
+# Key server operations for Independent server type
+
+This guide covers how to set up and operate an **independent server type** key server. For an overview comparing committee and independent server types, see [Seal Server Overview](/ServerOverview).
 
 Use this guide to operate a Seal key server in either of the following scenarios:
 
 - **As a service provider:** Run a key server as a service for developers.
 - **As a developer:** Run a key server for your own development and testing.
 
+## Network configuration
+
 Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
 
-| Network | Package ID | 
+| Network | Package ID |
 | -------- | ------- |
 | Testnet | `0x927a54e9ae803f82ebf480136a9bcff45101ccbe28b13f433c89f5181069d682` |
-| Mainnet | `0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d` | 
+| Mainnet | `0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d` |
 
-A Seal key server can operate in one of two modes - `Open` or `Permissioned`:
+## Independent server type modes
+
+When running an independent server, you can choose between Open or Permissioned mode:
 
 - **Open mode**: In Open mode, the key server accepts decryption requests for any on-chain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
 - **Permissioned mode**: In Permissioned mode, the key server restricts access to a manually approved list of packages associated with specific clients or applications. Each client is served using a dedicated master key.
     - This mode also supports importing or exporting the client-specific key if needed, for purposes such as disaster recovery or key server rotation.
     - The approved package ID for a client **must** be the package's **first published version**. This ensures that the key server continues to recognize the package after upgrades. You do not need to add new versions of the package to a client's allowlist.
 
-You can choose the mode that best fits your deployment model and security requirements. The following sections provide more details on both options. Also see [Seal CLI](/SealCLI) for reference.
+You can choose the option that best fits your deployment model and security requirements. The following sections provide more details on both options. Also see [Seal CLI](/SealCLI) for reference.
 
 ## Open mode
 
@@ -95,10 +105,10 @@ cargo run --bin seal-cli gen-seed
 Seed: <MASTER_SEED>
 ```
 
-Next, create a configuration file in .yaml format following the instructions in the [example config](https://github.com/MystenLabs/seal/tree/main/crates/key-server/key-server-config.yaml) and with the following properties:
+Next, create a configuration file in `.yaml` format following the instructions in the [example configuration](https://github.com/MystenLabs/seal/tree/main/crates/key-server/key-server-config.yaml) and with the following properties:
 
 - Set the mode to `!Permissioned`.
-- Initialize with an empty client configs (clients can be added later).
+- Initialize with empty client configurations (clients can be added later).
 ```yaml
   server_mode: !Permissioned
     client_configs:
@@ -255,27 +265,6 @@ docker run -p 2024:2024 \
 
 ## Infrastructure requirements
 
-The Seal key server is a lightweight, stateless service designed for easy horizontal scaling. Because it doesn't require persistent storage, you can run multiple instances behind a load balancer to increase availability and resilience. Each instance must have access to a trusted [Sui full node](https://docs.sui.io/guides/operator/sui-full-node) — ideally one that's geographically close to reduce latency during policy checks and key operations.
-
 The server is initialized with a master key (or seed), which must be kept secure. You can store this key using a cloud-based Key Management System (KMS), or in a self-managed software or hardware vault. If you're importing keys, those should be protected using the same secure storage approach.
 
-To operate the key server securely, it is recommended to place it behind an API gateway or reverse proxy. This allows you to:
-
-- Expose the service over HTTPS and terminate SSL/TLS at the edge
-- Enforce rate limiting and prevent abuse
-- Authenticate requests using API keys or access tokens
-- Optionally integrate usage tracking for commercial or billable offerings, such as logging access frequency per client or package
-
-For observability, the server exposes Prometheus-compatible metrics on port `9184`. You can access raw metrics by running `curl http://0.0.0.0:9184`. These metrics can also be visualized using tools like Grafana. The key server also includes a basic health check endpoint on port `2024`: `curl http://0.0.0.0:2024/health`.
-
-### CORS configuration
-
-Configure Cross-Origin Resource Sharing (CORS) on your key server to allow applications to make requests directly from the browser. Use the following recommended headers:
-```shell
-Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Request-Id, Client-Sdk-Type, Client-Sdk-Version
-Access-Control-Expose-Headers: x-keyserver-version
-```
-
-If your key server requires an API key, make sure to include the corresponding HTTP header name in `Access-Control-Allow-Headers` as well.
+<InfrastructureRequirements />

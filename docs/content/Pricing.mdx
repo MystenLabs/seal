@@ -14,13 +14,17 @@ keywords:
 
 # Seal pricing
 
-- **Choose your own key server providers:** Seal supports a decentralized network of independent key servers. Builders can select any combination of providers to form their preferred threshold configuration for encryption and decryption.
+- **Choose your own key server providers:** Seal supports both independent server type and committee server type key servers. Builders can select any combination of providers to form their preferred threshold configuration for encryption and decryption.
 - **Transparent pricing and features:** Each key server provider sets their own pricing and rate limits based on their service model. Builders can evaluate and choose based on what best fits their application needs.
 - **Curated discoverability:** This documentation lists a verified set of providers along with available links to their configuration details, terms, and pricing, so you can integrate with confidence.
 
 ## Verified key servers
 
-Refer to [Key Server Operations](/KeyServerOps) for detailed information on `Open` and `Permissioned` modes of key servers. At a high level:
+To understand how to use these key servers in the Seal SDK, see [Using Seal](/UsingSeal). To understand the different types of servers and their use cases, see [Seal Server Overview](/ServerOverview).
+
+## Verified independent server type key servers
+
+The key servers listed below are **independent server type** operators running in either Open or Permissioned mode.
 
 - A key server in `Open` mode lets anyone request keys for any access policy package, using a shared master key. It is ideal for public or trial use.
 - A key server in `Permissioned` mode restricts access to approved access policy packages per client, each with a dedicated master key, and supports secure key server rotation or switching when needed. It is designed for dedicated or commercial use.
@@ -116,3 +120,16 @@ Reach out to these verified key server providers:
 - [Natsai](https://www.natsai.xyz/seal)
 - [Enoki by Mysten Labs](https://enoki.mystenlabs.com/)
     - Sign up for Enoki, create your account, and request Seal key server access using the form in your dashboard.
+
+## Verified committee server type key servers
+
+Committee server type key servers provide distributed trust through multiple committee members, with an aggregator handling client requests. These servers offer committee member rotation and better liveness guarantees.
+
+### Testnet
+
+- **Committee key server object ID**: `[To be provided]`
+- **Aggregator URL**: `[To be provided]`
+
+### Mainnet
+
+Available soon.
