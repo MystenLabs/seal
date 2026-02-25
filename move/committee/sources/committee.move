@@ -135,7 +135,7 @@ public struct UpgradeManager has key, store {
 /// Module initializer. The deployer receives both InitCap and UpgradeCap needed to call init_committee.
 fun init(otw: SEAL_COMMITTEE, ctx: &mut TxContext) {
     let publisher = package::claim(otw, ctx);
-    let init_cap = InitCap {
+    let init_cap = InitCap { // todo: delete initcap
         id: object::new(ctx),
         publisher,
     };
@@ -146,8 +146,8 @@ fun init(otw: SEAL_COMMITTEE, ctx: &mut TxContext) {
 /// members and threshold. The committee is created in Init state with empty members_info with an
 /// UpgradeManager.
 public fun init_committee(
-    init_cap: InitCap,
-    cap: UpgradeCap,
+    init_cap: InitCap, // remove this
+    cap: UpgradeCap, // check with type
     threshold: u16,
     members: vector<address>,
     ctx: &mut TxContext,
@@ -254,7 +254,7 @@ public fun propose_for_rotation(
     committee: &mut Committee,
     partial_pks: vector<vector<u8>>,
     messages_hash: vector<u8>,
-    mut old_committee: Committee,
+    mut old_committee: Committee, // reginaldo checks this
     ctx: &mut TxContext,
 ) {
     committee.check_rotation_consistency(&old_committee);
@@ -268,7 +268,7 @@ public fun propose_for_rotation(
 public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut TxContext) {
     assert!(committee.members.contains(&ctx.sender()), ENotMember);
     let committee_id = object::id(committee);
-    let key_server = dof::borrow_mut<ID, KeyServer>(&mut committee.id, committee_id);
+    let key_server = dof::borrow_mut<_, KeyServer>(&mut committee.id, committee_id);
     key_server.update_member_url(url, ctx.sender());
 }
 
@@ -281,7 +281,7 @@ public fun approve_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, Vote::Approve, ctx);
+    committee.vote_for_upgrade(digest, Vote::Approve, ctx);
 }
 
 /// Rejects the given digest for upgrade as a committee member. To change vote, call
@@ -291,7 +291,7 @@ public fun reject_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, Vote::Reject, ctx);
+    committee.vote_for_upgrade(digest, Vote::Reject, ctx);
 }
 
 /// Authorizes an upgrade as a committee member when approvals count has reached threshold. Returns
@@ -474,7 +474,7 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
                 ctx,
             );
             let committee_id = object::id(committee);
-            dof::add<ID, KeyServer>(&mut committee.id, committee_id, ks);
+            dof::add(&mut committee.id, committee_id, ks);
             committee.state = State::Finalized;
         },
         _ => abort EInvalidState,
@@ -497,8 +497,8 @@ fun try_finalize_for_rotation(
 
             // Approvals count not reached, return key server back to old committee.
             if (approvals.length() != committee.members.length()) {
-                dof::add<ID, KeyServer>(&mut old_committee.id, old_committee_id, key_server);
-                transfer::share_object(old_committee);
+                dof::add(&mut old_committee.id, old_committee_id, key_server);
+                transfer::share_object(old_committee); // check this
                 return
             };
 
@@ -511,7 +511,7 @@ fun try_finalize_for_rotation(
 
             // Transfer the updated key server to new committee.
             let committee_id = object::id(committee);
-            dof::add<ID, KeyServer>(&mut committee.id, committee_id, key_server);
+            dof::add(&mut committee.id, committee_id, key_server);
 
             // Transfer upgrade manager from old to new committee.
             let upgrade_manager: UpgradeManager = dof::remove(
