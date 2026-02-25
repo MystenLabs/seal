@@ -223,35 +223,23 @@ impl Server {
     /// Update committee version to target and refresh PoP when rotation completes.
     pub(crate) async fn refresh_committee_server(&self) {
         let (
-            committee_version_arc,
-            target_version,
-            next_master_share,
-            member_address,
-            key_server_obj_id,
-        ) = match (self.master_keys.as_ref(), &self.options.server_mode) {
-            (
-                MasterKeys::Committee {
-                    committee_version,
-                    key_state:
-                        CommitteeKeyState::Rotation {
-                            target_version,
-                            next_master_share,
-                            ..
-                        },
-                },
-                ServerMode::Committee {
-                    member_address,
-                    key_server_obj_id,
-                    ..
-                },
-            ) => (
+            MasterKeys::Committee {
                 committee_version,
-                *target_version,
-                next_master_share,
+                key_state:
+                    CommitteeKeyState::Rotation {
+                        target_version,
+                        next_master_share,
+                        ..
+                    },
+            },
+            ServerMode::Committee {
                 member_address,
                 key_server_obj_id,
-            ),
-            _ => panic!("refresh_committee_server called in non-Rotation mode"),
+                ..
+            },
+        ) = (self.master_keys.as_ref(), &self.options.server_mode)
+        else {
+            panic!("refresh_committee_server called in non-Rotation mode");
         };
 
         // Build PoP with new master share.
@@ -264,7 +252,7 @@ impl Server {
         .await;
 
         // Update version in state.
-        committee_version_arc.store(target_version, Ordering::Relaxed);
+        committee_version.store(*target_version, Ordering::Relaxed);
 
         // Update PoP map in state.
         *self
