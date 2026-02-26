@@ -252,15 +252,7 @@ public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut T
     assert!(committee.members.contains(&sender), ENotMember);
 
     // Find party_id for sender
-    let mut party_id = 0u16;
-    let mut i = 0;
-    while (i < committee.members.length()) {
-        if (committee.members[i] == sender) {
-            party_id = i as u16;
-            break
-        };
-        i = i + 1;
-    };
+    let party_id = committee.members.find_index!(|addr| addr == sender).destroy_some() as u16;
 
     let committee_id = object::id(committee);
     let key_server: &mut KeyServer = dof::borrow_mut(&mut committee.id, committee_id);
