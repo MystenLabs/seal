@@ -125,5 +125,3 @@ pub(crate) async fn create_committee_servers(
     }
     servers
 }
-
-

@@ -228,7 +228,6 @@ impl Server {
         }
     }
 
-
     /// Build the key_server_oid -> PoP HashMap for all server modes.
     /// Returns empty map for Committee mode as it doesn't support /service endpoint.
     pub(crate) async fn build_key_server_pop_map(

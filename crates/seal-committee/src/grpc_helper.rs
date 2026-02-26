@@ -3,7 +3,6 @@
 
 //! gRPC utilities for interacting with Sui blockchain.
 
-
 use crate::{
     move_types::{
         Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeManager,
