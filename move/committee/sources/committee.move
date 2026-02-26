@@ -8,11 +8,11 @@
 module seal_committee::seal_committee;
 
 use seal::key_server::{KeyServer, create_partial_key_server, create_committee_v2, PartialKeyServer};
-use std::string::String;
+use std::{string::String, type_name};
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
     dynamic_object_field as dof,
-    package::{Self, Publisher, UpgradeCap, UpgradeTicket, UpgradeReceipt},
+    package::{UpgradeCap, UpgradeTicket, UpgradeReceipt},
     vec_map::{Self, VecMap},
     vec_set::{Self, VecSet}
 };
@@ -41,15 +41,8 @@ const EWrongUpgradeCap: u64 = 15;
 
 // ===== Structs =====
 
-/// One-time witness for claiming init cap.
+/// One-time witness for the package.
 public struct SEAL_COMMITTEE has drop {}
-
-/// One-time init cap transferred to the contract deployer. Contains Publisher to verify the
-/// UpgradeCap belongs to this package.
-public struct InitCap has key, store {
-    id: UID,
-    publisher: Publisher,
-}
 
 /// Member information to register with two public keys and the key server URL.
 public struct MemberInfo has copy, drop, store {
@@ -132,34 +125,24 @@ public struct UpgradeManager has key, store {
 
 // ===== Public Functions =====
 
-/// Module initializer. The deployer receives both InitCap and UpgradeCap needed to call init_committee.
-fun init(otw: SEAL_COMMITTEE, ctx: &mut TxContext) {
-    let publisher = package::claim(otw, ctx);
-    let init_cap = InitCap {
-        id: object::new(ctx),
-        publisher,
-    };
-    transfer::transfer(init_cap, ctx.sender());
-}
+/// Module initializer.
+fun init(_otw: SEAL_COMMITTEE, _ctx: &mut TxContext) {}
 
-/// Consumes InitCap and UpgradeCap, and creates a committee for fresh DKG with a list of
+/// Consumes UpgradeCap and creates a committee for fresh DKG with a list of
 /// members and threshold. The committee is created in Init state with empty members_info with an
 /// UpgradeManager.
 public fun init_committee(
-    init_cap: InitCap,
     cap: UpgradeCap,
     threshold: u16,
     members: vector<address>,
     ctx: &mut TxContext,
 ) {
-    // Verify UpgradeCap belongs to this package.
-    let InitCap { id, publisher } = init_cap;
-    id.delete();
-    let cap_package_addr = cap.package().to_address().to_ascii_string();
-    assert!(cap_package_addr == *publisher.package(), EWrongUpgradeCap);
-
-    // Burn publisher.
-    publisher.burn();
+    // Verify UpgradeCap belongs to this package by checking type.
+    let package_id = cap.upgrade_package();
+    assert!(
+        type_name::with_defining_ids<SEAL_COMMITTEE>().address_string() == package_id.to_address().to_ascii_string(),
+        EWrongUpgradeCap,
+    );
 
     // Initialze committee object.
     let mut committee = init_internal(threshold, members, option::none(), ctx);
@@ -206,7 +189,6 @@ public fun register(
     name: String,
     ctx: &mut TxContext,
 ) {
-    // TODO: maybe check PoP for the public keys.
     let _ = g1_from_bytes(&enc_pk);
     let _ = g2_from_bytes(&signing_pk);
 
@@ -266,10 +248,15 @@ public fun propose_for_rotation(
 
 /// Update the url of the partial key server object corresponding to the sender.
 public fun update_member_url(committee: &mut Committee, url: String, ctx: &mut TxContext) {
-    assert!(committee.members.contains(&ctx.sender()), ENotMember);
+    let sender = ctx.sender();
+    assert!(committee.members.contains(&sender), ENotMember);
+
+    // Find party_id for sender
+    let party_id = committee.members.find_index!(|addr| addr == sender).destroy_some() as u16;
+
     let committee_id = object::id(committee);
-    let key_server = dof::borrow_mut<ID, KeyServer>(&mut committee.id, committee_id);
-    key_server.update_member_url(url, ctx.sender());
+    let key_server: &mut KeyServer = dof::borrow_mut(&mut committee.id, committee_id);
+    key_server.update_member_url(url, party_id);
 }
 
 // ===== Upgrade Public Functions =====
@@ -281,7 +268,7 @@ public fun approve_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, Vote::Approve, ctx);
+    committee.vote_for_upgrade(digest, Vote::Approve, ctx);
 }
 
 /// Rejects the given digest for upgrade as a committee member. To change vote, call
@@ -291,7 +278,7 @@ public fun reject_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    vote_for_upgrade(committee, digest, Vote::Reject, ctx);
+    committee.vote_for_upgrade(digest, Vote::Reject, ctx);
 }
 
 /// Authorizes an upgrade as a committee member when approvals count has reached threshold. Returns
@@ -312,13 +299,7 @@ public fun authorize_upgrade(committee: &mut Committee, ctx: &TxContext): Upgrad
     assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
 
     // Check threshold for approvals.
-    let mut approval_count = 0u16;
-    proposal.votes.keys().do!(|member| {
-        match (proposal.votes.get(&member)) {
-            Vote::Approve => approval_count = approval_count + 1,
-            Vote::Reject => {},
-        };
-    });
+    let approval_count = count_votes(&proposal, Vote::Approve);
     assert!(approval_count >= threshold, ENotEnoughVotes);
 
     let policy = upgrade_manager.cap.policy();
@@ -346,20 +327,11 @@ public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
     let upgrade_manager = committee.borrow_upgrade_manager_mut();
     assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
 
-    let proposal = upgrade_manager.upgrade_proposal.borrow();
+    let proposal = upgrade_manager.upgrade_proposal.extract();
 
     // Check threshold for rejections.
-    let mut rejection_count = 0u16;
-    proposal.votes.keys().do!(|member| {
-        match (proposal.votes.get(&member)) {
-            Vote::Reject => rejection_count = rejection_count + 1,
-            Vote::Approve => {},
-        };
-    });
-    assert!(rejection_count >= threshold, ENotEnoughVotes);
-
-    // Clear the proposal.
-    upgrade_manager.upgrade_proposal.extract();
+    let rejection_count = count_votes(&proposal, Vote::Reject);
+    assert!(rejection_count >= threshold, ENotEnoughVotes)
 }
 
 // ===== Internal Functions =====
@@ -380,8 +352,8 @@ fun init_internal(
     ctx: &mut TxContext,
 ): Committee {
     assert!(threshold > 1, EInvalidThreshold);
-    assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
-    assert!(members.length() as u16 >= threshold, EInvalidThreshold);
+    assert!(members.length() < (std::u16::max_value!() as u64), EInvalidMembers);
+    assert!((members.length() as u16) >= threshold, EInvalidThreshold);
 
     // Throws EKeyAlreadyExists if duplicate members are found.
     let _ = vec_set::from_keys(members);
@@ -474,7 +446,7 @@ fun try_finalize(committee: &mut Committee, ctx: &mut TxContext) {
                 ctx,
             );
             let committee_id = object::id(committee);
-            dof::add<ID, KeyServer>(&mut committee.id, committee_id, ks);
+            dof::add(&mut committee.id, committee_id, ks);
             committee.state = State::Finalized;
         },
         _ => abort EInvalidState,
@@ -497,7 +469,7 @@ fun try_finalize_for_rotation(
 
             // Approvals count not reached, return key server back to old committee.
             if (approvals.length() != committee.members.length()) {
-                dof::add<ID, KeyServer>(&mut old_committee.id, old_committee_id, key_server);
+                dof::add(&mut old_committee.id, old_committee_id, key_server);
                 transfer::share_object(old_committee);
                 return
             };
@@ -511,7 +483,7 @@ fun try_finalize_for_rotation(
 
             // Transfer the updated key server to new committee.
             let committee_id = object::id(committee);
-            dof::add<ID, KeyServer>(&mut committee.id, committee_id, key_server);
+            dof::add(&mut committee.id, committee_id, key_server);
 
             // Transfer upgrade manager from old to new committee.
             let upgrade_manager: UpgradeManager = dof::remove(
@@ -530,25 +502,25 @@ fun try_finalize_for_rotation(
     }
 }
 
-/// Helper function to build the partial key servers VecMap for the list of committee members.
+/// Helper function to build the partial key servers vector for the list of committee members.
 fun build_partial_key_servers(
     committee: &Committee,
     members_info: &VecMap<address, MemberInfo>,
     partial_pks: &vector<vector<u8>>,
-): VecMap<address, PartialKeyServer> {
+): vector<PartialKeyServer> {
     let members = committee.members;
     assert!(members.length() > 0, EInvalidMembers);
     assert!(members.length() == partial_pks.length(), EInvalidMembers);
     assert!(members.length() == members_info.length(), EInvalidMembers);
 
-    let mut partial_key_servers = vec_map::empty();
+    let mut partial_key_servers = vector::empty();
     let mut i = 0;
     members.do!(|member| {
-        partial_key_servers.insert(
-            member,
+        let info = members_info.get(&member);
+        partial_key_servers.push_back(
             create_partial_key_server(
-                members_info.get(&member).name,
-                members_info.get(&member).url,
+                info.name,
+                info.url,
                 partial_pks[i],
                 i as u16,
             ),
@@ -613,6 +585,18 @@ fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
     dof::borrow_mut(&mut committee.id, UpgradeManagerKey())
 }
 
+/// Helper function to count votes of a specific type in a proposal.
+fun count_votes(proposal: &UpgradeProposal, vote_type: Vote): u16 {
+    let mut count = 0u16;
+    proposal.votes.keys().do!(|member| {
+        match (proposal.votes.get(&member)) {
+            vote if (vote == &vote_type) => count = count + 1,
+            _ => {},
+        };
+    });
+    count
+}
+
 /// Test-only function to create a committee without InitCap for testing.
 #[test_only]
 public(package) fun test_init_committee(
@@ -642,5 +626,5 @@ public(package) fun test_attach_upgrade_manager(
 /// Test-only function to borrow the KeyServer dynamic object field.
 #[test_only]
 public(package) fun borrow_key_server(committee: &Committee): &KeyServer {
-    dof::borrow<ID, KeyServer>(&committee.id, object::id(committee))
+    dof::borrow(&committee.id, object::id(committee))
 }
