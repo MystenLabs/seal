@@ -422,6 +422,7 @@ async fn handle_fetch_key(
     }
 
     // Aggregate encrypted responses and return.
+    // TODO: assert responses.len() == threshold ?
     let aggregated_response = aggregate_verified_encrypted_responses(threshold, responses)
         .map_err(|e| {
             let msg = format!("Aggregating responses failed: {e}");
