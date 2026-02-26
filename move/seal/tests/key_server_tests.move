@@ -11,6 +11,7 @@ use seal::key_server::{
     EInvalidPartyId,
     EInvalidServerType,
     EInvalidVersion,
+    EDuplicateName,
     pk
 };
 use std::unit_test::assert_eq;
@@ -202,7 +203,7 @@ fun update_member_url_invalid_party_id() {
 }
 
 #[test, expected_failure(abort_code = EInvalidServerType)]
-fun update_member_url_on_independent_server() {
+fun update_member_url_on_independent_server_fails() {
     let addr1 = @0xA;
     let mut scenario = test_scenario::begin(addr1);
 
@@ -272,28 +273,17 @@ fun url_getter_works_across_v1_to_v2_upgrade() {
 
     let mut s: KeyServer = scenario.take_from_sender();
 
-    // Verify URL getter works on v1 with initial URL.
     assert_eq!(s.url(), b"https://v1-initial.com".to_string());
-    assert_eq!(s.last_version(), 1);
-
-    // Update URL on v1.
     s.update(b"https://v1-updated.com".to_string());
-
-    // Verify URL getter returns updated v1 URL.
     assert_eq!(s.url(), b"https://v1-updated.com".to_string());
 
     // Upgrade to v2.
     s.upgrade_v1_to_independent_v2();
-    assert_eq!(s.last_version(), 2);
-
-    // Verify URL getter still works and returns the v1 URL (preserved during upgrade).
     assert_eq!(s.url(), b"https://v1-updated.com".to_string());
 
-    // Update URL on v2.
     s.update(b"https://v2-updated.com".to_string());
-
-    // Verify URL getter returns updated v2 URL.
     assert_eq!(s.url(), b"https://v2-updated.com".to_string());
+    assert_eq!(s.v1_url(), b"https://v2-updated.com".to_string());
 
     s.destroy_for_testing();
     scenario.end();

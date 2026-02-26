@@ -367,6 +367,23 @@ fun test_init_committee_with_empty_members() {
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::EWrongUpgradeCap)]
+fun test_init_committee_with_wrong_upgrade_cap() {
+    test_tx!(|scenario| {
+        // Create an UpgradeCap with wrong package ID (using @0x1 instead of seal_committee package).
+        let wrong_upgrade_cap = package::test_publish(
+            object::id_from_address(@0x1),
+            scenario.ctx(),
+        );
+        seal_committee::init_committee(
+            wrong_upgrade_cap,
+            2,
+            vector[ALICE, BOB],
+            scenario.ctx(),
+        );
+    });
+}
+
 #[test, expected_failure(abort_code = seal_committee::EInsufficientOldMembers)]
 fun test_init_rotation_fails_with_not_enough_old_members() {
     test_tx!(|scenario| {

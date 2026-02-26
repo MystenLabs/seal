@@ -441,6 +441,11 @@ public fun last_version(s: &KeyServer): u64 {
 }
 
 #[test_only]
+public fun v1_url(s: &KeyServer): String {
+    s.v1().url
+}
+
+#[test_only]
 public fun destroy_for_testing(self: KeyServer) {
     let KeyServer { id, first_version: _, last_version: _ } = self;
     id.delete();
