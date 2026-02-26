@@ -14,6 +14,8 @@ use anyhow::{anyhow, bail, Result};
 use sui_rpc::client::Client;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk_types::{Address, Object, StructTag, TypeTag};
+use sui_types::base_types::ObjectID;
+use std::str::FromStr;
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
@@ -209,10 +211,7 @@ pub async fn get_partial_key_server_for_member(
 pub async fn fetch_committee_from_key_server(
     grpc_client: &mut Client,
     key_server_obj_id: &Address,
-) -> Result<(Address, sui_types::base_types::ObjectID)> {
-    use std::str::FromStr;
-    use sui_types::base_types::ObjectID;
-
+) -> Result<(Address, ObjectID)> {
     // Fetch key server object to get owner (field wrapper).
     let field_wrapper_id = {
         let mut ledger_client = grpc_client.ledger_client();
