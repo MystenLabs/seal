@@ -32,10 +32,7 @@ use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, Aggregat
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
-use seal_committee::{
-    fetch_key_server_by_id,
-    move_types::{PartialKeyServer, VecMap},
-};
+use seal_committee::{fetch_key_server_by_id, move_types::PartialKeyServer};
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
@@ -49,6 +46,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
+
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 
@@ -121,7 +119,7 @@ struct AppState {
     grpc_client: SuiGrpcClient,
     http_client: reqwest::Client,
     threshold: Arc<RwLock<u16>>,
-    committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
+    committee_members: Arc<RwLock<Vec<PartialKeyServer>>>,
     options: AggregatorOptions,
 }
 
@@ -204,7 +202,7 @@ async fn main() -> Result<()> {
 
     info!(
         "Loaded committee with {} members, threshold {}",
-        state.committee_members.read().await.0.contents.len(),
+        state.committee_members.read().await.len(),
         *state.threshold.read().await
     );
 
@@ -324,12 +322,10 @@ async fn handle_fetch_key(
         .committee_members
         .read()
         .await
-        .0
-        .contents
         .iter()
         .map(|member| {
             let request = request.clone();
-            let partial_key_server = member.clone().value;
+            let partial_key_server = member.clone();
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             let metrics = metrics.clone();
@@ -374,7 +370,7 @@ async fn handle_fetch_key(
 
     // Collect responses until we have threshold, then abort remaining.
     let threshold = *state.threshold.read().await;
-    let total_committee_members = state.committee_members.read().await.0.contents.len();
+    let total_committee_members = state.committee_members.read().await.len();
     let mut responses = Vec::new();
     let mut errors = Vec::new();
     let mut completed = 0;
@@ -434,7 +430,7 @@ async fn handle_fetch_key(
         })?;
 
     // Log successful aggregation
-    let committee_size = state.committee_members.read().await.0.contents.len();
+    let committee_size = state.committee_members.read().await.len();
     info!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
         req_id, threshold, committee_size, request.certificate.user
@@ -640,14 +636,14 @@ fn spawn_metrics_push_job(
 
 /// Check and warn about missing API credentials for committee members.
 fn check_missing_api_credentials(
-    members: &VecMap<Address, PartialKeyServer>,
+    members: &[PartialKeyServer],
     api_credentials: &HashMap<String, ApiCredentials>,
 ) {
-    for member in &members.0.contents {
-        if !api_credentials.contains_key(&member.value.name) {
+    for member in members {
+        if !api_credentials.contains_key(&member.name) {
             warn!(
                 "Missing API credentials for committee member '{}' (party_id: {}, url: {})",
-                member.value.name, member.value.party_id, member.value.url
+                member.name, member.party_id, member.url
             );
         }
     }
@@ -709,16 +705,11 @@ async fn monitor_members_update(mut state: AppState) {
         };
 
         // Check for new members' API credentials by comparing with current state.
-        let member_count = members.0.contents.len();
+        let member_count = members.len();
         let current_names: HashSet<String> = {
             // Read lock and drop after.
             let current_members = state.committee_members.read().await;
-            current_members
-                .0
-                .contents
-                .iter()
-                .map(|m| m.value.name.clone())
-                .collect()
+            current_members.iter().map(|m| m.name.clone()).collect()
         };
 
         info!(
@@ -726,16 +717,13 @@ async fn monitor_members_update(mut state: AppState) {
             member_count,
             current_names.len()
         );
-        for member in &members.0.contents {
-            if !current_names.contains(&member.value.name)
-                && !state
-                    .options
-                    .api_credentials
-                    .contains_key(&member.value.name)
+        for member in &members {
+            if !current_names.contains(&member.name)
+                && !state.options.api_credentials.contains_key(&member.name)
             {
                 warn!(
                     "Missing API credentials for new committee member '{}' (party_id: {}, url: {})",
-                    member.value.name, member.value.party_id, member.value.url
+                    member.name, member.party_id, member.url
                 );
             }
         }
@@ -763,7 +751,7 @@ mod tests {
     use seal_sdk::types::Certificate;
     use serde_json::json;
     use sui_sdk_types::UserSignature;
-    use sui_types::collection_types::{Entry, VecMap as SuiVecMap};
+    use sui_types::collection_types::Entry;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -847,14 +835,19 @@ mod tests {
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         let http_client = reqwest::Client::new();
 
+        // Convert committee_contents (Vec<Entry>) to Vec<PartialKeyServer> sorted by party_id
+        let mut members: Vec<_> = committee_contents
+            .into_iter()
+            .map(|entry| entry.value)
+            .collect();
+        members.sort_by_key(|m| m.party_id);
+
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
             http_client,
             threshold: Arc::new(RwLock::new(threshold)),
-            committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
-                contents: committee_contents,
-            }))),
+            committee_members: Arc::new(RwLock::new(members)),
             options,
         }
     }

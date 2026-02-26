@@ -1,16 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::groups::bls12381::G2Element;
-use fastcrypto::groups::GroupElement;
 use prometheus::Registry;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use tracing_test::traced_test;
 
-use crate::key_server_options::{CommitteeState, ServerMode};
-use crate::master_keys::MasterKeys;
 use crate::metrics::KeyServerMetrics;
 use crate::start_server_background_tasks;
 use crate::tests::SealTestCluster;
@@ -19,22 +13,16 @@ use crate::common::{HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION, SDK_TYPE_
 use crate::errors::InternalError::Failure;
 use crate::signed_message::signed_request;
 use crate::tests::externals::get_key;
-use crate::tests::test_utils::{
-    add_partial_key_server, create_test_server, execute_programmable_transaction,
-};
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
 use crate::{app, time, Certificate, DefaultEncoding, FetchKeyRequest};
 use axum::body::Body;
 use axum::extract::Request;
 use crypto::ibe::generate_key_pair;
-use crypto::ibe::{self, MasterKey, ProofOfPossession};
-use crypto::{elgamal, DST_POP};
+use crypto::ibe::{self};
+use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::ed25519::Ed25519PrivateKey;
-use fastcrypto::encoding::{Base64, Encoding, Hex};
-use fastcrypto::error::FastCryptoError::InvalidInput;
-use fastcrypto::error::FastCryptoResult;
-use fastcrypto::groups::{bls12381::G1Element, HashToGroupElement, Pairing};
+use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::KeyPair;
 use fastcrypto::traits::Signer;
@@ -51,9 +39,6 @@ use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
 use std::time::Duration;
-use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::rpc_types::ObjectChange;
-use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
@@ -372,206 +357,6 @@ async fn test_fetch_key() {
         .is_ok());
     })
     .await;
-}
-
-#[tokio::test]
-async fn test_committee_server_hot_reload_and_verify_pop() {
-    let tc = SealTestCluster::new(0, "seal").await;
-    let (seal_package, _) = tc.publish("seal").await;
-    let (package_id, _) = tc.registry;
-
-    // Test data for master share before rotation, party 0.
-    let master_share_0_bytes =
-        Hex::decode("0x2c8e06a3ba09ff64b841d39df9534e35cee33605033003a634fe6ca2a90c216d").unwrap();
-    let master_share_0 =
-        MasterKey::from_byte_array(master_share_0_bytes.as_slice().try_into().unwrap()).unwrap();
-    let partial_pk_0 = ibe::public_key_from_master_key(&master_share_0);
-    let party_id_0 = 0;
-
-    // New master share after rotation, party 0 becomes party 1.
-    let master_share_1_bytes =
-        Hex::decode("0x03899294f5e6551631fcbaea5583367fb565471adeccb220b769879c55e66ed9").unwrap();
-    let master_share_1 =
-        MasterKey::from_byte_array(master_share_1_bytes.as_slice().try_into().unwrap()).unwrap();
-    let partial_pk_1 = ibe::public_key_from_master_key(&master_share_1);
-    let party_id_1 = 1;
-
-    let master_pk = G2Element::zero();
-    let member_address = tc.test_cluster().get_address_0();
-    let member2_address = tc.test_cluster().get_address_1();
-
-    // Create on-chain a committee mode KeyServer with 2 partial key servers.
-    let mut builder = ProgrammableTransactionBuilder::new();
-    let partial_key_servers = add_partial_key_server(
-        &mut builder,
-        package_id,
-        None, // Create new VecMap
-        member_address,
-        &partial_pk_0,
-        party_id_0,
-    );
-    let partial_key_servers = add_partial_key_server(
-        &mut builder,
-        package_id,
-        Some(partial_key_servers),
-        member2_address,
-        &partial_pk_0, // Use test partial pk
-        party_id_1,
-    );
-
-    // Create committee
-    let name = builder.pure("test_committee".to_string()).unwrap();
-    let threshold_arg = builder.pure(2u16).unwrap();
-    let master_pk_bytes = builder.pure(master_pk.to_byte_array().to_vec()).unwrap();
-    let key_server = builder.programmable_move_call(
-        package_id,
-        sui_types::Identifier::new("key_server").unwrap(),
-        sui_types::Identifier::new("create_committee_v2").unwrap(),
-        vec![],
-        vec![name, threshold_arg, master_pk_bytes, partial_key_servers],
-    );
-    builder.transfer_arg(member_address, key_server);
-
-    let response = execute_programmable_transaction(&tc, member_address, builder.finish()).await;
-    let key_server_id = response
-        .object_changes
-        .unwrap()
-        .into_iter()
-        .find_map(|change| {
-            if let ObjectChange::Created {
-                object_type,
-                object_id,
-                ..
-            } = change
-                && object_type.name.as_str() == "KeyServer"
-            {
-                return Some(object_id);
-            }
-            None
-        })
-        .expect("KeyServer object not found in transaction response");
-
-    // Get object version and digest for later update.
-    let key_server_obj = tc
-        .test_cluster()
-        .sui_client()
-        .read_api()
-        .get_object_with_options(
-            key_server_id,
-            sui_sdk::rpc_types::SuiObjectDataOptions::default(),
-        )
-        .await
-        .unwrap();
-    let key_server_version = key_server_obj.data.as_ref().unwrap().version;
-    let key_server_digest = key_server_obj.data.as_ref().unwrap().digest;
-
-    // Initialize a server with the ks object id, rotation mode (current=0, target=1), and v0 and v1 master shares.
-    let server = create_test_server(
-        tc.test_cluster().sui_client().clone(),
-        SuiGrpcClient::new(&tc.test_cluster().fullnode_handle.rpc_url).unwrap(),
-        seal_package,
-        ServerMode::Committee {
-            member_address: Address::new(member_address.to_inner()),
-            key_server_obj_id: Address::new(key_server_id.into_bytes()),
-            committee_state: CommitteeState::Rotation { target_version: 1 },
-            server_name: "test_committee_server".to_string(),
-        },
-        Some(0), // onchain_version starts at 0
-        [
-            ("MASTER_SHARE_V0", master_share_0_bytes.as_slice()),
-            ("MASTER_SHARE_V1", master_share_1_bytes.as_slice()),
-        ],
-    )
-    .await;
-
-    // Extract current_version pointer.
-    let current_version: Arc<AtomicU32> = if let MasterKeys::Committee {
-        committee_version, ..
-    } = &server.master_keys
-    {
-        Arc::clone(committee_version)
-    } else {
-        panic!("Expected Committee master keys");
-    };
-
-    // Current version is 0.
-    assert_eq!(current_version.load(Ordering::Relaxed), 0);
-
-    // Update partial key servers on-chain with 2 servers.
-    let mut builder = ProgrammableTransactionBuilder::new();
-
-    let partial_key_servers = add_partial_key_server(
-        &mut builder,
-        package_id,
-        None, // Create new VecMap
-        member_address,
-        &partial_pk_1,
-        party_id_1,
-    );
-    let partial_key_servers = add_partial_key_server(
-        &mut builder,
-        package_id,
-        Some(partial_key_servers),
-        member2_address,
-        &partial_pk_1,
-        party_id_0,
-    );
-
-    let key_server_obj = builder
-        .obj(sui_types::transaction::ObjectArg::ImmOrOwnedObject((
-            key_server_id,
-            key_server_version,
-            key_server_digest,
-        )))
-        .unwrap();
-
-    let threshold = builder.pure(2u16).unwrap();
-    builder.programmable_move_call(
-        package_id,
-        sui_types::Identifier::new("key_server").unwrap(),
-        sui_types::Identifier::new("update_partial_key_servers").unwrap(),
-        vec![],
-        vec![key_server_obj, threshold, partial_key_servers],
-    );
-    execute_programmable_transaction(&tc, member_address, builder.finish()).await;
-
-    // Refresh server.
-    server.refresh_committee_server().await;
-
-    // Verify PoP for new partial key server (party_id_1, partial_pk_1).
-    let pop_map = server.key_server_oid_to_pop.read().unwrap();
-    let pop = pop_map.get(&key_server_id).unwrap();
-    assert!(verify_pop(pop, &key_server_id, party_id_1, &partial_pk_1).is_ok());
-
-    // Current version updated to 1 after refresh.
-    assert_eq!(current_version.load(Ordering::Relaxed), 1);
-}
-
-/// Verify that a proof-of-possession is valid for a given public key, key server object ID, and party ID.
-pub fn verify_pop(
-    pop: &ProofOfPossession,
-    key_server_obj_id: &ObjectID,
-    party_id: u16,
-    public_key: &G2Element,
-) -> FastCryptoResult<()> {
-    // Construct the PoP message: key_server_obj_id || party_id
-    let mut pop_message = Vec::new();
-    pop_message.extend_from_slice(key_server_obj_id.as_ref());
-    pop_message.extend_from_slice(&party_id.to_le_bytes());
-
-    // Reconstruct the full message that was signed
-    let mut full_msg = DST_POP.to_vec();
-    full_msg.extend(bcs::to_bytes(public_key).map_err(|_| InvalidInput)?);
-    full_msg.extend(pop_message);
-
-    // Verify pairing.
-    if pop.pairing(&G2Element::generator())
-        == G1Element::hash_to_group_element(&full_msg).pairing(public_key)
-    {
-        Ok(())
-    } else {
-        Err(InvalidInput)
-    }
 }
 
 #[traced_test]

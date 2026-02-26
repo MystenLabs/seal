@@ -7,15 +7,11 @@ use crate::{
     },
     master_keys::MasterKeys,
     sui_rpc_client::SuiRpcClient,
-    tests::SealTestCluster,
     time::from_mins,
     types::Network,
     DefaultEncoding, Server,
 };
 use fastcrypto::encoding::Encoding;
-use fastcrypto::groups::bls12381::G2Element;
-use fastcrypto::serde_helpers::ToFromByteArray;
-use move_core_types::language_storage::StructTag;
 use semver::VersionReq;
 use std::{
     collections::HashMap,
@@ -24,16 +20,9 @@ use std::{
     time::Duration,
 };
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
-use sui_types::base_types::{ObjectID, SuiAddress};
-use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{
-    Argument, ProgrammableTransaction, TransactionData,
-    TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE,
-};
-use sui_types::{Identifier, TypeTag};
+use sui_types::base_types::ObjectID;
 
 /// Helper function to create a test server with any ServerMode.
 pub(crate) async fn create_test_server(
@@ -137,81 +126,4 @@ pub(crate) async fn create_committee_servers(
     servers
 }
 
-/// Helper function to execute a programmable transaction and assert success.
-pub(crate) async fn execute_programmable_transaction(
-    tc: &SealTestCluster,
-    sender: SuiAddress,
-    pt: ProgrammableTransaction,
-) -> SuiTransactionBlockResponse {
-    let builder = tc
-        .test_cluster()
-        .test_transaction_builder_with_sender(sender)
-        .await;
-    let gas_object = builder.gas_object();
-    let gas_price = tc.test_cluster().get_reference_gas_price().await;
-    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
-    let tx_data =
-        TransactionData::new_programmable(sender, vec![gas_object], pt, gas_budget, gas_price);
 
-    let response = tc
-        .test_cluster()
-        .sign_and_execute_transaction(&tx_data)
-        .await;
-
-    assert!(response.status_ok().unwrap());
-    response
-}
-
-/// Helper function to add a partial key server to an existing VecMap or create a new one.
-/// If vec_map is None, creates a new empty VecMap first.
-pub(crate) fn add_partial_key_server(
-    builder: &mut ProgrammableTransactionBuilder,
-    package_id: ObjectID,
-    vec_map: Option<Argument>,
-    member_address: SuiAddress,
-    partial_pk: &G2Element,
-    party_id: u16,
-) -> Argument {
-    // Create partial key server
-    let partial_pk_bytes = builder.pure(partial_pk.to_byte_array().to_vec()).unwrap();
-    let url_arg = builder.pure("testurl.com".to_string()).unwrap();
-    let name_arg = builder.pure("testserver".to_string()).unwrap();
-    let party_id_arg = builder.pure(party_id).unwrap();
-    let partial_key_server = builder.programmable_move_call(
-        package_id,
-        Identifier::new("key_server").unwrap(),
-        Identifier::new("create_partial_key_server").unwrap(),
-        vec![],
-        vec![name_arg, url_arg, partial_pk_bytes, party_id_arg],
-    );
-
-    let vec_map_module = ObjectID::from_hex_literal("0x2").unwrap();
-    let partial_key_server_type = TypeTag::Struct(Box::new(StructTag {
-        address: package_id.into(),
-        module: Identifier::new("key_server").unwrap(),
-        name: Identifier::new("PartialKeyServer").unwrap(),
-        type_params: vec![],
-    }));
-
-    // Create new VecMap if needed
-    let vec_map = vec_map.unwrap_or_else(|| {
-        builder.programmable_move_call(
-            vec_map_module,
-            Identifier::new("vec_map").unwrap(),
-            Identifier::new("empty").unwrap(),
-            vec![TypeTag::Address, partial_key_server_type.clone()],
-            vec![],
-        )
-    });
-
-    // Insert into VecMap
-    let member_addr_arg = builder.pure(member_address).unwrap();
-    builder.programmable_move_call(
-        vec_map_module,
-        Identifier::new("vec_map").unwrap(),
-        Identifier::new("insert").unwrap(),
-        vec![TypeTag::Address, partial_key_server_type],
-        vec![vec_map, member_addr_arg, partial_key_server],
-    );
-    vec_map
-}

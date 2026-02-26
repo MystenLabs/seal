@@ -17,7 +17,6 @@ use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
-use seal_committee::grpc_helper::to_partial_key_servers;
 use seal_committee::{
     build_new_to_old_map, create_grpc_client, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
@@ -380,7 +379,7 @@ async fn main() -> Result<()> {
             println!("\nExecuting publish transaction...");
             let response = execute_tx_and_log_status(&wallet, tx_data).await?;
 
-            // Extract published package ID, UpgradeCap, and InitCap.
+            // Extract published package ID and UpgradeCap.
             let effects = response
                 .effects
                 .as_ref()
@@ -400,20 +399,14 @@ async fn main() -> Result<()> {
 
             println!("Published package: {}", package_id);
 
-            // Find UpgradeCap and InitCap.
+            // Find UpgradeCap.
             let upgrade_cap_id = extract_created_object_by_type(&response, "UpgradeCap")?;
-            let init_cap_id = extract_created_object_by_type(&response, "InitCap")?;
-
             println!("UpgradeCap ID: {}", upgrade_cap_id);
-            println!("InitCap ID: {}", init_cap_id);
 
-            // Initialize the committee with InitCap and UpgradeCap.
+            // Initialize the committee with UpgradeCap.
             let mut init_builder = ProgrammableTransactionBuilder::new();
 
-            // Get object args for InitCap and UpgradeCap.
-            let init_cap_ref = wallet.get_object_ref(init_cap_id).await?;
-            let init_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(init_cap_ref))?;
-
+            // Get object arg for UpgradeCap.
             let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap_id).await?;
             let upgrade_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(upgrade_cap_ref))?;
 
@@ -425,7 +418,7 @@ async fn main() -> Result<()> {
                 "seal_committee".parse()?,
                 "init_committee".parse()?,
                 vec![],
-                vec![init_cap_arg, upgrade_cap_arg, threshold_arg, members_arg],
+                vec![upgrade_cap_arg, threshold_arg, members_arg],
             );
 
             let init_gas_coin_ref = wallet
@@ -1057,7 +1050,7 @@ async fn main() -> Result<()> {
                             }
 
                             // Display partial key servers.
-                            display_partial_key_servers(&key_server).await?;
+                            display_partial_key_servers(&key_server, &committee.members).await?;
                         }
                         Err(e) => {
                             println!("Warning: Could not fetch key server object: {e}");
@@ -1354,7 +1347,7 @@ async fn main() -> Result<()> {
                     }
 
                     // Display partial key servers.
-                    display_partial_key_servers(&key_server).await?;
+                    display_partial_key_servers(&key_server, &committee.members).await?;
                 }
                 Err(e) => {
                     println!("Warning: Could not fetch key server object: {}", e);
@@ -1588,7 +1581,7 @@ async fn create_dkg_state_and_message(
             // Fetch partial key server info from the old committee's key server object.
             let (_, ks) =
                 fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await?;
-            let old_partial_key_infos = to_partial_key_servers(&ks).await?;
+            let old_partial_key_infos = ks.to_partial_key_servers(&old_committee.members)?;
 
             // Build mapping from old party ID to partial public key.
             let expected_old_pks: HashMap<u16, G2Element> = old_partial_key_infos
@@ -2172,9 +2165,9 @@ fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> 
 }
 
 /// Display partial key server information.
-async fn display_partial_key_servers(key_server: &KeyServerV2) -> Result<()> {
+async fn display_partial_key_servers(key_server: &KeyServerV2, members: &[Address]) -> Result<()> {
     println!("\n=== Partial Key Servers ===");
-    match to_partial_key_servers(key_server).await {
+    match key_server.to_partial_key_servers(members) {
         Ok(partial_key_servers) => {
             for (addr, info) in partial_key_servers {
                 println!("Address: {}", addr);
