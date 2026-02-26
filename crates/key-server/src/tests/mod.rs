@@ -381,7 +381,7 @@ impl SealTestCluster {
                 self.cluster.get_address_0(),
                 self.registry.0,
                 "key_server",
-                "create_and_transfer_v1",
+                "create_and_transfer_v2_independent_server",
                 vec![],
                 vec![
                     SuiJsonValue::from_str(description).unwrap(),
@@ -415,7 +415,7 @@ impl SealTestCluster {
         service_objects[0].1
     }
 
-    /// Get the public keys of the key servers v1 with the given Object IDs.
+    /// Get the public keys of the key servers v2 with the given Object IDs.
     pub async fn get_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
         let futures = object_ids.iter().map(|id| {
             self.cluster
@@ -426,14 +426,14 @@ impl SealTestCluster {
 
         let res = join_all(futures).await;
 
-        // filter df that has type KeyServerV1
+        // filter df that has type KeyServerV2
         let object_ids = res
             .into_iter()
             .filter_map(|page| {
                 page.ok().and_then(|p| {
                     p.data
                         .into_iter()
-                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV1"))
+                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV2"))
                         .map(|df| df.object_id)
                 })
             })
