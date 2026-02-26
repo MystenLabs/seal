@@ -585,3 +585,4 @@ server_mode: !Permissioned
         assert_eq!(result.unwrap_err().to_string(), expected_error);
     }
 }
+// TODO: test configs with committee
