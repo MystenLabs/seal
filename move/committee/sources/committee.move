@@ -206,7 +206,6 @@ public fun register(
     name: String,
     ctx: &mut TxContext,
 ) {
-    // TODO: maybe check PoP for the public keys.
     let _ = g1_from_bytes(&enc_pk);
     let _ = g2_from_bytes(&signing_pk);
 
@@ -346,7 +345,7 @@ public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
     let upgrade_manager = committee.borrow_upgrade_manager_mut();
     assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
 
-    let proposal = upgrade_manager.upgrade_proposal.borrow();
+    let proposal = upgrade_manager.upgrade_proposal.extract();
 
     // Check threshold for rejections.
     let mut rejection_count = 0u16;
@@ -357,9 +356,6 @@ public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
         };
     });
     assert!(rejection_count >= threshold, ENotEnoughVotes);
-
-    // Clear the proposal.
-    upgrade_manager.upgrade_proposal.extract();
 }
 
 // ===== Internal Functions =====
@@ -498,6 +494,7 @@ fun try_finalize_for_rotation(
             // Approvals count not reached, return key server back to old committee.
             if (approvals.length() != committee.members.length()) {
                 dof::add<ID, KeyServer>(&mut old_committee.id, old_committee_id, key_server);
+                // TODO: just making sure - is that safe to reshare it again and again?
                 transfer::share_object(old_committee);
                 return
             };

@@ -112,6 +112,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Publish committee package and initialize committee (coordinator operation).
+
+    // TODO: why do specify the full path sometimes and the directory in others? let use the latter everywhere
+    
     PublishAndInit {
         /// Path to configuration file.
         #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
@@ -131,6 +134,7 @@ enum Commands {
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
 
+        // TODO: why do we need this optionality? also below and in the other commands
         /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -731,6 +735,7 @@ async fn main() -> Result<()> {
             let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
             create_dkg_state_and_message(&state_dir, &config, &keys_file, old_share).await?;
         }
+
         Commands::ProcessAllAndPropose {
             state_dir,
             messages_dir,
@@ -1091,6 +1096,8 @@ async fn main() -> Result<()> {
             .await?;
         }
 
+        // TODO: this command is unusable if someone posts an invalid a proposal with an invalid hash
+        // reject should not receive any input from the party, just vote on the onchain proposal
         Commands::RejectUpgrade {
             package_path,
             key_server_id,
@@ -1644,6 +1651,7 @@ async fn create_dkg_state_and_message(
     // - Rotation: only continuing members create a message (my_old_share is Some).
     let my_message = if old_threshold.is_none() || my_old_share.is_some() {
         println!("Creating DKG message for party {my_party_id}...");
+        // TODO: every message should use unique RO, let's use (DOMAIN_SEP, committee_id, party id)
         let random_oracle = RandomOracle::new(&committee_id.to_string());
         let party = Party::<G2Element, G1Element>::new_advanced(
             local_keys.enc_sk.clone(),
@@ -2031,6 +2039,7 @@ fn process_dkg_messages(
         local_keys.enc_sk.clone(),
         state.config.nodes.clone(),
         state.config.threshold,
+        // TODO: again, unique RO per call
         RandomOracle::new(&state.config.committee_id.to_string()),
         state.config.my_old_share,
         state.config.old_threshold,

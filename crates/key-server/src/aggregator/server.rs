@@ -422,6 +422,7 @@ async fn handle_fetch_key(
     }
 
     // Aggregate encrypted responses and return.
+    // TODO: assert responses.len() == threshold ?
     let aggregated_response = aggregate_verified_encrypted_responses(threshold, responses)
         .map_err(|e| {
             let msg = format!("Aggregating responses failed: {e}");
@@ -466,6 +467,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
+        // TODO: make it part of the config
         .timeout(Duration::from_secs(8))
         .send()
         .await
