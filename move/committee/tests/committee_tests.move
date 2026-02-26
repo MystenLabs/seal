@@ -70,9 +70,9 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 0, 2);
 
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
-        assert_partial_key_server!(key_server, ALICE, b"https://url0.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, BOB, b"https://url1.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, CHARLIE, b"https://url2.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://url0.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://url1.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://url2.com", g2_bytes, 2);
         test_scenario::return_shared(committee);
 
         // Create upgrade manager for the first committee before rotation.
@@ -187,10 +187,10 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 1, 3);
 
         // Verify each member's URL, partial PK, and party ID (BOB=party0, ALICE=party1, DAVE=party2, EVE=party3).
-        assert_partial_key_server!(key_server, BOB, b"https://new_url1.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, ALICE, b"https://new_url0.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, DAVE, b"https://new_url3.com", g2_bytes, 2);
-        assert_partial_key_server!(key_server, EVE, b"https://new_url4.com", g2_bytes, 3);
+        assert_partial_key_server!(key_server, b"https://new_url1.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://new_url0.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://new_url3.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://new_url4.com", g2_bytes, 3);
         test_scenario::return_shared(new_committee);
 
         // Verify UpgradeManager was transferred to new committee by voting on an upgrade.
@@ -325,9 +325,9 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 2, 2);
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
-        assert_partial_key_server!(key_server, EVE, b"https://eve_url_3.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, ALICE, b"https://alice_url_3.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, BOB, b"https://bob_url_3.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://eve_url_3.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://alice_url_3.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://bob_url_3.com", g2_bytes, 2);
         test_scenario::return_shared(third_committee);
     });
 }
@@ -932,18 +932,16 @@ public macro fun propose_for_rotation_member(
 /// Helper macro to assert partial key server URL, partial PK, and party ID.
 public macro fun assert_partial_key_server(
     $key_server: &KeyServer,
-    $member: address,
     $expected_url: vector<u8>,
     $expected_partial_pk: vector<u8>,
     $expected_party_id: u16,
 ) {
     let key_server = $key_server;
-    let member = $member;
     let expected_url = $expected_url;
     let expected_partial_pk = $expected_partial_pk;
     let expected_party_id = $expected_party_id;
 
-    let partial_ks = key_server.partial_key_server_for_member(member);
+    let partial_ks = key_server.partial_key_server_for_party(expected_party_id);
     assert!(partial_ks.partial_ks_url() == string::utf8(expected_url));
     assert!(partial_ks.partial_ks_pk() == expected_partial_pk);
     assert!(partial_ks.partial_ks_party_id() == expected_party_id);
