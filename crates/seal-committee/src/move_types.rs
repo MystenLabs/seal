@@ -25,7 +25,7 @@ pub struct KeyServerV2 {
 
 impl KeyServerV2 {
     /// Extract threshold and partial key servers from KeyServerV2. Returns error if ServerType is Independent.
-    pub fn extract_committee_info(self) -> Result<(u16, VecMap<Address, PartialKeyServer>)> {
+    pub fn extract_committee_info(self) -> Result<(u16, Vec<PartialKeyServer>)> {
         match self.server_type {
             ServerType::Committee {
                 threshold,
@@ -33,6 +33,38 @@ impl KeyServerV2 {
                 ..
             } => Ok((threshold, partial_key_servers)),
             ServerType::Independent { .. } => Err(anyhow!("Invalid independent key server type")),
+        }
+    }
+
+    /// Convert partial key servers to a HashMap mapping member addresses to PartialKeyServerInfo.
+    /// Returns error if ServerType is Independent.
+    pub fn to_partial_key_servers(
+        &self,
+        members: &[Address],
+    ) -> Result<HashMap<Address, PartialKeyServerInfo>> {
+        match &self.server_type {
+            ServerType::Committee {
+                partial_key_servers,
+                ..
+            } => partial_key_servers
+                .iter()
+                .map(|partial_ks| {
+                    let party_id = partial_ks.party_id;
+                    let member_addr = members.get(party_id as usize).ok_or_else(|| {
+                        anyhow!("Party ID {} out of range for members list", party_id)
+                    })?;
+                    Ok((
+                        *member_addr,
+                        PartialKeyServerInfo {
+                            party_id: partial_ks.party_id,
+                            partial_pk: partial_ks.partial_pk,
+                            name: partial_ks.name.clone(),
+                            url: partial_ks.url.clone(),
+                        },
+                    ))
+                })
+                .collect(),
+            ServerType::Independent { .. } => Err(anyhow!("KeyServer is not of type Committee")),
         }
     }
 }
@@ -52,7 +84,7 @@ pub enum ServerType {
     Committee {
         version: u32,
         threshold: u16,
-        partial_key_servers: VecMap<Address, PartialKeyServer>,
+        partial_key_servers: Vec<PartialKeyServer>,
     },
 }
 
