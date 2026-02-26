@@ -299,13 +299,7 @@ public fun authorize_upgrade(committee: &mut Committee, ctx: &TxContext): Upgrad
     assert!(proposal.version == upgrade_manager.cap.version() + 1, EWrongVersion);
 
     // Check threshold for approvals.
-    let mut approval_count = 0u16;
-    proposal.votes.keys().do!(|member| {
-        match (proposal.votes.get(&member)) {
-            Vote::Approve => approval_count = approval_count + 1,
-            Vote::Reject => {},
-        };
-    });
+    let approval_count = count_votes(&proposal, Vote::Approve);
     assert!(approval_count >= threshold, ENotEnoughVotes);
 
     let policy = upgrade_manager.cap.policy();
@@ -336,13 +330,7 @@ public fun reset_proposal(committee: &mut Committee, ctx: &TxContext) {
     let proposal = upgrade_manager.upgrade_proposal.extract();
 
     // Check threshold for rejections.
-    let mut rejection_count = 0u16;
-    proposal.votes.keys().do!(|member| {
-        match (proposal.votes.get(&member)) {
-            Vote::Reject => rejection_count = rejection_count + 1,
-            Vote::Approve => {},
-        };
-    });
+    let rejection_count = count_votes(&proposal, Vote::Reject);
     assert!(rejection_count >= threshold, ENotEnoughVotes)
 }
 
@@ -364,8 +352,8 @@ fun init_internal(
     ctx: &mut TxContext,
 ): Committee {
     assert!(threshold > 1, EInvalidThreshold);
-    assert!(members.length() as u16 < std::u16::max_value!(), EInvalidMembers);
-    assert!(members.length() as u16 >= threshold, EInvalidThreshold);
+    assert!(members.length() < (std::u16::max_value!() as u64), EInvalidMembers);
+    assert!((members.length() as u16) >= threshold, EInvalidThreshold);
 
     // Throws EKeyAlreadyExists if duplicate members are found.
     let _ = vec_set::from_keys(members);
@@ -528,10 +516,11 @@ fun build_partial_key_servers(
     let mut partial_key_servers = vector::empty();
     let mut i = 0;
     members.do!(|member| {
+        let info = members_info.get(&member);
         partial_key_servers.push_back(
             create_partial_key_server(
-                members_info.get(&member).name,
-                members_info.get(&member).url,
+                info.name,
+                info.url,
                 partial_pks[i],
                 i as u16,
             ),
@@ -594,6 +583,18 @@ macro fun package_digest($digest: vector<u8>): PackageDigest {
 /// Helper function to borrow the UpgradeManager from the committee.
 fun borrow_upgrade_manager_mut(committee: &mut Committee): &mut UpgradeManager {
     dof::borrow_mut(&mut committee.id, UpgradeManagerKey())
+}
+
+/// Helper function to count votes of a specific type in a proposal.
+fun count_votes(proposal: &UpgradeProposal, vote_type: Vote): u16 {
+    let mut count = 0u16;
+    proposal.votes.keys().do!(|member| {
+        match (proposal.votes.get(&member)) {
+            vote if (vote == &vote_type) => count = count + 1,
+            _ => {},
+        };
+    });
+    count
 }
 
 /// Test-only function to create a committee without InitCap for testing.
