@@ -1005,7 +1005,13 @@ mod tests {
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         match result {
             Err(error) => {
-                assert_eq!(error.error, "InvalidPTB");
+                // Either error can be the majority depending on which 3 errors arrive first. Both 
+                // are valid.
+                assert!(
+                    error.error == "InvalidPTB" || error.error == "NoAccess",
+                    "Expected InvalidPTB or NoAccess, got: {}",
+                    error.error
+                );
             }
             Ok(_) => panic!("Expected error but got success"),
         }

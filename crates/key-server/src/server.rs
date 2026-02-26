@@ -213,12 +213,7 @@ impl Server {
             panic!("Failed to load master keys: {e}");
         });
 
-        let key_server_oid_to_pop = Self::build_key_server_pop_map(
-            &options,
-            &master_keys,
-            sui_rpc_client.sui_grpc_client(),
-        )
-        .await;
+        let key_server_oid_to_pop = Self::build_key_server_pop_map(&options, &master_keys).await;
 
         Server {
             sui_rpc_client,
@@ -233,7 +228,6 @@ impl Server {
     pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
-        _grpc_client: SuiGrpcClient,
     ) -> HashMap<ObjectID, MasterKeyPOP> {
         match &options.server_mode {
             ServerMode::Open { .. } | ServerMode::Permissioned { .. } => options
@@ -614,6 +608,14 @@ impl Server {
             "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
         );
 
+        // Clone the committee_version Arc for the spawned task
+        let committee_version_arc = match &self.master_keys {
+            MasterKeys::Committee {
+                committee_version, ..
+            } => Arc::clone(committee_version),
+            _ => return,
+        };
+
         {
             // Define the fetch function for the periodic updater.
             let key_server_obj_id_clone = *key_server_obj_id;
@@ -649,7 +651,12 @@ impl Server {
 
                             // Rotation completes.
                             if version == target_version {
-                                info!("Rotation complete at version {version}. Exiting version monitor.");
+                                info!("Rotation complete at version {version}. Updating committee version.");
+
+                                // Update the committee version
+                                committee_version_arc.store(target_version, Ordering::Relaxed);
+                                info!("Committee version refreshed to {target_version}.");
+
                                 updater_handle.abort();
                                 break;
                             } else if target_version == version + 1 {
