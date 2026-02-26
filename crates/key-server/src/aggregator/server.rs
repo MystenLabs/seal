@@ -751,7 +751,6 @@ mod tests {
     use seal_sdk::types::Certificate;
     use serde_json::json;
     use sui_sdk_types::UserSignature;
-    use sui_types::collection_types::Entry;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -799,17 +798,13 @@ mod tests {
     ) -> AppState {
         let mut committee_contents = vec![];
         for (i, server) in mock_servers.iter().enumerate() {
-            let address = Address::from([i as u8; 32]);
             let member = PartialKeyServer {
                 name: "server".to_string(),
                 party_id: i as u16,
                 url: server.uri(),
                 partial_pk: partial_pks.get(i).cloned().unwrap_or(G2Element::zero()),
             };
-            committee_contents.push(Entry {
-                key: address,
-                value: member,
-            });
+            committee_contents.push(member);
         }
 
         let mut api_credentials = HashMap::new();
@@ -835,19 +830,12 @@ mod tests {
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         let http_client = reqwest::Client::new();
 
-        // Convert committee_contents (Vec<Entry>) to Vec<PartialKeyServer> sorted by party_id
-        let mut members: Vec<_> = committee_contents
-            .into_iter()
-            .map(|entry| entry.value)
-            .collect();
-        members.sort_by_key(|m| m.party_id);
-
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
             http_client,
             threshold: Arc::new(RwLock::new(threshold)),
-            committee_members: Arc::new(RwLock::new(members)),
+            committee_members: Arc::new(RwLock::new(committee_contents)),
             options,
         }
     }
