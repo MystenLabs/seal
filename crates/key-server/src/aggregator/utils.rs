@@ -35,6 +35,9 @@ pub fn aggregate_verified_encrypted_responses(
 
     let mut decryption_keys = Vec::with_capacity(shares_by_key_id.len());
     for (key_id, encrypted_shares) in shares_by_key_id {
+        // TODO: aggregate_encrypted (as currently implemented) works correctly if given exactly threshold values but not more.
+        // This is currently implicity done by the top level logic that waits for threshold responses, but let's make it more explicit
+        // and assert in aggregate_verified_encrypted_responses that we get exactly threshold values.
         let aggregated_encrypted = elgamal::aggregate_encrypted(threshold, &encrypted_shares)?;
         decryption_keys.push(DecryptionKey {
             id: key_id,
