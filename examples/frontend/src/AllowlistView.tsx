@@ -15,7 +15,7 @@ import {
 import { useParams } from 'react-router-dom';
 import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
 import { set, get } from 'idb-keyval';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 const TTL_MIN = 10;
 export interface FeedData {
@@ -35,12 +35,13 @@ function constructMoveCall(packageId: string, allowlistId: string): MoveCallCons
 
 const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
-  const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
+  const serverObjectIds = ["0xab0747fe37e7161c907a518c51f3328ba5bb683984cc6c69666afe9cd3e072e0"];
   const client = new SealClient({
     suiClient,
     serverConfigs: serverObjectIds.map((id) => ({
       objectId: id,
       weight: 1,
+      aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
     })),
     verifyKeyServers: false,
   });
@@ -95,7 +96,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       try {
         const currentSessionKey = await SessionKey.import(
           imported,
-          new SuiClient({ url: getFullnodeUrl('testnet') }),
+          new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl('testnet'), network: 'testnet' }),
         );
         console.log('loaded currentSessionKey', currentSessionKey);
         if (
