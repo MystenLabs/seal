@@ -133,6 +133,13 @@ impl DkgState {
     }
 }
 
+/// Wrapper struct for message and NIZK proof.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageWithProof {
+    message: Message<G2Element, G1Element>,
+    nizk_proof: DLNizk<G2Element>,
+}
+
 /// Signed message struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SignedMessage {
@@ -151,14 +158,18 @@ impl std::str::FromStr for SignedMessage {
     }
 }
 
-/// Create BLS signature for signed message.
+/// Create BLS signature for signed message. Signs over both the message and NIZK proof.
 pub(crate) fn sign_message(
     message: Message<G2Element, G1Element>,
     sk: &BLS12381PrivateKey,
     nizk_proof: DLNizk<G2Element>,
 ) -> SignedMessage {
-    let message_bytes = bcs::to_bytes(&message).expect("Serialization failed");
-    let signature = sk.sign(&message_bytes);
+    let wrapper = MessageWithProof {
+        message: message.clone(),
+        nizk_proof: nizk_proof.clone(),
+    };
+    let wrapper_bytes = bcs::to_bytes(&wrapper).expect("Serialization failed");
+    let signature = sk.sign(&wrapper_bytes);
     SignedMessage {
         message,
         signature,
@@ -166,10 +177,14 @@ pub(crate) fn sign_message(
     }
 }
 
-/// Verify BLS signature for signed message.
+/// Verify BLS signature for signed message. Verifies both the message and NIZK proof.
 pub(crate) fn verify_signature(signed_msg: &SignedMessage, pk: &BLS12381PublicKey) -> Result<()> {
-    let message_bytes = bcs::to_bytes(&signed_msg.message)?;
-    pk.verify(&message_bytes, &signed_msg.signature)?;
+    let wrapper = MessageWithProof {
+        message: signed_msg.message.clone(),
+        nizk_proof: signed_msg.nizk_proof.clone(),
+    };
+    let wrapper_bytes = bcs::to_bytes(&wrapper)?;
+    pk.verify(&wrapper_bytes, &signed_msg.signature)?;
     Ok(())
 }
 

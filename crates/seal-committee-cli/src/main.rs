@@ -112,16 +112,16 @@ struct Cli {
 enum Commands {
     /// Publish committee package and initialize committee (coordinator operation).
     PublishAndInit {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Initialize committee rotation (coordinator operation).
     InitRotation {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Generate DKG keys and register onchain (member operation).
@@ -129,14 +129,6 @@ enum Commands {
         /// State directory (contains dkg.yaml and dkg.key).
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to write keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
 
         /// Server URL to register.
         #[arg(short = 'u', long)]
@@ -152,14 +144,6 @@ enum Commands {
         /// State directory (contains dkg.yaml, dkg.key, and state).
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to the keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
     },
 
     /// Initialize DKG party state and create DKG message (member operation).
@@ -169,14 +153,6 @@ enum Commands {
         /// State directory (contains dkg.yaml, dkg.key, and state).
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to the keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
 
         /// Old share for key rotation (hex-encoded BCS, required for continuing members in rotation).
         #[arg(short = 'o', long, value_parser = parse_old_share)]
@@ -189,24 +165,16 @@ enum Commands {
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
 
-        /// Directory containing message_*.json files (overrides default <state_dir>/dkg-messages).
+        /// Directory containing message_*.json files (defaults to <state_dir>/dkg-messages).
         #[arg(short = 'm', long)]
         messages_dir: Option<PathBuf>,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
     },
 
     /// Check committee status and member registration.
     CheckCommittee {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Compute package digest for upgrade verification.
@@ -235,12 +203,8 @@ enum Commands {
         network: Network,
     },
 
-    /// Reject package upgrade (as committee member).
+    /// Reject current upgrade proposal (as committee member).
     RejectUpgrade {
-        /// Path to the Move package to upgrade to.
-        #[arg(short, long, default_value = "move/committee")]
-        package_path: PathBuf,
-
         /// Key server object ID.
         #[arg(short, long)]
         key_server_id: Address,
@@ -302,7 +266,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::PublishAndInit { config } => {
+        Commands::PublishAndInit { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             // Check if already initialized.
@@ -459,7 +424,8 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::InitRotation { config } => {
+        Commands::InitRotation { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             if get_config_field(&config_content, &["init-rotation"], "COMMITTEE_ID").is_some() {
@@ -557,12 +523,10 @@ async fn main() -> Result<()> {
 
         Commands::GenkeyAndRegister {
             state_dir,
-            config,
-            keys_file,
             server_url,
             server_name,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             // Check if already generated keys.
@@ -704,12 +668,8 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::InitState {
-            state_dir,
-            config,
-            keys_file,
-        } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+        Commands::InitState { state_dir } => {
+            let (config, keys_file) = derive_paths(&state_dir);
 
             // Call shared function with no old share.
             create_dkg_state_and_message(&state_dir, &config, &keys_file, None).await?;
@@ -717,20 +677,16 @@ async fn main() -> Result<()> {
 
         Commands::CreateMessage {
             state_dir,
-            config,
-            keys_file,
             old_share,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             create_dkg_state_and_message(&state_dir, &config, &keys_file, old_share).await?;
         }
         Commands::ProcessAllAndPropose {
             state_dir,
             messages_dir,
-            config,
-            keys_file,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             let full_messages_dir = messages_dir.unwrap_or_else(|| state_dir.join("dkg-messages"));
             let config_content = load_config(&config)?;
 
@@ -943,7 +899,8 @@ async fn main() -> Result<()> {
             println!("  Partial PKs: {} entries", partial_pks.len());
         }
 
-        Commands::CheckCommittee { config } => {
+        Commands::CheckCommittee { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
@@ -1074,7 +1031,7 @@ async fn main() -> Result<()> {
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
-                &package_path,
+                Some(&package_path),
                 &key_server_id,
                 &network,
                 &mut wallet,
@@ -1085,13 +1042,12 @@ async fn main() -> Result<()> {
         }
 
         Commands::RejectUpgrade {
-            package_path,
             key_server_id,
             network,
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
-                &package_path,
+                None,
                 &key_server_id,
                 &network,
                 &mut wallet,
@@ -1736,15 +1692,11 @@ fn load_wallet(
     Ok(wallet)
 }
 
-/// Derive config and keys_file paths from state_dir if not provided.
-fn derive_paths(
-    state_dir: &Path,
-    config: Option<PathBuf>,
-    keys_file: Option<PathBuf>,
-) -> (PathBuf, PathBuf) {
-    let config = config.unwrap_or_else(|| state_dir.join("dkg.yaml"));
-    let keys_file = keys_file.unwrap_or_else(|| state_dir.join("dkg.key"));
-    (config, keys_file)
+/// Derive config and keys_file paths from state_dir.
+fn derive_paths(state_dir: &Path) -> (PathBuf, PathBuf) {
+    let config_path = state_dir.join("dkg.yaml");
+    let keys_file_path = state_dir.join("dkg.key");
+    (config_path, keys_file_path)
 }
 
 /// Helper function to write a file with restricted permissions (owner only) in Unix systems.
@@ -2186,7 +2138,7 @@ async fn display_partial_key_servers(key_server: &KeyServerV2, members: &[Addres
 
 /// Helper function to vote (approve or reject) for package upgrade.
 async fn vote_for_upgrade(
-    package_path: &Path,
+    package_path: Option<&Path>,
     key_server_id: &Address,
     network: &Network,
     wallet: &mut WalletContext,
@@ -2198,9 +2150,14 @@ async fn vote_for_upgrade(
     println!("Voter address: {}", voter_address);
     println!("Network: {:?}", network);
 
-    // Build package and compute digest.
-    let digest = get_package_digest(package_path, network)?;
-    println!("\nPackage digest: {}", digest);
+    // Build package and compute digest (only for approve).
+    let digest = if let Some(path) = package_path {
+        let d = get_package_digest(path, network)?;
+        println!("\nPackage digest: {}", d);
+        Some(d)
+    } else {
+        None
+    };
 
     // Fetch key server to get committee ID.
     let mut grpc_client = create_grpc_client(network)?;
@@ -2220,13 +2177,19 @@ async fn vote_for_upgrade(
     let committee_arg = vote_builder
         .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
 
-    let digest_bytes = Hex::decode(&digest)?;
-    let digest_arg = vote_builder.pure(digest_bytes)?;
-
     let function_name = if approve {
         "approve_digest_for_upgrade"
     } else {
         "reject_digest_for_upgrade"
+    };
+
+    // Build function call args based on whether we have a digest.
+    let args = if let Some(ref digest_str) = digest {
+        let digest_bytes = Hex::decode(digest_str)?;
+        let digest_arg = vote_builder.pure(digest_bytes)?;
+        vec![committee_arg, digest_arg]
+    } else {
+        vec![committee_arg]
     };
 
     vote_builder.programmable_move_call(
@@ -2234,7 +2197,7 @@ async fn vote_for_upgrade(
         "seal_committee".parse()?,
         function_name.parse()?,
         vec![],
-        vec![committee_arg, digest_arg],
+        args,
     );
 
     let (gas_price, gas_budget, gas_coin_ref) =
