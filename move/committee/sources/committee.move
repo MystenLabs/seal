@@ -268,17 +268,49 @@ public fun approve_digest_for_upgrade(
     digest: vector<u8>,
     ctx: &TxContext,
 ) {
-    committee.vote_for_upgrade(digest, Vote::Approve, ctx);
+    let sender = ctx.sender();
+    assert!(committee.members.contains(&sender), ENotAuthorized);
+    assert!(committee.is_finalized(), EInvalidState);
+
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+
+    // Get or create the proposal.
+    let cap_version = upgrade_manager.cap.version();
+    if (upgrade_manager.upgrade_proposal.is_none()) {
+        let parsed_digest = package_digest!(digest);
+        upgrade_manager.upgrade_proposal =
+            option::some(UpgradeProposal {
+                digest: parsed_digest,
+                version: cap_version + 1,
+                votes: vec_map::empty(),
+            });
+    };
+
+    let proposal = upgrade_manager.upgrade_proposal.borrow_mut();
+
+    // Validate digest and version.
+    let parsed_digest = package_digest!(digest);
+    assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
+    assert!(proposal.version == cap_version + 1, EWrongVersion);
+
+    // Insert or update vote.
+    insert_vote(proposal, sender, Vote::Approve);
 }
 
-/// Rejects the given digest for upgrade as a committee member. To change vote, call
+/// Rejects the current upgrade proposal as a committee member. To change vote, call
 /// approve_digest_for_upgrade.
-public fun reject_digest_for_upgrade(
-    committee: &mut Committee,
-    digest: vector<u8>,
-    ctx: &TxContext,
-) {
-    committee.vote_for_upgrade(digest, Vote::Reject, ctx);
+public fun reject_digest_for_upgrade(committee: &mut Committee, ctx: &TxContext) {
+    let sender = ctx.sender();
+    assert!(committee.members.contains(&sender), ENotAuthorized);
+    assert!(committee.is_finalized(), EInvalidState);
+
+    let upgrade_manager = committee.borrow_upgrade_manager_mut();
+    assert!(upgrade_manager.upgrade_proposal.is_some(), ENoProposalForDigest);
+
+    let proposal = upgrade_manager.upgrade_proposal.borrow_mut();
+
+    // Insert or update vote.
+    insert_vote(proposal, sender, Vote::Reject);
 }
 
 /// Authorizes an upgrade as a committee member when approvals count has reached threshold. Returns
@@ -537,39 +569,12 @@ fun check_rotation_consistency(self: &Committee, old_committee: &Committee) {
     assert!(old_committee.is_finalized(), EInvalidState);
 }
 
-/// Helper function to vote approve or reject as a committee member. Each member can have one active
-/// vote (approve or reject) per proposal, and can change vote by voting again.
-fun vote_for_upgrade(committee: &mut Committee, digest: vector<u8>, vote: Vote, ctx: &TxContext) {
-    let sender = ctx.sender();
-    assert!(committee.members.contains(&sender), ENotAuthorized);
-    assert!(committee.is_finalized(), EInvalidState);
-
-    let upgrade_manager = committee.borrow_upgrade_manager_mut();
-
-    // Get or create the proposal.
-    let cap_version = upgrade_manager.cap.version();
-    if (upgrade_manager.upgrade_proposal.is_none()) {
-        let parsed_digest = package_digest!(digest);
-        upgrade_manager.upgrade_proposal =
-            option::some(UpgradeProposal {
-                digest: parsed_digest,
-                version: cap_version + 1,
-                votes: vec_map::empty(),
-            });
-    };
-
-    let proposal = upgrade_manager.upgrade_proposal.borrow_mut();
-
-    // Validate digest and version.
-    let parsed_digest = package_digest!(digest);
-    assert!(proposal.digest.0 == parsed_digest.0, ENoProposalForDigest);
-    assert!(proposal.version == cap_version + 1, EWrongVersion);
-
+/// Helper function to insert or update a vote for the sender.
+fun insert_vote(proposal: &mut UpgradeProposal, sender: address, vote: Vote) {
     // Remove existing vote if any, then insert new vote.
     if (proposal.votes.contains(&sender)) {
         proposal.votes.remove(&sender);
     };
-
     proposal.votes.insert(sender, vote);
 }
 

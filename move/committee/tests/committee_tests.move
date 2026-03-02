@@ -1046,13 +1046,13 @@ fun test_package_upgrade_e2e() {
         // BOB votes to reject
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // CHARLIE votes to reject
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Reset the proposal (>= threshold rejections)
@@ -1071,7 +1071,7 @@ fun test_package_upgrade_e2e() {
         // CHARLIE votes reject
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // CHARLIE updates to approve
@@ -1156,7 +1156,14 @@ fun test_reset_proposal_fails_without_threshold_rejections() {
         let digest = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        // First create a proposal by approving
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // Now ALICE rejects
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Try to reset with only 1 rejection - fails.
