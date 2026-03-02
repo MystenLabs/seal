@@ -145,7 +145,7 @@ impl SealTestCluster {
                         RetryConfig::default(),
                         None,
                     ),
-                    master_keys: MasterKeys::Open { master_key },
+                    master_keys: Arc::new(MasterKeys::Open { master_key }),
                     key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options,
                 };

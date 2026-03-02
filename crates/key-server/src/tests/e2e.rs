@@ -848,7 +848,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     servers.iter().for_each(|server| {
         if let MasterKeys::Committee {
             committee_version, ..
-        } = &server.master_keys
+        } = server.master_keys.as_ref()
         {
             committee_version.store(1, Ordering::Relaxed);
         }

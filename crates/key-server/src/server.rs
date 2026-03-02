@@ -599,7 +599,7 @@ impl Server {
         );
 
         // Clone the committee_version Arc for the spawned task
-        let committee_version_arc = match &self.master_keys {
+        let committee_version_arc = match self.master_keys.as_ref() {
             MasterKeys::Committee {
                 committee_version, ..
             } => Arc::clone(committee_version),
@@ -623,8 +623,6 @@ impl Server {
                 Duration::from_secs(30),
                 fetch_fn,
                 "committee key server version",
-                None::<fn(u64)>,
-                None::<fn(Duration)>,
                 None::<fn(bool)>,
             )
             .await;

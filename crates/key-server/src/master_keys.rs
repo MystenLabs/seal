@@ -40,7 +40,7 @@ pub enum MasterKeys {
     Committee {
         key_state: CommitteeKeyState,
         /// The current version, atomically updated when rotation completes.
-        committee_version: AtomicU32,
+        committee_version: Arc<AtomicU32>,
     },
 }
 
@@ -133,7 +133,7 @@ impl MasterKeys {
 
                 Ok(MasterKeys::Committee {
                     key_state,
-                    committee_version: AtomicU32::new(committee_version),
+                    committee_version: Arc::new(AtomicU32::new(committee_version)),
                 })
             }
             ServerMode::Permissioned { client_configs } => {
@@ -490,7 +490,7 @@ fn test_master_keys_committee_mode() {
             let mk = MasterKeys::load(&options, Some(4)).unwrap();
             let key_server_oid = ObjectID::new(Address::TWO.into_inner());
 
-            // Cannot serve PoP or key requests while onchain is still at v4 (old version)
+            // Cannot serve key requests while onchain is still at v4 (old version)
             // Both call get_committee_server_master_share, so same error
             let result = mk.get_key_for_key_server(&key_server_oid);
             assert!(result.is_err());
@@ -500,7 +500,7 @@ fn test_master_keys_committee_mode() {
             let result = mk.get_committee_server_master_share();
             assert!(result.is_err());
 
-            // After onchain catches up to v5, can serve both PoP and requests with new share
+            // After onchain catches up to v5, can serve requests with new share
             if let MasterKeys::Committee {
                 committee_version, ..
             } = &mk
@@ -552,6 +552,37 @@ fn test_master_keys_committee_mode() {
                     mk.get_committee_server_master_share().unwrap(),
                     &master_share_v5
                 );
+            }
+        },
+    );
+
+    // Test invalid rotation state.
+    with_vars(
+        [
+            ("MASTER_SHARE_V4", Some(&master_share_v4_encoded)),
+            ("MASTER_SHARE_V5", Some(&master_share_v5_encoded)),
+        ],
+        || {
+            let mk = MasterKeys::load(&options, Some(4)).unwrap();
+
+            if let MasterKeys::Committee {
+                committee_version, ..
+            } = &mk
+            {
+                let key_server_oid = ObjectID::new(Address::TWO.into_inner());
+
+                // Test 1: current=3, target=5 fails.
+                committee_version.store(3, Ordering::Relaxed);
+                let result = mk.get_key_for_key_server(&key_server_oid);
+                let err_msg = format!("{:?}", result.unwrap_err());
+                assert!(err_msg.contains("Invalid rotation state"));
+
+                // Test 2: current=6, target=5 fails.
+                committee_version.store(6, Ordering::Relaxed);
+                let result = mk.get_key_for_key_server(&key_server_oid);
+                assert!(result.is_err());
+                let err_msg = format!("{:?}", result.unwrap_err());
+                assert!(err_msg.contains("Invalid rotation state"));
             }
         },
     );

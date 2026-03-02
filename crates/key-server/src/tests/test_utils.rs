@@ -66,7 +66,7 @@ pub(crate) async fn create_test_server(
 
     Server {
         sui_rpc_client,
-        master_keys,
+        master_keys: Arc::new(master_keys),
         key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
         options,
     }
