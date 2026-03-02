@@ -29,6 +29,7 @@ use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::hash::{HashFunction, Sha512};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
 use jsonrpsee::core::ClientError;
@@ -224,7 +225,6 @@ impl Server {
     }
 
     /// Build the key_server_oid -> PoP HashMap for all server modes.
-    /// Returns empty map for Committee mode as it doesn't support /service endpoint.
     pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
@@ -242,9 +242,23 @@ impl Server {
                 })
                 .collect(),
 
-            ServerMode::Committee { .. } => {
-                // Committee mode doesn't support /service endpoint, return empty map
-                HashMap::new()
+            ServerMode::Committee {
+                key_server_obj_id, ..
+            } => {
+                let ks_oid = ObjectID::new(key_server_obj_id.into_inner());
+                // Try to get the key for the key server. This may fail during rotation
+                // if the old share is not available yet. In that case, return empty map
+                // and the /service endpoint will return an error until rotation completes.
+                match master_keys.get_key_for_key_server(&ks_oid) {
+                    Ok(key) => {
+                        let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                        [(ks_oid, pop)].into_iter().collect()
+                    }
+                    Err(_) => {
+                        info!("Cannot create PoP for committee key server (likely in rotation without old share). /service endpoint will not work until rotation completes.");
+                        HashMap::new()
+                    }
+                }
             }
         }
     }
@@ -780,6 +794,44 @@ async fn handle_get_service(
     Ok(Json(GetServiceResponse { service_id, pop }))
 }
 
+#[derive(Serialize, Deserialize)]
+struct ValidateResponse {
+    service_id: ObjectID,
+    master_share_hash: String,
+}
+
+async fn handle_validate(
+    State(app_state): State<MyState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<ValidateResponse>, InternalError> {
+    app_state.metrics.service_requests.inc();
+
+    let service_id = params
+        .get("service_id")
+        .ok_or(InternalError::InvalidServiceId)
+        .and_then(|id| {
+            ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
+        })?;
+
+    // Get the master share for this service ID
+    let master_share = app_state
+        .server
+        .master_keys
+        .get_key_for_key_server(&service_id)?;
+
+    // Serialize the master share and compute SHA512 hash
+    let master_share_bytes = bcs::to_bytes(master_share)
+        .map_err(|e| InternalError::Failure(format!("Failed to serialize master share: {e}")))?;
+
+    let hash = Sha512::digest(&master_share_bytes);
+    let master_share_hash = Hex::encode(hash.as_ref());
+
+    Ok(Json(ValidateResponse {
+        service_id,
+        master_share_hash,
+    }))
+}
+
 #[derive(Clone)]
 struct MyState {
     metrics: Arc<KeyServerMetrics>,
@@ -1037,6 +1089,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
                 .route("/v1/service", get(handle_get_service))
+                .route("/v1/validate", get(handle_validate))
                 .layer(from_fn_with_state(state.clone(), handle_request_headers))
                 .layer(map_response(|response| {
                     add_response_headers(response, package_version!(), GIT_VERSION)
