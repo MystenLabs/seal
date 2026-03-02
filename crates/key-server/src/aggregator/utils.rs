@@ -4,7 +4,7 @@
 use crypto::{elgamal, ibe::verify_encrypted_signature};
 use fastcrypto::{
     encoding::{Encoding, Hex},
-    error::FastCryptoResult,
+    error::{FastCryptoError, FastCryptoResult},
     groups::bls12381::G2Element,
 };
 use seal_sdk::{
@@ -21,6 +21,10 @@ pub fn aggregate_verified_encrypted_responses(
     threshold: u16,
     responses: Vec<(u16, FetchKeyResponse)>, // (party_id, response)
 ) -> FastCryptoResult<FetchKeyResponse> {
+    if responses.len() != threshold as usize {
+        return Err(FastCryptoError::InvalidInput);
+    }
+
     // Build map: key_id -> Vec<(party_id, encrypted_key)>.
     let mut shares_by_key_id: HashMap<Vec<u8>, Vec<(u16, elgamal::Encryption<_>)>> = HashMap::new();
 

@@ -66,6 +66,11 @@ fn default_key_server_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.6.1").expect("Failed to parse default key server version requirement")
 }
 
+/// Default timeout for requests to key servers in seconds.
+fn default_key_server_timeout_secs() -> u64 {
+    8
+}
+
 /// API credentials for a key server.
 #[derive(Clone, Deserialize, Debug)]
 struct ApiCredentials {
@@ -91,6 +96,10 @@ struct AggregatorOptions {
     /// The minimum version of the key server that is required by this aggregator.
     #[serde(default = "default_key_server_version_requirement")]
     key_server_version_requirement: VersionReq,
+
+    /// Timeout for requests to key servers in seconds.
+    #[serde(default = "default_key_server_timeout_secs")]
+    key_server_timeout_secs: u64,
 
     /// API credentials mapped by key server name.
     /// Each key server's registered PartialKeyServer.name maps to its API credentials.
@@ -316,6 +325,7 @@ async fn handle_fetch_key(
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
+    let timeout_secs = state.options.key_server_timeout_secs;
     let metrics = state.aggregator_metrics.clone();
     let http_client = state.http_client.clone();
     let mut fetch_tasks: FuturesUnordered<_> = state
@@ -351,6 +361,7 @@ async fn handle_fetch_key(
                     &ks_version_req,
                     creds,
                     &http_client,
+                    timeout_secs,
                 )
                 .await
                 {
@@ -447,6 +458,7 @@ async fn fetch_from_member(
     ks_version_req: &VersionReq,
     api_credentials: ApiCredentials,
     client: &reqwest::Client,
+    timeout_secs: u64,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
@@ -462,7 +474,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(timeout_secs))
         .send()
         .await
         .map_err(|e| {
@@ -822,6 +834,7 @@ mod tests {
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
+            key_server_timeout_secs: 8,
             api_credentials,
             metrics_push_config: None,
         };
