@@ -409,6 +409,7 @@ fn test_master_keys_committee_mode() {
     let master_share_v5 = Scalar::from(5u128);
     let master_share_v4_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v4).unwrap());
     let master_share_v5_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v5).unwrap());
+    let package_id = ObjectID::ZERO;
 
     // Test Rotation mode.
     let mut options =
@@ -429,7 +430,7 @@ fn test_master_keys_committee_mode() {
             // Rotation mode: onchain is 4, target is 5, V4 is used.
             let mk = MasterKeys::load(&options, Some(4)).unwrap();
             assert_eq!(
-                mk.get_committee_server_master_share().unwrap(),
+                mk.get_key_for_package(&package_id).unwrap(),
                 &master_share_v4
             );
 
@@ -440,7 +441,7 @@ fn test_master_keys_committee_mode() {
                 // After updating current version to target, V5 is used.
                 committee_version.store(5, Ordering::Relaxed);
                 assert_eq!(
-                    mk.get_committee_server_master_share().unwrap(),
+                    mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
                 );
             }
@@ -461,7 +462,7 @@ fn test_master_keys_committee_mode() {
             // Active mode: onchain version is 5, use V5.
             let mk = MasterKeys::load(&options, Some(5)).unwrap();
             assert_eq!(
-                mk.get_committee_server_master_share().unwrap(),
+                mk.get_key_for_package(&package_id).unwrap(),
                 &master_share_v5
             );
         },
@@ -488,17 +489,12 @@ fn test_master_keys_committee_mode() {
         || {
             // Loads ok.
             let mk = MasterKeys::load(&options, Some(4)).unwrap();
-            let key_server_oid = ObjectID::new(Address::TWO.into_inner());
 
             // Cannot serve key requests while onchain is still at v4 (old version)
-            // Both call get_committee_server_master_share, so same error
-            let result = mk.get_key_for_key_server(&key_server_oid);
+            let result = mk.get_key_for_package(&package_id);
             assert!(result.is_err());
             let err_msg = format!("{:?}", result.unwrap_err());
             assert!(err_msg.contains("Cannot serve traffic without old share"));
-
-            let result = mk.get_committee_server_master_share();
-            assert!(result.is_err());
 
             // After onchain catches up to v5, can serve requests with new share
             if let MasterKeys::Committee {
@@ -507,11 +503,7 @@ fn test_master_keys_committee_mode() {
             {
                 committee_version.store(5, Ordering::Relaxed);
                 assert_eq!(
-                    mk.get_key_for_key_server(&key_server_oid).unwrap(),
-                    &master_share_v5
-                );
-                assert_eq!(
-                    mk.get_committee_server_master_share().unwrap(),
+                    mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
                 );
             }
@@ -526,15 +518,10 @@ fn test_master_keys_committee_mode() {
         ],
         || {
             let mk = MasterKeys::load(&options, Some(4)).unwrap();
-            let key_server_oid = ObjectID::new(Address::TWO.into_inner());
 
             // Use old share.
             assert_eq!(
-                mk.get_key_for_key_server(&key_server_oid).unwrap(),
-                &master_share_v4
-            );
-            assert_eq!(
-                mk.get_committee_server_master_share().unwrap(),
+                mk.get_key_for_package(&package_id).unwrap(),
                 &master_share_v4
             );
 
@@ -545,11 +532,7 @@ fn test_master_keys_committee_mode() {
             {
                 committee_version.store(5, Ordering::Relaxed);
                 assert_eq!(
-                    mk.get_key_for_key_server(&key_server_oid).unwrap(),
-                    &master_share_v5
-                );
-                assert_eq!(
-                    mk.get_committee_server_master_share().unwrap(),
+                    mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
                 );
             }
@@ -569,21 +552,36 @@ fn test_master_keys_committee_mode() {
                 committee_version, ..
             } = &mk
             {
-                let key_server_oid = ObjectID::new(Address::TWO.into_inner());
-
                 // Test 1: current=3, target=5 fails.
                 committee_version.store(3, Ordering::Relaxed);
-                let result = mk.get_key_for_key_server(&key_server_oid);
+                let result = mk.get_key_for_package(&package_id);
                 let err_msg = format!("{:?}", result.unwrap_err());
                 assert!(err_msg.contains("Invalid rotation state"));
 
                 // Test 2: current=6, target=5 fails.
                 committee_version.store(6, Ordering::Relaxed);
-                let result = mk.get_key_for_key_server(&key_server_oid);
+                let result = mk.get_key_for_package(&package_id);
                 assert!(result.is_err());
                 let err_msg = format!("{:?}", result.unwrap_err());
                 assert!(err_msg.contains("Invalid rotation state"));
             }
+        },
+    );
+
+    // Test target_version = 0 is rejected.
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Rotation { target_version: 0 },
+        server_name: "test-server".to_string(),
+    };
+    with_vars(
+        [("MASTER_SHARE_V0", Some(&master_share_v4_encoded))],
+        || {
+            let result = MasterKeys::load(&options, Some(0));
+            assert!(result.is_err());
+            let err = result.err().unwrap();
+            assert!(err.to_string().contains("target_version cannot be 0"));
         },
     );
 }
