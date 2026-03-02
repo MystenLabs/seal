@@ -585,7 +585,7 @@ impl Server {
         let current_version = match self.master_keys.as_ref() {
             MasterKeys::Committee {
                 committee_version, ..
-            } => committee_version.load(Ordering::Relaxed),
+            } => committee_version.load(Ordering::SeqCst),
             _ => return,
         };
 
@@ -642,18 +642,18 @@ impl Server {
                                 info!("Rotation complete at version {version}. Updating committee version.");
 
                                 // Update the committee version
-                                committee_version_arc.store(target_version, Ordering::Relaxed);
+                                committee_version_arc.store(target_version, Ordering::SeqCst);
                                 info!("Committee version refreshed to {target_version}.");
 
                                 updater_handle.abort();
                                 break;
-                            } else if target_version == version + 1 {
+                            } else if version.checked_add(1) == Some(target_version) {
                                 continue; // Still in rotation, keep monitoring.
                             } else {
                                 // Unexpected version state - onchain version skipped or went backwards.
                                 panic!(
                                     "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
-                                    target_version - 1
+                                    target_version.saturating_sub(1)
                                 );
                             }
                         }

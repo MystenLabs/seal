@@ -850,7 +850,7 @@ async fn test_e2e_committee_mode_with_rotation() {
             committee_version, ..
         } = server.master_keys.as_ref()
         {
-            committee_version.store(1, Ordering::Relaxed);
+            committee_version.store(1, Ordering::SeqCst);
         }
     });
 

@@ -102,7 +102,7 @@ impl MasterKeys {
                             // Rotation completed, just load MASTER_SHARE_V{target} and ignore others.
                             let master_share = load_master_share(target)?;
                             CommitteeKeyState::Active { master_share }
-                        } else if committee_version == target - 1 {
+                        } else if Some(committee_version) == target.checked_sub(1) {
                             // Rotation in progress, try to load both shares.
                             // If old share doesn't exist, server starts but won't serve traffic
                             // until rotation completes.
@@ -124,7 +124,7 @@ impl MasterKeys {
                             anyhow::bail!(
                                 "Rotation mode mismatch: version {} doesn't match {} or {}",
                                 committee_version,
-                                target - 1,
+                                target.saturating_sub(1),
                                 target
                             );
                         }
@@ -255,11 +255,11 @@ impl MasterKeys {
                     next_master_share,
                     target_version,
                 } => {
-                    let current_version = committee_version.load(Ordering::Relaxed);
+                    let current_version = committee_version.load(Ordering::SeqCst);
                     if current_version == *target_version {
                         // Rotation completed, use new share.
                         Ok(next_master_share)
-                    } else if current_version + 1 == *target_version {
+                    } else if current_version.checked_add(1) == Some(*target_version) {
                         // Still in rotation, use old share if exists.
                         if let Some(old_share) = master_share {
                             Ok(old_share)
@@ -439,7 +439,7 @@ fn test_master_keys_committee_mode() {
             } = &mk
             {
                 // After updating current version to target, V5 is used.
-                committee_version.store(5, Ordering::Relaxed);
+                committee_version.store(5, Ordering::SeqCst);
                 assert_eq!(
                     mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
@@ -501,7 +501,7 @@ fn test_master_keys_committee_mode() {
                 committee_version, ..
             } = &mk
             {
-                committee_version.store(5, Ordering::Relaxed);
+                committee_version.store(5, Ordering::SeqCst);
                 assert_eq!(
                     mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
@@ -530,7 +530,7 @@ fn test_master_keys_committee_mode() {
                 committee_version, ..
             } = &mk
             {
-                committee_version.store(5, Ordering::Relaxed);
+                committee_version.store(5, Ordering::SeqCst);
                 assert_eq!(
                     mk.get_key_for_package(&package_id).unwrap(),
                     &master_share_v5
@@ -553,13 +553,13 @@ fn test_master_keys_committee_mode() {
             } = &mk
             {
                 // Test 1: current=3, target=5 fails.
-                committee_version.store(3, Ordering::Relaxed);
+                committee_version.store(3, Ordering::SeqCst);
                 let result = mk.get_key_for_package(&package_id);
                 let err_msg = format!("{:?}", result.unwrap_err());
                 assert!(err_msg.contains("Invalid rotation state"));
 
                 // Test 2: current=6, target=5 fails.
-                committee_version.store(6, Ordering::Relaxed);
+                committee_version.store(6, Ordering::SeqCst);
                 let result = mk.get_key_for_package(&package_id);
                 assert!(result.is_err());
                 let err_msg = format!("{:?}", result.unwrap_err());
@@ -582,6 +582,52 @@ fn test_master_keys_committee_mode() {
             assert!(result.is_err());
             let err = result.err().unwrap();
             assert!(err.to_string().contains("target_version cannot be 0"));
+        },
+    );
+
+    // Test rotation config when onchain already at target, load as active state.
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Rotation { target_version: 5 },
+        server_name: "test-server".to_string(),
+    };
+    with_vars(
+        [("MASTER_SHARE_V5", Some(&master_share_v5_encoded))],
+        || {
+            // Load with onchain version already at target
+            let mk = MasterKeys::load(&options, Some(5)).unwrap();
+
+            // Should be in Active state, not Rotation
+            assert!(matches!(
+                mk,
+                MasterKeys::Committee {
+                    key_state: CommitteeKeyState::Active { .. },
+                    ..
+                }
+            ));
+
+            // Should serve keys correctly
+            assert_eq!(
+                mk.get_key_for_package(&package_id).unwrap(),
+                &master_share_v5
+            );
+        },
+    );
+
+    // Test rotation mode with only old share, missing next_master_share (should fail).
+    options.server_mode = ServerMode::Committee {
+        member_address: Address::ZERO,
+        key_server_obj_id: Address::TWO,
+        committee_state: CommitteeState::Rotation { target_version: 5 },
+        server_name: "test-server".to_string(),
+    };
+    with_vars(
+        [("MASTER_SHARE_V4", Some(&master_share_v4_encoded))],
+        || {
+            let result = MasterKeys::load(&options, Some(4));
+            let err = result.err().unwrap();
+            assert!(err.to_string().contains("MASTER_SHARE_V5"));
         },
     );
 }
