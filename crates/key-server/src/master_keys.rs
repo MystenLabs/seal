@@ -66,6 +66,8 @@ impl MasterKeys {
     /// For Committee mode, committee_version must be provided (fetched from blockchain by caller).
     /// If committee_version == target_version, loads only MASTER_SHARE_V{target_version} in Active mode.
     /// If committee_version == target_version - 1, loads both shares in Rotation mode.
+    /// MASTER_SHARE_V{current_version} can be None and server will start but won't serve traffic
+    /// until rotation completes.
     pub(crate) fn load(
         options: &KeyServerOptions,
         committee_version: Option<u32>,
@@ -240,7 +242,8 @@ impl MasterKeys {
         }
     }
 
-    /// Load committee version to determine which master share to use.
+    /// Load committee version and return the master share to use and return. Called in committee
+    /// mode only.
     pub(crate) fn get_committee_server_master_share(
         &self,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {

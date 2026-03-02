@@ -634,7 +634,7 @@ impl Server {
                 loop {
                     match receiver_clone.changed().await {
                         Ok(_) => {
-                            // TODO: Make the updater generic from u64 to avoid this cast.
+                            // Safe cast: onchain Committee.version is u32, so value always fits.
                             let version = *receiver_clone.borrow() as u32;
 
                             // Rotation completes.

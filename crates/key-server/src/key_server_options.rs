@@ -121,7 +121,7 @@ pub struct KeyServerOptions {
     /// A custom node URL. If not set, the default for the given network is used.
     pub node_url: Option<String>,
 
-    /// If the server is open or permissioned.
+    /// If the server is open, permissioned, or committee.
     pub server_mode: ServerMode,
 
     /// The minimum version of the client SDK that is required to use this key server.
