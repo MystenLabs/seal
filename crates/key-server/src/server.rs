@@ -10,7 +10,7 @@ use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
 use crate::time::{checked_duration_since, from_mins};
-use crate::types::{MasterKeyPOP, Network};
+use crate::types::{IbePublicKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -768,6 +768,36 @@ async fn handle_get_service(
     Ok(Json(GetServiceResponse { service_id, pop }))
 }
 
+#[derive(Deserialize)]
+struct ServiceIdQuery {
+    service_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetPkResponse {
+    service_id: ObjectID,
+    pk: IbePublicKey,
+}
+
+async fn handle_get_pk(
+    State(app_state): State<MyState>,
+    Query(ServiceIdQuery { service_id }): Query<ServiceIdQuery>,
+) -> Result<Json<GetPkResponse>, InternalError> {
+    app_state.metrics.service_requests.inc();
+
+    let service_id =
+        ObjectID::from_hex_literal(&service_id).map_err(|_| InternalError::InvalidServiceId)?;
+
+    let master_key = app_state
+        .server
+        .master_keys
+        .get_key_for_key_server(&service_id)?;
+
+    let pk = ibe::public_key_from_master_key(master_key);
+
+    Ok(Json(GetPkResponse { service_id, pk }))
+}
+
 #[derive(Clone)]
 struct MyState {
     metrics: Arc<KeyServerMetrics>,
@@ -1025,6 +1055,7 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
                 .route("/v1/service", get(handle_get_service))
+                .route("/v1/pk", get(handle_get_pk))
                 .layer(from_fn_with_state(state.clone(), handle_request_headers))
                 .layer(map_response(|response| {
                     add_response_headers(response, package_version!(), GIT_VERSION)

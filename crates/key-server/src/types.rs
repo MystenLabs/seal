@@ -10,6 +10,9 @@ use std::str::FromStr;
 /// The Identity-based encryption types.
 pub type IbeMasterKey = ibe::MasterKey;
 
+/// Public key derived from a master key.
+pub type IbePublicKey = ibe::PublicKey;
+
 /// Proof-of-possession of a key-servers master key.
 pub type MasterKeyPOP = ibe::ProofOfPossession;
 
