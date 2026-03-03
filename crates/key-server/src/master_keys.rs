@@ -242,6 +242,14 @@ impl MasterKeys {
         }
     }
 
+    pub(crate) fn get_public_key_for_key_server(
+        &self,
+        key_server_object_id: &ObjectID,
+    ) -> anyhow::Result<ibe::PublicKey, InternalError> {
+        let master_key = self.get_key_for_key_server(key_server_object_id)?;
+        Ok(ibe::public_key_from_master_key(master_key))
+    }
+
     /// Load committee version and return the master share to use and return. Called in committee
     /// mode only.
     pub(crate) fn get_committee_server_master_share(

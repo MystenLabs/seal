@@ -14,9 +14,9 @@ use crate::types::{IbePublicKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{from_fn_with_state, map_response, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
 use common::{ClientSdkType, HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION};
@@ -141,6 +141,11 @@ struct Server {
 }
 
 impl Server {
+    /// Check if the server is in committee mode.
+    fn is_committee_mode(&self) -> bool {
+        matches!(self.options.server_mode, ServerMode::Committee { .. })
+    }
+
     /// Helper to extract committee server parameters for metrics and other uses.
     /// Returns (key_server_object_id, server_name).
     /// Returns None if not in committee mode.
@@ -779,23 +784,32 @@ struct GetPkResponse {
     pk: IbePublicKey,
 }
 
-async fn handle_get_pk(
+async fn handle_get_committee_server_partial_pk(
     State(app_state): State<MyState>,
     Query(ServiceIdQuery { service_id }): Query<ServiceIdQuery>,
-) -> Result<Json<GetPkResponse>, InternalError> {
+) -> Response {
     app_state.metrics.service_requests.inc();
 
-    let service_id =
-        ObjectID::from_hex_literal(&service_id).map_err(|_| InternalError::InvalidServiceId)?;
+    // Only allow this endpoint for committee servers
+    if !app_state.server.is_committee_mode() {
+        return (StatusCode::BAD_REQUEST, "Unsupported").into_response();
+    }
 
-    let master_key = app_state
+    let service_id = match ObjectID::from_hex_literal(&service_id) {
+        Ok(id) => id,
+        Err(_) => return InternalError::InvalidServiceId.into_response(),
+    };
+
+    let pk = match app_state
         .server
         .master_keys
-        .get_key_for_key_server(&service_id)?;
+        .get_public_key_for_key_server(&service_id)
+    {
+        Ok(pk) => pk,
+        Err(e) => return e.into_response(),
+    };
 
-    let pk = ibe::public_key_from_master_key(master_key);
-
-    Ok(Json(GetPkResponse { service_id, pk }))
+    Json(GetPkResponse { service_id, pk }).into_response()
 }
 
 #[derive(Clone)]
@@ -1055,7 +1069,10 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
                 .route("/v1/service", get(handle_get_service))
-                .route("/v1/pk", get(handle_get_pk))
+                .route(
+                    "/v1/debug/committee_partial_pk",
+                    get(handle_get_committee_server_partial_pk),
+                )
                 .layer(from_fn_with_state(state.clone(), handle_request_headers))
                 .layer(map_response(|response| {
                     add_response_headers(response, package_version!(), GIT_VERSION)
