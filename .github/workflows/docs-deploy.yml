@@ -74,5 +74,5 @@ jobs:
              "actor":"${{ github.actor }}",
              "run_id":"${{ github.run_id }}",
              "run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-             "channel":"#seal-secret-mgmt",
+             "channel":"#seal-ci",
              "status":"failure"}
