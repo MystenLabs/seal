@@ -773,43 +773,26 @@ async fn handle_get_service(
     Ok(Json(GetServiceResponse { service_id, pop }))
 }
 
-#[derive(Deserialize)]
-struct ServiceIdQuery {
-    service_id: String,
-}
-
 #[derive(Serialize, Deserialize)]
-struct GetPkResponse {
-    service_id: ObjectID,
-    pk: IbePublicKey,
+struct GetCommitteePartialPkResponse {
+    partial_pk: IbePublicKey,
 }
 
-async fn handle_get_committee_server_partial_pk(
-    State(app_state): State<MyState>,
-    Query(ServiceIdQuery { service_id }): Query<ServiceIdQuery>,
-) -> Response {
+/// Return the corresponding partial public key for its master share. Debug endpoint only supported
+/// in Committee mode.
+async fn handle_get_committee_server_partial_pk(State(app_state): State<MyState>) -> Response {
     app_state.metrics.service_requests.inc();
 
-    // Only allow this endpoint for committee servers
     if !app_state.server.is_committee_mode() {
         return (StatusCode::BAD_REQUEST, "Unsupported").into_response();
     }
 
-    let service_id = match ObjectID::from_hex_literal(&service_id) {
-        Ok(id) => id,
-        Err(_) => return InternalError::InvalidServiceId.into_response(),
-    };
-
-    let pk = match app_state
-        .server
-        .master_keys
-        .get_public_key_for_key_server(&service_id)
-    {
+    let partial_pk = match app_state.server.master_keys.get_committee_partial_pk() {
         Ok(pk) => pk,
         Err(e) => return e.into_response(),
     };
 
-    Json(GetPkResponse { service_id, pk }).into_response()
+    Json(GetCommitteePartialPkResponse { partial_pk }).into_response()
 }
 
 #[derive(Clone)]
