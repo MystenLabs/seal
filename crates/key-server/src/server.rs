@@ -30,6 +30,7 @@ use errors::InternalError;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::hash::{HashFunction, Sha512};
+use fastcrypto::serde_helpers::ToFromByteArray;
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
 use jsonrpsee::core::ClientError;
@@ -819,11 +820,11 @@ async fn handle_validate(
         .master_keys
         .get_key_for_key_server(&service_id)?;
 
-    // Serialize the master share and compute SHA512 hash
-    let master_share_bytes = bcs::to_bytes(master_share)
-        .map_err(|e| InternalError::Failure(format!("Failed to serialize master share: {e}")))?;
+    // Convert master share to hex string with 0x prefix (to match enclave format)
+    let master_share_hex = format!("0x{}", Hex::encode(master_share.to_byte_array()));
 
-    let hash = Sha512::digest(&master_share_bytes);
+    // Compute SHA512 hash of the hex string (matching enclave behavior)
+    let hash = Sha512::digest(master_share_hex.as_bytes());
     let master_share_hash = Hex::encode(hash.as_ref());
 
     Ok(Json(ValidateResponse {
