@@ -49,6 +49,9 @@ use std::os::unix::fs::PermissionsExt;
 
 use crate::types::{sign_message, verify_signature, SignedMessage};
 
+/// Domain separation tag for DKG random oracle
+const DST_DKG: &str = "SEAL_DKG_V0_";
+
 /// BCS-serialize a value and hex-encode the result.
 macro_rules! bcs_hex_encode {
     ($val:expr) => {
@@ -1593,7 +1596,7 @@ async fn create_dkg_state_and_message(
     // - Rotation: only continuing members create a message (my_old_share is Some).
     let my_message = if old_threshold.is_none() || my_old_share.is_some() {
         println!("Creating DKG message for party {my_party_id}...");
-        let random_oracle = RandomOracle::new(&committee_id.to_string());
+        let random_oracle = RandomOracle::new(&format!("{}{}", DST_DKG, committee_id));
         let party = Party::<G2Element, G1Element>::new_advanced(
             local_keys.enc_sk.clone(),
             Nodes::new(nodes.clone())?.clone(),
@@ -1976,7 +1979,7 @@ fn process_dkg_messages(
         local_keys.enc_sk.clone(),
         state.config.nodes.clone(),
         state.config.threshold,
-        RandomOracle::new(&state.config.committee_id.to_string()),
+        RandomOracle::new(&format!("{}{}", DST_DKG, state.config.committee_id)),
         state.config.my_old_share,
         state.config.old_threshold,
         &mut thread_rng(),
