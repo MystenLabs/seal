@@ -8,6 +8,11 @@ import React from 'react';
 
 export type MoveCallConstructor = (tx: Transaction, id: string) => void;
 
+// This example uses one decentralized key server.
+// For different configuration options, refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers
+export const DECENTRALIZED_KEY_SERVER_OBJ_ID =
+  '0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98';
+
 export const downloadAndDecrypt = async (
   blobIds: string[],
   sessionKey: SessionKey,

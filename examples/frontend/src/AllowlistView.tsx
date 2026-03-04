@@ -6,14 +6,14 @@ import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes';
 import { fromHex } from '@mysten/sui/utils';
 import { Transaction } from '@mysten/sui/transactions';
-import {
-  KeyServerConfig,
-  SealClient,
-  SessionKey,
-  type ExportedSessionKey
-} from '@mysten/seal';
+import { KeyServerConfig, SealClient, SessionKey, type ExportedSessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
-import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
+import {
+  downloadAndDecrypt,
+  getObjectExplorerLink,
+  MoveCallConstructor,
+  DECENTRALIZED_KEY_SERVER_OBJ_ID,
+} from './utils';
 import { set, get } from 'idb-keyval';
 import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
@@ -35,14 +35,16 @@ function constructMoveCall(packageId: string, allowlistId: string): MoveCallCons
 
 const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
-  const serverObjectIds = ["0xab0747fe37e7161c907a518c51f3328ba5bb683984cc6c69666afe9cd3e072e0"];
   const client = new SealClient({
     suiClient,
-    serverConfigs: serverObjectIds.map((id) => ({
-      objectId: id,
-      weight: 1,
-      aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
-    })),
+    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+    serverConfigs: [
+      {
+        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+        weight: 1,
+        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+      },
+    ],
     verifyKeyServers: false,
   });
   const packageId = useNetworkVariable('packageId');

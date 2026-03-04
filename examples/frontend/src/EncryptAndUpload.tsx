@@ -7,6 +7,7 @@ import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Button, Card, Flex, Spinner, Text } from '@radix-ui/themes';
 import { SealClient } from '@mysten/seal';
 import { fromHex, toHex } from '@mysten/sui/utils';
+import { DECENTRALIZED_KEY_SERVER_OBJ_ID } from './utils';
 
 export type Data = {
   status: string;
@@ -45,14 +46,16 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
   const NUM_EPOCH = 1;
   const packageId = useNetworkVariable('packageId');
   const suiClient = useSuiClient();
-  const serverObjectIds = ["0xab0747fe37e7161c907a518c51f3328ba5bb683984cc6c69666afe9cd3e072e0"];
   const client = new SealClient({
     suiClient,
-    serverConfigs: serverObjectIds.map((id) => ({
-      objectId: id,
-      weight: 1,
-      aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
-    })),
+    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+    serverConfigs: [
+      {
+        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+        weight: 1,
+        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+      },
+    ],
     verifyKeyServers: false,
   });
 

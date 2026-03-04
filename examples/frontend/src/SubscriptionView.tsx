@@ -13,7 +13,12 @@ import { coinWithBalance, Transaction } from '@mysten/sui/transactions';
 import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 import { SealClient, SessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
-import { downloadAndDecrypt, getObjectExplorerLink, MoveCallConstructor } from './utils';
+import {
+  downloadAndDecrypt,
+  getObjectExplorerLink,
+  MoveCallConstructor,
+  DECENTRALIZED_KEY_SERVER_OBJ_ID,
+} from './utils';
 import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 const TTL_MIN = 10;
@@ -30,15 +35,17 @@ export interface FeedData {
 const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const suiClient = useSuiClient();
   const { id } = useParams();
-  const serverObjectIds = ["0xab0747fe37e7161c907a518c51f3328ba5bb683984cc6c69666afe9cd3e072e0"];
 
   const client = new SealClient({
     suiClient,
-    serverConfigs: serverObjectIds.map((id) => ({
-      objectId: id,
-      weight: 1,
-      aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
-    })),
+    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+    serverConfigs: [
+      {
+        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+        weight: 1,
+        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+      },
+    ],
     verifyKeyServers: false,
   });
   const [feed, setFeed] = useState<FeedData>();
