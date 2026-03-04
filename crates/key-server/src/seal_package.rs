@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::time::current_epoch_time;
+use key_server::errors::InternalError;
 use move_core_types::identifier::Identifier;
 use std::str::FromStr;
 use sui_sdk::rpc_types::{
@@ -65,7 +66,7 @@ impl SealPackage {
         &self,
         allowed_staleness: std::time::Duration,
         mut ptb: ProgrammableTransaction,
-    ) -> ProgrammableTransaction {
+    ) -> Result<ProgrammableTransaction, InternalError> {
         let now = current_epoch_time();
         ptb.inputs.push(CallArg::from(now));
         let now_index = ptb.inputs.len() - 1;
@@ -98,13 +99,19 @@ impl SealPackage {
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
             vec![
-                Input(now_index as u16),
-                Input(allowed_staleness_index as u16),
-                Input(clock_index as u16),
+                Input(try_into_ptb_index(now_index)?),
+                Input(try_into_ptb_index(allowed_staleness_index)?),
+                Input(try_into_ptb_index(clock_index)?),
             ],
         );
 
         ptb.commands.insert(0, staleness_check);
-        ptb
+        Ok(ptb)
     }
+}
+
+fn try_into_ptb_index(index: usize) -> Result<u16, InternalError> {
+    index
+        .try_into()
+        .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
 }

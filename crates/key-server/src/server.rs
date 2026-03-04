@@ -350,7 +350,7 @@ impl Server {
             .options
             .network
             .seal_package()
-            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone());
+            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone())?;
 
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
