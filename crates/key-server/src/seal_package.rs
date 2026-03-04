@@ -10,7 +10,7 @@ use sui_sdk::rpc_types::{
 };
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::Argument::Input;
-use sui_types::transaction::{CallArg, Command, ObjectArg, ProgrammableTransaction};
+use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, ProgrammableTransaction};
 use sui_types::SUI_CLOCK_OBJECT_ID;
 
 const TESTNET_PACKAGE_ID: &str =
@@ -69,13 +69,13 @@ impl SealPackage {
     ) -> Result<ProgrammableTransaction, InternalError> {
         let now = current_epoch_time();
         ptb.inputs.push(CallArg::from(now));
-        let now_index = try_into_ptb_input(ptb.inputs.len() - 1)?;
+        let now_argument = try_argument_from_input_index(ptb.inputs.len() - 1)?;
 
         let allowed_staleness = allowed_staleness.as_millis() as u64;
         ptb.inputs.push(CallArg::from(allowed_staleness));
-        let allowed_staleness_index = try_into_ptb_input(ptb.inputs.len() - 1)?;
+        let allowed_staleness_argument = try_argument_from_input_index(ptb.inputs.len() - 1)?;
 
-        let clock_index = try_into_ptb_input(
+        let clock_argument = try_argument_from_input_index(
             ptb.inputs
                 .iter()
                 .position(|arg| {
@@ -99,11 +99,7 @@ impl SealPackage {
             Identifier::from_str(STALENESS_MODULE).unwrap(),
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
-            vec![
-                Input(now_index),
-                Input(allowed_staleness_index),
-                Input(clock_index),
-            ],
+            vec![now_argument, allowed_staleness_argument, clock_argument],
         );
 
         ptb.commands.insert(0, staleness_check);
@@ -111,8 +107,9 @@ impl SealPackage {
     }
 }
 
-fn try_into_ptb_input(index: usize) -> Result<u16, InternalError> {
-    index
+fn try_argument_from_input_index(input_index: usize) -> Result<Argument, InternalError> {
+    input_index
         .try_into()
+        .map(Input)
         .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
 }
