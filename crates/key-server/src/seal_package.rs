@@ -67,39 +67,37 @@ impl SealPackage {
         allowed_staleness: std::time::Duration,
         mut ptb: ProgrammableTransaction,
     ) -> Result<ProgrammableTransaction, InternalError> {
-        let now = current_epoch_time();
-        ptb.inputs.push(CallArg::from(now));
-        let now_argument = try_argument_from_input_index(ptb.inputs.len() - 1)?;
+        let now = try_add_argument(&mut ptb, CallArg::from(current_epoch_time()))?;
 
-        let allowed_staleness = allowed_staleness.as_millis() as u64;
-        ptb.inputs.push(CallArg::from(allowed_staleness));
-        let allowed_staleness_argument = try_argument_from_input_index(ptb.inputs.len() - 1)?;
-
-        let clock_argument = try_argument_from_input_index(
-            ptb.inputs
-                .iter()
-                .position(|arg| {
-                    matches!(
-                        arg,
-                        CallArg::Object(ObjectArg::SharedObject {
-                            id: SUI_CLOCK_OBJECT_ID,
-                            ..
-                        })
-                    )
-                })
-                .unwrap_or_else(|| {
-                    // The clock is not yet part of the PTB, so we add it
-                    ptb.inputs.push(CallArg::CLOCK_IMM);
-                    ptb.inputs.len() - 1
-                }),
+        let allowed_staleness = try_add_argument(
+            &mut ptb,
+            CallArg::from(allowed_staleness.as_millis() as u64),
         )?;
+
+        let clock = ptb
+            .inputs
+            .iter()
+            .position(|arg| {
+                matches!(
+                    arg,
+                    CallArg::Object(ObjectArg::SharedObject {
+                        id: SUI_CLOCK_OBJECT_ID,
+                        ..
+                    })
+                )
+            })
+            .map(try_argument_from_input_index)
+            .unwrap_or_else(|| {
+                // The clock is not yet part of the PTB, so we add it
+                try_add_argument(&mut ptb, CallArg::CLOCK_IMM)
+            })?;
 
         let staleness_check = Command::move_call(
             self.package_id(),
             Identifier::from_str(STALENESS_MODULE).unwrap(),
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
-            vec![now_argument, allowed_staleness_argument, clock_argument],
+            vec![now, allowed_staleness, clock],
         );
 
         ptb.commands.insert(0, staleness_check);
@@ -112,4 +110,12 @@ fn try_argument_from_input_index(input_index: usize) -> Result<Argument, Interna
         .try_into()
         .map(Input)
         .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
+}
+
+fn try_add_argument(
+    ptb: &mut ProgrammableTransaction,
+    argument: CallArg,
+) -> Result<Argument, InternalError> {
+    ptb.inputs.push(argument);
+    try_argument_from_input_index(ptb.inputs.len() - 1)
 }
