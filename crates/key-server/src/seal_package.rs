@@ -69,29 +69,30 @@ impl SealPackage {
     ) -> Result<ProgrammableTransaction, InternalError> {
         let now = current_epoch_time();
         ptb.inputs.push(CallArg::from(now));
-        let now_index = ptb.inputs.len() - 1;
+        let now_index = try_into_ptb_input(ptb.inputs.len() - 1)?;
 
         let allowed_staleness = allowed_staleness.as_millis() as u64;
         ptb.inputs.push(CallArg::from(allowed_staleness));
-        let allowed_staleness_index = ptb.inputs.len() - 1;
+        let allowed_staleness_index = try_into_ptb_input(ptb.inputs.len() - 1)?;
 
-        let clock_index = ptb
-            .inputs
-            .iter()
-            .position(|arg| {
-                matches!(
-                    arg,
-                    CallArg::Object(ObjectArg::SharedObject {
-                        id: SUI_CLOCK_OBJECT_ID,
-                        ..
-                    })
-                )
-            })
-            .unwrap_or_else(|| {
-                // The clock is not yet part of the PTB, so we add it
-                ptb.inputs.push(CallArg::CLOCK_IMM);
-                ptb.inputs.len() - 1
-            });
+        let clock_index = try_into_ptb_input(
+            ptb.inputs
+                .iter()
+                .position(|arg| {
+                    matches!(
+                        arg,
+                        CallArg::Object(ObjectArg::SharedObject {
+                            id: SUI_CLOCK_OBJECT_ID,
+                            ..
+                        })
+                    )
+                })
+                .unwrap_or_else(|| {
+                    // The clock is not yet part of the PTB, so we add it
+                    ptb.inputs.push(CallArg::CLOCK_IMM);
+                    ptb.inputs.len() - 1
+                }),
+        )?;
 
         let staleness_check = Command::move_call(
             self.package_id(),
@@ -99,9 +100,9 @@ impl SealPackage {
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
             vec![
-                Input(try_into_ptb_index(now_index)?),
-                Input(try_into_ptb_index(allowed_staleness_index)?),
-                Input(try_into_ptb_index(clock_index)?),
+                Input(now_index),
+                Input(allowed_staleness_index),
+                Input(clock_index),
             ],
         );
 
@@ -110,7 +111,7 @@ impl SealPackage {
     }
 }
 
-fn try_into_ptb_index(index: usize) -> Result<u16, InternalError> {
+fn try_into_ptb_input(index: usize) -> Result<u16, InternalError> {
     index
         .try_into()
         .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
