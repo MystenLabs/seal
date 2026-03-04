@@ -205,7 +205,7 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
   const storeBlob = (encryptedData: Uint8Array) => {
     return fetch(`${getPublisherUrl(`/v1/blobs?epochs=${NUM_EPOCH}`)}`, {
       method: 'PUT',
-      body: encryptedData,
+      body: encryptedData.slice(),
     }).then((response) => {
       if (response.status === 200) {
         return response.json().then((info) => {

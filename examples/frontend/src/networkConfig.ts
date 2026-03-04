@@ -7,6 +7,7 @@ import { createNetworkConfig } from '@mysten/dapp-kit';
 const { networkConfig, useNetworkVariable, useNetworkVariables } = createNetworkConfig({
   testnet: {
     url: getJsonRpcFullnodeUrl('testnet'),
+    network: 'testnet',
     variables: {
       packageId: TESTNET_PACKAGE_ID,
       mvrName: '@pkg/seal-demo-1234',
