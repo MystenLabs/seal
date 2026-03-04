@@ -1,8 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::errors::InternalError;
 use crate::time::current_epoch_time;
-use key_server::errors::InternalError;
 use move_core_types::identifier::Identifier;
 use std::str::FromStr;
 use sui_sdk::rpc_types::{
