@@ -6,7 +6,7 @@ mod types;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
-use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -2134,6 +2134,8 @@ async fn display_partial_key_servers(key_server: &KeyServerV2, members: &[Addres
                 println!("  Name: {}", info.name);
                 println!("  URL: {}", info.url);
                 println!("  Party ID: {}", info.party_id);
+                let partial_pk_bytes = bcs::to_bytes(&info.partial_pk)?;
+                println!("  Partial PK: {}", Base64::encode(&partial_pk_bytes));
                 println!();
             }
         }
