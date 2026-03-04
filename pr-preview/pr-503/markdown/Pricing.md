@@ -113,8 +113,17 @@ Committee server type key servers provide distributed trust through multiple com
 
 ### Testnet
 
-- **Committee key server object ID**: `0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98`: This is operatored by 3 out of 5 committee members
+- **Committee key server object ID**: `0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98`
 - **Aggregator URL**: `https://seal-aggregator-testnet.mystenlabs.com`
+
+This committee is set up as a 3 out of 5 threshold committee with the following members: 
+- [Mysten Labs](https://mystenlabs.com/)
+- [Natsai](https://www.natsai.xyz/seal)
+- [Overclock](https://seal.overclock.run/)
+- [NodeInfra](https://docs.nodeinfra.com/)
+- [Ruby Nodes](https://seal.rubynodes.io/)
+
+The aggregator is ran by Mysten Labs. Basic Testnet usage does not require API credentials.
 
 ### Mainnet
 
