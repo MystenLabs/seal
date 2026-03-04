@@ -6,6 +6,7 @@ import { createNetworkConfig } from '@mysten/dapp-kit';
 
 const { networkConfig, useNetworkVariable, useNetworkVariables } = createNetworkConfig({
   testnet: {
+    network: 'testnet',
     url: getJsonRpcFullnodeUrl('testnet'),
     variables: {
       packageId: TESTNET_PACKAGE_ID,
