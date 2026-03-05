@@ -65,6 +65,17 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
                 );
             };
 
+            // Restriction: Neither results from other commands nor GasCoins are not allowed as inputs
+            for arg in &cmd.arguments {
+                if !matches!(arg, Argument::Input(_)) {
+                    return_err!(
+                        InternalError::InvalidPTB("Only pure inputs are allowed".to_string()),
+                        "Invalid argument {:?}",
+                        arg
+                    );
+                }
+            }
+
             // Restriction: The first argument to the move call must be a non-empty id.
             let _ = get_key_id(&ptb, cmd)?;
 

@@ -68,7 +68,6 @@ impl SealPackage {
         mut ptb: ProgrammableTransaction,
     ) -> Result<ProgrammableTransaction, InternalError> {
         let now = try_add_argument(&mut ptb, CallArg::from(current_epoch_time()))?;
-
         let allowed_staleness = try_add_argument(
             &mut ptb,
             CallArg::from(allowed_staleness.as_millis() as u64),
@@ -100,6 +99,7 @@ impl SealPackage {
             vec![now, allowed_staleness, clock],
         );
 
+        // This shifts all commands by 1 but that's okay since their results cannot be used as inputs
         ptb.commands.insert(0, staleness_check);
         Ok(ptb)
     }
