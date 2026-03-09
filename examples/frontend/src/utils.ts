@@ -66,6 +66,8 @@ export const downloadAndDecrypt = async (
     const ids = batch.map((enc) => EncryptedObject.parse(new Uint8Array(enc)).id);
     const tx = new Transaction();
     ids.forEach((id) => moveCallConstructor(tx, id));
+    // Note: if moveCallConstructor references owned objects, tx.setSender(address)
+    // must be called before build(). See docs/content/UsingSeal.mdx for details.
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
       await sealClient.fetchKeys({ ids, txBytes, sessionKey, threshold: 2 });
@@ -87,6 +89,8 @@ export const downloadAndDecrypt = async (
     const fullId = EncryptedObject.parse(new Uint8Array(encryptedData)).id;
     const tx = new Transaction();
     moveCallConstructor(tx, fullId);
+    // Note: if moveCallConstructor references owned objects, tx.setSender(address)
+    // must be called before build(). See docs/content/UsingSeal.mdx for details.
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
       // Note that all keys are fetched above, so this only local decryption is done
