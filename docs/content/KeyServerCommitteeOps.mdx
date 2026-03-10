@@ -1,8 +1,9 @@
 ---
-title: Key Server Operations for Committee Server Type
-description: Learn how to set up and operate a key server as a committee server type, including DKG ceremonies, key rotation, and aggregator configuration.
+title: Key Server Operations for Decentralized Server Type
+description: Learn how to set up and operate a key server as a decentralized (committee mode) server type, including DKG ceremonies, key rotation, and aggregator configuration.
 keywords:
   - key server operations
+  - decentralized key server
   - committee mode
   - DKG
   - distributed key generation
@@ -15,11 +16,11 @@ keywords:
 
 import InfrastructureRequirements from './_InfrastructureRequirements.mdx';
 
-This guide explains how to set up and operate a key server as a committee server type. For an overview of committee vs independent server types, see [Seal Server Overview](/ServerOverview).
+This guide explains how to set up and operate a key server as a decentralized server type. For an overview of decentralized vs independent server types, see [Seal Server Overview](/ServerOverview).
 
 ## Overview
 
-Committee server type embeds distributed key trust directly into the infrastructure layer. To your application, it looks like a single logical key server. Internally, it enforces threshold cryptography across multiple independent operators.
+Decentralized server type embeds distributed key trust directly into the infrastructure layer. To your application, it looks like a single logical key server. Internally, it enforces threshold cryptography across multiple independent operators.
 
 Anyone can set up a committee — there is no central authority or permission required. Operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. No single operator ever holds the full master key.
 
@@ -89,7 +90,7 @@ cargo run --bin seal-committee-cli -- --help
 
 ### Fresh DKG coordinator runbook
 
-Follow these steps to initialize a new MPC committee using a fresh DKG.
+Follow these steps to initialize a new multi-party computation (MPC) committee using a fresh DKG.
 
 1. **Prepare DKG configuration**
 
