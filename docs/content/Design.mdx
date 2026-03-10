@@ -6,6 +6,8 @@ keywords:
   - identity-based encryption
   - IBE
   - key servers
+  - indepdent key server
+  - decentralized key server
   - access policies
   - time-lock encryption
   - MPC committee
@@ -33,7 +35,7 @@ The domain of identities is not fixed and can be any string or byte array. Seal 
 Seal consists of two main components:
 
 - **Access policies defined on Sui:** A Move package at address `PkgId` controls the subdomain of IBE identities that starts with `[PkgId]` (that is, all strings of the form `[PkgId]*`). You can think of `[PkgId]` as an identity *namespace*. The package defines, through Move code, who is authorized to access the keys associated with its identity subdomain.
-- **Off-chain key servers:** Key servers are off-chain services, each holding a single IBE master secret key. Users can request a derived secret key for a specific identity. The key server returns the derived key only if the associated on-chain access policy approves the request.
+- **Off-chain key servers:** Key servers are off-chain services that validate on-chain access policies and return derived secret keys to authorized users. A key server can be independent, where a single operator holds the master secret key, or decentralized (committee mode), where a multi-party computation (MPC) committee splits the master secret across participants so no single party holds it alone.
 
 Consider the following basic example for realizing time-lock encryption:
 ```rust
@@ -84,7 +86,7 @@ The set of key servers is not dynamic once the data is encrypted, and encrypted 
 
 :::
 
-Second, a decentralized key server can also be implemented using a multi-party computation (MPC) committee in a `t-out-of-n` configuration. This committee can consist of Sui validators or any other group of participants. Users can choose to use decentralized key servers in addition to independent key servers. In this setup, the participants in the MPC committee can change over time, allowing for dynamic membership.
+Second, a decentralized key server can also be implemented using an MPC committee in a `t-out-of-n` configuration. This committee can consist of Sui validators or any other group of participants. Users can choose to use decentralized key servers in addition to independent key servers. In this setup, the participants in the MPC committee can change over time, allowing for dynamic membership.
 
 The security of encrypted data relies on the following assumptions:
 

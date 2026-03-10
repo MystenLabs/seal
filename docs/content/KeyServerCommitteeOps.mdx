@@ -20,11 +20,11 @@ This guide explains how to set up and operate a key server as a decentralized se
 
 ## Overview
 
-Decentralized server type embeds distributed key trust directly into the infrastructure layer. To your application, it looks like a single logical key server. Internally, it enforces threshold cryptography across multiple independent operators.
+Decentralized key server type embeds distributed key trust directly into the infrastructure layer. To your application, it looks like a single logical key server. Internally, it enforces threshold cryptography across multiple independent operators.
 
 Anyone can set up a committee — there is no central authority or permission required. Operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. No single operator ever holds the full master key.
 
-In addition to the committee member key servers, an **[aggregator server](/Aggregator)** is required. The aggregator collects encrypted partial responses from operators and combines them into a single encrypted result for clients. Because the aggregator is trustless and holds no key material, it can be operated by anyone, including a third party.
+In addition to the decentralized key servers, an **[aggregator server](/Aggregator)** is required. The aggregator collects encrypted partial responses from operators and combines them into a single encrypted result for clients. Because the aggregator is trustless and holds no key material, it can be operated by anyone, including a third party.
 
 **What you'll learn:**
 - How to run a fresh DKG to bootstrap a new committee and generate the initial key shares
@@ -716,6 +716,6 @@ This command:
 
 ## Infrastructure requirements
 
-The committee type server is initialized with a master share generated during the DKG ceremony, which must be kept secure. You can store it using a cloud-based Key Management System (KMS), or in a self-managed software or hardware vault.
+The decentralized key server is initialized with a master share generated during the DKG ceremony, which must be kept secure. You can store it using a cloud-based Key Management System (KMS), or in a self-managed software or hardware vault.
 
 <InfrastructureRequirements />

@@ -23,9 +23,11 @@ Seal supports **threshold encryption** using multiple independent key servers. W
 
 A poorly chosen threshold can result in unintended data loss. If too many key servers in a configuration go offline or become unavailable in the future, users might not be able to obtain enough decryption shares to recover their keys. Always ensure that the configuration balances fault tolerance with desired security guarantees.
 
-```note
+:::note
+
 Threshold configuration does not apply to decentralized (committee mode) key servers.
-```
+
+:::
 
 ## Vet and establish relationships with key server providers
 
