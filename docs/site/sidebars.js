@@ -6,7 +6,7 @@
 const sidebars = {
   docsSidebar: [
     {
-      type: `cateogory`,
+      type: `category`,
       label: `What is Seal?`,
       link: {
         type: `doc`,
