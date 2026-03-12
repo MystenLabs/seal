@@ -128,7 +128,6 @@ mod tests {
     use sui_types::base_types::ObjectID;
     #[tokio::test]
     async fn test_fetch_first_pkg_id() {
-        //test
         let address = ObjectID::from_str(
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
