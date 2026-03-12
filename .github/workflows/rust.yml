@@ -57,8 +57,17 @@ jobs:
       - uses: taiki-e/install-action@5b5de1b4da26ad411330c0454bdd72929bfcbeb2 # pin@v2.62.29
         with:
           tool: cargo-nextest
+      - name: Install Sui CLI for Move tests
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+          export PATH="$HOME/.suiup/bin:$PATH"
+          suiup install sui@testnet -y
       - name: Run tests
-        run: cargo nextest run --all-features
+        run: |
+          export PATH="$HOME/.suiup/bin:$PATH"
+          # Clear Move cache to avoid stale Sui framework revisions
+          rm -rf ~/.move
+          cargo nextest run --all-features
       - name: Run doctests
         run: |
           cargo test --doc --all-features
