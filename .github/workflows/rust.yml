@@ -58,10 +58,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Run tests
-        run: |
-          # Clear Move cache to avoid stale Sui framework revisions
-          rm -rf ~/.move
-          cargo nextest run --all-features
+        run: cargo nextest run --all-features
       - name: Run doctests
         run: |
           cargo test --doc --all-features

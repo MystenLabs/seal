@@ -34,8 +34,6 @@ jobs:
       - name: Run move tests
         run: |
           export PATH="$HOME/.suiup/bin:$PATH"
-          # Clear Move cache to avoid stale Sui framework revisions
-          rm -rf ~/.move
           for dir in move/*; do
             echo "Running sui move test in $dir"
             sui move test --warnings-are-errors --gas-limit 5000000000 --path $dir
