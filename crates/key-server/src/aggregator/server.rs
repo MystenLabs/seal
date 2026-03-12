@@ -30,6 +30,7 @@ use key_server::errors::InternalError::{
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
+use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
 use seal_committee::{fetch_key_server_by_id, move_types::PartialKeyServer};
@@ -177,7 +178,11 @@ async fn main() -> Result<()> {
         options.key_server_object_id, options.network, options.api_credentials.keys().collect::<Vec<_>>()
     );
 
-    let registry = Registry::new();
+    info!(
+        "Setting up metrics on port {}",
+        mysten_service::metrics::METRICS_HOST_PORT
+    );
+    let registry = start_basic_prometheus_server();
 
     // Track the uptime of the aggregator server.
     let registry_clone = registry.clone();
