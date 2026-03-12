@@ -23,9 +23,19 @@ Seal supports **threshold encryption** using multiple independent key servers. W
 
 A poorly chosen threshold can result in unintended data loss. If too many key servers in a configuration go offline or become unavailable in the future, users might not be able to obtain enough decryption shares to recover their keys. Always ensure that the configuration balances fault tolerance with desired security guarantees.
 
+:::note
+
+Choosing a specific threshold configuration does not apply to decentralized (committee mode) key servers, as one is defined for each such key server during its setup.
+
+:::
+
 ## Vet and establish relationships with key server providers
 
 Each key server in a Seal threshold configuration plays a critical role in data availability. As Seal is permissionless, anyone can run a key server. However, developers should treat key server selection as a trust decision.
+
+```note
+This is applicable to decentralized key servers only if you are planning to set up [your own aggregator](/Aggregator) and need API keys from key server providers.
+```
 
 To reduce operational risk, you should:
 

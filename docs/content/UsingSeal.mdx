@@ -72,7 +72,7 @@ entry fun seal_approve(id: vector<u8>, cnt1: &Counter, cnt2: &Counter) {
 - Although the `Random` module is available, its output is not secure and not deterministic across full nodes. Avoid using it within `seal_approve*` functions.
 - During Seal evaluation, only `seal_approve*` functions can be invoked directly. These functions should not assume composition with other [PTB (Programmable Transaction Block)](https://docs.sui.io/concepts/transactions/prog-txn-blocks) commands.
 
-## Encryption
+## `SealClient` setup
 
 The recommended way to encrypt and decrypt the data is to use the [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
@@ -90,28 +90,42 @@ Anyone can create an on-chain `KeyServer` object that references a known URL (su
 
 Select key server object IDs from the [verified key servers](/Pricing#verified-key-servers) available in each environment.
 
-Seal supports two server types, **independent** and **committee**, which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
+Seal supports two server types, **independent** and **decentralized** (committee mode), which you can use individually or in combination. To understand the differences of server types and use cases, see [Seal Server Overview](/ServerOverview).
 
-#### Option 1: Committee-only
-
-Use a single committee server to get built-in distributed trust and rotation support.
-
-#### Option 2: Hybrid (Committee + Independent)
-
-Flexible trust distribution and cost control.
-
-#### Option 3: Independent-only
-
-Direct operator model with simpler infrastructure relationships.
 :::info
 
-Each key server (whether independent or committee) counts as one server in your threshold configuration and integrates through the same `SealClient` interface.
+Each key server (whether independent or decentralized) counts as one server in your threshold configuration and integrates through the same `SealClient` interface.
 
 :::
 
-Next, the app should create a `SealClient` object for the selected key servers.
+#### Option 1: Decentralized-only
 
-### Example: Independent servers only
+Use a single decentralized server to get built-in distributed trust and rotation support.
+
+```typescript
+const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+// Decentralized server from https://seal-docs.wal.app/Pricing
+const client = new SealClient({
+  suiClient,
+  serverConfigs: [
+    {
+      objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+      weight: 1,
+    },
+    {
+      objectId: "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8",
+      weight: 1,
+    }
+  ],
+  verifyKeyServers: false,
+});
+```
+
+#### Option 2: Independent-only
+
+Direct operator model with simpler infrastructure relationships.
+
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
@@ -132,38 +146,20 @@ const client = new SealClient({
 });
 ```
 
-### Example: Committee server only
+#### Option 3: Hybrid (decentralized + independent)
+
+Flexible trust distribution and cost control.
+
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
-// Committee server from https://seal-docs.wal.app/Pricing
 const client = new SealClient({
   suiClient,
   serverConfigs: [
+    // Decentralized server
     {
       objectId: "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
       aggregatorUrl: "https://seal-aggregator-testnet.mystenlabs.com",
-      weight: 1,
-      // Include if the aggregator requires API key authentication:
-      // apiKeyName: "x-api-key",
-      // apiKey: "your-aggregator-api-key",
-    }
-  ],
-  verifyKeyServers: false,
-});
-```
-
-### Example: Hybrid (committee and independent):
-```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
-
-const client = new SealClient({
-  suiClient,
-  serverConfigs: [
-    // Committee server
-    {
-      objectId: "0xCOMMITTEE_KEY_SERVER_OBJECT_ID",
-      aggregatorUrl: "https://aggregator.example.com",
       weight: 1,
     },
     // Independent server
@@ -179,19 +175,19 @@ const client = new SealClient({
 The `serverConfigs` is a list of objects, where each object contains:
 - **`objectId`** (required): The key server object ID
 - **`weight`** (required): How many times the key server can contribute towards reaching the decryption threshold
-- **`aggregatorUrl`** (required for committee servers): The aggregator endpoint URL
+- **`aggregatorUrl`** (required for decentralized servers): The aggregator endpoint URL
 - **`apiKeyName`** and **`apiKey`** (optional): Required if the server requires API key authentication
-  - For **committee servers**: Include if the aggregator is configured to require API keys
+  - For **decentralized servers**: Include if the aggregator is configured to require API keys
   - For **independent servers**: Include if using Permissioned mode
 
 Set `verifyKeyServers` to `true` if the app or user needs to confirm that the provided URLs correctly correspond to the claimed key servers, as described in the preceding section. Enabling verification introduces additional round-trip requests to the key servers. For best performance, use this option primarily when verifying key servers at app startup. Set `verifyKeyServers` to `false` when verification is not required.
 
 :::tip
 
-## API key authentication
+#### API key authentication
 
 Some servers require API keys for authentication:
-- **Committee servers**: If the aggregator is configured to require API keys (check with the committee operator)
+- **Decentralized servers**: If the aggregator is configured to require API keys (check with the committee operator)
 - **Independent servers (Permissioned mode)**: Always require API keys (contact the provider)
 
 Include the fields `apiKeyName` and `apiKey` in the server configuration object when required. The SDK sends these as an HTTP header in the format `apiKeyName: apiKey`.
@@ -203,7 +199,7 @@ For example, if a server expects the header `x-api-key: my123api456key`, configu
   weight: 1,
   apiKeyName: "x-api-key",
   apiKey: "my123api456key",
-  // aggregatorUrl: "...", // Include for committee servers
+  // aggregatorUrl: "...", // Include for decentralized servers
 }
 ```
 
@@ -211,7 +207,9 @@ Different servers can use different header names. Confirm the header name and AP
 
 :::
 
-Next, the app can call the `encrypt` method on the `client` instance. This function requires the following parameters:
+## Encryption
+
+The app can call the `encrypt` method on the `client` instance. This function requires the following parameters:
 
 - The encryption threshold
 - The package ID of the deployed contract containing the `seal_approve*` functions
@@ -242,86 +240,7 @@ The `encryptedBytes` returned from the encryption call can be parsed using `Encr
 
 :::
 
-## Decryption
-
-Decryption involves a few additional steps:
-
-- The app must create a `SessionKey` object to access the decryption keys for a specific package.
-- The user must approve the request by signing it in their wallet. This grants time-limited access to the associated keys.
-- The app stores the resulting signature in the `SessionKey` to complete its initialization.
-
-Once initialized, the session key can be used to retrieve multiple decryption keys for the specified package without requiring further user confirmation.
-```typescript
-const sessionKey = await SessionKey.create({
-    address: suiAddress,
-    packageId: fromHEX(packageId),
-    ttlMin: 10, // TTL of 10 minutes
-    suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
-});
-const message = sessionKey.getPersonalMessage();
-const { signature } = await keypair.signPersonalMessage(message); // User confirms in wallet
-sessionKey.setPersonalMessageSignature(signature); // Initialization complete
-```
-
-:::note[Notes on Session Key]
-
-1. You can also optionally initialize a `SessionKey` with a passed in `Signer` in the constructor. This is useful for classes that extend `Signer`, for example, `EnokiSigner`.
-2. You can optionally set an `mvr_name` value in the `SessionKey`. This should be the [Move Package Registry](https://www.moveregistry.com/) name for the package. Seal requires the MVR name to be registered to the first version of the package for this to work. If this is set, the message shown to the user in the wallet would use the much more readable MVR package name instead of `packageId`.
-3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class.
-
-:::
-
-The simplest way to perform decryption is to call the client's `decrypt` function. This function expects a `Transaction` object that invokes the relevant `seal_approve*` functions. The transaction must meet the following requirements:
-
-- It can only call `seal_approve*` functions.
-- All calls must be to the same package.
-```typescript
-// Create the Transaction for evaluating the seal_approve function.
-const tx = new Transaction();
-tx.moveCall({
-    target: `${packageId}::${moduleName}::seal_approve`, 
-    arguments: [
-        tx.pure.vector("u8", fromHEX(id)),
-        // other arguments
-   ]
- });  
-const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true })
-const decryptedBytes = await client.decrypt({
-    data: encryptedBytes,
-    sessionKey,
-    txBytes,
-});
-```
-
-Seal evaluates the transaction as if the user sent it. In Move, `TxContext::sender()` returns the account that signed with the session key.
-
-:::tip
-
-To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
-
-:::
-
-The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same ID is used across multiple encryptions. Reusing the same client instance helps reduce backend calls and improve latency. Refer to overall [Performance Recommendations](#optimizing-performance).
-
-To retrieve multiple keys more efficiently, use the `fetchKeys` function with a multi-command PTB. This approach is recommended when multiple keys are required, as it reduces the number of requests to the key servers. Because key servers can apply rate limiting, developers should design their applications and access policies to minimize the frequency of key retrieval requests.
-```typescript
-await client.fetchKeys({
-    ids: [id1, id2],
-    txBytes: txBytesWithTwoSealApproveCalls,
-    sessionKey,
-    threshold: 2,
-});
-```
-
-Check out the [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/test/unit/integration.test.ts) for a full end-to-end example. You can also explore the [example app](https://github.com/MystenLabs/seal/tree/main/examples) to see how to implement allowlist and NFT-gated content access in practice.
-
-:::tip
-
-If a key server request fails with an `InvalidParameter` error, the cause can be a recently created on-chain object in the PTB input. The key server's full node might not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
-
-:::
-
-### on-chain decryption
+### On-chain decryption
 
 Seal supports on-chain HMAC-CTR decryption in Move through the [`seal::bf_mac_encryption`](https://github.com/MystenLabs/seal/tree/main/move/seal/sources/bf_hmac_encryption.move) package. This enables Move packages to decrypt Seal-encrypted objects and use the results in on-chain logic such as auctions, secure voting (see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move)), or other verifiable workflows.
 
@@ -347,7 +266,7 @@ To decrypt an encrypted object in a Move package, follow these steps:
     - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of public keys.
     - The function returns an `Option<vector<u8>>`. If decryption fails, the return value will be `None`.
 
-#### on-chain decryption with the TypeScript SDK
+#### On-chain decryption with the TypeScript SDK
 
 You can use the TypeScript SDK to build a transaction that calls Seal's on-chain decryption functions. 
 
@@ -431,13 +350,92 @@ const decrypted = tx.moveCall({
 // The decryption result is in an option to be consumed if successful, `none` otherwise. 
 ```
 
+## Decryption
+
+Decryption involves a few additional steps:
+
+- The app must create a `SessionKey` object to access the decryption keys for a specific package.
+- The user must approve the request by signing it in their wallet. This grants time-limited access to the associated keys.
+- The app stores the resulting signature in the `SessionKey` to complete its initialization.
+
+Once initialized, the session key can be used to retrieve multiple decryption keys for the specified package without requiring further user confirmation.
+```typescript
+const sessionKey = await SessionKey.create({
+    address: suiAddress,
+    packageId: fromHEX(packageId),
+    ttlMin: 10, // TTL of 10 minutes
+    suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+});
+const message = sessionKey.getPersonalMessage();
+const { signature } = await keypair.signPersonalMessage(message); // User confirms in wallet
+sessionKey.setPersonalMessageSignature(signature); // Initialization complete
+```
+
+:::note[Notes on Session Key]
+
+1. You can also optionally initialize a `SessionKey` with a passed in `Signer` in the constructor. This is useful for classes that extend `Signer`, for example, `EnokiSigner`.
+2. You can optionally set an `mvr_name` value in the `SessionKey`. This should be the [Move Package Registry](https://www.moveregistry.com/) name for the package. Seal requires the MVR name to be registered to the first version of the package for this to work. If this is set, the message shown to the user in the wallet would use the much more readable MVR package name instead of `packageId`.
+3. You can optionally store the `SessionKey` object in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) instead of localStorage if you would like to persist the `SessionKey` across tabs. See usage for `import` and `export` methods in the `SessionKey` class.
+
+:::
+
+The simplest way to perform decryption is to call the client's `decrypt` function. This function expects a `Transaction` object that invokes the relevant `seal_approve*` functions. The transaction must meet the following requirements:
+
+- It can only call `seal_approve*` functions.
+- All calls must be to the same package.
+```typescript
+// Create the Transaction for evaluating the seal_approve function.
+const tx = new Transaction();
+tx.moveCall({
+    target: `${packageId}::${moduleName}::seal_approve`, 
+    arguments: [
+        tx.pure.vector("u8", fromHEX(id)),
+        // other arguments
+   ]
+ });  
+const txBytes = tx.build( { client: suiClient, onlyTransactionKind: true })
+const decryptedBytes = await client.decrypt({
+    data: encryptedBytes,
+    sessionKey,
+    txBytes,
+});
+```
+
+Seal evaluates the transaction as if the user sent it. In Move, `TxContext::sender()` returns the account that signed with the session key.
+
+:::tip
+
+To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
+
+:::
+
+The `SealClient` caches keys retrieved from Seal key servers to optimize performance during subsequent decryptions, especially when the same ID is used across multiple encryptions. Reusing the same client instance helps reduce backend calls and improve latency. Refer to overall [Performance Recommendations](#optimizing-performance).
+
+To retrieve multiple keys more efficiently, use the `fetchKeys` function with a multi-command PTB. This approach is recommended when multiple keys are required, as it reduces the number of requests to the key servers. Because key servers can apply rate limiting, developers should design their applications and access policies to minimize the frequency of key retrieval requests.
+```typescript
+await client.fetchKeys({
+    ids: [id1, id2],
+    txBytes: txBytesWithTwoSealApproveCalls,
+    sessionKey,
+    threshold: 2,
+});
+```
+
+Check out the [integration tests](https://github.com/MystenLabs/ts-sdks/blob/main/packages/seal/test/unit/integration.test.ts) for a full end-to-end example. You can also explore the [example app](https://github.com/MystenLabs/seal/tree/main/examples) to see how to implement allowlist and NFT-gated content access in practice.
+
+:::tip
+
+If a key server request fails with an `InvalidParameter` error, the cause can be a recently created on-chain object in the PTB input. The key server's full node might not have indexed it yet. Wait a few seconds and retry the request, as subsequent attempts should succeed once the node is in sync.
+
+:::
+
 ## Optimizing performance
 
 To reduce latency and improve efficiency when using the Seal SDK, apply the following strategies based on your use case:
 
 - **Reuse the `SealClient` instance**: The client caches retrieved keys and fetches necessary on-chain objects during initialization. Reusing it prevents redundant setup work.
 - **Reuse the `SessionKey`**: You can keep a session key active for a fixed duration to avoid prompting users multiple times. This also reuses previously fetched objects.
-- **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization.
+- **Disable key server verification when not required**: Set `verifyKeyServers: false` unless you explicitly need to validate key server URLs. Skipping verification saves round-trip latency during initialization. This is irrelevant for decentralized key servers.
 - **Include fully specified objects in PTBs**: When creating programmable transaction blocks, pass complete object references (with versions). This reduces object resolution calls by a key server to the Sui full node.
 - **Avoid unnecessary key retrievals**: Reuse existing encrypted keys whenever possible and rely on the SDK's internal caching to reduce overhead.
 - **[Advanced] Use `fetchKeys()` for batch decryption**: Call `fetchKeys()` when retrieving multiple decryption keys. This groups requests and minimizes interactions with key servers.

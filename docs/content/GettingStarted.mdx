@@ -25,6 +25,7 @@ Seal makes it simple to add decentralized encryption and programmable access con
 **1. Install the Seal SDK**
 
 Seal provides a TypeScript SDK for easy integration. Install it from npm:
+
 ```shell
 npm install @mysten/seal
 ```
@@ -52,6 +53,7 @@ See [Example patterns](/ExamplePatterns) to help you get started.
 **4. Encrypt your data**
 
 Use the SDK to encrypt data before storing it:
+
 ```typescript
 const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt({
     threshold: 2,

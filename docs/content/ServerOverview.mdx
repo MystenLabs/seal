@@ -6,6 +6,7 @@ keywords:
   - key server operations
   - aggregator server
   - independent server type
+  - decentralized server type
   - committee server type
   - open mode
   - permissioned mode
@@ -13,11 +14,11 @@ keywords:
   - deployment options
 ---
 
-Seal supports two server types for key management: **Committee** and **Independent**.
+Seal supports two server types for key management: **Decentralized** (committee mode) and **Independent**.
 
-## Committee server type
+## Decentralized server type
 
-A committee server appears onchain as a single logical key server — one object ID and public key — while internally being operated by multiple independent providers coordinating through threshold cryptography. The committee maintains a stable public key with rotatable membership, allowing operators to be added, removed, or replaced over time without client updates or data re-encryption.
+A decentralized server appears on-chain as a single logical key server — one object ID and public key — while internally being operated by a committee of multiple independent providers coordinating through threshold cryptography. The committee maintains a stable public key with rotatable membership, allowing operators to be added, removed, or replaced over time without client updates or data re-encryption.
 
 Behind the scenes, operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. When a client requests a decryption key, the request flows through an aggregator, which collects encrypted partial responses from operators and combines them into a single encrypted result. The client then decrypts the final key locally.
 
@@ -103,5 +104,5 @@ For client usage, see [Using Seal](/UsingSeal) to learn how to integrate differe
 For server operators:
 
 - **Independent key server**: See [Key Server Operations for Independent Server Type](/KeyServerOps) for detailed instructions on Open and Permissioned mode setup.
-- **Committee key server**: See [Key Server Operations for Committee Server Type](/KeyServerCommitteeOps) for detailed setup instructions including DKG ceremonies, key rotation, and key server setup.
+- **Decentralized key server**: See [Key Server Operations for Decentralized Server Type](/KeyServerCommitteeOps) for detailed setup instructions including DKG ceremonies, key rotation, and key server setup.
 - **Aggregator server** (Committee server type only): See [Aggregator Server](/Aggregator) for aggregator configuration and setup.

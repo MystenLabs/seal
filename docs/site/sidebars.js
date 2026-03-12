@@ -5,7 +5,18 @@
 
 const sidebars = {
   docsSidebar: [
-    'index',
+    {
+      type: `category`,
+      label: `What is Seal?`,
+      link: {
+        type: `doc`,
+        id: `index`,
+      },
+      collapsed: false,
+      items: [
+        `ServerOverview`,
+      ]
+    },
     'GettingStarted',
     'ServerOverview',
     {
