@@ -12,13 +12,11 @@ const sidebars = {
         type: `doc`,
         id: `index`,
       },
-      collapsed: false,
       items: [
         `ServerOverview`,
       ]
     },
     'GettingStarted',
-    'ServerOverview',
     {
       type: 'category',
       label: 'Developer Guide',
