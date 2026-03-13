@@ -35,6 +35,8 @@ use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
+use move_core_types::identifier::Identifier;
+use move_core_types::language_storage::{StructTag, TypeTag};
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
@@ -55,6 +57,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
@@ -64,6 +67,7 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, Tran
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
+use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -138,6 +142,37 @@ struct Server {
     master_keys: Arc<MasterKeys>,
     key_server_oid_to_pop: Arc<RwLock<HashMap<ObjectID, MasterKeyPOP>>>,
     options: KeyServerOptions,
+}
+
+async fn has_address_aliases(
+    client: &mut SuiGrpcClient,
+    address: SuiAddress,
+) -> Result<bool, InternalError> {
+    let alias_key_type = TypeTag::Struct(Box::new(StructTag {
+        address: SUI_FRAMEWORK_ADDRESS,
+        module: Identifier::new("address_alias").unwrap(),
+        name: Identifier::new("AliasKey").unwrap(),
+        type_params: vec![],
+    }));
+
+    let key_bytes = bcs::to_bytes(&address).unwrap();
+    let address_aliases_id = derived_object::derive_object_id(
+        SuiAddress::from(SUI_ADDRESS_ALIAS_STATE_OBJECT_ID),
+        &alias_key_type,
+        &key_bytes,
+    )
+    .map_err(|_| InternalError::InvalidSignature)?;
+
+    // Convert ObjectID to Address for gRPC request
+    let address_id = Address::from_bytes(address_aliases_id.into_bytes())
+        .map_err(|_| InternalError::InvalidSignature)?;
+
+    let request = GetObjectRequest::default().with_object_id(address_id.to_string());
+
+    match client.ledger_client().get_object(request).await {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
 }
 
 impl Server {
@@ -303,6 +338,17 @@ impl Server {
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
         );
+
+        // Check if the address has aliases enabled - if so, reject verification
+        let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
+        if has_address_aliases(&mut grpc_client, cert.user).await? {
+            debug!(
+                "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
+                req_id
+            );
+            return Err(InternalError::InvalidSignature);
+        }
+
         verify_personal_message_signature(
             cert.signature.clone(),
             msg.as_bytes(),
