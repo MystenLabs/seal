@@ -30,6 +30,7 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
+use futures::StreamExt;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
@@ -42,10 +43,12 @@ use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use rand::thread_rng;
+use seal_committee::grpc_helper::fetch_upgrade_proposal;
 use seal_committee::grpc_helper::{
     fetch_committee_from_key_server, fetch_committee_server_version,
     get_partial_key_server_for_member,
 };
+use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
@@ -58,6 +61,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
+use sui_rpc::proto::sui::rpc::v2::SubscribeCheckpointsRequest;
 use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
@@ -221,6 +225,7 @@ impl Server {
                 key_server_obj_id,
                 member_address,
                 server_name,
+                committee_id: committee_id_field,
                 ..
             } => {
                 let mut grpc_client = sui_rpc_client.sui_grpc_client();
@@ -234,6 +239,10 @@ impl Server {
                     fetch_committee_from_key_server(&mut grpc_client, key_server_obj_id)
                         .await
                         .expect("Failed to fetch committee from key server");
+
+                // Store committee_id in options
+                *committee_id_field = Some(committee_id);
+                info!("Committee ID: {}", committee_id);
 
                 // Fetch server name from onchain PartialKeyServer
                 let member_info = get_partial_key_server_for_member(
@@ -637,6 +646,7 @@ impl Server {
             key_server_obj_id,
             committee_state: CommitteeState::Rotation { target_version },
             server_name: _,
+            committee_id: _,
         } = &self.options.server_mode
         else {
             return;
@@ -726,6 +736,160 @@ impl Server {
                 }
             });
         }
+    }
+
+    /// Spawns a background task that monitors for CommitteeRotationInitiated events via checkpoint subscription.
+    /// Only spawns in Committee mode. Alerts when a new committee rotation is initiated.
+    async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
+        // Only run in committee mode
+        let ServerMode::Committee { committee_id, .. } = &self.options.server_mode else {
+            return;
+        };
+        let committee_id = committee_id.expect("Committee ID must be present");
+
+        info!(
+            "Starting committee rotation event monitor for committee_id: {}",
+            committee_id
+        );
+
+        let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
+
+        // Spawn the background task to subscribe to checkpoints
+        tokio::spawn(async move {
+            loop {
+                let mut subscription_client = grpc_client.subscription_client();
+
+                let mut request = SubscribeCheckpointsRequest::default();
+                request.read_mask = Some(prost_types::FieldMask {
+                    paths: vec![
+                        "sequence_number".to_string(),
+                        "transactions.events".to_string(),
+                    ],
+                });
+
+                let stream = match subscription_client.subscribe_checkpoints(request).await {
+                    Ok(response) => response.into_inner(),
+                    Err(e) => {
+                        warn!("Failed to subscribe to checkpoints: {}", e);
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        continue;
+                    }
+                };
+
+                let mut stream = Box::pin(stream);
+
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(checkpoint_response) => {
+                            if let Some(checkpoint) = checkpoint_response.checkpoint {
+                                for tx in &checkpoint.transactions {
+                                    if let Some(events) = &tx.events {
+                                        for event in &events.events {
+                                            if let Some(event_type) = &event.event_type
+                                                && event_type.contains("CommitteeRotationInitiated")
+                                                && let Some(contents_bcs) = &event.contents
+                                                && let Some(bcs_bytes) = &contents_bcs.value
+                                                && let Ok(event_data) = bcs::from_bytes::<
+                                                    CommitteeRotationInitiatedEvent,
+                                                >(
+                                                    bcs_bytes
+                                                )
+                                                && event_data.old_committee_id == committee_id
+                                            {
+                                                warn!(
+                                                    "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+                                                    event_data.committee_id, committee_id
+                                                );
+
+                                                metrics
+                                                    .committee_rotation_events
+                                                    .with_label_values(&[
+                                                        &event_data.committee_id.to_string(),
+                                                        "rotation_initiated",
+                                                    ])
+                                                    .set(1);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error receiving checkpoint: {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                warn!("Checkpoint subscription ended, reconnecting in 30s...");
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+
+    /// Spawns a background task that monitors for package digest changes from UpgradeManager.
+    /// Only spawns in Committee mode. Alerts when a new upgrade proposal is detected.
+    async fn spawn_package_digest_monitor(&self, metrics: Arc<KeyServerMetrics>) {
+        // Only run in committee mode
+        let ServerMode::Committee { committee_id, .. } = &self.options.server_mode else {
+            return;
+        };
+        let committee_id = committee_id.expect("Committee ID must be present");
+
+        info!(
+            "Starting package upgrade proposal monitor for committee_id: {}",
+            committee_id
+        );
+
+        // Define the fetch function for upgrade proposal existence
+        let fetch_fn = move |client: SuiRpcClient| async move {
+            let mut grpc = client.sui_grpc_client();
+            fetch_upgrade_proposal(&mut grpc, &committee_id)
+                .await
+                .map(|proposal_opt| if proposal_opt.is_some() { 1u64 } else { 0u64 })
+                .map_err(|e| RpcError::new(e.to_string()))
+        };
+
+        // Spawn periodic updater
+        let (receiver, _updater_handle) = spawn_periodic_updater(
+            &self.sui_rpc_client,
+            Duration::from_secs(30),
+            fetch_fn,
+            "upgrade proposal",
+            None::<fn(bool)>,
+        )
+        .await;
+
+        let mut receiver_clone = receiver;
+        let mut last_proposal_exists = false;
+
+        // Spawn the background task to monitor upgrade proposal changes
+        tokio::spawn(async move {
+            loop {
+                match receiver_clone.changed().await {
+                    Ok(_) => {
+                        let proposal_exists = *receiver_clone.borrow() == 1;
+
+                        // Warn if a new upgrade proposal was created (None -> Some)
+                        if proposal_exists && !last_proposal_exists {
+                            warn!("New package upgrade proposal detected!");
+
+                            // Record package upgrade proposal event to metrics
+                            metrics
+                                .package_upgrade_events
+                                .with_label_values(&["upgrade_initiated"])
+                                .set(1);
+                        }
+
+                        last_proposal_exists = proposal_exists;
+                    }
+                    Err(e) => {
+                        warn!("Package digest monitor channel closed: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -952,6 +1116,14 @@ async fn start_server_background_tasks(
     // Spawn committee version updater only if the server is in committee mode and is during
     // rotation (current onchain version is target-1).
     server.spawn_committee_version_updater().await;
+
+    // Spawn committee rotation event monitor to detect CommitteeRotationInitiated events
+    server
+        .spawn_committee_rotation_event_monitor(metrics.clone())
+        .await;
+
+    // Spawn package digest monitor to alert on package upgrades
+    server.spawn_package_digest_monitor(metrics.clone()).await;
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);

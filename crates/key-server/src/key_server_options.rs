@@ -68,6 +68,8 @@ pub enum ServerMode {
         /// Server name fetched from onchain PartialKeyServer (populated during initialization).
         #[serde(skip)]
         server_name: String,
+        /// Committee ID fetched from key server object owner.
+        committee_id: Option<Address>,
     },
 }
 
