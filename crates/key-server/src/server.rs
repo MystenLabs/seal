@@ -72,6 +72,7 @@ use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
+use tonic::Code;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{debug, error, info, warn};
@@ -171,7 +172,11 @@ async fn has_address_aliases(
 
     match client.ledger_client().get_object(request).await {
         Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+        Err(e) if e.code() == Code::NotFound => Ok(false),
+        Err(e) => Err(InternalError::Failure(format!(
+            "Failed to check address aliases: {}",
+            e
+        ))),
     }
 }
 
@@ -341,12 +346,21 @@ impl Server {
 
         // Check if the address has aliases enabled - if so, reject verification
         let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
-        if has_address_aliases(&mut grpc_client, cert.user).await? {
-            debug!(
-                "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
-                req_id
-            );
-            return Err(InternalError::InvalidSignature);
+        match has_address_aliases(&mut grpc_client, cert.user).await {
+            Ok(true) => {
+                debug!(
+                    "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
+                    req_id
+                );
+                return Err(InternalError::InvalidSignature);
+            }
+            Ok(false) => {} // no alias
+            Err(e) => {
+                warn!(
+                    "Failed to check address aliases, allowing request (req_id: {:?}): {:?}",
+                    req_id, e
+                );
+            }
         }
 
         verify_personal_message_signature(
