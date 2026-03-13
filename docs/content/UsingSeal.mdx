@@ -105,18 +105,15 @@ Use a single decentralized server to get built-in distributed trust and rotation
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
-// Decentralized server from https://seal-docs.wal.app/Pricing
 const client = new SealClient({
   suiClient,
   serverConfigs: [
+    // Decentralized server from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
     {
-      objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
+      objectId: "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
+      aggregatorUrl: "https://seal-aggregator-testnet.mystenlabs.com",
       weight: 1,
     },
-    {
-      objectId: "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8",
-      weight: 1,
-    }
   ],
   verifyKeyServers: false,
 });
@@ -129,10 +126,10 @@ Direct operator model with simpler infrastructure relationships.
 ```typescript
 const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 
-// Independent server object IDs from https://seal-docs.wal.app/Pricing
 const client = new SealClient({
   suiClient,
   serverConfigs: [
+    // Independent servers from https://seal-docs.wal.app/Pricing#verified-independent-server-type-key-servers
     {
       objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
       weight: 1,
@@ -156,13 +153,13 @@ const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const client = new SealClient({
   suiClient,
   serverConfigs: [
-    // Decentralized server
+    // Decentralized server from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
     {
       objectId: "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
       aggregatorUrl: "https://seal-aggregator-testnet.mystenlabs.com",
       weight: 1,
     },
-    // Independent server
+    // Independent server from https://seal-docs.wal.app/Pricing#verified-independent-server-type-key-servers
     {
       objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
       weight: 1,
