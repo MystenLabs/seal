@@ -356,10 +356,7 @@ impl Server {
             }
             Ok(false) => {} // no alias
             Err(e) => {
-                warn!(
-                    "Failed to check address aliases, allowing request (req_id: {:?}): {:?}",
-                    req_id, e
-                );
+                return Err(e);
             }
         }
 
