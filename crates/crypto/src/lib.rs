@@ -175,15 +175,18 @@ pub fn seal_encrypt(
                 return Err(InvalidInput);
             }
             let n = 512;
-            let k = sample_polynomial(512, &mut rng, 0..=1);
-
-            let r =
-            let seed =
+            
             let encrypted_shares = pks
                 .iter()
                 .zip(shares)
                 .map(|(pk, share)| {
+                    let k = sample_polynomial(n, &mut rng, 0..=1);
+                    let r = sample_polynomial(n, &mut rng, -1..=1);
+                    let e1 = sample_polynomial(n, &mut rng, -1..=1);
+                    let e2 = sample_polynomial(n, &mut rng, -1..=1);
+
                     fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
+                        (k, r, e1, e2),
                         pk,
                         &fastcrypto_lattice::ibe::Plaintext::<32>(share),
                         &full_id,
