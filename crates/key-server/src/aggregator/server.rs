@@ -318,7 +318,7 @@ async fn handle_fetch_key(
     state
         .aggregator_metrics
         .client_sdk_version
-        .with_label_values(&[&sdk_type_str, version_str])
+        .with_label_values::<&str>(&[&sdk_type_str, version_str])
         .inc();
 
     // Log incoming request with structured data

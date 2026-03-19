@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::externals::get_key;
-use crate::tests::SealTestCluster;
+use crate::tests::{ExecutedTransactionTestExt, SealTestCluster};
 use serde_json::json;
 use std::path::PathBuf;
-use sui_sdk::{json::SuiJsonValue, rpc_types::ObjectChange};
+use sui_sdk::json::SuiJsonValue;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
+    effects::TransactionEffectsAPI,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability},
     Identifier,
@@ -204,7 +205,7 @@ pub(crate) async fn create_whitelist(
 ) -> (ObjectID, ObjectID, u64) {
     // Create new whitelist
     let tx = cluster
-        .sui_client()
+        .grpc_client()
         .transaction_builder()
         .move_call(
             cluster.get_address_0(),
@@ -222,26 +223,23 @@ pub(crate) async fn create_whitelist(
     let response = cluster.sign_and_execute_transaction(&tx).await;
 
     // Read the id of the Whitelist and Cap objects
-    let mut whitelist: Option<ObjectID> = None;
-    let mut cap: Option<ObjectID> = None;
-    let mut initial_version: Option<u64> = None;
-    for created in response.object_changes.unwrap() {
-        if let ObjectChange::Created {
-            object_type,
-            object_id,
-            version,
-            ..
-        } = created
-        {
-            initial_version.replace(version.value());
-            match object_type.name.as_str() {
-                "Whitelist" => whitelist.replace(object_id),
-                "Cap" => cap.replace(object_id),
-                _ => None,
-            };
-        }
-    }
-    (whitelist.unwrap(), cap.unwrap(), initial_version.unwrap())
+    let whitelist = response
+        .find_created_object_by_type("Whitelist")
+        .expect("Whitelist should be created");
+    let cap = response
+        .find_created_object_by_type("Cap")
+        .expect("Cap should be created");
+
+    // Get initial version from the created whitelist
+    let initial_version = response
+        .effects
+        .created()
+        .iter()
+        .find(|obj_ref| obj_ref.0 .0 == whitelist)
+        .map(|obj_ref| obj_ref.0 .1.value())
+        .expect("Whitelist should have a version");
+
+    (whitelist, cap, initial_version)
 }
 
 pub(crate) async fn add_user_to_whitelist(
@@ -253,7 +251,7 @@ pub(crate) async fn add_user_to_whitelist(
 ) {
     // Add the first user to the whitelist
     let tx = cluster
-        .sui_client()
+        .grpc_client()
         .transaction_builder()
         .move_call(
             cluster.get_address_0(),
@@ -284,7 +282,7 @@ pub(crate) async fn upgrade_whitelist(
 ) {
     // Add the first user to the whitelist
     let tx = cluster
-        .sui_client()
+        .grpc_client()
         .transaction_builder()
         .move_call(
             cluster.get_address_0(),

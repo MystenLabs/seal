@@ -34,7 +34,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
@@ -74,7 +73,10 @@ async fn test_e2e() {
         .into_iter()
         .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
-    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
+    let public_keys = tc.get_public_keys(&services).await;
+    eprintln!("Number of services: {}", services.len());
+    eprintln!("Number of public keys: {}", public_keys.len());
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(public_keys);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
@@ -385,7 +387,7 @@ async fn test_e2e_permissioned() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
+    let grpc_client = cluster.grpc_client();
     // Publish the seal package first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
@@ -404,6 +406,7 @@ async fn test_e2e_permissioned() {
 
     // The client handles two package ids, one per client
     let server1 = create_server(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
@@ -431,6 +434,7 @@ async fn test_e2e_permissioned() {
 
     // The client on the second server has a single (random) package id
     let server2 = create_server(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client,
         seal_package,
@@ -518,7 +522,7 @@ async fn test_e2e_imported_key() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
+    let grpc_client = cluster.grpc_client();
     // Publish seal first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
@@ -537,6 +541,7 @@ async fn test_e2e_imported_key() {
 
     // Server has a single client with a single package id (the one published above)
     let server1 = create_server(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
@@ -609,6 +614,7 @@ async fn test_e2e_imported_key() {
 
     // Import the master key for a client into a second server
     let server2 = create_server(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
@@ -647,6 +653,7 @@ async fn test_e2e_imported_key() {
 
     // Create a new key server where the derived key is marked as exported
     let server3 = create_server(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client,
         seal_package,
@@ -685,7 +692,7 @@ async fn test_e2e_committee_mode_with_rotation() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = SuiGrpcClient::new(&cluster.fullnode_handle.rpc_url).unwrap();
+    let grpc_client = cluster.grpc_client();
 
     // Publish the seal package first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
@@ -760,6 +767,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     // Parties 0, 1: rotation in progress (current=0, target=1), both have two shares.
     servers.extend(
         create_committee_servers(
+            #[allow(deprecated)]
             cluster.sui_client().clone(),
             grpc_client.clone(),
             seal_package,
@@ -790,6 +798,7 @@ async fn test_e2e_committee_mode_with_rotation() {
     // Party 2: Active mode at version 0 (leaving committee, just v0 share).
     servers.extend(
         create_committee_servers(
+            #[allow(deprecated)]
             cluster.sui_client().clone(),
             grpc_client.clone(),
             seal_package,
@@ -856,6 +865,7 @@ async fn test_e2e_committee_mode_with_rotation() {
 
     // Add party 3 and 4 with only MASTER_SHARE_V1 from the dkg rotation.
     let new_servers = create_committee_servers(
+        #[allow(deprecated)]
         cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,

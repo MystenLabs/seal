@@ -19,7 +19,6 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
@@ -27,7 +26,7 @@ use sui_types::base_types::ObjectID;
 /// Helper function to create a test server with any ServerMode.
 pub(crate) async fn create_test_server(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     server_mode: ServerMode,
     onchain_version: Option<u32>,
@@ -49,7 +48,7 @@ pub(crate) async fn create_test_server(
 
     let sui_rpc_client = SuiRpcClient::new(
         sui_client,
-        sui_grpc_client.clone(),
+        grpc_client.into_inner(),
         RetryConfig::default(),
         None,
     );
@@ -75,14 +74,14 @@ pub(crate) async fn create_test_server(
 /// Helper function to create a permissioned server.
 pub(crate) async fn create_server(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     create_test_server(
         sui_client,
-        sui_grpc_client,
+        grpc_client,
         seal_package,
         ServerMode::Permissioned { client_configs },
         None,
@@ -95,7 +94,7 @@ pub(crate) async fn create_server(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_committee_servers(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     key_server_obj_id: Address,
     member_addresses: Vec<Address>,
@@ -109,7 +108,7 @@ pub(crate) async fn create_committee_servers(
         let vars_refs: Vec<(&str, &[u8])> = vars.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let server = create_test_server(
             sui_client.clone(),
-            sui_grpc_client.clone(),
+            grpc_client.clone(),
             seal_package,
             ServerMode::Committee {
                 member_address,

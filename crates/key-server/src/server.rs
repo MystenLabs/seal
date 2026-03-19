@@ -364,7 +364,7 @@ impl Server {
             cert.signature.clone(),
             msg.as_bytes(),
             cert.user,
-            Some(self.sui_rpc_client.sui_client().clone()),
+            Some(self.sui_rpc_client.sui_grpc_client()),
         )
         .await
         .tap_err(|e| {
