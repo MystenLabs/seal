@@ -57,13 +57,14 @@ http-body-util = "0.1.2"
 
 sui-sdk-types.workspace = true
 sui-rpc.workspace = true
+sui-rpc-api.workspace = true
 mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"
 test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
-move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "893c5d608a580e8c8529ec6c0aeab21c7dec0399", package = "move-package-alt" }
+move-package-alt = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
 wiremock = "0.5"

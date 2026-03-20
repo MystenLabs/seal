@@ -25,6 +25,7 @@ sui-move-build.workspace = true
 move-package-alt-compilation.workspace = true
 sui-package-alt.workspace = true
 sui-rpc.workspace = true
+sui-rpc-api.workspace = true
 prost-types.workspace = true
 sui_keys.workspace = true
 dirs = "5.0"

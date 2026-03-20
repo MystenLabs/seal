@@ -33,15 +33,13 @@ use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_sdk::rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse};
+use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk_types::Address;
+use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::effects::TransactionEffectsAPI;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::transaction::{ObjectArg, SharedObjectMutability, TransactionData};
-use sui_types::{
-    base_types::{ObjectID, SuiAddress},
-    object::Owner,
-};
 use types::{DkgState, InitializedConfig, KeysFile};
 
 #[cfg(unix)]
@@ -348,27 +346,18 @@ async fn main() -> Result<()> {
             let response = execute_tx_and_log_status(&wallet, tx_data).await?;
 
             // Extract published package ID and UpgradeCap.
-            let effects = response
-                .effects
-                .as_ref()
-                .ok_or_else(|| anyhow!("No effects in transaction response"))?;
-
-            let package_id = effects
-                .created()
-                .iter()
-                .find_map(|obj_ref| {
-                    if matches!(obj_ref.owner, Owner::Immutable) {
-                        Some(obj_ref.reference.object_id)
-                    } else {
-                        None
-                    }
-                })
+            let package_ref = response
+                .get_new_package_obj()
                 .ok_or_else(|| anyhow!("Could not find published package ID"))?;
+            let package_id = package_ref.0;
 
             println!("Published package: {}", package_id);
 
             // Find UpgradeCap.
-            let upgrade_cap_id = extract_created_object_by_type(&response, "UpgradeCap")?;
+            let upgrade_cap_ref = response
+                .get_new_package_upgrade_cap()
+                .ok_or_else(|| anyhow!("Could not find UpgradeCap"))?;
+            let upgrade_cap_id = upgrade_cap_ref.0;
             println!("UpgradeCap ID: {}", upgrade_cap_id);
 
             // Initialize the committee with UpgradeCap.
@@ -393,7 +382,7 @@ async fn main() -> Result<()> {
                 .gas_for_owner_budget(coordinator_address, gas_budget, Default::default())
                 .await?
                 .1
-                .object_ref();
+                .compute_object_reference();
 
             let init_tx_data = TransactionData::new_programmable(
                 coordinator_address,
@@ -1157,19 +1146,10 @@ async fn main() -> Result<()> {
             let upgrade_response = execute_tx_and_log_status(&wallet, upgrade_tx_data).await?;
 
             // Extract new package ID.
-            let new_package_id = upgrade_response
-                .effects
-                .as_ref()
-                .and_then(|effects| {
-                    effects.created().iter().find_map(|obj_ref| {
-                        if matches!(obj_ref.owner, Owner::Immutable) {
-                            Some(obj_ref.reference.object_id)
-                        } else {
-                            None
-                        }
-                    })
-                })
+            let new_package_ref = upgrade_response
+                .get_new_package_obj()
                 .ok_or_else(|| anyhow!("Could not find upgraded package ID"))?;
+            let new_package_id = new_package_ref.0;
 
             println!("\n✓ Successfully upgraded package!");
             println!("New package ID: {}", new_package_id);
@@ -1266,7 +1246,7 @@ async fn main() -> Result<()> {
             println!("\nGas Objects:");
             for (balance, obj) in &gas_objects {
                 let sui = *balance as f64 / 1_000_000_000.0;
-                println!("| {:<68} | {:>11.4} SUI |", obj.object_id, sui);
+                println!("| {:<68} | {:>11.4} SUI |", obj.id(), sui);
             }
         }
 
@@ -1358,15 +1338,12 @@ async fn main() -> Result<()> {
 async fn execute_tx_and_log_status(
     wallet: &WalletContext,
     tx_data: TransactionData,
-) -> Result<SuiTransactionBlockResponse> {
+) -> Result<ExecutedTransaction> {
     let transaction = wallet.sign_transaction(&tx_data).await;
     let response = wallet.execute_transaction_may_fail(transaction).await?;
 
-    let digest = response.digest;
-    let effects = response.effects.as_ref();
-    let status = effects
-        .map(|e| e.status())
-        .ok_or_else(|| anyhow!("No effects in transaction response"))?;
+    let digest = response.transaction.digest();
+    let status = response.effects.status();
 
     if !status.is_ok() {
         bail!("Transaction FAILED with status: {:?}", status);
@@ -1379,23 +1356,20 @@ async fn execute_tx_and_log_status(
 
 /// Extract a created object ID by type name from a transaction response.
 fn extract_created_object_by_type(
-    response: &SuiTransactionBlockResponse,
+    response: &ExecutedTransaction,
     type_name: &str,
 ) -> Result<ObjectID> {
     response
-        .object_changes
-        .as_ref()
-        .ok_or_else(|| anyhow!("No object changes in response"))?
+        .changed_objects
         .iter()
-        .find_map(|change| {
-            if let sui_sdk::rpc_types::ObjectChange::Created {
-                object_id,
-                object_type,
-                ..
-            } = change
+        .find_map(|changed| {
+            // Check if this object was created and matches the type name
+            if let Some(object_type) = &changed.object_type
                 && object_type.to_string().contains(type_name)
+                && let Some(object_id_str) = &changed.object_id
+                && let Ok(object_id) = ObjectID::from_str(object_id_str)
             {
-                return Some(*object_id);
+                return Some(object_id);
             }
             None
         })
@@ -1403,7 +1377,7 @@ fn extract_created_object_by_type(
 }
 
 /// Extract the committee object ID from a transaction response.
-fn extract_created_committee_id(response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
+fn extract_created_committee_id(response: &ExecutedTransaction) -> Result<ObjectID> {
     extract_created_object_by_type(response, "Committee")
 }
 
@@ -1669,7 +1643,7 @@ async fn get_gas_params(
         .gas_for_owner_budget(address, gas_budget, Default::default())
         .await?
         .1;
-    Ok((gas_price, gas_budget, gas_coin.object_ref()))
+    Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
 }
 
 /// Load wallet context from path.

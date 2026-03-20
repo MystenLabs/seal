@@ -109,6 +109,6 @@ macro_rules! var {
 #[macro_export]
 macro_rules! with_label {
     ($metric:expr, $($label:expr),+$(,)?) => {
-        $metric.with_label_values(&[$($label.as_ref()),+])
+        $metric.with_label_values::<&str>(&[$($label.as_ref()),+])
     };
 }

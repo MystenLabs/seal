@@ -9,7 +9,9 @@ use crate::histogram_relay::HistogramRelay;
 use crate::middleware::{expect_content_length, expect_valid_bearer_token};
 use crate::providers::BearerTokenProvider;
 use crate::var;
-use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
+use axum::{
+    extract::DefaultBodyLimit, http::StatusCode, middleware, routing::post, Extension, Router,
+};
 use std::sync::Arc;
 use tokio::signal;
 use tower::ServiceBuilder;
@@ -73,10 +75,10 @@ pub fn app(
         // Enforce on all routes.
         // If the request does not complete within the specified timeout it will be aborted
         // and a 408 Request Timeout response will be sent.
-        .layer(TimeoutLayer::new(Duration::from_secs(var!(
-            "NODE_CLIENT_TIMEOUT",
-            20
-        ))))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(var!("NODE_CLIENT_TIMEOUT", 20)),
+        ))
         .layer(Extension(reqwest_client))
         .layer(Extension(histogram_relay))
         .layer(Extension(label_actions))
