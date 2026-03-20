@@ -181,12 +181,10 @@ impl SealTestCluster {
     pub async fn add_server_with_options(
         &mut self,
         server: KeyServerType,
-        _name: &str,
         options: KeyServerOptions,
     ) {
         match server {
             Open(master_key) => {
-                // Extract the key_server_object_id from the options instead of registering again
                 let key_server_object_id = match &options.server_mode {
                     ServerMode::Open {
                         key_server_object_id,
@@ -229,7 +227,6 @@ impl SealTestCluster {
                     .await;
                 self.add_server_with_options(
                     server,
-                    name,
                     KeyServerOptions {
                         network: Network::TestCluster { seal_package },
                         node_url: None,

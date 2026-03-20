@@ -74,8 +74,6 @@ async fn test_e2e() {
         .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
     let public_keys = tc.get_public_keys(&services).await;
-    eprintln!("Number of services: {}", services.len());
-    eprintln!("Number of public keys: {}", public_keys.len());
     let pks = IBEPublicKeys::BonehFranklinBLS12381(public_keys);
 
     // Encrypt a message

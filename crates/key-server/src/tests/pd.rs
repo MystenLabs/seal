@@ -108,7 +108,6 @@ pub(crate) async fn create_private_data(
         .find_mutated_object_by_type("PrivateData")
         .expect("should have found the pd object");
 
-    // Reconstruct ObjectDigest from bytes
     let digest = ObjectDigest::new(digest_bytes);
     (id, version, digest)
 }
