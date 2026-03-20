@@ -47,6 +47,7 @@ move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "a8b477
 prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "prometheus-closure-metric" }
 sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-move-build" }
 test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "test-cluster" }
+move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "move-package-alt" }
 move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "move-package-alt-compilation" }
 sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-package-alt" }
 sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-rpc-api" }

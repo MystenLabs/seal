@@ -10,11 +10,11 @@ use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
 use fastcrypto::hash::{Blake2b256, HashFunction};
-use fastcrypto::random_oracle::RandomOracle;
 use fastcrypto::traits::KeyPair as _;
 use fastcrypto_tbls::dkg_v1::Party;
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
+use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{

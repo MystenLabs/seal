@@ -64,7 +64,7 @@ mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b
 tracing-test = "0.2.5"
 test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
-move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "07fd279e183b88afc6e0209f2365173817de091c", package = "move-package-alt" }
+move-package-alt = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
 wiremock = "0.5"
