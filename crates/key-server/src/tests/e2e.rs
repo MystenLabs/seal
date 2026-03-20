@@ -73,8 +73,7 @@ async fn test_e2e() {
         .into_iter()
         .map(|id| NewObjectID::new(id.into_bytes()))
         .collect::<Vec<_>>();
-    let public_keys = tc.get_public_keys(&services).await;
-    let pks = IBEPublicKeys::BonehFranklinBLS12381(public_keys);
+    let pks = IBEPublicKeys::BonehFranklinBLS12381(tc.get_public_keys(&services).await);
 
     // Encrypt a message
     let message = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
