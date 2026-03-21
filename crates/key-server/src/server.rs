@@ -30,7 +30,6 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use futures::StreamExt;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
@@ -61,16 +60,16 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_rpc::proto::sui::rpc::v2::SubscribeCheckpointsRequest;
 use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_sdk::rpc_types::{EventFilter, SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
+use sui_types::event::EventID;
 use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -225,7 +224,6 @@ impl Server {
                 key_server_obj_id,
                 member_address,
                 server_name,
-                committee_id: committee_id_field,
                 ..
             } => {
                 let mut grpc_client = sui_rpc_client.sui_grpc_client();
@@ -240,8 +238,6 @@ impl Server {
                         .await
                         .expect("Failed to fetch committee from key server");
 
-                // Store committee_id in options
-                *committee_id_field = Some(committee_id);
                 info!("Committee ID: {}", committee_id);
 
                 // Fetch server name from onchain PartialKeyServer
@@ -646,7 +642,6 @@ impl Server {
             key_server_obj_id,
             committee_state: CommitteeState::Rotation { target_version },
             server_name: _,
-            committee_id: _,
         } = &self.options.server_mode
         else {
             return;
@@ -738,90 +733,131 @@ impl Server {
         }
     }
 
-    /// Spawns a background task that monitors for CommitteeRotationInitiated events via checkpoint subscription.
+    /// Spawns a background task that monitors for CommitteeRotationInitiated events.
     /// Only spawns in Committee mode. Alerts when a new committee rotation is initiated.
+    /// Refreshes committee_id and package_id every polling cycle by checking key server object owner.
     async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
         // Only run in committee mode
-        let ServerMode::Committee { committee_id, .. } = &self.options.server_mode else {
+        let ServerMode::Committee {
+            key_server_obj_id, ..
+        } = &self.options.server_mode
+        else {
             return;
         };
-        let committee_id = committee_id.expect("Committee ID must be present");
+        let key_server_obj_id = *key_server_obj_id;
 
         info!(
-            "Starting committee rotation event monitor for committee_id: {}",
-            committee_id
+            "Starting committee rotation event monitor for key_server_obj_id: {}",
+            key_server_obj_id
         );
 
-        let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
+        let sui_client = self.sui_rpc_client.sui_client().clone();
+        let sui_rpc_client = self.sui_rpc_client.clone();
 
-        // Spawn the background task to subscribe to checkpoints
+        // Spawn the background task to poll for events.
         tokio::spawn(async move {
+            info!("Committee rotation event monitor task started");
+            let mut last_event_seq: Option<EventID> = None;
+            let mut alerted_rotations = std::collections::HashSet::new();
+
             loop {
-                let mut subscription_client = grpc_client.subscription_client();
+                // Fetch current committee ID and package ID from key server object
+                let (committee_id, committee_pkg_id) = {
+                    let mut grpc_client = sui_rpc_client.sui_grpc_client();
+                    match fetch_committee_from_key_server(&mut grpc_client, &key_server_obj_id)
+                        .await
+                    {
+                        Ok((id, pkg_id)) => {
+                            debug!("Current committee_id: {}, package_id: {}", id, pkg_id);
+                            (id, pkg_id)
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to fetch committee ID and package ID from key server: {}",
+                                e
+                            );
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            continue;
+                        }
+                    }
+                };
 
-                let mut request = SubscribeCheckpointsRequest::default();
-                request.read_mask = Some(prost_types::FieldMask {
-                    paths: vec![
-                        "sequence_number".to_string(),
-                        "transactions.events".to_string(),
-                    ],
-                });
+                // Construct event type string
+                let event_type_str = format!(
+                    "{}::seal_committee::CommitteeRotationInitiated",
+                    committee_pkg_id
+                );
 
-                let stream = match subscription_client.subscribe_checkpoints(request).await {
-                    Ok(response) => response.into_inner(),
+                let event_filter = match event_type_str.parse() {
+                    Ok(parsed) => EventFilter::MoveEventType(parsed),
                     Err(e) => {
-                        warn!("Failed to subscribe to checkpoints: {}", e);
+                        error!(
+                            "Failed to parse event type string '{}': {:?}",
+                            event_type_str, e
+                        );
                         tokio::time::sleep(Duration::from_secs(30)).await;
                         continue;
                     }
                 };
 
-                let mut stream = Box::pin(stream);
+                // Query for rotation events
+                let events_result = sui_client
+                    .event_api()
+                    .query_events(
+                        event_filter,
+                        last_event_seq,
+                        Some(50), // page size
+                        false,    // ascending order (chronological)
+                    )
+                    .await;
 
-                while let Some(result) = stream.next().await {
-                    match result {
-                        Ok(checkpoint_response) => {
-                            if let Some(checkpoint) = checkpoint_response.checkpoint {
-                                for tx in &checkpoint.transactions {
-                                    if let Some(events) = &tx.events {
-                                        for event in &events.events {
-                                            if let Some(event_type) = &event.event_type
-                                                && event_type.contains("CommitteeRotationInitiated")
-                                                && let Some(contents_bcs) = &event.contents
-                                                && let Some(bcs_bytes) = &contents_bcs.value
-                                                && let Ok(event_data) = bcs::from_bytes::<
-                                                    CommitteeRotationInitiatedEvent,
-                                                >(
-                                                    bcs_bytes
-                                                )
-                                                && event_data.old_committee_id == committee_id
-                                            {
-                                                warn!(
-                                                    "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
-                                                    event_data.committee_id, committee_id
-                                                );
+                match events_result {
+                    Ok(page) => {
+                        let event_count = page.data.len();
 
-                                                metrics
-                                                    .committee_rotation_events
-                                                    .with_label_values(&[
-                                                        &event_data.committee_id.to_string(),
-                                                        "rotation_initiated",
-                                                    ])
-                                                    .set(1);
-                                            }
+                        // Process events
+                        for event in &page.data {
+                            match bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
+                                event.bcs.bytes(),
+                            ) {
+                                Ok(event_data) => {
+                                    if event_data.old_committee_id == committee_id {
+                                        // Log each event once
+                                        if alerted_rotations.insert(event.id.tx_digest) {
+                                            warn!(
+                                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+                                                event_data.committee_id, committee_id
+                                            );
+
+                                            metrics
+                                                .committee_rotation_events
+                                                .with_label_values(&[
+                                                    &event_data.committee_id.to_string(),
+                                                    "rotation_initiated",
+                                                ])
+                                                .set(1);
                                         }
                                     }
                                 }
+                                Err(e) => {
+                                    warn!("Failed to parse CommitteeRotationInitiatedEvent from BCS: {}", e);
+                                }
                             }
                         }
-                        Err(e) => {
-                            warn!("Error receiving checkpoint: {}", e);
-                            break;
+
+                        // Update cursor for next query
+                        if let Some(cursor) = page.next_cursor {
+                            last_event_seq = Some(cursor);
+                        } else if event_count > 0 && !page.data.is_empty() {
+                            last_event_seq = Some(page.data.last().unwrap().id);
                         }
+                    }
+                    Err(e) => {
+                        warn!("Failed to query committee rotation events: {}", e);
                     }
                 }
 
-                warn!("Checkpoint subscription ended, reconnecting in 30s...");
+                // Poll every 30 seconds
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
@@ -831,19 +867,35 @@ impl Server {
     /// Only spawns in Committee mode. Alerts when a new upgrade proposal is detected.
     async fn spawn_package_digest_monitor(&self, metrics: Arc<KeyServerMetrics>) {
         // Only run in committee mode
-        let ServerMode::Committee { committee_id, .. } = &self.options.server_mode else {
+        let ServerMode::Committee {
+            key_server_obj_id, ..
+        } = &self.options.server_mode
+        else {
             return;
         };
-        let committee_id = committee_id.expect("Committee ID must be present");
+        let key_server_obj_id = *key_server_obj_id;
 
         info!(
-            "Starting package upgrade proposal monitor for committee_id: {}",
-            committee_id
+            "Starting package upgrade proposal monitor for key_server_obj_id: {}",
+            key_server_obj_id
         );
 
         // Define the fetch function for upgrade proposal existence
         let fetch_fn = move |client: SuiRpcClient| async move {
             let mut grpc = client.sui_grpc_client();
+
+            // Fetch current committee ID from key server object owner
+            let (committee_id, _) =
+                match fetch_committee_from_key_server(&mut grpc, &key_server_obj_id).await {
+                    Ok(result) => result,
+                    Err(e) => {
+                        return Err(RpcError::new(format!(
+                            "Failed to fetch committee ID: {}",
+                            e
+                        )))
+                    }
+                };
+
             fetch_upgrade_proposal(&mut grpc, &committee_id)
                 .await
                 .map(|proposal_opt| if proposal_opt.is_some() { 1u64 } else { 0u64 })
