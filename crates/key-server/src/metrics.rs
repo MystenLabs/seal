@@ -75,11 +75,11 @@ pub struct KeyServerMetrics {
     #[allow(dead_code)]
     pub client_sdk_version: IntCounterVec,
 
-    /// Committee rotation events with committee ID and state labels
-    pub committee_rotation_events: IntGaugeVec,
+    /// Committee mode rotation events with committee ID and state labels
+    pub committee_mode_rotation_events: IntGaugeVec,
 
-    /// Package upgrade events with package digest and state labels
-    pub package_upgrade_events: IntGaugeVec,
+    /// Committee mode package upgrade events with package digest and state labels
+    pub committee_mode_package_upgrade_events: IntGaugeVec,
 }
 
 impl KeyServerMetrics {
@@ -190,16 +190,16 @@ impl KeyServerMetrics {
                 registry
             )
             .unwrap(),
-            committee_rotation_events: register_int_gauge_vec_with_registry!(
-                "committee_rotation_events",
-                "Committee rotation events (value=1), labeled by committee_id and state (rotation_initiated/rotation_completed)",
+            committee_mode_rotation_events: register_int_gauge_vec_with_registry!(
+                "committee_mode_rotation_events",
+                "Committee mode rotation events (value=1), labeled by committee_id and state (rotation_initiated/rotation_completed)",
                 &["committee_id", "state"],
                 registry
             )
             .unwrap(),
-            package_upgrade_events: register_int_gauge_vec_with_registry!(
-                "package_upgrade_events",
-                "Package upgrade events (value=1), labeled by state (upgrade_initiated/upgrade_completed)",
+            committee_mode_package_upgrade_events: register_int_gauge_vec_with_registry!(
+                "committee_mode_package_upgrade_events",
+                "Committee mode package upgrade events (value=1), labeled by state (upgrade_initiated/upgrade_completed)",
                 &["state"],
                 registry
             )

@@ -788,25 +788,17 @@ impl Server {
                     committee_pkg_id
                 );
 
-                let event_filter = match event_type_str.parse() {
-                    Ok(parsed) => EventFilter::MoveEventType(parsed),
-                    Err(e) => {
-                        error!(
-                            "Failed to parse event type string '{}': {:?}",
-                            event_type_str, e
-                        );
-                        tokio::time::sleep(Duration::from_secs(30)).await;
-                        continue;
-                    }
-                };
+                let event_filter = EventFilter::MoveEventType(
+                    event_type_str.parse().expect("Parsing should not fail"),
+                );
 
-                // Query for rotation events
+                // Query for recent rotation events to detect changes
                 let events_result = sui_client
                     .event_api()
                     .query_events(
                         event_filter,
                         last_event_seq,
-                        Some(50), // page size
+                        Some(10), // Fetch up to 10 events
                         false,    // ascending order (chronological)
                     )
                     .await;
@@ -815,7 +807,7 @@ impl Server {
                     Ok(page) => {
                         let event_count = page.data.len();
 
-                        // Process events
+                        // Process events, stopping when we find one with matching committee ID
                         for event in &page.data {
                             match bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
                                 event.bcs.bytes(),
@@ -829,14 +821,15 @@ impl Server {
                                                 event_data.committee_id, committee_id
                                             );
 
+                                            let committee_id_str =
+                                                event_data.committee_id.to_string();
+                                            let state_str = "rotation_initiated".to_string();
                                             metrics
-                                                .committee_rotation_events
-                                                .with_label_values(&[
-                                                    &event_data.committee_id.to_string(),
-                                                    "rotation_initiated",
-                                                ])
+                                                .committee_mode_rotation_events
+                                                .with_label_values(&[&committee_id_str, &state_str])
                                                 .set(1);
                                         }
+                                        break; // Stop if found
                                     }
                                 }
                                 Err(e) => {
@@ -928,7 +921,7 @@ impl Server {
 
                             // Record package upgrade proposal event to metrics
                             metrics
-                                .package_upgrade_events
+                                .committee_mode_package_upgrade_events
                                 .with_label_values(&["upgrade_initiated"])
                                 .set(1);
                         }
