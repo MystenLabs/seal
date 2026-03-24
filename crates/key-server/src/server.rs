@@ -758,7 +758,6 @@ impl Server {
         tokio::spawn(async move {
             info!("Committee rotation event monitor task started");
             let mut last_event_seq: Option<EventID> = None;
-            let mut alerted_rotations = std::collections::HashSet::new();
 
             loop {
                 // Fetch current committee ID and package ID from key server object
@@ -782,67 +781,56 @@ impl Server {
                     }
                 };
 
-                // Construct event type string
-                let event_type_str = format!(
-                    "{}::seal_committee::CommitteeRotationInitiated",
-                    committee_pkg_id
-                );
-
                 let event_filter = EventFilter::MoveEventType(
-                    event_type_str.parse().expect("Parsing should not fail"),
+                    format!(
+                        "{}::seal_committee::CommitteeRotationInitiated",
+                        committee_pkg_id
+                    )
+                    .parse()
+                    .expect("Parsing should not fail"),
                 );
 
-                // Query for recent rotation events to detect changes
+                // Query for the latest rotation event to detect changes
                 let events_result = sui_client
                     .event_api()
                     .query_events(
                         event_filter,
                         last_event_seq,
-                        Some(10), // Fetch up to 10 events
-                        false,    // ascending order (chronological)
+                        Some(1), // Fetch the last event
+                        false,   // ascending order
                     )
                     .await;
 
                 match events_result {
                     Ok(page) => {
-                        let event_count = page.data.len();
-
-                        // Process events, stopping when we find one with matching committee ID
                         for event in &page.data {
-                            match bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
+                            let event_data = bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
                                 event.bcs.bytes(),
-                            ) {
-                                Ok(event_data) => {
-                                    if event_data.old_committee_id == committee_id {
-                                        // Log each event once
-                                        if alerted_rotations.insert(event.id.tx_digest) {
-                                            warn!(
-                                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
-                                                event_data.committee_id, committee_id
-                                            );
+                            )
+                            .expect("BCS should not fail");
 
-                                            let committee_id_str =
-                                                event_data.committee_id.to_string();
-                                            let state_str = "rotation_initiated".to_string();
-                                            metrics
-                                                .committee_mode_rotation_events
-                                                .with_label_values(&[&committee_id_str, &state_str])
-                                                .set(1);
-                                        }
-                                        break; // Stop if found
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!("Failed to parse CommitteeRotationInitiatedEvent from BCS: {}", e);
-                                }
+                            if event_data.old_committee_id != committee_id {
+                                // This means a different committee is initialized with this committee package ID and being rotated, should never happen.
+                                error!(
+                                    "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
+                                    event_data.committee_id, event_data.old_committee_id, committee_id
+                                );
                             }
-                        }
 
-                        // Update cursor for next query
-                        if let Some(cursor) = page.next_cursor {
-                            last_event_seq = Some(cursor);
-                        } else if event_count > 0 && !page.data.is_empty() {
-                            last_event_seq = Some(page.data.last().unwrap().id);
+                            warn!(
+                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+                                event_data.committee_id, event_data.old_committee_id
+                            );
+
+                            let committee_id_str = event_data.committee_id.to_string();
+                            let state_str = "rotation_initiated".to_string();
+                            metrics
+                                .committee_mode_rotation_events
+                                .with_label_values(&[&committee_id_str, &state_str])
+                                .set(1);
+
+                            // Update cursor for next query
+                            last_event_seq = Some(event.id);
                         }
                     }
                     Err(e) => {
@@ -850,7 +838,6 @@ impl Server {
                     }
                 }
 
-                // Poll every 30 seconds
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
