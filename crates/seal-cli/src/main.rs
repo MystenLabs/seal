@@ -16,6 +16,7 @@ use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use rand::thread_rng;
 use reqwest::Body;
+use seal_committee::Network;
 use seal_sdk::types::{FetchKeyRequest, FetchKeyResponse};
 use seal_sdk::IBEPublicKey;
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,24 @@ use sui_types::TypeTag;
 
 const KEY_LENGTH: usize = 32;
 
+/// Get RPC URL for a network with optional custom URL override.
+fn get_rpc_url(
+    network: &Network,
+    custom_rpc_url: Option<String>,
+) -> Result<String, FastCryptoError> {
+    match custom_rpc_url {
+        Some(url) => Ok(url),
+        None => network
+            .default_rpc_url()
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                FastCryptoError::GeneralError(
+                    "Custom network requires explicit RPC URL".to_string(),
+                )
+            }),
+    }
+}
+
 /// Key server object layout containing object id, name, url, and public key.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyServerInfo {
@@ -41,18 +60,11 @@ pub struct KeyServerInfo {
 /// Fetch and parse key server object from fullnode.
 /// TODO: rewrite with sui-rust-sdk
 pub async fn fetch_key_server_urls(
+    network: &Network,
     key_server_ids: &[ObjectID],
-    network: &str,
+    custom_rpc_url: Option<String>,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
-    let sui_rpc = match network {
-        "mainnet" => "https://fullnode.mainnet.sui.io:443",
-        "testnet" => "https://fullnode.testnet.sui.io:443",
-        _ => {
-            return Err(FastCryptoError::GeneralError(format!(
-                "Invalid network: {network}. Use 'mainnet' or 'testnet'"
-            )))
-        }
-    };
+    let sui_rpc = get_rpc_url(network, custom_rpc_url)?;
     let sui_client = SuiClientBuilder::default()
         .build(sui_rpc)
         .await
@@ -339,9 +351,13 @@ enum Command {
         #[arg(short = 't', long)]
         threshold: u8,
 
-        /// Network (mainnet or testnet)
+        /// Network (mainnet, testnet or custom)
         #[arg(short = 'n', long, default_value = "testnet")]
-        network: String,
+        network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
     /// Fetch keys from Seal servers using encoded fetch keys request.
     FetchKeys {
@@ -357,9 +373,13 @@ enum Command {
         #[arg(short = 't', long)]
         threshold: u8,
 
-        /// Network (mainnet or testnet)
+        /// Network (mainnet, testnet or custom)
         #[arg(short = 'n', long, default_value = "testnet")]
-        network: String,
+        network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 }
 
@@ -501,9 +521,10 @@ async fn main() -> FastCryptoResult<()> {
             key_server_ids,
             threshold,
             network,
+            rpc_url,
         } => {
             // Fetch key server info including public keys from blockchain
-            let key_server_infos = fetch_key_server_urls(&key_server_ids, &network)
+            let key_server_infos = fetch_key_server_urls(&network, &key_server_ids, rpc_url)
                 .await
                 .map_err(|e| {
                     FastCryptoError::GeneralError(format!("Failed to fetch key server info: {e}"))
@@ -551,6 +572,7 @@ async fn main() -> FastCryptoResult<()> {
             key_server_ids,
             threshold,
             network,
+            rpc_url,
         } => {
             // Parse fetch keys request.
             let request: FetchKeyRequest = bcs::from_bytes(&request.0).map_err(|e| {
@@ -562,7 +584,7 @@ async fn main() -> FastCryptoResult<()> {
             // Fetch keys from key server urls and collect service id and its seal responses.
             let mut seal_responses = Vec::new();
             let client = reqwest::Client::new();
-            for server in &fetch_key_server_urls(&key_server_ids, &network)
+            for server in &fetch_key_server_urls(&network, &key_server_ids, rpc_url)
                 .await
                 .map_err(|e| {
                     FastCryptoError::GeneralError(format!("Failed to fetch key server URLs: {e}"))
@@ -801,7 +823,7 @@ mod tests {
             "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
         )
         .unwrap()];
-        let key_servers = fetch_key_server_urls(&key_server_ids, "testnet")
+        let key_servers = fetch_key_server_urls(&Network::Testnet, &key_server_ids, None)
             .await
             .unwrap();
         assert_eq!(key_servers.len(), 1);
