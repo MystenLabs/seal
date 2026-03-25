@@ -18,7 +18,7 @@ use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{
-    build_new_to_old_map, create_grpc_client, fetch_committee_data,
+    build_new_to_old_map, create_grpc_client_with_url, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
     fetch_upgrade_proposal, get_committee_rotation_info, CommitteeState, KeyServerV2, Network,
     ServerType, UpgradeVote,
@@ -33,6 +33,7 @@ use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
+use sui_rpc::Client;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk_types::Address;
@@ -78,6 +79,7 @@ fn package_ops_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::PACKAGE_OPS_TESTNET,
         Network::Mainnet => gas_defaults::PACKAGE_OPS_MAINNET,
+        Network::Custom => gas_defaults::PACKAGE_OPS_TESTNET,
     })
 }
 
@@ -85,6 +87,7 @@ fn regular_gas_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::REGULAR_TESTNET,
         Network::Mainnet => gas_defaults::REGULAR_MAINNET,
+        Network::Custom => gas_defaults::REGULAR_TESTNET,
     })
 }
 
@@ -202,6 +205,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Reject current upgrade proposal (as committee member).
@@ -213,6 +220,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Authorize and execute package upgrade (after threshold of approvals is reached).
@@ -228,6 +239,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Reset upgrade proposal (if threshold of rejections is reached).
@@ -239,6 +254,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Check key server status, including the committee that owns it, and the UpgradeManager with proposal status held by this committee.
@@ -250,6 +269,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Generate a new Ed25519 address, save to local wallet keystore, and set as active.
@@ -280,15 +303,24 @@ async fn main() -> Result<()> {
             }
 
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
             let members = get_members(&config_content)?;
             let threshold = get_threshold(&config_content)?;
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let coordinator_address = wallet.active_address()?;
 
             println!("Using coordinator address: {}", coordinator_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, node_url.as_deref());
+
+            let wallet_env = wallet.get_active_env()?;
+            println!("Wallet using RPC: {}", wallet_env.rpc);
             println!("Members: {} addresses", members.len());
             println!("Threshold: {}", threshold);
 
@@ -315,7 +347,7 @@ async fn main() -> Result<()> {
             let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
                 &mut grpc_client,
                 &wallet,
@@ -427,18 +459,25 @@ async fn main() -> Result<()> {
 
             let key_server_obj_id = get_key_server_obj_id(&config_content)?;
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
             let members = get_members(&config_content)?;
             let threshold = get_threshold(&config_content)?;
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let coordinator_address = wallet.active_address()?;
             println!("Using coordinator address: {}", coordinator_address);
+            print_network_info(&network, node_url.as_deref());
 
             // Fetch committee ID and package ID from key server.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let key_server_addr = Address::from_hex(&key_server_obj_id)?;
             let (current_committee_id, package_id) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
@@ -538,8 +577,16 @@ async fn main() -> Result<()> {
                 bail!("Server URL and name are required.");
             }
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let my_address = wallet.active_address()?;
 
             println!("\n=== Getting active address from wallet ===");
@@ -614,8 +661,8 @@ async fn main() -> Result<()> {
             );
 
             println!("\n=== Registering onchain ===");
-            let network = get_network(&config_content)?;
-            let mut grpc_client = create_grpc_client(&network)?;
+            print_network_info(&network, node_url.as_deref());
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
 
             // Register onchain.
             let mut register_builder = ProgrammableTransactionBuilder::new();
@@ -686,6 +733,8 @@ async fn main() -> Result<()> {
             let committee_id = get_committee_id(&config_content)?;
             let my_address = SuiAddress::from_bytes(get_my_address(&config_content)?.inner())?;
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+            print_network_info(&network, node_url.as_deref());
 
             // Check if this is a rotation.
             let current_committee_id =
@@ -709,7 +758,7 @@ async fn main() -> Result<()> {
             let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
             // Determine version and fetch old key server PK (for rotation).
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let (next_version, old_key_server_pk) =
                 get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
 
@@ -897,9 +946,11 @@ async fn main() -> Result<()> {
 
             let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+            print_network_info(&network, node_url.as_deref());
 
             // Fetch committee from onchain.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             println!("Committee ID: {committee_id}");
@@ -1020,6 +1071,7 @@ async fn main() -> Result<()> {
             package_path,
             key_server_id,
             network,
+            rpc_url,
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
@@ -1029,6 +1081,7 @@ async fn main() -> Result<()> {
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
                 true, // approve
+                rpc_url.as_deref(),
             )
             .await?;
         }
@@ -1036,6 +1089,7 @@ async fn main() -> Result<()> {
         Commands::RejectUpgrade {
             key_server_id,
             network,
+            rpc_url,
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
@@ -1045,6 +1099,7 @@ async fn main() -> Result<()> {
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
                 false, // reject
+                rpc_url.as_deref(),
             )
             .await?;
         }
@@ -1053,13 +1108,14 @@ async fn main() -> Result<()> {
             package_path,
             key_server_id,
             network,
+            rpc_url,
         } => {
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let executor_address = wallet.active_address()?;
 
             println!("Executor address: {}", executor_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
 
             // Build package and compute digest.
             let digest = get_package_digest(&package_path, &network)?;
@@ -1070,7 +1126,7 @@ async fn main() -> Result<()> {
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1158,16 +1214,17 @@ async fn main() -> Result<()> {
         Commands::ResetProposal {
             key_server_id,
             network,
+            rpc_url,
         } => {
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let member_address = wallet.active_address()?;
 
             println!("Member address: {}", member_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1253,11 +1310,12 @@ async fn main() -> Result<()> {
         Commands::CheckKeyServerStatus {
             key_server_id,
             network,
+            rpc_url,
         } => {
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
             println!("Key Server ID: {}", key_server_id);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
 
             // Fetch committee information.
             let (committee_id, _committee_pkg) =
@@ -1436,6 +1494,8 @@ async fn create_dkg_state_and_message(
     let my_address = get_my_address(&config_content)?;
     let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
     let network = get_network(&config_content)?;
+    let node_url = get_node_url(&config_content);
+    print_network_info(&network, node_url.as_deref());
 
     // Load local keys.
     let local_keys = KeysFile::load(keys_file)?;
@@ -1450,7 +1510,7 @@ async fn create_dkg_state_and_message(
     };
 
     // Fetch current committee from onchain.
-    let mut grpc_client = create_grpc_client(&network)?;
+    let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
     let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
     // Validate committee state contains my address.
@@ -1646,7 +1706,7 @@ async fn get_gas_params(
     Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
 }
 
-/// Load wallet context from path.
+/// Load wallet context from path and optionally set active environment.
 fn load_wallet(
     wallet_path: Option<&Path>,
     active_address: Option<SuiAddress>,
@@ -1667,6 +1727,47 @@ fn load_wallet(
     }
 
     Ok(wallet)
+}
+
+/// Load wallet and ensure it's using the correct network environment.
+fn load_wallet_for_network(
+    wallet_path: Option<&Path>,
+    active_address: Option<SuiAddress>,
+    network: &Network,
+    rpc_url: Option<&str>,
+) -> Result<WalletContext> {
+    let wallet = load_wallet(wallet_path, active_address)?;
+
+    // Determine the environment alias to use
+    let target_env = match network {
+        Network::Testnet => "testnet".to_string(),
+        Network::Mainnet => "mainnet".to_string(),
+        Network::Custom => {
+            // For custom network, find or create an env with matching RPC URL
+            if let Some(url) = rpc_url {
+                let matching_env = wallet
+                    .config
+                    .envs
+                    .iter()
+                    .find(|env| env.rpc == url)
+                    .map(|env| env.alias.clone());
+
+                if let Some(alias) = matching_env {
+                    alias
+                } else {
+                    // No alias found for the dkg.yaml URL, create a new one with sui cli.
+                    bail!(
+                        "Custom RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-custom-devnet --rpc https://my-custom-rpc.example.com:443'",
+                        url
+                    );
+                }
+            } else {
+                bail!("Custom network specified but no NODE_URL provided in config");
+            }
+        }
+    };
+
+    Ok(wallet.with_env_override(target_env))
 }
 
 /// Derive config and keys_file paths from state_dir.
@@ -1719,14 +1820,36 @@ fn get_config_field<'a>(
 
 /// Get network from config.
 fn get_network(config: &serde_yaml::Value) -> Result<Network> {
-    let network_val = get_config_field(config, &["init-params"], "NETWORK")
-        .ok_or_else(|| anyhow!("NETWORK not found in config"))?;
+    let network_str = get_config_field(config, &["init-params"], "NETWORK")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("NETWORK not found in config or invalid"))?;
 
-    let network_str = network_val
-        .as_str()
-        .ok_or_else(|| anyhow!("NETWORK must be a string (Testnet or Mainnet)"))?;
+    Network::from_str(network_str).map_err(|e| anyhow!(e))
+}
 
-    Network::from_str(&network_str.to_lowercase()).map_err(|e| anyhow!(e))
+/// Get optional NODE_URL from config.
+fn get_node_url(config: &serde_yaml::Value) -> Option<String> {
+    get_config_field(config, &["init-params"], "NODE_URL")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Create gRPC client with rpc url or network default.
+fn create_grpc_client_from_config(
+    network: &Network,
+    config_node_url: Option<&str>,
+) -> Result<Client> {
+    let rpc_url = config_node_url.or_else(|| network.default_rpc_url());
+    create_grpc_client_with_url(network, rpc_url)
+}
+
+/// Print network with rpc url.
+fn print_network_info(network: &Network, rpc_url: Option<&str>) {
+    let rpc_url = rpc_url.or_else(|| network.default_rpc_url());
+    match rpc_url {
+        Some(url) => println!("Network: {} ({})", network, url),
+        None => println!("Network: {}", network),
+    }
 }
 
 /// Get members list from config.
@@ -1848,6 +1971,7 @@ fn create_build_config(network: &Network) -> BuildConfig {
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
+        Network::Custom => testnet_environment(),
     };
 
     BuildConfig {
@@ -2128,11 +2252,12 @@ async fn vote_for_upgrade(
     wallet: &mut WalletContext,
     gas_budget: u64,
     approve: bool,
+    custom_rpc_url: Option<&str>,
 ) -> Result<()> {
     let voter_address = wallet.active_address()?;
 
     println!("Voter address: {}", voter_address);
-    println!("Network: {:?}", network);
+    print_network_info(network, custom_rpc_url);
 
     // Build package and compute digest (only for approve).
     let digest = if let Some(path) = package_path {
@@ -2144,7 +2269,7 @@ async fn vote_for_upgrade(
     };
 
     // Fetch key server to get committee ID.
-    let mut grpc_client = create_grpc_client(network)?;
+    let mut grpc_client = create_grpc_client_with_url(network, custom_rpc_url)?;
     let (committee_id, _) =
         fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 

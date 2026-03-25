@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 crypto = { path = "../crypto" }
 seal-sdk = { path = "../seal-sdk" }
+seal-committee = { path = "../seal-committee" }
 
 clap.workspace = true
 fastcrypto.workspace = true

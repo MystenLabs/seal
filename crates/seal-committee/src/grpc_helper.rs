@@ -26,13 +26,20 @@ struct UpgradeManagerKey {
     dummy_field: bool,
 }
 
-/// Create gRPC client for a given network.
-pub fn create_grpc_client(network: &Network) -> Result<Client> {
-    let rpc_url = match network {
-        Network::Mainnet => Client::MAINNET_FULLNODE,
-        Network::Testnet => Client::TESTNET_FULLNODE,
-    };
+/// Create gRPC client for a given network. Use custom_rpc_url if provided.
+pub fn create_grpc_client_with_url(
+    network: &Network,
+    custom_rpc_url: Option<&str>,
+) -> Result<Client> {
+    let rpc_url = custom_rpc_url
+        .or_else(|| network.default_rpc_url())
+        .ok_or_else(|| anyhow!("Custom network requires NODE_URL in config or --rpc-url flag"))?;
     Ok(Client::new(rpc_url)?)
+}
+
+/// Create gRPC client for a given network using default URLs.
+pub fn create_grpc_client(network: &Network) -> Result<Client> {
+    create_grpc_client_with_url(network, None)
 }
 
 /// Fetch an object's BCS data and deserialize as type T.
