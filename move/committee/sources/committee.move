@@ -12,6 +12,7 @@ use std::{string::String, type_name};
 use sui::{
     bls12381::{g1_from_bytes, g2_from_bytes},
     dynamic_object_field as dof,
+    event,
     package::{UpgradeCap, UpgradeTicket, UpgradeReceipt},
     vec_map::{Self, VecMap},
     vec_set::{Self, VecSet}
@@ -38,6 +39,16 @@ const ENoProposalForDigest: u64 = 12;
 const ENotEnoughVotes: u64 = 13;
 const EWrongVersion: u64 = 14;
 const EWrongUpgradeCap: u64 = 15;
+
+// ===== Events =====
+
+/// Event emitted when a new committee rotation is initiated.
+public struct CommitteeRotationInitiated has copy, drop {
+    /// ID of the newly created committee.
+    committee_id: ID,
+    /// ID of the old committee this rotates from.
+    old_committee_id: ID,
+}
 
 // ===== Structs =====
 
@@ -177,6 +188,13 @@ public fun init_rotation(
     assert!(continuing_members >= (old_committee.threshold), EInsufficientOldMembers);
 
     let committee = init_internal(threshold, members, option::some(object::id(old_committee)), ctx);
+
+    // Emit committee rotation initiated event
+    event::emit(CommitteeRotationInitiated {
+        committee_id: object::id(&committee),
+        old_committee_id: object::id(old_committee),
+    });
+
     transfer::share_object(committee);
 }
 

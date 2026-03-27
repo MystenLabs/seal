@@ -74,6 +74,12 @@ pub struct KeyServerMetrics {
     /// Client SDK versions by type seen in requests
     #[allow(dead_code)]
     pub client_sdk_version: IntCounterVec,
+
+    /// Committee mode rotation events with committee ID and state labels
+    pub committee_mode_rotation_events: IntGaugeVec,
+
+    /// Committee mode package upgrade events with package digest and state labels
+    pub committee_mode_package_upgrade_events: IntGaugeVec,
 }
 
 impl KeyServerMetrics {
@@ -181,6 +187,20 @@ impl KeyServerMetrics {
                 "client_sdk_version",
                 "Client SDK versions by type seen in requests",
                 &["sdk_type", "version"],
+                registry
+            )
+            .unwrap(),
+            committee_mode_rotation_events: register_int_gauge_vec_with_registry!(
+                "committee_mode_rotation_events",
+                "Committee mode rotation events (value=1), labeled by committee_id and state (rotation_initiated/rotation_completed)",
+                &["committee_id", "state"],
+                registry
+            )
+            .unwrap(),
+            committee_mode_package_upgrade_events: register_int_gauge_vec_with_registry!(
+                "committee_mode_package_upgrade_events",
+                "Committee mode package upgrade events (value=1), labeled by state (upgrade_initiated/upgrade_completed)",
+                &["state"],
                 registry
             )
             .unwrap(),
