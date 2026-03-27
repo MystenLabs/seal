@@ -3,8 +3,6 @@
 
 //! gRPC utilities for interacting with Sui blockchain.
 
-use std::collections::HashMap;
-
 use crate::{
     move_types::{
         Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeManager,
@@ -12,10 +10,12 @@ use crate::{
     },
     Network,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
+use std::str::FromStr;
 use sui_rpc::client::Client;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk_types::{Address, Object, StructTag, TypeTag};
+use sui_types::base_types::ObjectID;
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
@@ -26,13 +26,20 @@ struct UpgradeManagerKey {
     dummy_field: bool,
 }
 
-/// Create gRPC client for a given network.
-pub fn create_grpc_client(network: &Network) -> Result<Client> {
-    let rpc_url = match network {
-        Network::Mainnet => Client::MAINNET_FULLNODE,
-        Network::Testnet => Client::TESTNET_FULLNODE,
-    };
+/// Create gRPC client for a given network. Use custom_rpc_url if provided.
+pub fn create_grpc_client_with_url(
+    network: &Network,
+    custom_rpc_url: Option<&str>,
+) -> Result<Client> {
+    let rpc_url = custom_rpc_url
+        .or_else(|| network.default_rpc_url())
+        .ok_or_else(|| anyhow!("Custom network requires NODE_URL in config or --rpc-url flag"))?;
     Ok(Client::new(rpc_url)?)
+}
+
+/// Create gRPC client for a given network using default URLs.
+pub fn create_grpc_client(network: &Network) -> Result<Client> {
+    create_grpc_client_with_url(network, None)
 }
 
 /// Fetch an object's BCS data and deserialize as type T.
@@ -188,10 +195,12 @@ pub async fn fetch_key_server_by_committee(
 pub async fn get_partial_key_server_for_member(
     grpc_client: &mut Client,
     key_server_obj_id: &Address,
+    committee_id: &Address,
     member_address: &Address,
 ) -> Result<PartialKeyServerInfo> {
     let ks = fetch_key_server_by_id(grpc_client, key_server_obj_id).await?;
-    let partial_key_servers = to_partial_key_servers(&ks).await?;
+    let committee = fetch_committee_data(grpc_client, committee_id).await?;
+    let partial_key_servers = ks.to_partial_key_servers(&committee.members)?;
 
     partial_key_servers
         .get(member_address)
@@ -204,42 +213,12 @@ pub async fn get_partial_key_server_for_member(
         })
 }
 
-pub async fn to_partial_key_servers(
-    key_server_v2: &KeyServerV2,
-) -> Result<HashMap<Address, PartialKeyServerInfo>> {
-    match &key_server_v2.server_type {
-        ServerType::Committee {
-            partial_key_servers,
-            ..
-        } => partial_key_servers
-            .0
-            .contents
-            .iter()
-            .map(|entry| {
-                Ok((
-                    entry.key,
-                    PartialKeyServerInfo {
-                        party_id: entry.value.party_id,
-                        partial_pk: entry.value.partial_pk,
-                        name: entry.value.name.clone(),
-                        url: entry.value.url.clone(),
-                    },
-                ))
-            })
-            .collect(),
-        _ => Err(anyhow!("KeyServer is not of type Committee")),
-    }
-}
-
 /// Fetch committee ID and package ID from a key server object ID.
 /// Returns (committee_id, package_id).
 pub async fn fetch_committee_from_key_server(
     grpc_client: &mut Client,
     key_server_obj_id: &Address,
-) -> Result<(Address, sui_types::base_types::ObjectID)> {
-    use std::str::FromStr;
-    use sui_types::base_types::ObjectID;
-
+) -> Result<(Address, ObjectID)> {
     // Fetch key server object to get owner (field wrapper).
     let field_wrapper_id = {
         let mut ledger_client = grpc_client.ledger_client();
@@ -375,6 +354,44 @@ pub async fn fetch_upgrade_manager(
     Ok(upgrade_manager)
 }
 
+/// Get next committee version and key server pk if exists. For fresh DKG, the next version is 0,
+/// old pk is None. For rotation, the next version is the old committee's KeyServer version + 1.
+/// Old pk is returned as Some from the key server object.
+pub async fn get_committee_rotation_info(
+    grpc_client: &mut Client,
+    committee_id: &Address,
+) -> Result<(u32, Option<Vec<u8>>)> {
+    let committee = fetch_committee_data(grpc_client, committee_id).await?;
+
+    if let Some(old_committee_id) = committee.old_committee_id {
+        // Rotation: fetch the old committee's KeyServer version then increment by 1.
+        match fetch_key_server_by_committee(grpc_client, &old_committee_id).await {
+            Ok((_, key_server_v2)) => {
+                let pk = key_server_v2.pk;
+                match key_server_v2.server_type {
+                    ServerType::Committee { version, .. } => {
+                        println!(
+                            "Old committee version: {}, new version will be: {}",
+                            version,
+                            version + 1
+                        );
+                        Ok((version + 1, Some(pk)))
+                    }
+                    _ => bail!("Old KeyServer is not of type Committee"),
+                }
+            }
+            Err(e) => {
+                bail!(
+                    "Failed to fetch old committee's KeyServer for rotation: {}",
+                    e
+                );
+            }
+        }
+    } else {
+        Ok((0, None))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,7 +465,7 @@ mod tests {
     async fn test_fetch_partial_key_servers() {
         // Test rotated finalized committee from testnet (V1 with 4 parties).
         let committee_id =
-            Address::from_str("0x27f97ecae74a58add30df73bc2d5b4a15dd55deb03bdb4e460ee5dc02b813892")
+            Address::from_str("0x400b8e7f1ae460a2b2fd40426db7e1ba66ac76d0c8b0c8344a44d7134e189039")
                 .unwrap();
 
         // Create gRPC client.
@@ -461,19 +478,21 @@ mod tests {
 
         // Expected values for rotated committee (4 parties, version 1).
         let expected_key_server =
-            Address::from_str("0xdf791818e65275ea9e3dca53e639cd5a764d7ee8d5b1107cf362004df42a8295")
+            Address::from_str("0xa8bfdab21c38ed39fb0b0c839878186044cd5d64662d8cd9722ef288e1a64b73")
                 .unwrap();
         let expected_partial_pks = [
-            "0xb875772befcf3838c67fb39dd094d9eacf1beed625c6eabec1f66aa1c79fb65d98d1972bf8f45b2092fa8dd089cc12eb0c9d23db44842a7db16caf54ebc64202de1aea1767b70e6f462e354e62bcd0e5b151ab8d8c9dbcc54b01dc482e90cd61",
-            "0xa733bc8ffa0c914a23892a7eba24290fff392b1b5f4f06c7dccaef67f4fcb315e44606abba3e92141c2fd88b06b138f6167d026700db3d46d09d406381dd1c0b1b78c0a35fda6d2489fa602cd5334ca179243ec766acbfc75bffa7e704772d31",
-            "0x98a060d7711d3edbcb819155326f2bdf1c2ee4d9621df4bd7adf4d6ae49b625bb7bd293299a0cb550cf76a22f93618f412e76dcf4a8ef0251e3423cb72d0760ec7f2d34dae9cd8745fbfa8ab8ec00813806e4e8ac35064f5e885658732ba5f19"
+            "0xaa67c0a82c48fe46203c73e88337113178e2e6728925bd605cd7a9daaf5a94ad2a6031edbb532898f7aec8a1d05c464a0e5fc4dc178eb4d6ffb8f3654b92d23d46845271d55ca9b161de071c0b9ffda2c8cea2588f11b8a38790591231b0125b",
+            "0xb2d22b59d3d1b88d4c41980cbbbf3e744d2154db6c9a67d5ac9d12545953f17dcf30f1760c0c9bf901ba4a9e0585b468112215cac50fc276ccd11554588142bc51db7b1514a2b246c2a21f50c28808c4ae102ac90372098bb980247f3c9d529b",
+            "0xaa22fdfac657098037691488eb6331221f4be7a0c39cca4c3e06aee876978beecdf9f83fee4cc98dc089f6bb5ab71c680df7dc8aaa7d8b5ec04328790972c077725789081073e2cc35dcf68cbca5189f191554fba8e94b5dba6cca3c64542871"
         ];
 
         let (ks_obj_id, key_server_v2) =
             fetch_key_server_by_committee(&mut grpc_client, &committee_id)
                 .await
                 .unwrap();
-        let partial_key_servers = to_partial_key_servers(&key_server_v2).await.unwrap();
+        let partial_key_servers = key_server_v2
+            .to_partial_key_servers(&committee.members)
+            .unwrap();
 
         // Assert that the version field is 1.
         match key_server_v2.server_type {

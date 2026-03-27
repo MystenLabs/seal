@@ -9,6 +9,7 @@ use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
+use fastcrypto::hash::{Blake2b256, HashFunction};
 use fastcrypto::traits::KeyPair as _;
 use fastcrypto_tbls::dkg_v1::Party;
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
@@ -16,11 +17,11 @@ use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
-use seal_committee::grpc_helper::to_partial_key_servers;
 use seal_committee::{
-    build_new_to_old_map, create_grpc_client, fetch_committee_data,
+    build_new_to_old_map, create_grpc_client_with_url, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
-    fetch_upgrade_proposal, CommitteeState, KeyServerV2, Network, ServerType, UpgradeVote,
+    fetch_upgrade_proposal, get_committee_rotation_info, CommitteeState, KeyServerV2, Network,
+    ServerType, UpgradeVote,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -28,24 +29,67 @@ use std::fs;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_sdk::rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse};
+use sui_rpc::Client;
+use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk_types::Address;
+use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::effects::TransactionEffectsAPI;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::transaction::{ObjectArg, SharedObjectMutability, TransactionData};
-use sui_types::{
-    base_types::{ObjectID, SuiAddress},
-    object::Owner,
-};
 use types::{DkgState, InitializedConfig, KeysFile};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use crate::types::{sign_message, verify_signature, SignedMessage};
+
+/// Domain separation tag for DKG random oracle
+const DST_DKG: &str = "SEAL_DKG_V0:";
+
+/// BCS-serialize a value and hex-encode the result.
+macro_rules! bcs_hex_encode {
+    ($val:expr) => {
+        Hex::encode(bcs::to_bytes($val)?)
+    };
+}
+
+/// Hex-decode a string and BCS-deserialize to the given type.
+macro_rules! bcs_hex_decode {
+    ($ty:ty, $s:expr) => {
+        bcs::from_bytes::<$ty>(&Hex::decode($s)?)
+    };
+}
+/// Default gas budgets in MIST.
+mod gas_defaults {
+    /// Higher budget for package ops: publish, authorize-and-upgrade.
+    pub const PACKAGE_OPS_TESTNET: u64 = 100_000_000; // 0.1 SUI
+    pub const PACKAGE_OPS_MAINNET: u64 = 100_000_000; // 0.1 SUI
+
+    /// Smaller budget for single PTB operations.
+    pub const REGULAR_TESTNET: u64 = 10_000_000; // 0.01 SUI
+    pub const REGULAR_MAINNET: u64 = 10_000_000; // 0.01 SUI
+}
+
+fn package_ops_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
+    gas_budget.unwrap_or(match network {
+        Network::Testnet => gas_defaults::PACKAGE_OPS_TESTNET,
+        Network::Mainnet => gas_defaults::PACKAGE_OPS_MAINNET,
+        Network::Custom => gas_defaults::PACKAGE_OPS_TESTNET,
+    })
+}
+
+fn regular_gas_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
+    gas_budget.unwrap_or(match network {
+        Network::Testnet => gas_defaults::REGULAR_TESTNET,
+        Network::Mainnet => gas_defaults::REGULAR_MAINNET,
+        Network::Custom => gas_defaults::REGULAR_TESTNET,
+    })
+}
 
 #[derive(Parser)]
 #[command(name = "seal-committee-cli")]
@@ -62,25 +106,26 @@ struct Cli {
     #[arg(long, global = true)]
     active_address: Option<SuiAddress>,
 
-    /// Gas budget for transactions (default: 100000000 = 0.1 SUI).
-    #[arg(long, global = true, default_value = "100000000")]
-    gas_budget: u64,
+    /// Gas budget for transactions in MIST. Defaults vary per command:
+    /// publish/authorize-and-upgrade = 0.1 SUI; all others = 0.01 SUI.
+    #[arg(long, global = true)]
+    gas_budget: Option<u64>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Publish committee package and initialize committee (coordinator operation).
     PublishAndInit {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Initialize committee rotation (coordinator operation).
     InitRotation {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Generate DKG keys and register onchain (member operation).
@@ -88,14 +133,6 @@ enum Commands {
         /// State directory (contains dkg.yaml and dkg.key).
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to write keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
 
         /// Server URL to register.
         #[arg(short = 'u', long)]
@@ -111,14 +148,6 @@ enum Commands {
         /// State directory (contains dkg.yaml, dkg.key, and state).
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to the keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
     },
 
     /// Initialize DKG party state and create DKG message (member operation).
@@ -129,17 +158,9 @@ enum Commands {
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
 
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to the keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
-
         /// Old share for key rotation (hex-encoded BCS, required for continuing members in rotation).
-        #[arg(short = 'o', long)]
-        old_share: Option<String>,
+        #[arg(short = 'o', long, value_parser = parse_old_share)]
+        old_share: Option<G2Scalar>,
     },
 
     /// Process all messages and propose committee onchain (member operation).
@@ -148,24 +169,16 @@ enum Commands {
         #[arg(short = 's', long, default_value = "dkg-state")]
         state_dir: PathBuf,
 
-        /// Directory containing message_*.json files (overrides default <state_dir>/dkg-messages).
+        /// Directory containing message_*.json files (defaults to <state_dir>/dkg-messages).
         #[arg(short = 'm', long)]
         messages_dir: Option<PathBuf>,
-
-        /// Path to configuration file (overrides default <state_dir>/dkg.yaml).
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-
-        /// Path to keys file (overrides default <state_dir>/dkg.key).
-        #[arg(short = 'k', long)]
-        keys_file: Option<PathBuf>,
     },
 
     /// Check committee status and member registration.
     CheckCommittee {
-        /// Path to configuration file.
-        #[arg(short, long, default_value = "dkg-state/dkg.yaml")]
-        config: PathBuf,
+        /// State directory (contains dkg.yaml).
+        #[arg(short = 's', long, default_value = "dkg-state")]
+        state_dir: PathBuf,
     },
 
     /// Compute package digest for upgrade verification.
@@ -192,14 +205,14 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
-    /// Reject package upgrade (as committee member).
+    /// Reject current upgrade proposal (as committee member).
     RejectUpgrade {
-        /// Path to the Move package to upgrade to.
-        #[arg(short, long, default_value = "move/committee")]
-        package_path: PathBuf,
-
         /// Key server object ID.
         #[arg(short, long)]
         key_server_id: Address,
@@ -207,6 +220,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Authorize and execute package upgrade (after threshold of approvals is reached).
@@ -222,6 +239,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Reset upgrade proposal (if threshold of rejections is reached).
@@ -233,6 +254,10 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Check key server status, including the committee that owns it, and the UpgradeManager with proposal status held by this committee.
@@ -244,7 +269,20 @@ enum Commands {
         /// Network to use.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use instead of the default network URL.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
+
+    /// Generate a new Ed25519 address, save to local wallet keystore, and set as active.
+    NewAddress,
+
+    /// Print the active Sui address from the wallet.
+    ActiveAddress,
+
+    /// Show gas coins for the active address.
+    Gas,
 }
 
 #[tokio::main]
@@ -252,7 +290,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::PublishAndInit { config } => {
+        Commands::PublishAndInit { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             // Check if already initialized.
@@ -264,15 +303,24 @@ async fn main() -> Result<()> {
             }
 
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
             let members = get_members(&config_content)?;
             let threshold = get_threshold(&config_content)?;
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let coordinator_address = wallet.active_address()?;
 
             println!("Using coordinator address: {}", coordinator_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, node_url.as_deref());
+
+            let wallet_env = wallet.get_active_env()?;
+            println!("Wallet using RPC: {}", wallet_env.rpc);
             println!("Members: {} addresses", members.len());
             println!("Threshold: {}", threshold);
 
@@ -299,12 +347,12 @@ async fn main() -> Result<()> {
             let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
                 &mut grpc_client,
                 &wallet,
                 coordinator_address,
-                cli.gas_budget,
+                package_ops_budget(cli.gas_budget, &network),
             )
             .await?;
 
@@ -329,40 +377,25 @@ async fn main() -> Result<()> {
             println!("\nExecuting publish transaction...");
             let response = execute_tx_and_log_status(&wallet, tx_data).await?;
 
-            // Extract published package ID, UpgradeCap, and InitCap.
-            let effects = response
-                .effects
-                .as_ref()
-                .ok_or_else(|| anyhow!("No effects in transaction response"))?;
-
-            let package_id = effects
-                .created()
-                .iter()
-                .find_map(|obj_ref| {
-                    if matches!(obj_ref.owner, Owner::Immutable) {
-                        Some(obj_ref.reference.object_id)
-                    } else {
-                        None
-                    }
-                })
+            // Extract published package ID and UpgradeCap.
+            let package_ref = response
+                .get_new_package_obj()
                 .ok_or_else(|| anyhow!("Could not find published package ID"))?;
+            let package_id = package_ref.0;
 
             println!("Published package: {}", package_id);
 
-            // Find UpgradeCap and InitCap.
-            let upgrade_cap_id = extract_created_object_by_type(&response, "UpgradeCap")?;
-            let init_cap_id = extract_created_object_by_type(&response, "InitCap")?;
-
+            // Find UpgradeCap.
+            let upgrade_cap_ref = response
+                .get_new_package_upgrade_cap()
+                .ok_or_else(|| anyhow!("Could not find UpgradeCap"))?;
+            let upgrade_cap_id = upgrade_cap_ref.0;
             println!("UpgradeCap ID: {}", upgrade_cap_id);
-            println!("InitCap ID: {}", init_cap_id);
 
-            // Initialize the committee with InitCap and UpgradeCap.
+            // Initialize the committee with UpgradeCap.
             let mut init_builder = ProgrammableTransactionBuilder::new();
 
-            // Get object args for InitCap and UpgradeCap.
-            let init_cap_ref = wallet.get_object_ref(init_cap_id).await?;
-            let init_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(init_cap_ref))?;
-
+            // Get object arg for UpgradeCap.
             let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap_id).await?;
             let upgrade_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(upgrade_cap_ref))?;
 
@@ -374,14 +407,14 @@ async fn main() -> Result<()> {
                 "seal_committee".parse()?,
                 "init_committee".parse()?,
                 vec![],
-                vec![init_cap_arg, upgrade_cap_arg, threshold_arg, members_arg],
+                vec![upgrade_cap_arg, threshold_arg, members_arg],
             );
 
             let init_gas_coin_ref = wallet
                 .gas_for_owner_budget(coordinator_address, gas_budget, Default::default())
                 .await?
                 .1
-                .object_ref();
+                .compute_object_reference();
 
             let init_tx_data = TransactionData::new_programmable(
                 coordinator_address,
@@ -415,7 +448,8 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::InitRotation { config } => {
+        Commands::InitRotation { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             if get_config_field(&config_content, &["init-rotation"], "COMMITTEE_ID").is_some() {
@@ -425,18 +459,25 @@ async fn main() -> Result<()> {
 
             let key_server_obj_id = get_key_server_obj_id(&config_content)?;
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
             let members = get_members(&config_content)?;
             let threshold = get_threshold(&config_content)?;
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let coordinator_address = wallet.active_address()?;
             println!("Using coordinator address: {}", coordinator_address);
+            print_network_info(&network, node_url.as_deref());
 
             // Fetch committee ID and package ID from key server.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let key_server_addr = Address::from_hex(&key_server_obj_id)?;
             let (current_committee_id, package_id) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
@@ -478,7 +519,7 @@ async fn main() -> Result<()> {
                 &mut grpc_client,
                 &wallet,
                 coordinator_address,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
             )
             .await?;
 
@@ -513,12 +554,10 @@ async fn main() -> Result<()> {
 
         Commands::GenkeyAndRegister {
             state_dir,
-            config,
-            keys_file,
             server_url,
             server_name,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             // Check if already generated keys.
@@ -538,8 +577,16 @@ async fn main() -> Result<()> {
                 bail!("Server URL and name are required.");
             }
 
-            // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+
+            // Load wallet and set network.
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
             let my_address = wallet.active_address()?;
 
             println!("\n=== Getting active address from wallet ===");
@@ -614,8 +661,8 @@ async fn main() -> Result<()> {
             );
 
             println!("\n=== Registering onchain ===");
-            let network = get_network(&config_content)?;
-            let mut grpc_client = create_grpc_client(&network)?;
+            print_network_info(&network, node_url.as_deref());
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
 
             // Register onchain.
             let mut register_builder = ProgrammableTransactionBuilder::new();
@@ -634,8 +681,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg, enc_pk_arg, signing_pk_arg, url_arg, name_arg],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, my_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                my_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let register_tx_data = TransactionData::new_programmable(
                 my_address,
@@ -655,12 +707,8 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::InitState {
-            state_dir,
-            config,
-            keys_file,
-        } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+        Commands::InitState { state_dir } => {
+            let (config, keys_file) = derive_paths(&state_dir);
 
             // Call shared function with no old share.
             create_dkg_state_and_message(&state_dir, &config, &keys_file, None).await?;
@@ -668,20 +716,16 @@ async fn main() -> Result<()> {
 
         Commands::CreateMessage {
             state_dir,
-            config,
-            keys_file,
             old_share,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             create_dkg_state_and_message(&state_dir, &config, &keys_file, old_share).await?;
         }
         Commands::ProcessAllAndPropose {
             state_dir,
             messages_dir,
-            config,
-            keys_file,
         } => {
-            let (config, keys_file) = derive_paths(&state_dir, config, keys_file);
+            let (config, keys_file) = derive_paths(&state_dir);
             let full_messages_dir = messages_dir.unwrap_or_else(|| state_dir.join("dkg-messages"));
             let config_content = load_config(&config)?;
 
@@ -689,6 +733,8 @@ async fn main() -> Result<()> {
             let committee_id = get_committee_id(&config_content)?;
             let my_address = SuiAddress::from_bytes(get_my_address(&config_content)?.inner())?;
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+            print_network_info(&network, node_url.as_deref());
 
             // Check if this is a rotation.
             let current_committee_id =
@@ -709,12 +755,12 @@ async fn main() -> Result<()> {
 
             // Load and process all messages.
             let messages = load_messages_from_dir(&full_messages_dir)?;
-            let output = process_dkg_messages(&mut state, messages, &local_keys)?;
+            let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
-            // Determine version.
-            let mut grpc_client = create_grpc_client(&network)?;
-            let version =
-                determine_committee_version(&mut grpc_client, &state.config.committee_id).await?;
+            // Determine version and fetch old key server PK (for rotation).
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let (next_version, old_key_server_pk) =
+                get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
 
             // Extract key server PK and master share.
             let key_server_pk_bytes = bcs::to_bytes(&output.vss_pk.c0())?;
@@ -729,8 +775,8 @@ async fn main() -> Result<()> {
             };
 
             // Check if already written to config.
-            let master_share_key = format!("MASTER_SHARE_V{}", version);
-            let partial_pks_key = format!("PARTIAL_PKS_V{}", version);
+            let master_share_key = format!("MASTER_SHARE_V{}", next_version);
+            let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
 
             if get_config_field(
                 &config_content,
@@ -758,7 +804,7 @@ async fn main() -> Result<()> {
             }
             let partial_pks_yaml = serde_yaml::to_string(&partial_pks)?;
 
-            if version == 0 {
+            if next_version == 0 {
                 // For v0, add KEY_SERVER_PK, PARTIAL_PKS_V0, MASTER_SHARE_V0.
                 update_config_bytes_val(
                     &config,
@@ -776,22 +822,16 @@ async fn main() -> Result<()> {
                     vec![(master_share_key.as_str(), &master_share_bytes)],
                 )?;
             } else {
-                // For rotation, verify KEY_SERVER_PK matches, then add PARTIAL_PKS_VX and MASTER_SHARE_VX.
-                if let Some(existing_key_server_pk) = get_config_field(
-                    &config_content,
-                    &["process-all-and-propose"],
-                    "KEY_SERVER_PK",
-                ) {
-                    let existing_pk = existing_key_server_pk.as_str().unwrap_or("");
-                    let key_server_pk_hex = Hex::encode_with_format(&key_server_pk_bytes);
-                    if existing_pk != key_server_pk_hex {
+                // For rotation, verify KEY_SERVER_PK matches the onchain old committee's key server PK.
+                if let Some(onchain_pk) = old_key_server_pk {
+                    if onchain_pk != key_server_pk_bytes {
                         bail!(
-                            "KEY_SERVER_PK mismatch!\n  Expected (from v0): {}\n  Got (from rotation): {}",
-                            existing_pk,
-                            key_server_pk_hex
+                            "KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (from rotation DKG): {}",
+                            Hex::encode_with_format(&onchain_pk),
+                            Hex::encode_with_format(&key_server_pk_bytes),
                         );
                     }
-                    println!("✓ KEY_SERVER_PK unchanged.");
+                    println!("✓ KEY_SERVER_PK matches onchain old committee.");
                 }
                 update_config_string_val(
                     &config,
@@ -805,10 +845,10 @@ async fn main() -> Result<()> {
                 )?;
             }
 
-            if version == 0 {
-                println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
+            if next_version == 0 {
+                println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             } else {
-                println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), version, version);
+                println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             }
 
             // Load wallet.
@@ -833,6 +873,8 @@ async fn main() -> Result<()> {
                 .collect::<Result<Vec<_>, _>>()?;
             let partial_pks_arg = propose_builder.pure(partial_pks_bytes)?;
 
+            let messages_hash_arg = propose_builder.pure(messages_hash)?;
+
             if is_rotation {
                 let current_committee_obj_id = current_committee_id.unwrap();
                 let current_committee_arg = propose_builder.obj(
@@ -845,7 +887,12 @@ async fn main() -> Result<()> {
                     "seal_committee".parse()?,
                     "propose_for_rotation".parse()?,
                     vec![],
-                    vec![committee_arg, partial_pks_arg, current_committee_arg],
+                    vec![
+                        committee_arg,
+                        partial_pks_arg,
+                        messages_hash_arg,
+                        current_committee_arg,
+                    ],
                 );
             } else {
                 // Use key server PK bytes directly.
@@ -856,12 +903,22 @@ async fn main() -> Result<()> {
                     "seal_committee".parse()?,
                     "propose".parse()?,
                     vec![],
-                    vec![committee_arg, partial_pks_arg, key_server_pk_arg],
+                    vec![
+                        committee_arg,
+                        partial_pks_arg,
+                        key_server_pk_arg,
+                        messages_hash_arg,
+                    ],
                 );
             }
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, my_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                my_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let propose_tx_data = TransactionData::new_programmable(
                 my_address,
@@ -877,20 +934,23 @@ async fn main() -> Result<()> {
             println!("\n✓ Successfully processed messages and proposed committee onchain!");
             println!(
                 "  MASTER_SHARE_V{} can be found in {} that will be used later to start the key server. Back it up securely and do not share it with anyone.",
-                version,
+                next_version,
                 config.display()
             );
             println!("  Partial PKs: {} entries", partial_pks.len());
         }
 
-        Commands::CheckCommittee { config } => {
+        Commands::CheckCommittee { state_dir } => {
+            let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
             let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
             let network = get_network(&config_content)?;
+            let node_url = get_node_url(&config_content);
+            print_network_info(&network, node_url.as_deref());
 
             // Fetch committee from onchain.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             println!("Committee ID: {committee_id}");
@@ -920,22 +980,22 @@ async fn main() -> Result<()> {
                         committee.members.len()
                     );
                     for addr in &registered {
-                        println!("  ✓ {addr}");
+                        println!("  ✓ party {}: {addr}", committee.get_party_id(addr)?);
                     }
 
                     if !not_registered.is_empty() {
                         println!();
                         println!("⚠ Missing members ({}):", not_registered.len());
                         for addr in &not_registered {
-                            println!("  ✗ {addr}");
+                            println!("  ✗ party {}: {addr}", committee.get_party_id(addr)?);
                         }
                         println!(
-                            "\nWaiting for {} member(s) to register before proceeding to phase 2.",
+                            "\nWaiting for {} member(s) to register before proceeding to Phase B (Message creation).",
                             not_registered.len()
                         );
                     } else {
                         println!();
-                        println!("✓ All members registered! Good to proceed to phase 2.");
+                        println!("✓ All members registered! Good to proceed to Phase B (Message creation).");
                     }
                 }
                 CommitteeState::PostDKG { approvals, .. } => {
@@ -990,7 +1050,7 @@ async fn main() -> Result<()> {
                             }
 
                             // Display partial key servers.
-                            display_partial_key_servers(&key_server).await?;
+                            display_partial_key_servers(&key_server, &committee.members).await?;
                         }
                         Err(e) => {
                             println!("Warning: Could not fetch key server object: {e}");
@@ -1011,32 +1071,35 @@ async fn main() -> Result<()> {
             package_path,
             key_server_id,
             network,
+            rpc_url,
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
-                &package_path,
+                Some(&package_path),
                 &key_server_id,
                 &network,
                 &mut wallet,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
                 true, // approve
+                rpc_url.as_deref(),
             )
             .await?;
         }
 
         Commands::RejectUpgrade {
-            package_path,
             key_server_id,
             network,
+            rpc_url,
         } => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             vote_for_upgrade(
-                &package_path,
+                None,
                 &key_server_id,
                 &network,
                 &mut wallet,
-                cli.gas_budget,
+                regular_gas_budget(cli.gas_budget, &network),
                 false, // reject
+                rpc_url.as_deref(),
             )
             .await?;
         }
@@ -1045,13 +1108,14 @@ async fn main() -> Result<()> {
             package_path,
             key_server_id,
             network,
+            rpc_url,
         } => {
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let executor_address = wallet.active_address()?;
 
             println!("Executor address: {}", executor_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
 
             // Build package and compute digest.
             let digest = get_package_digest(&package_path, &network)?;
@@ -1062,7 +1126,7 @@ async fn main() -> Result<()> {
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1118,8 +1182,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg_commit, upgrade_receipt],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, executor_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                executor_address,
+                package_ops_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let upgrade_tx_data = TransactionData::new_programmable(
                 executor_address,
@@ -1133,19 +1202,10 @@ async fn main() -> Result<()> {
             let upgrade_response = execute_tx_and_log_status(&wallet, upgrade_tx_data).await?;
 
             // Extract new package ID.
-            let new_package_id = upgrade_response
-                .effects
-                .as_ref()
-                .and_then(|effects| {
-                    effects.created().iter().find_map(|obj_ref| {
-                        if matches!(obj_ref.owner, Owner::Immutable) {
-                            Some(obj_ref.reference.object_id)
-                        } else {
-                            None
-                        }
-                    })
-                })
+            let new_package_ref = upgrade_response
+                .get_new_package_obj()
                 .ok_or_else(|| anyhow!("Could not find upgraded package ID"))?;
+            let new_package_id = new_package_ref.0;
 
             println!("\n✓ Successfully upgraded package!");
             println!("New package ID: {}", new_package_id);
@@ -1154,16 +1214,17 @@ async fn main() -> Result<()> {
         Commands::ResetProposal {
             key_server_id,
             network,
+            rpc_url,
         } => {
             // Load wallet.
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let member_address = wallet.active_address()?;
 
             println!("Member address: {}", member_address);
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1188,8 +1249,13 @@ async fn main() -> Result<()> {
                 vec![committee_arg],
             );
 
-            let (gas_price, gas_budget, gas_coin_ref) =
-                get_gas_params(&mut grpc_client, &wallet, member_address, cli.gas_budget).await?;
+            let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
+                &mut grpc_client,
+                &wallet,
+                member_address,
+                regular_gas_budget(cli.gas_budget, &network),
+            )
+            .await?;
 
             let reset_tx_data = TransactionData::new_programmable(
                 member_address,
@@ -1205,14 +1271,51 @@ async fn main() -> Result<()> {
             println!("\n✓ Successfully reset upgrade proposal!");
         }
 
+        Commands::NewAddress => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let generated = wallet
+                .config
+                .keystore
+                .generate(None, GenerateOptions::Default)
+                .await?;
+            wallet.config.active_address = Some(generated.address);
+            wallet.config.save()?;
+            println!("{}", generated.address);
+        }
+
+        Commands::ActiveAddress => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let address = wallet.active_address()?;
+            println!("{}", address);
+        }
+
+        Commands::Gas => {
+            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let address = wallet.active_address()?;
+            println!("Active address: {}", address);
+
+            let gas_objects = wallet.gas_objects(address).await?;
+
+            if gas_objects.is_empty() {
+                println!("No gas coins found.");
+                return Ok(());
+            }
+            println!("\nGas Objects:");
+            for (balance, obj) in &gas_objects {
+                let sui = *balance as f64 / 1_000_000_000.0;
+                println!("| {:<68} | {:>11.4} SUI |", obj.id(), sui);
+            }
+        }
+
         Commands::CheckKeyServerStatus {
             key_server_id,
             network,
+            rpc_url,
         } => {
-            println!("Network: {:?}", network);
+            print_network_info(&network, rpc_url.as_deref());
             println!("Key Server ID: {}", key_server_id);
 
-            let mut grpc_client = create_grpc_client(&network)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
 
             // Fetch committee information.
             let (committee_id, _committee_pkg) =
@@ -1241,7 +1344,7 @@ async fn main() -> Result<()> {
                     }
 
                     // Display partial key servers.
-                    display_partial_key_servers(&key_server).await?;
+                    display_partial_key_servers(&key_server, &committee.members).await?;
                 }
                 Err(e) => {
                     println!("Warning: Could not fetch key server object: {}", e);
@@ -1293,15 +1396,12 @@ async fn main() -> Result<()> {
 async fn execute_tx_and_log_status(
     wallet: &WalletContext,
     tx_data: TransactionData,
-) -> Result<SuiTransactionBlockResponse> {
+) -> Result<ExecutedTransaction> {
     let transaction = wallet.sign_transaction(&tx_data).await;
     let response = wallet.execute_transaction_may_fail(transaction).await?;
 
-    let digest = response.digest;
-    let effects = response.effects.as_ref();
-    let status = effects
-        .map(|e| e.status())
-        .ok_or_else(|| anyhow!("No effects in transaction response"))?;
+    let digest = response.transaction.digest();
+    let status = response.effects.status();
 
     if !status.is_ok() {
         bail!("Transaction FAILED with status: {:?}", status);
@@ -1314,23 +1414,20 @@ async fn execute_tx_and_log_status(
 
 /// Extract a created object ID by type name from a transaction response.
 fn extract_created_object_by_type(
-    response: &SuiTransactionBlockResponse,
+    response: &ExecutedTransaction,
     type_name: &str,
 ) -> Result<ObjectID> {
     response
-        .object_changes
-        .as_ref()
-        .ok_or_else(|| anyhow!("No object changes in response"))?
+        .changed_objects
         .iter()
-        .find_map(|change| {
-            if let sui_sdk::rpc_types::ObjectChange::Created {
-                object_id,
-                object_type,
-                ..
-            } = change
+        .find_map(|changed| {
+            // Check if this object was created and matches the type name
+            if let Some(object_type) = &changed.object_type
                 && object_type.to_string().contains(type_name)
+                && let Some(object_id_str) = &changed.object_id
+                && let Ok(object_id) = ObjectID::from_str(object_id_str)
             {
-                return Some(*object_id);
+                return Some(object_id);
             }
             None
         })
@@ -1338,7 +1435,7 @@ fn extract_created_object_by_type(
 }
 
 /// Extract the committee object ID from a transaction response.
-fn extract_created_committee_id(response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
+fn extract_created_committee_id(response: &ExecutedTransaction) -> Result<ObjectID> {
     extract_created_object_by_type(response, "Committee")
 }
 
@@ -1390,20 +1487,21 @@ async fn create_dkg_state_and_message(
     state_dir: &Path,
     config: &Path,
     keys_file: &Path,
-    old_share: Option<String>,
+    old_share: Option<G2Scalar>,
 ) -> Result<()> {
     // Load config to get parameters.
     let config_content = load_config(config)?;
     let my_address = get_my_address(&config_content)?;
     let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
     let network = get_network(&config_content)?;
+    let node_url = get_node_url(&config_content);
+    print_network_info(&network, node_url.as_deref());
 
     // Load local keys.
     let local_keys = KeysFile::load(keys_file)?;
 
-    // Parse old share from command argument if provided. Provided for continuing members in key rotation.
-    let (my_old_share, my_old_pk) = if let Some(share_hex) = old_share {
-        let key_share: G2Scalar = bcs::from_bytes(&Hex::decode(&share_hex)?)?;
+    // Compute old public key from old share if provided. Provided for continuing members in key rotation.
+    let (my_old_share, my_old_pk) = if let Some(key_share) = old_share {
         let key_pk = G2Element::generator() * key_share;
         println!("Continuing member for key rotation, old share parsed.");
         (Some(key_share), Some(key_pk))
@@ -1412,7 +1510,7 @@ async fn create_dkg_state_and_message(
     };
 
     // Fetch current committee from onchain.
-    let mut grpc_client = create_grpc_client(&network)?;
+    let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
     let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
     // Validate committee state contains my address.
@@ -1476,7 +1574,7 @@ async fn create_dkg_state_and_message(
             // Fetch partial key server info from the old committee's key server object.
             let (_, ks) =
                 fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await?;
-            let old_partial_key_infos = to_partial_key_servers(&ks).await?;
+            let old_partial_key_infos = ks.to_partial_key_servers(&old_committee.members)?;
 
             // Build mapping from old party ID to partial public key.
             let expected_old_pks: HashMap<u16, G2Element> = old_partial_key_infos
@@ -1532,7 +1630,7 @@ async fn create_dkg_state_and_message(
     // - Rotation: only continuing members create a message (my_old_share is Some).
     let my_message = if old_threshold.is_none() || my_old_share.is_some() {
         println!("Creating DKG message for party {my_party_id}...");
-        let random_oracle = RandomOracle::new(&committee_id.to_string());
+        let random_oracle = create_dkg_random_oracle(&committee_id);
         let party = Party::<G2Element, G1Element>::new_advanced(
             local_keys.enc_sk.clone(),
             Nodes::new(nodes.clone())?.clone(),
@@ -1548,11 +1646,11 @@ async fn create_dkg_state_and_message(
         let signed_message = sign_message(message.clone(), &local_keys.signing_sk, nizk_proof);
 
         // Write message to file.
-        let message_base64 = Base64::encode(bcs::to_bytes(&signed_message)?);
+        let message_hex = bcs_hex_encode!(&signed_message);
         let message_file = state_dir.join(format!("message_{my_party_id}.json"));
 
         let message_json = serde_json::json!({
-            "message": message_base64
+            "message": message_hex
         });
         fs::write(&message_file, serde_json::to_string_pretty(&message_json)?)?;
 
@@ -1587,7 +1685,9 @@ async fn create_dkg_state_and_message(
     };
 
     state.save(state_dir)?;
-    println!("State saved to {state_dir:?}. Wait for coordinator to announce phase 3.");
+    println!(
+        "State saved to {state_dir:?}. Wait for coordinator to announce Phase C (Finalization)."
+    );
     Ok(())
 }
 
@@ -1603,10 +1703,10 @@ async fn get_gas_params(
         .gas_for_owner_budget(address, gas_budget, Default::default())
         .await?
         .1;
-    Ok((gas_price, gas_budget, gas_coin.object_ref()))
+    Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
 }
 
-/// Load wallet context from path.
+/// Load wallet context from path and optionally set active environment.
 fn load_wallet(
     wallet_path: Option<&Path>,
     active_address: Option<SuiAddress>,
@@ -1629,15 +1729,52 @@ fn load_wallet(
     Ok(wallet)
 }
 
-/// Derive config and keys_file paths from state_dir if not provided.
-fn derive_paths(
-    state_dir: &Path,
-    config: Option<PathBuf>,
-    keys_file: Option<PathBuf>,
-) -> (PathBuf, PathBuf) {
-    let config = config.unwrap_or_else(|| state_dir.join("dkg.yaml"));
-    let keys_file = keys_file.unwrap_or_else(|| state_dir.join("dkg.key"));
-    (config, keys_file)
+/// Load wallet and ensure it's using the correct network environment.
+fn load_wallet_for_network(
+    wallet_path: Option<&Path>,
+    active_address: Option<SuiAddress>,
+    network: &Network,
+    rpc_url: Option<&str>,
+) -> Result<WalletContext> {
+    let wallet = load_wallet(wallet_path, active_address)?;
+
+    // Determine the environment alias to use
+    let target_env = match network {
+        Network::Testnet => "testnet".to_string(),
+        Network::Mainnet => "mainnet".to_string(),
+        Network::Custom => {
+            // For custom network, find or create an env with matching RPC URL
+            if let Some(url) = rpc_url {
+                let matching_env = wallet
+                    .config
+                    .envs
+                    .iter()
+                    .find(|env| env.rpc == url)
+                    .map(|env| env.alias.clone());
+
+                if let Some(alias) = matching_env {
+                    alias
+                } else {
+                    // No alias found for the dkg.yaml URL, create a new one with sui cli.
+                    bail!(
+                        "Custom RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-custom-devnet --rpc https://my-custom-rpc.example.com:443'",
+                        url
+                    );
+                }
+            } else {
+                bail!("Custom network specified but no NODE_URL provided in config");
+            }
+        }
+    };
+
+    Ok(wallet.with_env_override(target_env))
+}
+
+/// Derive config and keys_file paths from state_dir.
+fn derive_paths(state_dir: &Path) -> (PathBuf, PathBuf) {
+    let config_path = state_dir.join("dkg.yaml");
+    let keys_file_path = state_dir.join("dkg.key");
+    (config_path, keys_file_path)
 }
 
 /// Helper function to write a file with restricted permissions (owner only) in Unix systems.
@@ -1683,14 +1820,36 @@ fn get_config_field<'a>(
 
 /// Get network from config.
 fn get_network(config: &serde_yaml::Value) -> Result<Network> {
-    let network_val = get_config_field(config, &["init-params"], "NETWORK")
-        .ok_or_else(|| anyhow!("NETWORK not found in config"))?;
+    let network_str = get_config_field(config, &["init-params"], "NETWORK")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("NETWORK not found in config or invalid"))?;
 
-    let network_str = network_val
-        .as_str()
-        .ok_or_else(|| anyhow!("NETWORK must be a string (Testnet or Mainnet)"))?;
+    Network::from_str(network_str).map_err(|e| anyhow!(e))
+}
 
-    Network::from_str(&network_str.to_lowercase()).map_err(|e| anyhow!(e))
+/// Get optional NODE_URL from config.
+fn get_node_url(config: &serde_yaml::Value) -> Option<String> {
+    get_config_field(config, &["init-params"], "NODE_URL")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Create gRPC client with rpc url or network default.
+fn create_grpc_client_from_config(
+    network: &Network,
+    config_node_url: Option<&str>,
+) -> Result<Client> {
+    let rpc_url = config_node_url.or_else(|| network.default_rpc_url());
+    create_grpc_client_with_url(network, rpc_url)
+}
+
+/// Print network with rpc url.
+fn print_network_info(network: &Network, rpc_url: Option<&str>) {
+    let rpc_url = rpc_url.or_else(|| network.default_rpc_url());
+    match rpc_url {
+        Some(url) => println!("Network: {} ({})", network, url),
+        None => println!("Network: {}", network),
+    }
 }
 
 /// Get members list from config.
@@ -1812,6 +1971,7 @@ fn create_build_config(network: &Network) -> BuildConfig {
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
+        Network::Custom => testnet_environment(),
     };
 
     BuildConfig {
@@ -1845,12 +2005,12 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| anyhow!("Failed to parse {}: {}", path.display(), e))?;
 
-        let message_base64 = json["message"]
+        let message_hex = json["message"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing 'message' field in {}", path.display()))?;
 
-        let signed_message: SignedMessage = bcs::from_bytes(&Base64::decode(message_base64)?)
-            .map_err(|e| {
+        let signed_message: SignedMessage =
+            bcs_hex_decode!(SignedMessage, message_hex).map_err(|e| {
                 anyhow!(
                     "Failed to deserialize message from {}: {}",
                     path.display(),
@@ -1868,13 +2028,29 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
     Ok(messages)
 }
 
-/// Process DKG messages and complete the protocol.
+/// Process DKG messages and complete the protocol. Returns the DKG output and a consistency hash
+/// over all received messages `Blake2b256(BCS(msg_1) || ... || BCS(msg_n))` where messages are
+/// sorted by sender party ID.
 fn process_dkg_messages(
     state: &mut DkgState,
     messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
-) -> Result<fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>> {
+) -> Result<(
+    fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>,
+    Vec<u8>,
+)> {
     println!("Processing {} message(s)...", messages.len());
+
+    // Compute hash over messages sorted by sender party ID.
+    let messages_hash = {
+        let mut sorted = messages.iter().collect::<Vec<_>>();
+        sorted.sort_by_key(|m| m.message.sender);
+        let mut hasher = Blake2b256::default();
+        for msg in sorted {
+            hasher.update(&bcs::to_bytes(&msg)?);
+        }
+        hasher.finalize().digest.to_vec()
+    };
 
     // Validate message count.
     if let Some(old_threshold) = state.config.old_threshold {
@@ -1901,7 +2077,7 @@ fn process_dkg_messages(
         local_keys.enc_sk.clone(),
         state.config.nodes.clone(),
         state.config.threshold,
-        RandomOracle::new(&state.config.committee_id.to_string()),
+        create_dkg_random_oracle(&state.config.committee_id),
         state.config.my_old_share,
         state.config.old_threshold,
         &mut thread_rng(),
@@ -1940,6 +2116,7 @@ fn process_dkg_messages(
                 .get(old_party_id)
                 .ok_or_else(|| anyhow!("Partial PK not found for old party {}", old_party_id))?;
 
+            // For rotation, nizk proof is not needed for security but it's checked here for consistency.
             party
                 .process_message_with_checks(
                     signed_msg.message.clone(),
@@ -1960,10 +2137,12 @@ fn process_dkg_messages(
         };
 
         if let Some(complaint) = &processed.complaint {
+            let complaint_hex = bcs_hex_encode!(complaint);
             bail!(
-                "Do NOT propose onchain. Complaint found {:?} for party {}",
-                complaint,
-                processed.message.sender
+                "Do NOT propose onchain. Complaint against party {}.\n\
+                Abort the protocol and share the following proof with the coordinator:\n  {}",
+                processed.message.sender,
+                complaint_hex,
             );
         }
         println!("Successfully processed message from party {sender_party_id}");
@@ -1975,8 +2154,9 @@ fn process_dkg_messages(
 
     if !confirmation.complaints.is_empty() {
         bail!(
-            "Do NOT propose onchain. Complaint(s) found: {:?}",
-            confirmation.complaints
+            "Do NOT propose onchain. {} complaint(s) found.\n\
+            Abort the protocol and share with the coordinator.",
+            confirmation.complaints.len()
         );
     }
 
@@ -2000,42 +2180,17 @@ fn process_dkg_messages(
     };
 
     state.output = Some(output.clone());
-    Ok(output)
+    Ok((output, messages_hash))
 }
 
-/// Determine the committee version from the network.
-async fn determine_committee_version(
-    grpc_client: &mut sui_rpc::client::Client,
-    committee_id: &Address,
-) -> Result<u32> {
-    let committee = fetch_committee_data(grpc_client, committee_id).await?;
+/// Parse a hex-encoded BCS-serialized G2Scalar from a CLI argument.
+fn parse_old_share(s: &str) -> anyhow::Result<G2Scalar> {
+    Ok(bcs_hex_decode!(G2Scalar, s)?)
+}
 
-    if let Some(old_committee_id) = committee.old_committee_id {
-        // Rotation: fetch the old committee's KeyServer version then increment by 1.
-        match fetch_key_server_by_committee(grpc_client, &old_committee_id).await {
-            Ok((_, key_server_v2)) => match key_server_v2.server_type {
-                ServerType::Committee { version, .. } => {
-                    println!(
-                        "Old committee version: {}, new version will be: {}",
-                        version,
-                        version + 1
-                    );
-                    Ok(version + 1)
-                }
-                _ => bail!("Old KeyServer is not of type Committee"),
-            },
-            Err(e) => {
-                bail!(
-                    "Failed to fetch old committee's KeyServer for rotation: {}",
-                    e
-                );
-            }
-        }
-    } else {
-        // Fresh DKG: version is 0.
-        println!("Fresh DKG, version will be: 0");
-        Ok(0)
-    }
+/// Create a RandomOracle with the DKG domain separator and committee ID.
+fn create_dkg_random_oracle(committee_id: &Address) -> RandomOracle {
+    RandomOracle::new(&format!("{}{}", DST_DKG, committee_id))
 }
 
 /// Compute and display the package digest.
@@ -2068,15 +2223,17 @@ fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> 
 }
 
 /// Display partial key server information.
-async fn display_partial_key_servers(key_server: &KeyServerV2) -> Result<()> {
+async fn display_partial_key_servers(key_server: &KeyServerV2, members: &[Address]) -> Result<()> {
     println!("\n=== Partial Key Servers ===");
-    match to_partial_key_servers(key_server).await {
+    match key_server.to_partial_key_servers(members) {
         Ok(partial_key_servers) => {
             for (addr, info) in partial_key_servers {
                 println!("Address: {}", addr);
                 println!("  Name: {}", info.name);
                 println!("  URL: {}", info.url);
                 println!("  Party ID: {}", info.party_id);
+                let partial_pk_bytes = bcs::to_bytes(&info.partial_pk)?;
+                println!("  Partial PK: {}", Base64::encode(&partial_pk_bytes));
                 println!();
             }
         }
@@ -2089,24 +2246,30 @@ async fn display_partial_key_servers(key_server: &KeyServerV2) -> Result<()> {
 
 /// Helper function to vote (approve or reject) for package upgrade.
 async fn vote_for_upgrade(
-    package_path: &Path,
+    package_path: Option<&Path>,
     key_server_id: &Address,
     network: &Network,
     wallet: &mut WalletContext,
     gas_budget: u64,
     approve: bool,
+    custom_rpc_url: Option<&str>,
 ) -> Result<()> {
     let voter_address = wallet.active_address()?;
 
     println!("Voter address: {}", voter_address);
-    println!("Network: {:?}", network);
+    print_network_info(network, custom_rpc_url);
 
-    // Build package and compute digest.
-    let digest = get_package_digest(package_path, network)?;
-    println!("\nPackage digest: {}", digest);
+    // Build package and compute digest (only for approve).
+    let digest = if let Some(path) = package_path {
+        let d = get_package_digest(path, network)?;
+        println!("\nPackage digest: {}", d);
+        Some(d)
+    } else {
+        None
+    };
 
     // Fetch key server to get committee ID.
-    let mut grpc_client = create_grpc_client(network)?;
+    let mut grpc_client = create_grpc_client_with_url(network, custom_rpc_url)?;
     let (committee_id, _) =
         fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 
@@ -2123,13 +2286,19 @@ async fn vote_for_upgrade(
     let committee_arg = vote_builder
         .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
 
-    let digest_bytes = Hex::decode(&digest)?;
-    let digest_arg = vote_builder.pure(digest_bytes)?;
-
     let function_name = if approve {
         "approve_digest_for_upgrade"
     } else {
         "reject_digest_for_upgrade"
+    };
+
+    // Build function call args based on whether we have a digest.
+    let args = if let Some(ref digest_str) = digest {
+        let digest_bytes = Hex::decode(digest_str)?;
+        let digest_arg = vote_builder.pure(digest_bytes)?;
+        vec![committee_arg, digest_arg]
+    } else {
+        vec![committee_arg]
     };
 
     vote_builder.programmable_move_call(
@@ -2137,7 +2306,7 @@ async fn vote_for_upgrade(
         "seal_committee".parse()?,
         function_name.parse()?,
         vec![],
-        vec![committee_arg, digest_arg],
+        args,
     );
 
     let (gas_price, gas_budget, gas_coin_ref) =

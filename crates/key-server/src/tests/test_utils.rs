@@ -7,15 +7,11 @@ use crate::{
     },
     master_keys::MasterKeys,
     sui_rpc_client::SuiRpcClient,
-    tests::SealTestCluster,
     time::from_mins,
     types::Network,
     DefaultEncoding, Server,
 };
 use fastcrypto::encoding::Encoding;
-use fastcrypto::groups::bls12381::G2Element;
-use fastcrypto::serde_helpers::ToFromByteArray;
-use move_core_types::language_storage::StructTag;
 use semver::VersionReq;
 use std::{
     collections::HashMap,
@@ -23,23 +19,14 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::rpc_types::{ObjectChange, SuiTransactionBlockResponse};
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
-use sui_types::base_types::{ObjectID, SuiAddress};
-use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{
-    Argument, ProgrammableTransaction, TransactionData,
-    TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE,
-};
-use sui_types::{Identifier, TypeTag};
-use test_cluster::TestCluster;
+use sui_types::base_types::ObjectID;
 
 /// Helper function to create a test server with any ServerMode.
 pub(crate) async fn create_test_server(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     server_mode: ServerMode,
     onchain_version: Option<u32>,
@@ -61,7 +48,7 @@ pub(crate) async fn create_test_server(
 
     let sui_rpc_client = SuiRpcClient::new(
         sui_client,
-        sui_grpc_client.clone(),
+        grpc_client.into_inner(),
         RetryConfig::default(),
         None,
     );
@@ -78,7 +65,7 @@ pub(crate) async fn create_test_server(
 
     Server {
         sui_rpc_client,
-        master_keys,
+        master_keys: Arc::new(master_keys),
         key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
         options,
     }
@@ -87,14 +74,14 @@ pub(crate) async fn create_test_server(
 /// Helper function to create a permissioned server.
 pub(crate) async fn create_server(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     create_test_server(
         sui_client,
-        sui_grpc_client,
+        grpc_client,
         seal_package,
         ServerMode::Permissioned { client_configs },
         None,
@@ -107,7 +94,7 @@ pub(crate) async fn create_server(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_committee_servers(
     sui_client: SuiClient,
-    sui_grpc_client: SuiGrpcClient,
+    grpc_client: sui_rpc_api::Client,
     seal_package: ObjectID,
     key_server_obj_id: Address,
     member_addresses: Vec<Address>,
@@ -121,7 +108,7 @@ pub(crate) async fn create_committee_servers(
         let vars_refs: Vec<(&str, &[u8])> = vars.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let server = create_test_server(
             sui_client.clone(),
-            sui_grpc_client.clone(),
+            grpc_client.clone(),
             seal_package,
             ServerMode::Committee {
                 member_address,
@@ -136,146 +123,4 @@ pub(crate) async fn create_committee_servers(
         servers.push(server);
     }
     servers
-}
-
-/// Helper function to execute a programmable transaction and assert success.
-pub(crate) async fn execute_programmable_transaction(
-    tc: &SealTestCluster,
-    sender: SuiAddress,
-    pt: ProgrammableTransaction,
-) -> SuiTransactionBlockResponse {
-    let builder = tc
-        .test_cluster()
-        .test_transaction_builder_with_sender(sender)
-        .await;
-    let gas_object = builder.gas_object();
-    let gas_price = tc.test_cluster().get_reference_gas_price().await;
-    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
-    let tx_data =
-        TransactionData::new_programmable(sender, vec![gas_object], pt, gas_budget, gas_price);
-
-    let response = tc
-        .test_cluster()
-        .sign_and_execute_transaction(&tx_data)
-        .await;
-
-    assert!(response.status_ok().unwrap());
-    response
-}
-
-/// Helper function to create a VecMap of one member (address, partial_pk, url, party_id).
-pub(crate) fn build_partial_key_servers(
-    builder: &mut ProgrammableTransactionBuilder,
-    package_id: ObjectID,
-    member_address: SuiAddress,
-    partial_pk: &G2Element,
-    party_id: u16,
-) -> Argument {
-    let partial_pk_bytes = builder.pure(partial_pk.to_byte_array().to_vec()).unwrap();
-    let url_arg = builder.pure("testurl.com".to_string()).unwrap();
-    let name_arg = builder.pure("testserver".to_string()).unwrap();
-    let party_id_arg = builder.pure(party_id).unwrap();
-
-    let partial_key_server_arg = builder.programmable_move_call(
-        package_id,
-        Identifier::new("key_server").unwrap(),
-        Identifier::new("create_partial_key_server").unwrap(),
-        vec![],
-        vec![name_arg, url_arg, partial_pk_bytes, party_id_arg],
-    );
-
-    let vec_map_module = ObjectID::from_hex_literal("0x2").unwrap();
-    let partial_key_server_type = TypeTag::Struct(Box::new(StructTag {
-        address: package_id.into(),
-        module: Identifier::new("key_server").unwrap(),
-        name: Identifier::new("PartialKeyServer").unwrap(),
-        type_params: vec![],
-    }));
-
-    // Create a vecmap and insert the member.
-    let vec_map = builder.programmable_move_call(
-        vec_map_module,
-        Identifier::new("vec_map").unwrap(),
-        Identifier::new("empty").unwrap(),
-        vec![TypeTag::Address, partial_key_server_type.clone()],
-        vec![],
-    );
-    let member_addr_arg = builder.pure(member_address).unwrap();
-    builder.programmable_move_call(
-        vec_map_module,
-        Identifier::new("vec_map").unwrap(),
-        Identifier::new("insert").unwrap(),
-        vec![TypeTag::Address, partial_key_server_type],
-        vec![vec_map, member_addr_arg, partial_key_server_arg],
-    );
-    vec_map
-}
-
-/// Helper function to create a committee KeyServer on-chain and return its ObjectID.
-pub(crate) async fn create_committee_key_server_onchain(
-    cluster: &TestCluster,
-    package_id: ObjectID,
-    member_address: SuiAddress,
-    partial_pk: &G2Element,
-    party_id: u16,
-    master_pk: &G2Element,
-    threshold: u16,
-) -> ObjectID {
-    let mut builder = ProgrammableTransactionBuilder::new();
-    let partial_key_servers = build_partial_key_servers(
-        &mut builder,
-        package_id,
-        member_address,
-        partial_pk,
-        party_id,
-    );
-
-    let name = builder.pure("test_committee".to_string()).unwrap();
-    let threshold_arg = builder.pure(threshold).unwrap();
-    let master_pk_bytes = builder.pure(master_pk.to_byte_array().to_vec()).unwrap();
-    let key_server = builder.programmable_move_call(
-        package_id,
-        Identifier::new("key_server").unwrap(),
-        Identifier::new("create_committee_v2").unwrap(),
-        vec![],
-        vec![name, threshold_arg, master_pk_bytes, partial_key_servers],
-    );
-    builder.transfer_arg(member_address, key_server);
-
-    let pt = builder.finish();
-    let test_builder = cluster
-        .test_transaction_builder_with_sender(member_address)
-        .await;
-    let gas_object = test_builder.gas_object();
-    let gas_price = cluster.get_reference_gas_price().await;
-    let gas_budget = gas_price * TEST_ONLY_GAS_UNIT_FOR_HEAVY_COMPUTATION_STORAGE;
-    let tx_data = TransactionData::new_programmable(
-        member_address,
-        vec![gas_object],
-        pt,
-        gas_budget,
-        gas_price,
-    );
-
-    let response = cluster.sign_and_execute_transaction(&tx_data).await;
-    assert!(response.status_ok().unwrap());
-
-    // Extract the created KeyServer object ID.
-    response
-        .object_changes
-        .unwrap()
-        .into_iter()
-        .find_map(|change| {
-            if let ObjectChange::Created {
-                object_type,
-                object_id,
-                ..
-            } = change
-                && object_type.name.as_str() == "KeyServer"
-            {
-                return Some(object_id);
-            }
-            None
-        })
-        .expect("KeyServer object not found in transaction response")
 }

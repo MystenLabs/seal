@@ -5,7 +5,8 @@
 # Initial Parameters - Created by coordinator before running init-rotation
 # ============================================================================
 init-params:
-  NETWORK: Testnet  # or Mainnet
+  NETWORK: Testnet  # "Testnet", "Mainnet", or "Custom"
+  # NODE_URL: https://fullnode.testnet.sui.io:443  # Optional: custom RPC URL (required for "Custom" network)
   THRESHOLD: 3  # New threshold for rotated committee
   MEMBERS:  # New committee members (can include continuing members)
     - 0x0ceffe3ba385abe7a11f535e3428ae2ff4508eb4b6d370b829318b0d901c1152

@@ -183,24 +183,24 @@ impl HistogramRelay {
 fn extract_histograms(data: Vec<MetricFamily>) -> impl Iterator<Item = MetricFamily> {
     data.into_iter().filter_map(|mf| {
         let metrics = mf.get_metric().iter().filter_map(|m| {
-            if !m.has_histogram() {
+            if m.get_histogram().is_none() {
                 return None;
             }
             let mut v = Metric::default();
-            v.set_label(protobuf::RepeatedField::from_slice(m.get_label()));
-            v.set_histogram(m.get_histogram().to_owned());
-            v.set_timestamp_ms(m.get_timestamp_ms());
+            v.set_label(m.get_label().to_vec());
+            v.set_histogram(m.get_histogram().clone().unwrap_or_default());
+            v.set_timestamp_ms(m.timestamp_ms());
             Some(v)
         });
 
-        let only_histograms = protobuf::RepeatedField::from_iter(metrics);
+        let only_histograms: Vec<_> = metrics.collect();
         if only_histograms.is_empty() {
             return None;
         }
 
         let mut v = MetricFamily::default();
-        v.set_name(mf.get_name().to_owned());
-        v.set_help(mf.get_help().to_owned());
+        v.set_name(mf.name().to_owned());
+        v.set_help(mf.help().to_owned());
         v.set_field_type(mf.get_field_type());
         v.set_metric(only_histograms);
         Some(v)

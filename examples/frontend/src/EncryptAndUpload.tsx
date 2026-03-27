@@ -7,6 +7,7 @@ import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Button, Card, Flex, Spinner, Text } from '@radix-ui/themes';
 import { SealClient } from '@mysten/seal';
 import { fromHex, toHex } from '@mysten/sui/utils';
+import { DECENTRALIZED_KEY_SERVER_OBJ_ID } from './utils';
 
 export type Data = {
   status: string;
@@ -45,13 +46,16 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
   const NUM_EPOCH = 1;
   const packageId = useNetworkVariable('packageId');
   const suiClient = useSuiClient();
-  const serverObjectIds = ["0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"];
   const client = new SealClient({
     suiClient,
-    serverConfigs: serverObjectIds.map((id) => ({
-      objectId: id,
-      weight: 1,
-    })),
+    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+    serverConfigs: [
+      {
+        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+        weight: 1,
+        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+      },
+    ],
     verifyKeyServers: false,
   });
 
@@ -146,7 +150,7 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
             const policyObjectBytes = fromHex(policyObject);
             const id = toHex(new Uint8Array([...policyObjectBytes, ...nonce]));
             const { encryptedObject: encryptedBytes } = await client.encrypt({
-              threshold: 2,
+              threshold: 1,
               packageId,
               id,
               data: new Uint8Array(result),
@@ -201,7 +205,7 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
   const storeBlob = (encryptedData: Uint8Array) => {
     return fetch(`${getPublisherUrl(`/v1/blobs?epochs=${NUM_EPOCH}`)}`, {
       method: 'PUT',
-      body: encryptedData,
+      body: encryptedData.slice(),
     }).then((response) => {
       if (response.status === 200) {
         return response.json().then((info) => {

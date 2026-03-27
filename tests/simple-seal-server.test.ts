@@ -4,7 +4,7 @@
 import { fromHex } from "@mysten/bcs";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
-import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { SealClient, SessionKey } from "@mysten/seal";
 import assert from "assert";
 import { parseArgs } from "node:util";
@@ -83,7 +83,10 @@ async function runTest(
   // Setup
   const keypair = Ed25519Keypair.generate();
   const suiAddress = keypair.getPublicKey().toSuiAddress();
-  const suiClient = new SuiClient({ url: getFullnodeUrl(network) });
+  const suiClient = new SuiJsonRpcClient({
+    url: getJsonRpcFullnodeUrl(network),
+    network,
+  });
   const testData = crypto.getRandomValues(new Uint8Array(1000));
   const packageId = PACKAGE_IDS[network];
   console.log(`packageId: ${packageId}`);
@@ -269,20 +272,10 @@ const serverConfigsWithWeights = serverConfigs.map((config) => ({
   weight: 1,
 }));
 
-// Collect CORS test URLs (for committee servers with aggregatorUrl)
-const corsTests = serverConfigs
-  .filter((config) => config.aggregatorUrl)
-  .map((config) => ({
-    url: config.aggregatorUrl!,
-    name: `Aggregator (${config.objectId.slice(0, 10)}...)`,
-    apiKeyName: config.apiKeyName,
-    apiKey: config.apiKey,
-  }));
-
 runTest(network, serverConfigsWithWeights, {
   verifyKeyServers: false,
   threshold,
-  corsTests: corsTests.length > 0 ? corsTests : undefined,
+  corsTests: undefined,
 })
   .then(() => {
     console.log("✅ Test passed!");

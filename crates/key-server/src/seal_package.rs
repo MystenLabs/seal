@@ -1,6 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::errors::InternalError;
 use crate::time::current_epoch_time;
 use move_core_types::identifier::Identifier;
 use std::str::FromStr;
@@ -9,7 +10,7 @@ use sui_sdk::rpc_types::{
 };
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::Argument::Input;
-use sui_types::transaction::{CallArg, Command, ObjectArg, ProgrammableTransaction};
+use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, ProgrammableTransaction};
 use sui_types::SUI_CLOCK_OBJECT_ID;
 
 const TESTNET_PACKAGE_ID: &str =
@@ -65,16 +66,14 @@ impl SealPackage {
         &self,
         allowed_staleness: std::time::Duration,
         mut ptb: ProgrammableTransaction,
-    ) -> ProgrammableTransaction {
-        let now = current_epoch_time();
-        ptb.inputs.push(CallArg::from(now));
-        let now_index = ptb.inputs.len() - 1;
+    ) -> Result<ProgrammableTransaction, InternalError> {
+        let now = try_add_argument(&mut ptb, CallArg::from(current_epoch_time()))?;
+        let allowed_staleness = try_add_argument(
+            &mut ptb,
+            CallArg::from(allowed_staleness.as_millis() as u64),
+        )?;
 
-        let allowed_staleness = allowed_staleness.as_millis() as u64;
-        ptb.inputs.push(CallArg::from(allowed_staleness));
-        let allowed_staleness_index = ptb.inputs.len() - 1;
-
-        let clock_index = ptb
+        let clock = ptb
             .inputs
             .iter()
             .position(|arg| {
@@ -86,25 +85,37 @@ impl SealPackage {
                     })
                 )
             })
+            .map(try_argument_from_input_index)
             .unwrap_or_else(|| {
                 // The clock is not yet part of the PTB, so we add it
-                ptb.inputs.push(CallArg::CLOCK_IMM);
-                ptb.inputs.len() - 1
-            });
+                try_add_argument(&mut ptb, CallArg::CLOCK_IMM)
+            })?;
 
         let staleness_check = Command::move_call(
             self.package_id(),
             Identifier::from_str(STALENESS_MODULE).unwrap(),
             Identifier::from_str(STALENESS_FUNCTION).unwrap(),
             vec![],
-            vec![
-                Input(now_index as u16),
-                Input(allowed_staleness_index as u16),
-                Input(clock_index as u16),
-            ],
+            vec![now, allowed_staleness, clock],
         );
 
+        // This shifts all commands by 1 but that's okay since their results cannot be used as inputs
         ptb.commands.insert(0, staleness_check);
-        ptb
+        Ok(ptb)
     }
+}
+
+fn try_argument_from_input_index(input_index: usize) -> Result<Argument, InternalError> {
+    input_index
+        .try_into()
+        .map(Input)
+        .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
+}
+
+fn try_add_argument(
+    ptb: &mut ProgrammableTransaction,
+    argument: CallArg,
+) -> Result<Argument, InternalError> {
+    ptb.inputs.push(argument);
+    try_argument_from_input_index(ptb.inputs.len() - 1)
 }

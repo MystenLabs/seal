@@ -25,13 +25,69 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
-use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::json::SuiJsonValue;
-use sui_sdk::rpc_types::{ObjectChange, SuiData, SuiObjectDataOptions};
+use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
+use sui_types::effects::TransactionEffectsAPI;
 use sui_types::move_package::UpgradePolicy;
 use test_cluster::{TestCluster, TestClusterBuilder};
+
+// Helper trait to add compatibility methods to ExecutedTransaction for tests
+pub(crate) trait ExecutedTransactionTestExt {
+    fn status_ok(&self) -> anyhow::Result<bool>;
+    fn find_created_object_by_type(&self, type_name: &str) -> Option<ObjectID>;
+    fn find_mutated_object_by_type(
+        &self,
+        type_name: &str,
+    ) -> Option<(ObjectID, sui_types::base_types::SequenceNumber, [u8; 32])>;
+}
+
+impl ExecutedTransactionTestExt for ExecutedTransaction {
+    fn status_ok(&self) -> anyhow::Result<bool> {
+        Ok(self.effects.status().is_ok())
+    }
+
+    fn find_created_object_by_type(&self, type_name: &str) -> Option<ObjectID> {
+        self.effects.created().iter().find_map(|obj_ref| {
+            // Check if the object type matches by looking at changed_objects
+            // Use ends_with to avoid matching dynamic fields that contain the type name
+            self.changed_objects.iter().find_map(|changed| {
+                if let Some(object_type) = &changed.object_type
+                    && object_type.ends_with(&format!("::{}", type_name))
+                    && let Some(object_id_str) = &changed.object_id
+                    && let Ok(object_id) = ObjectID::from_str(object_id_str)
+                    && object_id == obj_ref.0 .0
+                {
+                    return Some(object_id);
+                }
+                None
+            })
+        })
+    }
+
+    fn find_mutated_object_by_type(
+        &self,
+        type_name: &str,
+    ) -> Option<(ObjectID, sui_types::base_types::SequenceNumber, [u8; 32])> {
+        self.effects.mutated().iter().find_map(|obj_ref| {
+            self.changed_objects.iter().find_map(|changed| {
+                if let Some(object_type) = &changed.object_type
+                    && object_type.contains(type_name)
+                    && let Some(object_id_str) = &changed.object_id
+                    && let Ok(object_id) = ObjectID::from_str(object_id_str)
+                    && object_id == obj_ref.0 .0
+                {
+                    // Extract digest bytes from ObjectDigest
+                    let digest_bytes = obj_ref.0 .2.into_inner();
+                    return Some((object_id, obj_ref.0 .1, digest_bytes));
+                }
+                None
+            })
+        })
+    }
+}
 
 mod e2e;
 mod externals;
@@ -125,27 +181,25 @@ impl SealTestCluster {
     pub async fn add_server_with_options(
         &mut self,
         server: KeyServerType,
-        name: &str,
         options: KeyServerOptions,
     ) {
         match server {
             Open(master_key) => {
-                let key_server_object_id = self
-                    .register_key_server(
-                        name,
-                        "http://localhost:8080", // Dummy URL, not used in this test
-                        public_key_from_master_key(&master_key),
-                    )
-                    .await;
+                let key_server_object_id = match &options.server_mode {
+                    ServerMode::Open {
+                        key_server_object_id,
+                    } => *key_server_object_id,
+                    _ => panic!("Expected ServerMode::Open"),
+                };
                 let server = Server {
                     sui_rpc_client: SuiRpcClient::new(
+                        #[allow(deprecated)]
                         self.cluster.sui_client().clone(),
-                        SuiGrpcClient::new(self.cluster.fullnode_handle.rpc_url.clone())
-                            .expect("Failed to create gRPC client"),
+                        self.cluster.grpc_client().into_inner(),
                         RetryConfig::default(),
                         None,
                     ),
-                    master_keys: MasterKeys::Open { master_key },
+                    master_keys: Arc::new(MasterKeys::Open { master_key }),
                     key_server_oid_to_pop: Arc::new(RwLock::new(HashMap::new())),
                     options,
                 };
@@ -173,7 +227,6 @@ impl SealTestCluster {
                     .await;
                 self.add_server_with_options(
                     server,
-                    name,
                     KeyServerOptions {
                         network: Network::TestCluster { seal_package },
                         node_url: None,
@@ -235,6 +288,7 @@ impl SealTestCluster {
     ) -> (ObjectID, ObjectID) {
         // Use ephemeral package loader. This skips Published.toml and uses an ephemeral publication
         // file instead.
+        #[allow(deprecated)]
         let chain_id = cluster
             .sui_client()
             .read_api()
@@ -282,7 +336,7 @@ impl SealTestCluster {
             }
         }
 
-        let builder = cluster.sui_client().transaction_builder();
+        let builder = cluster.grpc_client().transaction_builder();
         let tx = builder
             .publish(
                 cluster.get_address_0(),
@@ -296,24 +350,16 @@ impl SealTestCluster {
         let response = cluster.sign_and_execute_transaction(&tx).await;
         assert!(response.status_ok().unwrap());
 
-        let changes = response.object_changes.unwrap();
-
         // Return the package id of the first (and only) published package
-        let package_id = changes
-            .iter()
-            .find_map(|d| match d {
-                ObjectChange::Published { package_id, .. } => Some(*package_id),
-                _ => None,
-            })
-            .unwrap();
+        let package_id = response
+            .get_new_package_obj()
+            .expect("Package should be published")
+            .0;
 
-        let upgrade_cap = changes
-            .iter()
-            .find_map(|d| match d {
-                ObjectChange::Created { object_id, .. } => Some(*object_id),
-                _ => None,
-            })
-            .unwrap();
+        let upgrade_cap = response
+            .get_new_package_upgrade_cap()
+            .expect("UpgradeCap should be created")
+            .0;
 
         add_package(package_id);
 
@@ -330,7 +376,7 @@ impl SealTestCluster {
         let compiled_package = BuildConfig::new_for_testing().build(&path).unwrap();
 
         // Publish package
-        let builder = self.cluster.sui_client().transaction_builder();
+        let builder = self.cluster.grpc_client().transaction_builder();
 
         let tx = builder
             .upgrade(
@@ -349,15 +395,10 @@ impl SealTestCluster {
         let response = self.cluster.sign_and_execute_transaction(&tx).await;
         assert!(response.status_ok().unwrap());
 
-        let changes = response.object_changes.unwrap();
-
-        let new_package_id = *changes
-            .iter()
-            .find_map(|d| match d {
-                ObjectChange::Published { package_id, .. } => Some(package_id),
-                _ => None,
-            })
-            .unwrap();
+        let new_package_id = response
+            .get_new_package_obj()
+            .expect("Upgraded package should be published")
+            .0;
 
         // Add new package id to internal registry
         add_upgraded_package(package_id, new_package_id);
@@ -375,13 +416,13 @@ impl SealTestCluster {
     ) -> ObjectID {
         let tx = self
             .cluster
-            .sui_client()
+            .grpc_client()
             .transaction_builder()
             .move_call(
                 self.cluster.get_address_0(),
                 self.registry.0,
                 "key_server",
-                "create_and_transfer_v1",
+                "create_and_transfer_v2_independent_server",
                 vec![],
                 vec![
                     SuiJsonValue::from_str(description).unwrap(),
@@ -397,26 +438,14 @@ impl SealTestCluster {
             .unwrap();
         let response = self.cluster.sign_and_execute_transaction(&tx).await;
 
-        let service_objects = response
-            .object_changes
-            .unwrap()
-            .into_iter()
-            .filter_map(|d| match d {
-                ObjectChange::Created {
-                    object_type,
-                    object_id,
-                    ..
-                } => Some((object_type.name, object_id)),
-                _ => None,
-            })
-            .filter(|(name, _)| name.as_str() == "KeyServer")
-            .collect::<Vec<_>>();
-        assert_eq!(service_objects.len(), 1);
-        service_objects[0].1
+        response
+            .find_created_object_by_type("KeyServer")
+            .expect("KeyServer should be created")
     }
 
-    /// Get the public keys of the key servers v1 with the given Object IDs.
+    /// Get the public keys of the key servers v2 with the given Object IDs.
     pub async fn get_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
+        #[allow(deprecated)]
         let futures = object_ids.iter().map(|id| {
             self.cluster
                 .sui_client()
@@ -426,18 +455,19 @@ impl SealTestCluster {
 
         let res = join_all(futures).await;
 
-        // filter df that has type KeyServerV1
+        // filter df that has type KeyServerV2
         let object_ids = res
             .into_iter()
             .filter_map(|page| {
                 page.ok().and_then(|p| {
                     p.data
                         .into_iter()
-                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV1"))
+                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV2"))
                         .map(|df| df.object_id)
                 })
             })
             .collect::<Vec<_>>();
+        #[allow(deprecated)]
         let objects = self
             .cluster
             .sui_client()

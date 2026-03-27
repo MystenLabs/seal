@@ -41,7 +41,7 @@ jobs:
         run: cd docs/site && pnpm run build
 
       - name: Deploy to Walrus
-        uses: MystenLabs/walrus-sites-github-actions/deploy@8eb025e06e2aecea29cf16059be62faa3d4a64a5 # v2
+        uses: MystenLabs/walrus-sites-github-actions/deploy@554cf074616fdc211991c2c57d034baea2a13fb8 # v3
         with:
           SUI_BECH32_PRIVATE_KEY: "${{ secrets.SEAL_WALLET_PRIVATE_KEY }}"
           SUI_NETWORK: mainnet
@@ -74,5 +74,5 @@ jobs:
              "actor":"${{ github.actor }}",
              "run_id":"${{ github.run_id }}",
              "run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-             "channel":"#seal-secret-mgmt",
+             "channel":"#seal-ci",
              "status":"failure"}

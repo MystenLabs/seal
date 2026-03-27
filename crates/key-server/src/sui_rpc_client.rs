@@ -181,11 +181,6 @@ impl SuiRpcClient {
         }
     }
 
-    /// Returns a reference to the underlying SuiClient.
-    pub fn sui_client(&self) -> &SuiClient {
-        &self.sui_client
-    }
-
     /// Returns a reference to the underlying gRPC client.
     pub fn sui_grpc_client(&self) -> SuiGrpcClient {
         self.sui_grpc_client.clone()

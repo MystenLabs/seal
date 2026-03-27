@@ -36,7 +36,7 @@ jobs:
           export PATH="$HOME/.suiup/bin:$PATH"
           for dir in move/*; do
             echo "Running sui move test in $dir"
-            sui move test --warnings-are-errors --path $dir
+            sui move test --warnings-are-errors --gas-limit 5000000000 --path $dir
           done
 
   formatting:

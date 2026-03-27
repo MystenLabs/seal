@@ -30,12 +30,10 @@ use key_server::errors::InternalError::{
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
+use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
-use seal_committee::{
-    fetch_key_server_by_id,
-    move_types::{PartialKeyServer, VecMap},
-};
+use seal_committee::{fetch_key_server_by_id, move_types::PartialKeyServer};
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
@@ -49,6 +47,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, info, warn};
+
 /// Default port for aggregator server.
 const DEFAULT_PORT: u16 = 2024;
 
@@ -65,7 +64,12 @@ fn default_ts_sdk_version_requirement() -> VersionReq {
 
 /// Default key server version requirement.
 fn default_key_server_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.6.0").expect("Failed to parse default key server version requirement")
+    VersionReq::parse(">=0.6.2").expect("Failed to parse default key server version requirement")
+}
+
+/// Default timeout for requests to key servers in seconds.
+fn default_key_server_timeout_secs() -> u64 {
+    8
 }
 
 /// API credentials for a key server.
@@ -94,6 +98,10 @@ struct AggregatorOptions {
     #[serde(default = "default_key_server_version_requirement")]
     key_server_version_requirement: VersionReq,
 
+    /// Timeout for requests to key servers in seconds.
+    #[serde(default = "default_key_server_timeout_secs")]
+    key_server_timeout_secs: u64,
+
     /// API credentials mapped by key server name.
     /// Each key server's registered PartialKeyServer.name maps to its API credentials.
     #[serde(default)]
@@ -119,8 +127,9 @@ impl NetworkConfig for AggregatorOptions {
 struct AppState {
     aggregator_metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
+    http_client: reqwest::Client,
     threshold: Arc<RwLock<u16>>,
-    committee_members: Arc<RwLock<VecMap<Address, PartialKeyServer>>>,
+    committee_members: Arc<RwLock<Vec<PartialKeyServer>>>,
     options: AggregatorOptions,
 }
 
@@ -169,7 +178,11 @@ async fn main() -> Result<()> {
         options.key_server_object_id, options.network, options.api_credentials.keys().collect::<Vec<_>>()
     );
 
-    let registry = Registry::new();
+    info!(
+        "Setting up metrics on port {}",
+        mysten_service::metrics::METRICS_HOST_PORT
+    );
+    let registry = start_basic_prometheus_server();
 
     // Track the uptime of the aggregator server.
     let registry_clone = registry.clone();
@@ -203,7 +216,7 @@ async fn main() -> Result<()> {
 
     info!(
         "Loaded committee with {} members, threshold {}",
-        state.committee_members.read().await.0.contents.len(),
+        state.committee_members.read().await.len(),
         *state.threshold.read().await
     );
 
@@ -305,7 +318,7 @@ async fn handle_fetch_key(
     state
         .aggregator_metrics
         .client_sdk_version
-        .with_label_values(&[&sdk_type_str, version_str])
+        .with_label_values::<&str>(&[&sdk_type_str, version_str])
         .inc();
 
     // Log incoming request with structured data
@@ -317,20 +330,21 @@ async fn handle_fetch_key(
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
+    let timeout_secs = state.options.key_server_timeout_secs;
     let metrics = state.aggregator_metrics.clone();
+    let http_client = state.http_client.clone();
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
         .await
-        .0
-        .contents
         .iter()
         .map(|member| {
             let request = request.clone();
-            let partial_key_server = member.clone().value;
+            let partial_key_server = member.clone();
             let ks_version_req = ks_version_req.clone();
             let api_creds = api_credentials.get(&partial_key_server.name).cloned();
             let metrics = metrics.clone();
+            let http_client = http_client.clone();
             async move {
                 // Check if API credentials exist for this server.
                 let creds = match api_creds {
@@ -351,6 +365,8 @@ async fn handle_fetch_key(
                     req_id,
                     &ks_version_req,
                     creds,
+                    &http_client,
+                    timeout_secs,
                 )
                 .await
                 {
@@ -370,7 +386,7 @@ async fn handle_fetch_key(
 
     // Collect responses until we have threshold, then abort remaining.
     let threshold = *state.threshold.read().await;
-    let total_committee_members = state.committee_members.read().await.0.contents.len();
+    let total_committee_members = state.committee_members.read().await.len();
     let mut responses = Vec::new();
     let mut errors = Vec::new();
     let mut completed = 0;
@@ -430,7 +446,7 @@ async fn handle_fetch_key(
         })?;
 
     // Log successful aggregation
-    let committee_size = state.committee_members.read().await.0.contents.len();
+    let committee_size = state.committee_members.read().await.len();
     info!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
         req_id, threshold, committee_size, request.certificate.user
@@ -446,13 +462,13 @@ async fn fetch_from_member(
     req_id: &str,
     ks_version_req: &VersionReq,
     api_credentials: ApiCredentials,
+    client: &reqwest::Client,
+    timeout_secs: u64,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
         member.party_id, member.url, req_id
     );
-
-    let client = reqwest::Client::new();
     let request_builder = client
         .post(format!("{}/v1/fetch_key", member.url))
         .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
@@ -463,7 +479,7 @@ async fn fetch_from_member(
 
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(timeout_secs))
         .send()
         .await
         .map_err(|e| {
@@ -637,14 +653,14 @@ fn spawn_metrics_push_job(
 
 /// Check and warn about missing API credentials for committee members.
 fn check_missing_api_credentials(
-    members: &VecMap<Address, PartialKeyServer>,
+    members: &[PartialKeyServer],
     api_credentials: &HashMap<String, ApiCredentials>,
 ) {
-    for member in &members.0.contents {
-        if !api_credentials.contains_key(&member.value.name) {
+    for member in members {
+        if !api_credentials.contains_key(&member.name) {
             warn!(
                 "Missing API credentials for committee member '{}' (party_id: {}, url: {})",
-                member.value.name, member.value.party_id, member.value.url
+                member.name, member.party_id, member.url
             );
         }
     }
@@ -667,6 +683,7 @@ async fn load_committee_state(
     Ok(AppState {
         aggregator_metrics: metrics,
         grpc_client,
+        http_client: reqwest::Client::new(),
         committee_members: Arc::new(RwLock::new(members)),
         threshold: Arc::new(RwLock::new(threshold)),
         options,
@@ -705,16 +722,11 @@ async fn monitor_members_update(mut state: AppState) {
         };
 
         // Check for new members' API credentials by comparing with current state.
-        let member_count = members.0.contents.len();
+        let member_count = members.len();
         let current_names: HashSet<String> = {
             // Read lock and drop after.
             let current_members = state.committee_members.read().await;
-            current_members
-                .0
-                .contents
-                .iter()
-                .map(|m| m.value.name.clone())
-                .collect()
+            current_members.iter().map(|m| m.name.clone()).collect()
         };
 
         info!(
@@ -722,16 +734,13 @@ async fn monitor_members_update(mut state: AppState) {
             member_count,
             current_names.len()
         );
-        for member in &members.0.contents {
-            if !current_names.contains(&member.value.name)
-                && !state
-                    .options
-                    .api_credentials
-                    .contains_key(&member.value.name)
+        for member in &members {
+            if !current_names.contains(&member.name)
+                && !state.options.api_credentials.contains_key(&member.name)
             {
                 warn!(
                     "Missing API credentials for new committee member '{}' (party_id: {}, url: {})",
-                    member.value.name, member.value.party_id, member.value.url
+                    member.name, member.party_id, member.url
                 );
             }
         }
@@ -759,7 +768,6 @@ mod tests {
     use seal_sdk::types::Certificate;
     use serde_json::json;
     use sui_sdk_types::UserSignature;
-    use sui_types::collection_types::{Entry, VecMap as SuiVecMap};
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -807,17 +815,13 @@ mod tests {
     ) -> AppState {
         let mut committee_contents = vec![];
         for (i, server) in mock_servers.iter().enumerate() {
-            let address = Address::from([i as u8; 32]);
             let member = PartialKeyServer {
                 name: "server".to_string(),
                 party_id: i as u16,
                 url: server.uri(),
                 partial_pk: partial_pks.get(i).cloned().unwrap_or(G2Element::zero()),
             };
-            committee_contents.push(Entry {
-                key: address,
-                value: member,
-            });
+            committee_contents.push(member);
         }
 
         let mut api_credentials = HashMap::new();
@@ -835,20 +839,21 @@ mod tests {
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
+            key_server_timeout_secs: 8,
             api_credentials,
             metrics_push_config: None,
         };
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
+        let http_client = reqwest::Client::new();
 
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
+            http_client,
             threshold: Arc::new(RwLock::new(threshold)),
-            committee_members: Arc::new(RwLock::new(VecMap(SuiVecMap {
-                contents: committee_contents,
-            }))),
+            committee_members: Arc::new(RwLock::new(committee_contents)),
             options,
         }
     }
@@ -1006,7 +1011,13 @@ mod tests {
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
         match result {
             Err(error) => {
-                assert_eq!(error.error, "InvalidPTB");
+                // Either error can be the majority depending on which 3 errors arrive first. Both
+                // are valid.
+                assert!(
+                    error.error == "InvalidPTB" || error.error == "NoAccess",
+                    "Expected InvalidPTB or NoAccess, got: {}",
+                    error.error
+                );
             }
             Ok(_) => panic!("Expected error but got success"),
         }

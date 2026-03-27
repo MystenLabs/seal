@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[test_only]
-#[allow(unused_mut_ref, unused_variable, dead_code)]
 module seal_committee::seal_committee_tests;
 
+use seal::key_server::KeyServer;
 use seal_committee::seal_committee::{
     Self,
     Committee,
@@ -18,7 +18,6 @@ use seal_committee::seal_committee::{
     commit_upgrade,
     reset_proposal
 };
-use seal_testnet::key_server::KeyServer;
 use std::string;
 use sui::{bls12381::{g1_generator, g2_generator}, package, test_scenario::{Self, Scenario}};
 
@@ -71,9 +70,9 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 0, 2);
 
         // Verify partial key servers (ALICE=party0, BOB=party1, CHARLIE=party2).
-        assert_partial_key_server!(key_server, ALICE, b"https://url0.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, BOB, b"https://url1.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, CHARLIE, b"https://url2.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://url0.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://url1.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://url2.com", g2_bytes, 2);
         test_scenario::return_shared(committee);
 
         // Create upgrade manager for the first committee before rotation.
@@ -188,10 +187,10 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 1, 3);
 
         // Verify each member's URL, partial PK, and party ID (BOB=party0, ALICE=party1, DAVE=party2, EVE=party3).
-        assert_partial_key_server!(key_server, BOB, b"https://new_url1.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, ALICE, b"https://new_url0.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, DAVE, b"https://new_url3.com", g2_bytes, 2);
-        assert_partial_key_server!(key_server, EVE, b"https://new_url4.com", g2_bytes, 3);
+        assert_partial_key_server!(key_server, b"https://new_url1.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://new_url0.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://new_url3.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://new_url4.com", g2_bytes, 3);
         test_scenario::return_shared(new_committee);
 
         // Verify UpgradeManager was transferred to new committee by voting on an upgrade.
@@ -326,9 +325,9 @@ fun test_scenario_2of3_to_3of4_to_2of3() {
         assert_key_server_version_and_threshold!(key_server, 2, 2);
 
         // Verify all members' URLs, partial PKs, and party IDs (EVE=party0, ALICE=party1, BOB=party2).
-        assert_partial_key_server!(key_server, EVE, b"https://eve_url_3.com", g2_bytes, 0);
-        assert_partial_key_server!(key_server, ALICE, b"https://alice_url_3.com", g2_bytes, 1);
-        assert_partial_key_server!(key_server, BOB, b"https://bob_url_3.com", g2_bytes, 2);
+        assert_partial_key_server!(key_server, b"https://eve_url_3.com", g2_bytes, 0);
+        assert_partial_key_server!(key_server, b"https://alice_url_3.com", g2_bytes, 1);
+        assert_partial_key_server!(key_server, b"https://bob_url_3.com", g2_bytes, 2);
         test_scenario::return_shared(third_committee);
     });
 }
@@ -365,6 +364,23 @@ fun test_init_committee_with_duplicate_members() {
 fun test_init_committee_with_empty_members() {
     test_tx!(|scenario| {
         test_init_committee(2, vector[], scenario.ctx());
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::EWrongUpgradeCap)]
+fun test_init_committee_with_wrong_upgrade_cap() {
+    test_tx!(|scenario| {
+        // Create an UpgradeCap with wrong package ID (using @0x1 instead of seal_committee package).
+        let wrong_upgrade_cap = package::test_publish(
+            object::id_from_address(@0x1),
+            scenario.ctx(),
+        );
+        seal_committee::init_committee(
+            wrong_upgrade_cap,
+            2,
+            vector[ALICE, BOB],
+            scenario.ctx(),
+        );
     });
 }
 
@@ -574,6 +590,35 @@ fun test_propose_fails_with_mismatched_pk() {
     });
 }
 
+#[test, expected_failure(abort_code = seal_committee::EInvalidProposal)]
+fun test_propose_fails_with_mismatched_messages_hash() {
+    test_tx!(|scenario| {
+        let g1_bytes = *g1_generator().bytes();
+        let g2_bytes = *g2_generator().bytes();
+
+        test_init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
+
+        // CHARLIE proposes with one messages_hash.
+        scenario.next_tx(CHARLIE);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.propose(
+            vector[g2_bytes, g2_bytes],
+            g2_bytes,
+            b"hash_from_charlie",
+            scenario.ctx(),
+        );
+        test_scenario::return_shared(committee);
+
+        // BOB proposes with a different messages_hash - fails with EInvalidProposal.
+        scenario.next_tx(BOB);
+        let mut committee = scenario.take_shared<Committee>();
+        committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, b"hash_from_bob", scenario.ctx());
+        test_scenario::return_shared(committee);
+    });
+}
+
 #[test, expected_failure(abort_code = seal_committee::ENotRegistered)]
 fun test_propose_fails_when_not_all_registered() {
     test_tx!(|scenario| {
@@ -643,7 +688,7 @@ fun test_propose_fails_committee_has_old_committee_id() {
         // This should fail because propose is only for fresh DKG committees.
         scenario.next_tx(BOB);
         let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
-        new_committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, scenario.ctx());
+        new_committee.propose(vector[g2_bytes, g2_bytes], g2_bytes, b"test_hash", scenario.ctx());
         test_scenario::return_shared(new_committee);
     });
 }
@@ -716,6 +761,7 @@ fun test_finalize_for_rotation_mismatched_old_committee() {
         let wrong_committee = scenario.take_shared_by_id<Committee>(second_committee_id);
         new_committee.propose_for_rotation(
             new_partial_pks,
+            b"test_hash",
             wrong_committee,
             scenario.ctx(),
         );
@@ -761,6 +807,7 @@ fun test_finalize_for_rotation_invalid_state() {
         let first_committee = scenario.take_shared_by_id<Committee>(first_committee_id);
         second_committee.propose_for_rotation(
             new_partial_pks,
+            b"test_hash",
             first_committee,
             scenario.ctx(),
         );
@@ -874,7 +921,7 @@ public macro fun propose_member(
 
     scenario.next_tx(member);
     let mut committee = scenario.take_shared<Committee>();
-    committee.propose(partial_pks, pk, scenario.ctx());
+    committee.propose(partial_pks, pk, b"test_hash", scenario.ctx());
     test_scenario::return_shared(committee);
 }
 
@@ -895,25 +942,23 @@ public macro fun propose_for_rotation_member(
     scenario.next_tx(member);
     let mut new_committee = scenario.take_shared_by_id<Committee>(new_committee_id);
     let old_committee = scenario.take_shared_by_id<Committee>(old_committee_id);
-    new_committee.propose_for_rotation(partial_pks, old_committee, scenario.ctx());
+    new_committee.propose_for_rotation(partial_pks, b"test_hash", old_committee, scenario.ctx());
     test_scenario::return_shared(new_committee);
 }
 
 /// Helper macro to assert partial key server URL, partial PK, and party ID.
 public macro fun assert_partial_key_server(
     $key_server: &KeyServer,
-    $member: address,
     $expected_url: vector<u8>,
     $expected_partial_pk: vector<u8>,
     $expected_party_id: u16,
 ) {
     let key_server = $key_server;
-    let member = $member;
     let expected_url = $expected_url;
     let expected_partial_pk = $expected_partial_pk;
     let expected_party_id = $expected_party_id;
 
-    let partial_ks = key_server.partial_key_server_for_member(member);
+    let partial_ks = key_server.partial_key_server_for_party(expected_party_id);
     assert!(partial_ks.partial_ks_url() == string::utf8(expected_url));
     assert!(partial_ks.partial_ks_pk() == expected_partial_pk);
     assert!(partial_ks.partial_ks_party_id() == expected_party_id);
@@ -1001,13 +1046,13 @@ fun test_package_upgrade_e2e() {
         // BOB votes to reject
         scenario.next_tx(BOB);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // CHARLIE votes to reject
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, bad_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Reset the proposal (>= threshold rejections)
@@ -1026,7 +1071,7 @@ fun test_package_upgrade_e2e() {
         // CHARLIE votes reject
         scenario.next_tx(CHARLIE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, good_digest, scenario.ctx());
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // CHARLIE updates to approve
@@ -1111,7 +1156,14 @@ fun test_reset_proposal_fails_without_threshold_rejections() {
         let digest = test_digest(scenario.ctx());
         scenario.next_tx(ALICE);
         let mut committee = scenario.take_shared<Committee>();
-        reject_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        // First create a proposal by approving
+        approve_digest_for_upgrade(&mut committee, digest, scenario.ctx());
+        test_scenario::return_shared(committee);
+
+        // Now ALICE rejects
+        scenario.next_tx(ALICE);
+        let mut committee = scenario.take_shared<Committee>();
+        reject_digest_for_upgrade(&mut committee, scenario.ctx());
         test_scenario::return_shared(committee);
 
         // Try to reset with only 1 rejection - fails.

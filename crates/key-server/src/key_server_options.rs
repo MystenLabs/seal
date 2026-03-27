@@ -121,7 +121,7 @@ pub struct KeyServerOptions {
     /// A custom node URL. If not set, the default for the given network is used.
     pub node_url: Option<String>,
 
-    /// If the server is open or permissioned.
+    /// If the server is open, permissioned, or committee.
     pub server_mode: ServerMode,
 
     /// The minimum version of the client SDK that is required to use this key server.
@@ -335,7 +335,7 @@ fn default_ts_sdk_version_requirement() -> VersionReq {
 }
 
 fn default_aggregator_version_requirement() -> VersionReq {
-    VersionReq::parse(">=0.6.0").expect("Failed to parse default aggregator version requirement")
+    VersionReq::parse(">=0.6.2").expect("Failed to parse default aggregator version requirement")
 }
 
 #[test]
@@ -584,4 +584,106 @@ server_mode: !Permissioned
         assert!(result.is_err(), "Expected validation to fail for: {yaml}");
         assert_eq!(result.unwrap_err().to_string(), expected_error);
     }
+}
+
+#[test]
+fn test_validate_committee_mode() {
+    use std::str::FromStr;
+
+    // Test Active state
+    let committee_active = r#"
+network: Mainnet
+server_mode: !Committee
+  member_address: "0x1234567890123456789012345678901234567890123456789012345678901234"
+  key_server_obj_id: "0xabcdef0000000000000000000000000000000000000000000000000000000001"
+  committee_state: Active
+"#;
+
+    let options: KeyServerOptions =
+        serde_yaml::from_str(committee_active).expect("Failed to parse committee active config");
+    assert_eq!(options.network, Network::Mainnet);
+
+    if let ServerMode::Committee {
+        member_address,
+        key_server_obj_id,
+        committee_state,
+        ..
+    } = &options.server_mode
+    {
+        assert_eq!(
+            member_address,
+            &Address::from_str(
+                "0x1234567890123456789012345678901234567890123456789012345678901234"
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            key_server_obj_id,
+            &Address::from_str(
+                "0xabcdef0000000000000000000000000000000000000000000000000000000001"
+            )
+            .unwrap()
+        );
+        assert_eq!(committee_state, &CommitteeState::Active);
+    } else {
+        panic!("Expected Committee mode");
+    }
+
+    // Validate should pass for committee mode
+    assert!(options.validate().is_ok());
+
+    // Test Rotation state
+    let committee_rotation = r#"
+network: Testnet
+server_mode: !Committee
+  member_address: "0x9876543210987654321098765432109876543210987654321098765432109876"
+  key_server_obj_id: "0xfedcba0000000000000000000000000000000000000000000000000000000002"
+  committee_state: !Rotation
+    target_version: 5
+"#;
+
+    let options: KeyServerOptions = serde_yaml::from_str(committee_rotation)
+        .expect("Failed to parse committee rotation config");
+    assert_eq!(options.network, Network::Testnet);
+
+    if let ServerMode::Committee {
+        member_address,
+        key_server_obj_id,
+        committee_state,
+        ..
+    } = &options.server_mode
+    {
+        assert_eq!(
+            member_address,
+            &Address::from_str(
+                "0x9876543210987654321098765432109876543210987654321098765432109876"
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            key_server_obj_id,
+            &Address::from_str(
+                "0xfedcba0000000000000000000000000000000000000000000000000000000002"
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            committee_state,
+            &CommitteeState::Rotation { target_version: 5 }
+        );
+    } else {
+        panic!("Expected Committee mode");
+    }
+
+    // Validate should pass for committee mode with rotation
+    assert!(options.validate().is_ok());
+
+    // Test get_supported_key_server_object_ids for committee mode
+    assert_eq!(
+        options.get_supported_key_server_object_ids(),
+        vec![ObjectID::from_str(
+            "0xfedcba0000000000000000000000000000000000000000000000000000000002"
+        )
+        .unwrap()]
+    );
 }

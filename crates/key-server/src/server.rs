@@ -4,28 +4,26 @@ use crate::common::add_response_headers;
 use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
 use crate::key_server_options::{CommitteeState, ServerMode};
-use crate::master_keys::CommitteeKeyState;
 use crate::metrics::{call_with_duration, status_callback, uptime_metric, KeyServerMetrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
-use crate::sui_rpc_client::RpcError;
 use crate::time::{checked_duration_since, from_mins};
-use crate::types::{IbeMasterKey, MasterKeyPOP, Network};
+use crate::types::{IbePublicKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{from_fn_with_state, map_response, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
 use common::{ClientSdkType, HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe::create_proof_of_possession;
-use crypto::ibe::{self, public_key_from_master_key};
+use crypto::ibe::{self};
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
@@ -37,13 +35,16 @@ use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
+use move_core_types::identifier::Identifier;
+use move_core_types::language_storage::{StructTag, TypeTag};
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use rand::thread_rng;
 use seal_committee::grpc_helper::{
-    fetch_committee_server_version, get_partial_key_server_for_member,
+    fetch_committee_from_key_server, fetch_committee_server_version,
+    get_partial_key_server_for_member,
 };
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
@@ -56,7 +57,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc_client::SuiRpcClient;
+use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
+use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
 use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
@@ -65,10 +67,12 @@ use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, Tran
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
+use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
+use tonic::Code;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{debug, error, info, warn};
@@ -136,12 +140,52 @@ struct FetchKeyRequest {
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
-    master_keys: MasterKeys,
+    master_keys: Arc<MasterKeys>,
     key_server_oid_to_pop: Arc<RwLock<HashMap<ObjectID, MasterKeyPOP>>>,
     options: KeyServerOptions,
 }
 
+async fn has_address_aliases(
+    client: &mut SuiGrpcClient,
+    address: SuiAddress,
+) -> Result<bool, InternalError> {
+    let alias_key_type = TypeTag::Struct(Box::new(StructTag {
+        address: SUI_FRAMEWORK_ADDRESS,
+        module: Identifier::new("address_alias").unwrap(),
+        name: Identifier::new("AliasKey").unwrap(),
+        type_params: vec![],
+    }));
+
+    let key_bytes = bcs::to_bytes(&address).unwrap();
+    let address_aliases_id = derived_object::derive_object_id(
+        SuiAddress::from(SUI_ADDRESS_ALIAS_STATE_OBJECT_ID),
+        &alias_key_type,
+        &key_bytes,
+    )
+    .map_err(|_| InternalError::InvalidSignature)?;
+
+    // Convert ObjectID to Address for gRPC request
+    let address_id = Address::from_bytes(address_aliases_id.into_bytes())
+        .map_err(|_| InternalError::InvalidSignature)?;
+
+    let request = GetObjectRequest::default().with_object_id(address_id.to_string());
+
+    match client.ledger_client().get_object(request).await {
+        Ok(_) => Ok(true),
+        Err(e) if e.code() == Code::NotFound => Ok(false),
+        Err(e) => Err(InternalError::Failure(format!(
+            "Failed to check address aliases: {}",
+            e
+        ))),
+    }
+}
+
 impl Server {
+    /// Check if the server is in committee mode.
+    fn is_committee_mode(&self) -> bool {
+        matches!(self.options.server_mode, ServerMode::Committee { .. })
+    }
+
     /// Helper to extract committee server parameters for metrics and other uses.
     /// Returns (key_server_object_id, server_name).
     /// Returns None if not in committee mode.
@@ -185,10 +229,17 @@ impl Server {
                     .await
                     .expect("Failed to fetch committee server version");
 
+                // Fetch committee_id from key server
+                let (committee_id, _) =
+                    fetch_committee_from_key_server(&mut grpc_client, key_server_obj_id)
+                        .await
+                        .expect("Failed to fetch committee from key server");
+
                 // Fetch server name from onchain PartialKeyServer
                 let member_info = get_partial_key_server_for_member(
                     &mut grpc_client,
                     key_server_obj_id,
+                    &committee_id,
                     member_address,
                 )
                 .await
@@ -206,114 +257,21 @@ impl Server {
             panic!("Failed to load master keys: {e}");
         });
 
-        let key_server_oid_to_pop = Self::build_key_server_pop_map(
-            &options,
-            &master_keys,
-            sui_rpc_client.sui_grpc_client(),
-        )
-        .await;
+        let key_server_oid_to_pop = Self::build_key_server_pop_map(&options, &master_keys).await;
 
         Server {
             sui_rpc_client,
-            master_keys,
+            master_keys: Arc::new(master_keys),
             key_server_oid_to_pop: Arc::new(RwLock::new(key_server_oid_to_pop)),
             options,
         }
     }
 
-    /// Update committee version to target and refresh PoP when rotation completes.
-    pub(crate) async fn refresh_committee_server(&self) {
-        let (
-            committee_version_arc,
-            target_version,
-            next_master_share,
-            member_address,
-            key_server_obj_id,
-        ) = match (&self.master_keys, &self.options.server_mode) {
-            (
-                MasterKeys::Committee {
-                    committee_version,
-                    key_state:
-                        CommitteeKeyState::Rotation {
-                            target_version,
-                            next_master_share,
-                            ..
-                        },
-                },
-                ServerMode::Committee {
-                    member_address,
-                    key_server_obj_id,
-                    ..
-                },
-            ) => (
-                committee_version,
-                *target_version,
-                next_master_share,
-                member_address,
-                key_server_obj_id,
-            ),
-            _ => panic!("refresh_committee_server called in non-Rotation mode"),
-        };
-
-        // Build PoP with new master share.
-        let new_pop = Self::build_committee_server_pop(
-            next_master_share,
-            self.sui_rpc_client.sui_grpc_client(),
-            member_address,
-            key_server_obj_id,
-        )
-        .await;
-
-        // Update version in state.
-        committee_version_arc.store(target_version, Ordering::Relaxed);
-
-        // Update PoP map in state.
-        *self
-            .key_server_oid_to_pop
-            .write()
-            .expect("Failed to acquire write lock on PoP map") =
-            HashMap::from([(ObjectID::new(key_server_obj_id.into_inner()), new_pop)]);
-        info!("Committee version and PoP refreshed successfully.");
-    }
-
-    /// Helper function to build the PoP for Committee mode. First fetch member info for partial pk
-    /// and party ID from onchain and creates proof of possession.
-    /// Panics on failure since server cannot operate without valid PoP.
-    async fn build_committee_server_pop(
-        master_key: &IbeMasterKey,
-        mut grpc_client: SuiGrpcClient,
-        member_address: &Address,
-        key_server_obj_id: &Address,
-    ) -> MasterKeyPOP {
-        let member_info =
-            get_partial_key_server_for_member(&mut grpc_client, key_server_obj_id, member_address)
-                .await
-                .expect("Failed to fetch member info from chain");
-
-        assert_eq!(
-            member_info.partial_pk,
-            public_key_from_master_key(master_key),
-            "Public key mismatch for member address"
-        );
-
-        info!(
-            "Committee mode: KeyServer {} with party_id={}",
-            key_server_obj_id, member_info.party_id
-        );
-
-        // PoP: key_server_obj_id || party_id.
-        let mut pop_message = Vec::new();
-        pop_message.extend_from_slice(key_server_obj_id.as_bytes());
-        pop_message.extend_from_slice(&member_info.party_id.to_le_bytes());
-        create_proof_of_possession(master_key, &pop_message)
-    }
-
     /// Build the key_server_oid -> PoP HashMap for all server modes.
-    /// Panics on failure since server cannot start without valid PoP.
+    /// Returns empty map for Committee mode as it doesn't support /service endpoint.
     pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
-        grpc_client: SuiGrpcClient,
     ) -> HashMap<ObjectID, MasterKeyPOP> {
         match &options.server_mode {
             ServerMode::Open { .. } | ServerMode::Permissioned { .. } => options
@@ -328,25 +286,9 @@ impl Server {
                 })
                 .collect(),
 
-            ServerMode::Committee {
-                member_address,
-                key_server_obj_id,
-                ..
-            } => {
-                let key_server_oid = ObjectID::new(key_server_obj_id.into_inner());
-                let master_key = master_keys
-                    .get_key_for_key_server(&key_server_oid)
-                    .expect("checked already");
-
-                let pop = Self::build_committee_server_pop(
-                    master_key,
-                    grpc_client,
-                    member_address,
-                    key_server_obj_id,
-                )
-                .await;
-
-                HashMap::from([(key_server_oid, pop)])
+            ServerMode::Committee { .. } => {
+                // Committee mode doesn't support /service endpoint, return empty map
+                HashMap::new()
             }
         }
     }
@@ -401,11 +343,28 @@ impl Server {
             "Checking signature on message: {:?} (req_id: {:?})",
             msg, req_id
         );
+
+        // Check if the address has aliases enabled - if so, reject verification
+        let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
+        match has_address_aliases(&mut grpc_client, cert.user).await {
+            Ok(true) => {
+                debug!(
+                    "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
+                    req_id
+                );
+                return Err(InternalError::InvalidSignature);
+            }
+            Ok(false) => {} // no alias
+            Err(e) => {
+                return Err(e);
+            }
+        }
+
         verify_personal_message_signature(
             cert.signature.clone(),
             msg.as_bytes(),
             cert.user,
-            Some(self.sui_rpc_client.sui_client().clone()),
+            Some(self.sui_rpc_client.sui_grpc_client()),
         )
         .await
         .tap_err(|e| {
@@ -448,7 +407,7 @@ impl Server {
             .options
             .network
             .seal_package()
-            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone());
+            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone())?;
 
         // Evaluate the `seal_approve*` function
         let tx_data = TransactionData::new_with_gas_coins(
@@ -621,8 +580,6 @@ impl Server {
             self.options.rgp_update_interval,
             get_reference_gas_price,
             "RGP",
-            None::<fn(u64)>,
-            None::<fn(Duration)>,
             metrics.map(|m| status_callback(&m.get_reference_gas_price_status)),
         )
         .await
@@ -671,33 +628,26 @@ impl Server {
 
     /// Spawns a background task that fetches committee key server version from onchain and updates
     /// the committee version in MasterKeys::Committee. Only spawns a task if in Committee mode
-    /// during rotation and current version is 1 behind target version.
+    /// during rotation and current version is 1 behind target version, and the task is stopped once
+    /// the version is updated.
     async fn spawn_committee_version_updater(&self) {
         // Load committee state from config.
         let ServerMode::Committee {
             member_address: _,
             key_server_obj_id,
-            committee_state,
+            committee_state: CommitteeState::Rotation { target_version },
             server_name: _,
         } = &self.options.server_mode
         else {
             return;
         };
-
-        // Check if we're in rotation mode.
-        let target_version = match committee_state {
-            CommitteeState::Active => {
-                info!("Active mode: no rotation needed. Do not start version monitor.");
-                return;
-            }
-            CommitteeState::Rotation { target_version } => *target_version,
-        };
+        let target_version = *target_version;
 
         // Load current version from MasterKeys. This is initialized during MasterKeys::load().
-        let current_version = match &self.master_keys {
+        let current_version = match self.master_keys.as_ref() {
             MasterKeys::Committee {
                 committee_version, ..
-            } => committee_version.load(Ordering::Relaxed),
+            } => committee_version.load(Ordering::SeqCst),
             _ => return,
         };
 
@@ -709,6 +659,14 @@ impl Server {
         info!(
             "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
         );
+
+        // Clone the committee_version Arc for the spawned task
+        let committee_version_arc = match self.master_keys.as_ref() {
+            MasterKeys::Committee {
+                committee_version, ..
+            } => Arc::clone(committee_version),
+            _ => return,
+        };
 
         {
             // Define the fetch function for the periodic updater.
@@ -727,36 +685,37 @@ impl Server {
                 Duration::from_secs(30),
                 fetch_fn,
                 "committee key server version",
-                None::<fn(u64)>,
-                None::<fn(Duration)>,
                 None::<fn(bool)>,
             )
             .await;
 
             let mut receiver_clone = receiver;
-            let server = self.clone();
 
             // Spawn the background task to monitor version changes.
             tokio::spawn(async move {
                 loop {
                     match receiver_clone.changed().await {
                         Ok(_) => {
-                            // TODO: Make the updater generic from u64 to avoid this cast.
+                            // Safe cast: onchain Committee.version is u32, so value always fits.
                             let version = *receiver_clone.borrow() as u32;
 
-                            // Rotation completes, refresh committee server version and PoP.
+                            // Rotation completes.
                             if version == target_version {
-                                server.refresh_committee_server().await;
-                                info!("Rotation complete at version {version}. Exiting version monitor.");
+                                info!("Rotation complete at version {version}. Updating committee version.");
+
+                                // Update the committee version
+                                committee_version_arc.store(target_version, Ordering::SeqCst);
+                                info!("Committee version refreshed to {target_version}.");
+
                                 updater_handle.abort();
                                 break;
-                            } else if target_version == version + 1 {
+                            } else if version.checked_add(1) == Some(target_version) {
                                 continue; // Still in rotation, keep monitoring.
                             } else {
                                 // Unexpected version state - onchain version skipped or went backwards.
                                 panic!(
                                     "CRITICAL: Unexpected onchain version {version} (expected {target_version} or {})",
-                                    target_version - 1
+                                    target_version.saturating_sub(1)
                                 );
                             }
                         }
@@ -869,6 +828,28 @@ async fn handle_get_service(
         .ok_or(InternalError::InvalidServiceId)?;
 
     Ok(Json(GetServiceResponse { service_id, pop }))
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetCommitteePartialPkResponse {
+    partial_pk: IbePublicKey,
+}
+
+/// Return the corresponding partial public key for its master share. Debug endpoint only supported
+/// in Committee mode.
+async fn handle_get_committee_server_partial_pk(State(app_state): State<MyState>) -> Response {
+    app_state.metrics.service_requests.inc();
+
+    if !app_state.server.is_committee_mode() {
+        return (StatusCode::BAD_REQUEST, "Unsupported").into_response();
+    }
+
+    let partial_pk = match app_state.server.master_keys.get_committee_partial_pk() {
+        Ok(pk) => pk,
+        Err(e) => return e.into_response(),
+    };
+
+    Json(GetCommitteePartialPkResponse { partial_pk }).into_response()
 }
 
 #[derive(Clone)]
@@ -1128,6 +1109,10 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
             axum::Router::new()
                 .route("/v1/fetch_key", post(handle_fetch_key))
                 .route("/v1/service", get(handle_get_service))
+                .route(
+                    "/v1/debug/committee_partial_pk",
+                    get(handle_get_committee_server_partial_pk),
+                )
                 .layer(from_fn_with_state(state.clone(), handle_request_headers))
                 .layer(map_response(|response| {
                     add_response_headers(response, package_version!(), GIT_VERSION)

@@ -97,7 +97,7 @@ impl ProtobufDecoder {
         let mut result: Vec<T> = vec![];
         while !self.buf.get_ref().is_empty() {
             let len = {
-                let mut is = CodedInputStream::from_buffered_reader(&mut self.buf);
+                let mut is = CodedInputStream::from_buf_read(&mut self.buf);
                 is.read_raw_varint32()
             }?;
             let mut buf = vec![0; len as usize];
@@ -181,11 +181,11 @@ pub fn populate_labels(
         .iter_mut()
         .flat_map(|mf| mf.mut_metric())
         .for_each(|m| {
-            m.mut_label().extend(label_pairs.clone());
+            m.label.extend(label_pairs.clone());
             // if the metric has a label that is in the remove_labels list, remove it
-            m.mut_label().retain(|label| {
+            m.label.retain(|label| {
                 if let Some(remove_labels) = to_remove_labels {
-                    !remove_labels.contains_key(label.get_name())
+                    !remove_labels.contains_key(label.name())
                 } else {
                     true
                 }
