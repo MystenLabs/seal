@@ -17,7 +17,7 @@ keywords:
   - threshold encryption
 ---
 
-Seal is a decentralized secrets management (DSM) service that relies on access control policies defined and validated on [Sui](https://docs.sui.io/concepts/components). Application developers and users can use Seal to secure sensitive data at rest on decentralized storage like [Walrus](https://docs.wal.app/), or on any other on-chain or off-chain storage.
+Seal is a decentralized secrets management (DSM) service that relies on access control policies defined and validated on [Sui](https://docs.sui.io/concepts/components). Application developers and users can use Seal to secure sensitive data at rest on decentralized storage like [Walrus](https://docs.wal.app/), or on any other onchain or off-chain storage.
 
 :::tip[Seal Overview Video]
 
@@ -73,7 +73,7 @@ The Seal team is looking for community feedback on what other capabilities would
 Even though Seal is supposed to be a generic and flexible secret management service for a variety of use cases, the following are not its supposed goals. Do not use Seal for such use cases and instead look for a more relevant product or service.
 
 - Seal is not a key management service like [AWS KMS](https://aws.amazon.com/kms/) or any other such Web2 service, in the sense that Seal backends do not store any application- or user-specific keys. A Seal key server only stores its specific master key pair, where the master public key is used by users to encrypt sensitive data, and the master private key is used to derive identity-based keys to decrypt the data.
-- Seal is not a privacy-preserving technology like [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). Instead, Seal is supposed to be a collection of components allowing application developers and users to secure sensitive data on-chain or off-chain by using the security properties of threshold encryption, Sui, and Move.
+- Seal is not a privacy-preserving technology like [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). Instead, Seal is supposed to be a collection of components allowing application developers and users to secure sensitive data onchain or off-chain by using the security properties of threshold encryption, Sui, and Move.
 - Seal should not be used to store highly sensitive data like a user's wallet keys, or regulated personal data like PHI (personal health information), or any local, state, or federal government-level secret data, or other data of similar sensitivity. Some advanced capabilities might be added to Seal in the future to allow using it for some of such use cases, but those do not exist yet.
 
 ## Upgrade policy
