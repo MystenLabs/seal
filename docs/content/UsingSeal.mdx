@@ -290,6 +290,27 @@ const decryptedBytes = await client.decrypt({
 
 Seal evaluates the transaction as if the user sent it. In Move, `TxContext::sender()` returns the account that signed with the session key.
 
+:::tip[Using owned objects in seal_approve]
+
+If your `seal_approve` function takes an **owned object** as a parameter (for example, a `PurchaseReceipt` or access NFT used as proof of access), you must call `tx.setSender(address)` before building the transaction:
+
+```typescript
+const tx = new Transaction();
+tx.setSender(account.address); // Required when seal_approve references owned objects
+tx.moveCall({
+    target: `${packageId}::${moduleName}::seal_approve`,
+    arguments: [
+        tx.pure.vector("u8", fromHEX(id)),
+        tx.object(ownedObjectId), // owned object
+    ]
+});
+const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
+```
+
+Without `setSender()`, `tx.build()` defaults the sender to `0x0` and fails to resolve owned object inputs, resulting in an ownership mismatch error. This is not needed when `seal_approve` only uses shared objects and pure values.
+
+:::
+
 :::tip
 
 To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
