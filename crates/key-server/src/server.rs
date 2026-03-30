@@ -735,7 +735,7 @@ impl Server {
 
     /// Spawns a background task that monitors for CommitteeRotationInitiated events.
     /// Only spawns in Committee mode. Alerts when a new committee rotation is initiated.
-    /// Refreshes committee_id and package_id every polling cycle by checking key server object owner.
+    /// Refreshes committee_id and package_id from key server object.
     async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
         // Only run in committee mode
         let ServerMode::Committee {
@@ -822,14 +822,14 @@ impl Server {
                                 event_data.committee_id, event_data.old_committee_id
                             );
 
-                            let committee_id_str = event_data.committee_id.to_string();
-                            let state_str = "rotation_initiated".to_string();
                             metrics
                                 .committee_mode_rotation_events
-                                .with_label_values(&[&committee_id_str, &state_str])
+                                .with_label_values(&[
+                                    &event_data.committee_id.to_string(),
+                                    &"rotation_initiated".to_string(),
+                                ])
                                 .set(1);
 
-                            // Update cursor for next query
                             last_event_seq = Some(event.id);
                         }
                     }

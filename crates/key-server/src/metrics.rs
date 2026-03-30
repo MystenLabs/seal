@@ -192,14 +192,14 @@ impl KeyServerMetrics {
             .unwrap(),
             committee_mode_rotation_events: register_int_gauge_vec_with_registry!(
                 "committee_mode_rotation_events",
-                "Committee mode rotation events (value=1), labeled by committee_id and state (rotation_initiated/rotation_completed)",
+                "Committee mode rotation events, labeled by committee_id and state (rotation_initiated)",
                 &["committee_id", "state"],
                 registry
             )
             .unwrap(),
             committee_mode_package_upgrade_events: register_int_gauge_vec_with_registry!(
                 "committee_mode_package_upgrade_events",
-                "Committee mode package upgrade events (value=1), labeled by state (upgrade_initiated/upgrade_completed)",
+                "Committee mode package upgrade events, labeled by state (upgrade_initiated)",
                 &["state"],
                 registry
             )
