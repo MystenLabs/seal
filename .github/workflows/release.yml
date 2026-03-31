@@ -1,0 +1,76 @@
+name: Release on Version Bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Optional explicit commit SHA to tag (defaults to latest main)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release tag on version bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.commit_sha || 'main' }}
+
+      - name: Check if version changed and create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          commit="${{ inputs.commit_sha }}"
+          if [[ -z "${commit}" ]]; then
+            commit="$(git rev-parse HEAD)"
+          fi
+
+          # Get current version
+          version=$(grep '^version = ' Cargo.toml | head -n 1 | tr -d '"' | awk '{print $3}')
+          tag="seal-v${version}"
+
+          # Check if tag already exists
+          if git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
+            echo "Tag ${tag} already exists — nothing to do"
+            exit 0
+          fi
+
+          # For manual dispatch, always create release
+          # For push trigger, verify version actually changed
+          if [[ "${{ github.event_name }}" == "push" ]] && git show HEAD~1:Cargo.toml &>/dev/null; then
+            previous_version=$(git show HEAD~1:Cargo.toml | grep '^version = ' | head -n 1 | tr -d '"' | awk '{print $3}')
+            if [[ "${version}" == "${previous_version}" ]]; then
+              echo "Version unchanged (${version}) — nothing to do"
+              exit 0
+            fi
+            echo "Version changed from ${previous_version} to ${version}"
+          fi
+
+          echo "Creating tag ${tag} at ${commit}"
+          gh api repos/${{ github.repository }}/git/refs \
+            --method POST \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${commit}"
+
+          gh release create "${tag}" \
+            --title "${tag}" \
+            --generate-notes \
+            --target "${commit}"
+
+          echo "Release created: https://github.com/${{ github.repository }}/releases/tag/${tag}"
