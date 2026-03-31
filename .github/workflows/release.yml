@@ -17,10 +17,35 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
+
 jobs:
   release:
     name: Create release tag on version bump
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.create_release.outputs.tag }}
+      should_build: ${{ steps.create_release.outputs.should_build }}
 
     steps:
       - name: Checkout
@@ -30,6 +55,7 @@ jobs:
           ref: ${{ inputs.commit_sha || 'main' }}
 
       - name: Check if version changed and create release
+        id: create_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -48,6 +74,7 @@ jobs:
           # Check if tag already exists
           if git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
             echo "Tag ${tag} already exists — nothing to do"
+            echo "should_build=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -57,6 +84,7 @@ jobs:
             previous_version=$(git show HEAD~1:Cargo.toml | grep '^version = ' | head -n 1 | tr -d '"' | awk '{print $3}')
             if [[ "${version}" == "${previous_version}" ]]; then
               echo "Version unchanged (${version}) — nothing to do"
+              echo "should_build=false" >> $GITHUB_OUTPUT
               exit 0
             fi
             echo "Version changed from ${previous_version} to ${version}"
@@ -74,3 +102,64 @@ jobs:
             --target "${commit}"
 
           echo "Release created: https://github.com/${{ github.repository }}/releases/tag/${tag}"
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+          echo "should_build=true" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build binaries
+    needs: release
+    if: needs.release.outputs.should_build == 'true'
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x86_64
+          - runner: ubuntu-latest-arm
+            platform: linux-aarch64
+          - runner: windows-latest
+            platform: windows-x86_64
+          - runner: macos-13
+            platform: macos-x86_64
+          - runner: macos-latest
+            platform: macos-aarch64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Enable long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      - name: Set platform variables
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "BINARY_EXT=.exe" >> $GITHUB_ENV
+          else
+            echo "BINARY_EXT=" >> $GITHUB_ENV
+          fi
+
+      - name: Build seal-cli
+        shell: bash
+        run: |
+          cargo build --release --package seal-cli
+          cp target/release/seal-cli${{ env.BINARY_EXT }} seal-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
+
+      - name: Build seal-committee-cli
+        shell: bash
+        run: |
+          cargo build --release --package seal-committee-cli
+          cp target/release/seal-committee-cli${{ env.BINARY_EXT }} seal-committee-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
+
+      - name: Upload binaries to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload ${{ needs.release.outputs.tag }} \
+            seal-cli-${{ matrix.platform }}${{ env.BINARY_EXT }} \
+            seal-committee-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
