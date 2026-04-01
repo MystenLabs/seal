@@ -6030,7 +6030,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 [[package]]
 name = "mvr-types"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/mvr?rev=1993d7188f62564b05f0ccab46bbfb24b0eea326#1993d7188f62564b05f0ccab46bbfb24b0eea326"
+source = "git+https://github.com/MystenLabs/mvr?rev=b4771074967c733edd3a8e09611a40e1c181d84a#b4771074967c733edd3a8e09611a40e1c181d84a"
 dependencies = [
  "anyhow",
  "once_cell",
