@@ -110,18 +110,19 @@ jobs:
     needs: release
     if: needs.release.outputs.should_build == 'true'
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubuntu-ghcloud
             platform: linux-x86_64
-          - runner: ubuntu-latest-arm
+          - runner: ubuntu-arm64
             platform: linux-aarch64
-          - runner: windows-latest
-            platform: windows-x86_64
-          - runner: macos-13
+          - runner: macos-latest-large
             platform: macos-x86_64
-          - runner: macos-latest
+          - runner: macos-latest-xlarge
             platform: macos-aarch64
+          - runner: windows-ghcloud
+            platform: windows-x86_64
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -130,36 +131,45 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.tag }}
 
-      - name: Enable long paths (Windows)
-        if: runner.os == 'Windows'
-        run: git config --system core.longpaths true
-
-      - name: Set platform variables
-        shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "BINARY_EXT=.exe" >> $GITHUB_ENV
-          else
-            echo "BINARY_EXT=" >> $GITHUB_ENV
-          fi
-
       - name: Build seal-cli
         shell: bash
         run: |
           cargo build --release --package seal-cli
-          cp target/release/seal-cli${{ env.BINARY_EXT }} seal-${{ matrix.platform }}${{ env.BINARY_EXT }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/seal-cli.exe seal-${{ matrix.platform }}.exe
+          else
+            cp target/release/seal-cli seal-${{ matrix.platform }}
+          fi
 
       - name: Build seal-committee-cli
         shell: bash
         run: |
           cargo build --release --package seal-committee-cli
-          cp target/release/seal-committee-cli${{ env.BINARY_EXT }} seal-committee-${{ matrix.platform }}${{ env.BINARY_EXT }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/seal-committee-cli.exe seal-committee-${{ matrix.platform }}.exe
+          else
+            cp target/release/seal-committee-cli seal-committee-${{ matrix.platform }}
+          fi
+
+      - name: Build key-server
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cargo build --release --package key-server --bin key-server
+          cp target/release/key-server key-server-${{ matrix.platform }}
 
       - name: Upload binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload ${{ needs.release.outputs.tag }} \
-            seal-${{ matrix.platform }}${{ env.BINARY_EXT }} \
-            seal-committee-${{ matrix.platform }}${{ env.BINARY_EXT }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            gh release upload ${{ needs.release.outputs.tag }} \
+              seal-${{ matrix.platform }}.exe \
+              seal-committee-${{ matrix.platform }}.exe
+          else
+            gh release upload ${{ needs.release.outputs.tag }} \
+              seal-${{ matrix.platform }} \
+              seal-committee-${{ matrix.platform }} \
+              key-server-${{ matrix.platform }}
+          fi
