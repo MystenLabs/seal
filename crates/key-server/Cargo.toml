@@ -58,7 +58,7 @@ http-body-util = "0.1.2"
 sui-sdk-types.workspace = true
 sui-rpc.workspace = true
 sui-rpc-api.workspace = true
-mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "1993d7188f62564b05f0ccab46bbfb24b0eea326", package = "mvr-types" }
+mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "b4771074967c733edd3a8e09611a40e1c181d84a", package = "mvr-types" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"
