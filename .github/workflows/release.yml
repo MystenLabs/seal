@@ -147,13 +147,13 @@ jobs:
         shell: bash
         run: |
           cargo build --release --package seal-cli
-          cp target/release/seal-cli${{ env.BINARY_EXT }} seal-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
+          cp target/release/seal-cli${{ env.BINARY_EXT }} seal-${{ matrix.platform }}${{ env.BINARY_EXT }}
 
       - name: Build seal-committee-cli
         shell: bash
         run: |
           cargo build --release --package seal-committee-cli
-          cp target/release/seal-committee-cli${{ env.BINARY_EXT }} seal-committee-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
+          cp target/release/seal-committee-cli${{ env.BINARY_EXT }} seal-committee-${{ matrix.platform }}${{ env.BINARY_EXT }}
 
       - name: Upload binaries to release
         env:
@@ -161,5 +161,5 @@ jobs:
         shell: bash
         run: |
           gh release upload ${{ needs.release.outputs.tag }} \
-            seal-cli-${{ matrix.platform }}${{ env.BINARY_EXT }} \
-            seal-committee-cli-${{ matrix.platform }}${{ env.BINARY_EXT }}
+            seal-${{ matrix.platform }}${{ env.BINARY_EXT }} \
+            seal-committee-${{ matrix.platform }}${{ env.BINARY_EXT }}
