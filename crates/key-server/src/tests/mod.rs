@@ -14,9 +14,9 @@ use crypto::ibe::public_key_from_master_key;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
-use futures::future::join_all;
 use move_package_alt::PackageLoader;
 use rand::thread_rng;
+use seal_committee::grpc_helper::fetch_key_server_by_id;
 use semver::VersionReq;
 use serde_json::json;
 use std::collections::HashMap;
@@ -25,9 +25,10 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
+use sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::json::SuiJsonValue;
-use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
+use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::effects::TransactionEffectsAPI;
@@ -288,13 +289,16 @@ impl SealTestCluster {
     ) -> (ObjectID, ObjectID) {
         // Use ephemeral package loader. This skips Published.toml and uses an ephemeral publication
         // file instead.
-        #[allow(deprecated)]
-        let chain_id = cluster
-            .sui_client()
-            .read_api()
-            .get_chain_identifier()
-            .await
-            .unwrap_or_else(|_| "localnet".to_string());
+        let chain_id = {
+            let mut grpc = cluster.grpc_client().into_inner();
+            let info = grpc
+                .ledger_client()
+                .get_service_info(GetServiceInfoRequest::default())
+                .await
+                .ok()
+                .and_then(|r| r.into_inner().chain_id);
+            info.unwrap_or_else(|| "localnet".to_string())
+        };
 
         let ephemeral_pub_file = PathBuf::from(format!("Published.test.{}.toml", chain_id));
 
@@ -445,63 +449,18 @@ impl SealTestCluster {
 
     /// Get the public keys of the key servers v2 with the given Object IDs.
     pub async fn get_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
-        #[allow(deprecated)]
-        let futures = object_ids.iter().map(|id| {
-            self.cluster
-                .sui_client()
-                .read_api()
-                .get_dynamic_fields(*id, None, None)
-        });
-
-        let res = join_all(futures).await;
-
-        // filter df that has type KeyServerV2
-        let object_ids = res
-            .into_iter()
-            .filter_map(|page| {
-                page.ok().and_then(|p| {
-                    p.data
-                        .into_iter()
-                        .find(|df| df.object_type.ends_with("::key_server::KeyServerV2"))
-                        .map(|df| df.object_id)
-                })
-            })
-            .collect::<Vec<_>>();
-        #[allow(deprecated)]
-        let objects = self
-            .cluster
-            .sui_client()
-            .read_api()
-            .multi_get_object_with_options(object_ids, SuiObjectDataOptions::full_content())
-            .await
-            .unwrap();
-        objects
-            .into_iter()
-            .map(|o| {
-                let value = o
-                    .data
-                    .unwrap()
-                    .content
-                    .unwrap()
-                    .try_as_move()
-                    .unwrap()
-                    .fields
-                    .field_value("value")
-                    .unwrap()
-                    .to_json_value();
-                let pk = value
-                    .as_object()
-                    .unwrap()
-                    .get("pk")
-                    .unwrap()
-                    .as_array()
-                    .unwrap();
-                pk.iter()
-                    .map(|v| v.as_u64().unwrap() as u8)
-                    .collect::<Vec<_>>()
-            })
-            .map(|v| ibe::PublicKey::from_byte_array(&v.try_into().unwrap()).unwrap())
-            .collect()
+        let mut pks = Vec::new();
+        for id in object_ids {
+            let mut grpc_client = self.cluster.grpc_client().into_inner();
+            let address = Address::from_bytes(id.into_bytes()).unwrap();
+            let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, &address)
+                .await
+                .unwrap();
+            pks.push(
+                ibe::PublicKey::from_byte_array(&key_server_v2.pk.try_into().unwrap()).unwrap(),
+            );
+        }
+        pks
     }
 }
 

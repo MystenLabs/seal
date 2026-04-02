@@ -4,14 +4,18 @@
 use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
+use prost_types::FieldMask;
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest};
 use sui_sdk::{
     error::SuiRpcResult,
     rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},
     SuiClient,
 };
+use sui_sdk_types::{Address, Object};
 use sui_types::base_types::ObjectID;
-use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
+use sui_types::transaction::TransactionData;
+use tonic::{Code, Status};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -44,8 +48,16 @@ pub type RpcResult<T> = Result<T, RpcError>;
 pub struct RpcError {
     #[allow(dead_code)]
     message: String,
-    code: Option<tonic::Code>,
+    pub(crate) code: Option<Code>,
 }
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
 
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
@@ -53,10 +65,10 @@ impl RetriableError for RpcError {
         self.code.is_some_and(|code| {
             matches!(
                 code,
-                tonic::Code::Unavailable
-                    | tonic::Code::DeadlineExceeded
-                    | tonic::Code::ResourceExhausted
-                    | tonic::Code::Aborted
+                Code::Unavailable
+                    | Code::DeadlineExceeded
+                    | Code::ResourceExhausted
+                    | Code::Aborted
             )
         })
     }
@@ -64,7 +76,7 @@ impl RetriableError for RpcError {
 
 impl RpcError {
     /// Helper to convert gRPC errors to RpcError
-    fn from_grpc(e: tonic::Status) -> Self {
+    fn from_grpc(e: Status) -> Self {
         Self {
             message: format!("gRPC error: {e}"),
             code: Some(e.code()),
@@ -215,7 +227,8 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Returns an object with the given options.
+    /// Returns an object with the given options (JSON RPC).
+    #[allow(dead_code)]
     pub async fn get_object_with_options(
         &self,
         object_id: ObjectID,
@@ -235,7 +248,92 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Returns the current reference gas price.
+    /// Fetches an object's BCS data via gRPC and deserializes it as type T.
+    pub async fn get_object_bcs<T: serde::de::DeserializeOwned>(
+        &self,
+        object_id: ObjectID,
+    ) -> RpcResult<T> {
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_object_bcs",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let address = Address::from_bytes(object_id.into_bytes())
+                        .map_err(|e| RpcError::new(format!("Invalid object ID: {e}")))?;
+
+                    let mut request = GetObjectRequest::default();
+                    request.object_id = Some(address.to_string());
+                    request.read_mask = Some(FieldMask {
+                        paths: vec!["bcs".to_string()],
+                    });
+
+                    let response = grpc_client
+                        .ledger_client()
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)?;
+
+                    let bcs_bytes = response
+                        .object
+                        .and_then(|obj| obj.bcs)
+                        .and_then(|bcs| bcs.value)
+                        .map(|bytes| bytes.to_vec())
+                        .ok_or_else(|| RpcError::new("No BCS data in response"))?;
+
+                    let obj: Object = bcs::from_bytes(&bcs_bytes)
+                        .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))?;
+                    let move_object = obj
+                        .as_struct()
+                        .ok_or_else(|| RpcError::new("Object is not a Move struct"))?;
+                    bcs::from_bytes(move_object.contents())
+                        .map_err(|e| RpcError::new(format!("Failed to deserialize contents: {e}")))
+                }
+            },
+        )
+        .await
+    }
+
+    /// Fetches a raw object's BCS bytes via gRPC.
+    pub async fn get_object_raw_bcs(&self, object_id: ObjectID) -> RpcResult<Vec<u8>> {
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_object_raw_bcs",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let address = Address::from_bytes(object_id.into_bytes())
+                        .map_err(|e| RpcError::new(format!("Invalid object ID: {e}")))?;
+
+                    let mut request = GetObjectRequest::default();
+                    request.object_id = Some(address.to_string());
+                    request.read_mask = Some(FieldMask {
+                        paths: vec!["bcs".to_string()],
+                    });
+
+                    let response = grpc_client
+                        .ledger_client()
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)?;
+
+                    response
+                        .object
+                        .and_then(|obj| obj.bcs)
+                        .and_then(|bcs| bcs.value)
+                        .map(|bytes| bytes.to_vec())
+                        .ok_or_else(|| RpcError::new("No BCS data in response"))
+                }
+            },
+        )
+        .await
+    }
+
+    /// Returns the current reference gas price via gRPC.
     pub async fn get_reference_gas_price(&self) -> RpcResult<u64> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
@@ -245,8 +343,8 @@ impl SuiRpcClient {
                 let mut grpc_client = self.sui_grpc_client.clone();
                 async move {
                     let mut client = grpc_client.ledger_client();
-                    let mut request = sui_rpc::proto::sui::rpc::v2::GetEpochRequest::default();
-                    request.read_mask = Some(prost_types::FieldMask {
+                    let mut request = GetEpochRequest::default();
+                    request.read_mask = Some(FieldMask {
                         paths: vec!["reference_gas_price".to_string()],
                     });
                     client
@@ -255,26 +353,6 @@ impl SuiRpcClient {
                         .map(|r| r.into_inner().epoch().reference_gas_price())
                         .map_err(RpcError::from_grpc)
                 }
-            },
-        )
-        .await
-    }
-
-    /// Returns an object with the given dynamic field name.
-    pub async fn get_dynamic_field_object(
-        &self,
-        object_id: ObjectID,
-        dynamic_field_name: DynamicFieldName,
-    ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_dynamic_field_object",
-            self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_dynamic_field_object(object_id, dynamic_field_name.clone())
-                    .await
             },
         )
         .await

@@ -9,9 +9,11 @@ use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
-use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
+use sui_sdk_types::{Object, ObjectData};
 use sui_types::base_types::ObjectID;
+use sui_types::move_package::MovePackage;
 use tap::TapFallible;
+use tonic::Code;
 use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
@@ -70,22 +72,26 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let object = sui_rpc_client
-                .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
+            let bcs_bytes = sui_rpc_client
+                .get_object_raw_bcs(*pkg_id)
                 .await
-                .map_err(|_| InternalError::Failure("FN failed to respond".to_string()))? // internal error that fullnode fails to respond, check fullnode.
-                .into_object()
-                .map_err(|_| InternalError::InvalidPackage)?; // user error that object does not exist or deleted.
+                .map_err(|e| {
+                    if e.code == Some(Code::NotFound) {
+                        InternalError::InvalidPackage
+                    } else {
+                        InternalError::Failure("FN failed to respond".to_string())
+                    }
+                })?;
 
-            let package = object
-                .bcs
-                .ok_or(InternalError::Failure(
-                    "No BCS object in response".to_string(),
-                ))? // internal error that fullnode does not respond with bcs even though request includes the bcs option.
-                .try_as_package()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_move_package(u64::MAX)
-                .map_err(|_| InternalError::InvalidPackage)?; // user error if the provided package throw MovePackageTooBig.
+            let obj: Object =
+                bcs::from_bytes(&bcs_bytes).map_err(|_| InternalError::InvalidPackage)?;
+            let package: MovePackage = match obj.data() {
+                ObjectData::Package(p) => {
+                    let bytes = bcs::to_bytes(p).map_err(|_| InternalError::InvalidPackage)?;
+                    bcs::from_bytes(&bytes).map_err(|_| InternalError::InvalidPackage)?
+                }
+                _ => return Err(InternalError::InvalidPackage),
+            };
 
             let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
