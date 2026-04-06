@@ -452,7 +452,7 @@ impl SealTestCluster {
         let mut pks = Vec::new();
         for id in object_ids {
             let mut grpc_client = self.cluster.grpc_client().into_inner();
-            let address = Address::from_bytes(id.into_bytes()).unwrap();
+            let address = Address::new(id.into_bytes());
             let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, &address)
                 .await
                 .unwrap();

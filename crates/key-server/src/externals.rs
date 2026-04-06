@@ -9,9 +9,7 @@ use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
-use sui_sdk_types::{Object, ObjectData};
 use sui_types::base_types::ObjectID;
-use sui_types::move_package::MovePackage;
 use tap::TapFallible;
 use tonic::Code;
 use tracing::{debug, warn};
@@ -72,27 +70,13 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let bcs_bytes = sui_rpc_client
-                .get_object_raw_bcs(*pkg_id)
-                .await
-                .map_err(|e| {
-                    if e.code == Some(Code::NotFound) {
-                        InternalError::InvalidPackage
-                    } else {
-                        InternalError::Failure("FN failed to respond".to_string())
-                    }
-                })?;
-
-            let obj: Object =
-                bcs::from_bytes(&bcs_bytes).map_err(|_| InternalError::InvalidPackage)?;
-            let package: MovePackage = match obj.data() {
-                ObjectData::Package(p) => {
-                    let bytes = bcs::to_bytes(p).map_err(|_| InternalError::InvalidPackage)?;
-                    bcs::from_bytes(&bytes).map_err(|_| InternalError::InvalidPackage)?
+            let package = sui_rpc_client.get_package(*pkg_id).await.map_err(|e| {
+                if e.code == Some(Code::NotFound) {
+                    InternalError::InvalidPackage
+                } else {
+                    InternalError::Failure("FN failed to respond".to_string())
                 }
-                _ => return Err(InternalError::InvalidPackage),
-            };
-
+            })?;
             let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
             Ok(first)

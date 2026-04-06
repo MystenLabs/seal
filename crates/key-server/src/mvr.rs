@@ -14,14 +14,14 @@
 //! * The app record and package info objects point to the package address that was used when the name was registered, but there could be more recent versions of the package.
 
 use crate::errors::InternalError;
-use crate::errors::InternalError::{Failure, InvalidMVRName};
+use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
 use crate::sui_rpc_client::SuiRpcClient;
 use crate::types::Network;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
-use mvr_types::name::Name;
+use mvr_types::name::{Name, VersionedName};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -137,7 +137,7 @@ pub(crate) async fn mvr_forward_resolution(
                     "No package info ID for MVR name {mvr_name} on testnet"
                 )))?;
             let package_info: PackageInfo = sui_rpc_client
-                .get_object_bcs(package_info_id)
+                .get_object(package_info_id)
                 .await
                 .map_err(|_| Failure(format!("Failed to get object {package_info_id}")))?;
 
@@ -163,16 +163,10 @@ async fn get_from_mvr_registry(
     mainnet_sui_rpc_client: &SuiRpcClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
     let dynamic_field_name = dynamic_field_name(mvr_name)?;
-    // Derive the dynamic field child ID to look up the record directly
-    let registry_id = ObjectID::from_str(MVR_REGISTRY).unwrap();
-    let registry_address = Address::from_bytes(registry_id.into_bytes())
-        .map_err(|_| Failure("Invalid registry address".to_string()))?;
+    let registry_address = Address::new(ObjectID::from_str(MVR_REGISTRY).unwrap().into_bytes());
 
-    // Serialize the dynamic field key for derivation
-    let parsed_name =
-        mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
-    let name_bcs = bcs::to_bytes(&parsed_name.name)
-        .map_err(|_| Failure("Failed to BCS-encode name".to_string()))?;
+    let parsed_name = VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
+    let name_bcs = bcs::to_bytes(&parsed_name.name).expect("BCS encoding of Name should not fail");
     let name_type_tag = SdkTypeTag::Struct(Box::new(SdkStructTag::new(
         Address::from_str(MVR_CORE).unwrap(),
         "name".parse().unwrap(),
@@ -181,27 +175,23 @@ async fn get_from_mvr_registry(
     )));
 
     let child_id = registry_address.derive_dynamic_child_id(&name_type_tag, &name_bcs);
-    let child_object_id = ObjectID::from_bytes(child_id.as_bytes())
-        .map_err(|_| Failure("Invalid child object ID".to_string()))?;
+    let child_object_id = ObjectID::new(child_id.into_inner());
 
     mainnet_sui_rpc_client
-        .get_object_bcs::<Field<Name, AppRecord>>(child_object_id)
+        .get_object::<Field<Name, AppRecord>>(child_object_id)
         .await
-        .map_err(|e| {
-            if e.code == Some(Code::NotFound) {
-                InvalidMVRName
-            } else {
-                Failure(format!(
-                    "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
-                ))
-            }
+        .map_err(|e| match e.code {
+            Some(Code::NotFound) => InvalidMVRName,
+            None => InvalidPackage,
+            _ => Failure(format!(
+                "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
+            )),
         })
 }
 
 /// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
 fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
-    let parsed_name =
-        mvr_types::name::VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
+    let parsed_name = VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
     if parsed_name.version.is_some() {
         return Err(InvalidMVRName);
     }

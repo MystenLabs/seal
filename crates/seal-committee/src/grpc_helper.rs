@@ -13,9 +13,10 @@ use crate::{
 use anyhow::{anyhow, bail, Result};
 use std::str::FromStr;
 use sui_rpc::client::Client;
-use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_sdk_types::{Address, Object, StructTag, TypeTag};
+use sui_rpc::proto::sui::rpc::v2::{GetObjectRequest, GetObjectResponse};
+use sui_sdk_types::{Address, StructTag, TypeTag};
 use sui_types::base_types::ObjectID;
+use sui_types::object::{Data, Object};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
@@ -42,72 +43,38 @@ pub fn create_grpc_client(network: &Network) -> Result<Client> {
     create_grpc_client_with_url(network, None)
 }
 
-/// Fetch an object's BCS data and deserialize as type T.
-async fn fetch_and_deserialize_move_object<T: serde::de::DeserializeOwned>(
+fn extract_object(response: GetObjectResponse) -> Result<Object> {
+    let bcs_bytes = response
+        .object
+        .and_then(|obj| obj.bcs)
+        .and_then(|bcs| bcs.value)
+        .map(|bytes| bytes.to_vec())
+        .ok_or_else(|| anyhow!("No BCS data in response"))?;
+    Ok(bcs::from_bytes(&bcs_bytes)?)
+}
+
+async fn fetch_object<T: serde::de::DeserializeOwned>(
     grpc_client: &mut Client,
     object_id: &Address,
-    error_context: &str,
 ) -> Result<T> {
-    let mut ledger_client = grpc_client.ledger_client();
     let mut request = GetObjectRequest::default();
     request.object_id = Some(object_id.to_string());
     request.read_mask = Some(prost_types::FieldMask {
         paths: vec!["bcs".to_string()],
     });
 
-    let response = ledger_client
+    let response = grpc_client
+        .ledger_client()
         .get_object(request)
         .await
         .map(|r| r.into_inner())?;
 
-    let bcs_bytes = response
-        .object
-        .and_then(|obj| obj.bcs)
-        .and_then(|bcs| bcs.value)
-        .map(|bytes| bytes.to_vec())
-        .ok_or_else(|| anyhow!("No BCS data in {}", error_context))?;
-
-    let obj: Object = bcs::from_bytes(&bcs_bytes)?;
-    let move_object = obj
-        .as_struct()
-        .ok_or_else(|| anyhow!("Object is not a Move struct in {}", error_context))?;
-    bcs::from_bytes(move_object.contents())
-        .map_err(|e| anyhow!("Failed to deserialize {}: {}", error_context, e))
-}
-
-/// Fetch a field wrapper object and deserialize it.
-async fn fetch_field_wrapper<T: serde::de::DeserializeOwned>(
-    grpc_client: &mut Client,
-    field_wrapper_id: &Address,
-) -> Result<T> {
-    let mut ledger_client = grpc_client.ledger_client();
-    let mut fw_request = GetObjectRequest::default();
-    fw_request.object_id = Some(field_wrapper_id.to_string());
-    fw_request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["bcs".to_string()],
-    });
-
-    let fw_response = ledger_client
-        .get_object(fw_request)
-        .await
-        .map(|r| r.into_inner());
-
-    let fw_bcs = match fw_response {
-        Ok(response) => response
-            .object
-            .and_then(|obj| obj.bcs)
-            .and_then(|bcs| bcs.value)
-            .ok_or_else(|| anyhow!("Field wrapper object not found"))?,
-        Err(e) => return Err(anyhow!("Failed to fetch field wrapper: {}", e)),
+    let obj = extract_object(response)?;
+    let move_object = match &obj.data {
+        Data::Move(m) => m,
+        _ => bail!("Object is not a Move struct"),
     };
-
-    let fw_object: Object = bcs::from_bytes(&fw_bcs)?;
-    let fw_struct = fw_object
-        .as_struct()
-        .ok_or_else(|| anyhow!("Field wrapper is not a Move struct"))?;
-
-    let field_wrapper: T = bcs::from_bytes(fw_struct.contents())?;
-    Ok(field_wrapper)
+    Ok(bcs::from_bytes(move_object.contents())?)
 }
 
 /// Fetch seal Committee object onchain.
@@ -115,7 +82,7 @@ pub async fn fetch_committee_data(
     grpc_client: &mut Client,
     committee_id: &Address,
 ) -> Result<SealCommittee> {
-    fetch_and_deserialize_move_object(grpc_client, committee_id, "Committee object").await
+    fetch_object(grpc_client, committee_id).await
 }
 
 /// Fetch KeyServerV2 data directly from a KeyServer object ID.
@@ -132,13 +99,7 @@ pub async fn fetch_key_server_by_id(
     let key_server_v2_field_id =
         ks_obj_id.derive_dynamic_child_id(&sui_sdk_types::TypeTag::U64, &v2_field_name_bcs);
 
-    // Fetch and deserialize the Field<u64, KeyServerV2> object.
-    let field: Field<u64, KeyServerV2> = fetch_and_deserialize_move_object(
-        grpc_client,
-        &key_server_v2_field_id,
-        "KeyServerV2 Field object",
-    )
-    .await?;
+    let field: Field<u64, KeyServerV2> = fetch_object(grpc_client, &key_server_v2_field_id).await?;
 
     Ok(field.value)
 }
@@ -182,7 +143,7 @@ pub async fn fetch_key_server_by_committee(
         committee_id.derive_dynamic_child_id(&wrapper_type_tag, &wrapper_key_bcs);
 
     let field_wrapper: Field<Wrapper<Address>, Address> =
-        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
+        fetch_object(grpc_client, &field_wrapper_id).await?;
     let ks_obj_id = field_wrapper.value;
 
     let key_server_v2 = fetch_key_server_by_id(grpc_client, &ks_obj_id).await?;
@@ -251,7 +212,7 @@ pub async fn fetch_committee_from_key_server(
 
     // Fetch field wrapper to extract committee ID.
     let field: Field<Wrapper<Address>, Address> =
-        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
+        fetch_object(grpc_client, &field_wrapper_id).await?;
     let committee_id = field.name.name;
 
     // Fetch committee object to get the correct package ID.
@@ -343,13 +304,11 @@ pub async fn fetch_upgrade_manager(
 
     // Fetch field wrapper.
     let field_wrapper: crate::move_types::FieldWrapper<UpgradeManagerKey, Address> =
-        fetch_field_wrapper(grpc_client, &field_wrapper_id).await?;
+        fetch_object(grpc_client, &field_wrapper_id).await?;
     let upgrade_manager_id = field_wrapper.value;
 
     // Fetch the UpgradeManager object.
-    let upgrade_manager: UpgradeManager =
-        fetch_and_deserialize_move_object(grpc_client, &upgrade_manager_id, "UpgradeManager")
-            .await?;
+    let upgrade_manager: UpgradeManager = fetch_object(grpc_client, &upgrade_manager_id).await?;
 
     Ok(upgrade_manager)
 }

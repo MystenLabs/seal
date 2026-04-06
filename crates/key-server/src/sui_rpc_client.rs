@@ -6,16 +6,13 @@ use std::sync::Arc;
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
 use prost_types::FieldMask;
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest};
-use sui_sdk::{
-    error::SuiRpcResult,
-    rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},
-    SuiClient,
-};
-use sui_sdk_types::{Address, Object};
+use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest, GetObjectResponse};
+use sui_sdk::{error::SuiRpcResult, rpc_types::DryRunTransactionBlockResponse, SuiClient};
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
+use sui_types::move_package::MovePackage;
+use sui_types::object::{Data, Object as SuiObject};
 use sui_types::transaction::TransactionData;
-use tonic::{Code, Status};
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -48,7 +45,7 @@ pub type RpcResult<T> = Result<T, RpcError>;
 pub struct RpcError {
     #[allow(dead_code)]
     message: String,
-    pub(crate) code: Option<Code>,
+    pub(crate) code: Option<tonic::Code>,
 }
 
 impl std::fmt::Display for RpcError {
@@ -65,10 +62,10 @@ impl RetriableError for RpcError {
         self.code.is_some_and(|code| {
             matches!(
                 code,
-                Code::Unavailable
-                    | Code::DeadlineExceeded
-                    | Code::ResourceExhausted
-                    | Code::Aborted
+                tonic::Code::Unavailable
+                    | tonic::Code::DeadlineExceeded
+                    | tonic::Code::ResourceExhausted
+                    | tonic::Code::Aborted
             )
         })
     }
@@ -76,7 +73,7 @@ impl RetriableError for RpcError {
 
 impl RpcError {
     /// Helper to convert gRPC errors to RpcError
-    fn from_grpc(e: Status) -> Self {
+    fn from_grpc(e: tonic::Status) -> Self {
         Self {
             message: format!("gRPC error: {e}"),
             code: Some(e.code()),
@@ -89,6 +86,27 @@ impl RpcError {
             message: message.into(),
             code: None,
         }
+    }
+}
+
+fn extract_object(response: GetObjectResponse) -> RpcResult<SuiObject> {
+    let bcs_bytes = response
+        .object
+        .and_then(|obj| obj.bcs)
+        .and_then(|bcs| bcs.value)
+        .map(|bytes| bytes.to_vec())
+        .ok_or_else(|| RpcError::new("No BCS data in response"))?;
+    bcs::from_bytes(&bcs_bytes)
+        .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))
+}
+
+fn extract_package(response: GetObjectResponse) -> RpcResult<MovePackage> {
+    match extract_object(response)?.into_inner().data {
+        Data::Package(p) => Ok(p),
+        _ => Err(RpcError {
+            message: "Object is not a package".to_string(),
+            code: Some(tonic::Code::NotFound),
+        }),
     }
 }
 
@@ -227,41 +245,19 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Returns an object with the given options (JSON RPC).
-    #[allow(dead_code)]
-    pub async fn get_object_with_options(
-        &self,
-        object_id: ObjectID,
-        options: SuiObjectDataOptions,
-    ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_object_with_options",
-            self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_object_with_options(object_id, options.clone())
-                    .await
-            },
-        )
-        .await
-    }
-
-    /// Fetches an object's BCS data via gRPC and deserializes it as type T.
-    pub async fn get_object_bcs<T: serde::de::DeserializeOwned>(
+    /// Fetches a Move object via gRPC and deserializes its contents as type T.
+    pub async fn get_object<T: serde::de::DeserializeOwned>(
         &self,
         object_id: ObjectID,
     ) -> RpcResult<T> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_object_bcs",
+            "get_object",
             self.metrics.clone(),
             || {
                 let mut grpc_client = self.sui_grpc_client.clone();
                 async move {
-                    let address = Address::from_bytes(object_id.into_bytes())
-                        .map_err(|e| RpcError::new(format!("Invalid object ID: {e}")))?;
+                    let address = Address::new(object_id.into_bytes());
 
                     let mut request = GetObjectRequest::default();
                     request.object_id = Some(address.to_string());
@@ -276,18 +272,11 @@ impl SuiRpcClient {
                         .map(|r| r.into_inner())
                         .map_err(RpcError::from_grpc)?;
 
-                    let bcs_bytes = response
-                        .object
-                        .and_then(|obj| obj.bcs)
-                        .and_then(|bcs| bcs.value)
-                        .map(|bytes| bytes.to_vec())
-                        .ok_or_else(|| RpcError::new("No BCS data in response"))?;
-
-                    let obj: Object = bcs::from_bytes(&bcs_bytes)
-                        .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))?;
-                    let move_object = obj
-                        .as_struct()
-                        .ok_or_else(|| RpcError::new("Object is not a Move struct"))?;
+                    let obj = extract_object(response)?;
+                    let move_object = match &obj.data {
+                        Data::Move(m) => m,
+                        _ => return Err(RpcError::new("Object is not a Move struct")),
+                    };
                     bcs::from_bytes(move_object.contents())
                         .map_err(|e| RpcError::new(format!("Failed to deserialize contents: {e}")))
                 }
@@ -296,17 +285,16 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Fetches a raw object's BCS bytes via gRPC.
-    pub async fn get_object_raw_bcs(&self, object_id: ObjectID) -> RpcResult<Vec<u8>> {
+    /// Fetches a Move package via gRPC.
+    pub async fn get_package(&self, object_id: ObjectID) -> RpcResult<MovePackage> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_object_raw_bcs",
+            "get_package",
             self.metrics.clone(),
             || {
                 let mut grpc_client = self.sui_grpc_client.clone();
                 async move {
-                    let address = Address::from_bytes(object_id.into_bytes())
-                        .map_err(|e| RpcError::new(format!("Invalid object ID: {e}")))?;
+                    let address = Address::new(object_id.into_bytes());
 
                     let mut request = GetObjectRequest::default();
                     request.object_id = Some(address.to_string());
@@ -321,12 +309,7 @@ impl SuiRpcClient {
                         .map(|r| r.into_inner())
                         .map_err(RpcError::from_grpc)?;
 
-                    response
-                        .object
-                        .and_then(|obj| obj.bcs)
-                        .and_then(|bcs| bcs.value)
-                        .map(|bytes| bytes.to_vec())
-                        .ok_or_else(|| RpcError::new("No BCS data in response"))
+                    extract_package(response)
                 }
             },
         )
