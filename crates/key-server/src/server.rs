@@ -30,8 +30,6 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use jsonrpsee::core::ClientError;
-use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
 use master_keys::MasterKeys;
 use metrics::metrics_middleware;
@@ -59,10 +57,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_rpc_client::{RpcError, SuiRpcClient};
-use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{EventFilter, SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_sdk::rpc_types::EventFilter;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
@@ -421,38 +419,27 @@ impl Server {
             GAS_BUDGET,
             gas_price,
         );
-        let dry_run_res = self
+        let simulate_res = self
             .sui_rpc_client
-            .dry_run_transaction_block(tx_data)
+            .simulate_transaction(tx_data)
             .await
             .map_err(|e| {
-                match e {
-                    Error::RpcError(ClientError::Call(ref e))
-                        if e.code() == INVALID_PARAMS_CODE =>
-                    {
-                        // This error is generic and happens when one of the parameters of the Move call in the PTB is invalid.
-                        // One reason is that one of the parameters does not exist, in which case it could be a newly created object that the FN has not yet seen.
-                        // There are other possible reasons, so we return the entire message to the user to allow debugging.
-                        // Note that the message is a message from the JSON RPC API, so it is already formatted and does not contain any sensitive information.
-                        debug!("Invalid parameter: {}", e.message());
-                        InternalError::InvalidParameter(e.message().to_string())
-                    }
-                    Error::RpcError(ClientError::Call(ref e))
-                        if e.code() == METHOD_NOT_FOUND_CODE =>
-                    {
-                        // This means that the seal_approve function is not found on the given module.
-                        debug!("Function not found: {:?}", e);
-                        InternalError::InvalidPTB(
-                            "The seal_approve function was not found on the module".to_string(),
-                        )
-                    }
-                    _ => InternalError::Failure(format!(
-                        "Dry run execution failed ({e:?}) (req_id: {req_id:?})"
-                    )),
+                // `InvalidArgument` = malformed request; `NotFound` = an input
+                // object does not yet exist on the fullnode (e.g. a freshly
+                // created object the FN has not indexed).
+                if matches!(e.code, Some(Code::InvalidArgument) | Some(Code::NotFound)) {
+                    debug!("Invalid parameter: {}", e.message);
+                    return InternalError::InvalidParameter(e.message);
                 }
+                InternalError::Failure(format!(
+                    "Simulate transaction failed ({e}) (req_id: {req_id:?})"
+                ))
             })?;
 
-        debug!("Dry run response: {:?} (req_id: {:?})", dry_run_res, req_id);
+        debug!(
+            "Simulate response: {:?} (req_id: {:?})",
+            simulate_res, req_id
+        );
 
         // Record the gas cost. Only do this in permissioned mode to avoid high cardinality metrics in public mode.
         if let Some(m) = metrics
@@ -461,7 +448,13 @@ impl Server {
             let package = vptb.pkg_id().to_hex_uncompressed();
             m.dry_run_gas_cost_per_package
                 .with_label_values(&[&package])
-                .observe(dry_run_res.effects.gas_cost_summary().computation_cost as f64);
+                .observe(
+                    simulate_res
+                        .transaction()
+                        .effects()
+                        .gas_used()
+                        .computation_cost() as f64,
+                );
         }
 
         // Check if the staleness check failed
@@ -469,7 +462,7 @@ impl Server {
             .options
             .network
             .seal_package()
-            .is_staleness_error(&dry_run_res.effects)
+            .is_staleness_error(&simulate_res)
         {
             debug!("Fullnode is stale (req_id: {:?})", req_id);
             if let Some(m) = metrics {
@@ -478,13 +471,26 @@ impl Server {
             return Err(InternalError::Failure("Fullnode is stale".to_string()));
         }
 
-        // Handle errors in the dry run
-        if let SuiExecutionStatus::Failure { error } = dry_run_res.effects.status() {
+        // Handle errors in the simulation
+        let status = simulate_res.transaction().effects().status();
+        if let Some(error) = &status.error {
+            if error.kind() == ExecutionErrorKind::FunctionNotFound {
+                debug!("Function not found (req_id: {:?})", req_id);
+                return Err(InternalError::InvalidPTB(
+                    "The seal_approve function was not found on the module".to_string(),
+                ));
+            }
+
+            // Use `description` and fall back to `kind`
+            let msg = error
+                .description
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", error.kind()));
             debug!(
-                "Dry run execution asserted (req_id: {:?}) {:?}",
+                "Simulate transaction execution asserted (req_id: {:?}) error: {:?}",
                 req_id, error
             );
-            return Err(InternalError::NoAccess(error.clone()));
+            return Err(InternalError::NoAccess(msg));
         }
 
         // all good!
