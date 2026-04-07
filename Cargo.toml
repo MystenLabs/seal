@@ -39,19 +39,19 @@ snap = "1.1.0"
 git-version = "0.3.9"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "shared-crypto" }
-move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e" }
-prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "prometheus-closure-metric" }
-sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-move-build" }
-test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "test-cluster" }
-move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "move-package-alt" }
-move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "move-package-alt-compilation" }
-sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-package-alt" }
-sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-rpc-api" }
-sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "a8b4775b33b2654f75296dd6c2933ca4bfa4c95e", package = "sui-keys" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "shared-crypto" }
+move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "prometheus-closure-metric" }
+sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-move-build" }
+test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "test-cluster" }
+move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "move-package-alt" }
+move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "move-package-alt-compilation" }
+sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-package-alt" }
+sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-rpc-api" }
+sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "6c3a7475b6fd4aea9b9f9443a6cfad01a135c036", package = "sui-keys" }
 
 sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e5c53de2e9570229b63bd0508b43f27c11cb5f76", package = "sui-sdk-types", features = ["serde"] }
 sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e5c53de2e9570229b63bd0508b43f27c11cb5f76", package = "sui-rpc" }
