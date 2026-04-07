@@ -6,7 +6,9 @@ const path = require('path');
 const matter = require('gray-matter');
 
 const contentDir = path.join(__dirname, '../../../../content');
-const outputDir = path.join(__dirname, '../../../static/markdown');
+const outputDir = path.join(__dirname, '../../../static');
+const baseUrl = 'https://seal-docs.wal.app';
+const llmsTxtDirective = `> For the complete documentation index, see [llms.txt](${baseUrl}/llms.txt)\n\n`;
 
 /**
  * Strips frontmatter and cleans MDX/JSX components from markdown
@@ -57,20 +59,21 @@ function copyMarkdownFiles(dir, baseDir = dir) {
     if (stat.isDirectory()) {
       // Recursively process subdirectories
       copyMarkdownFiles(filePath, baseDir);
-    } else if (file.endsWith('.md') || file.endsWith('.mdx')) {
-      // Read and process markdown/mdx files
+    } else if ((file.endsWith('.md') || file.endsWith('.mdx')) && !file.startsWith('_')) {
+      // Read and process markdown/mdx files (skip Docusaurus partials)
       const content = fs.readFileSync(filePath, 'utf8');
       const cleanContent = stripFrontmatter(content);
 
-      // Preserve directory structure
+      // Insert llms.txt directive at the top of the file
+      const outputContent = llmsTxtDirective + cleanContent;
+
+      // Preserve directory structure, normalize to .md extension
       const relativePath = path.relative(baseDir, filePath);
-      // Normalize all files to .md extension
       const outputPath = path.join(outputDir, relativePath.replace(/\.mdx?$/, '.md'));
 
-      // Create directory structure if it doesn't exist
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      fs.writeFileSync(outputPath, cleanContent, 'utf8');
-      console.log(`✓ Copied: ${relativePath}`);
+      fs.writeFileSync(outputPath, outputContent, 'utf8');
+      console.log(`✓ Copied: ${relativePath} → ${path.relative(outputDir, outputPath)}`);
     }
   });
 }
