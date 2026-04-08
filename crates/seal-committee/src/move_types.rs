@@ -264,6 +264,13 @@ impl SealCommittee {
     }
 }
 
+/// Event emitted when a new committee rotation is initiated.
+#[derive(Deserialize, Debug)]
+pub struct CommitteeRotationInitiatedEvent {
+    pub committee_id: Address,
+    pub old_committee_id: Address,
+}
+
 /// Helper struct storing member info with deserialized public keys.
 pub struct ParsedMemberInfo {
     pub name: String,

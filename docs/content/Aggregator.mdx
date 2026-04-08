@@ -40,9 +40,9 @@ The aggregator authenticates with each committee member's key server using priva
 
 After a fresh DKG completes, the coordinator shares the following information with the aggregator operator:
 
-- **Key server object ID** (`KEY_SERVER_OBJ_ID`): The object ID created when the committee is finalized on-chain.
+- **Key server object ID** (`KEY_SERVER_OBJ_ID`): The object ID created when the committee is finalized onchain.
 - **API credentials for all committee members**, including:
-    - The on-chain server name
+    - The onchain server name
     - The API key name
     - The API key
 
@@ -52,7 +52,7 @@ The aggregator operator configures these values in `aggregator-config.yaml` and 
 
 If new members join the committee during key rotation, the coordinator shares their API credentials with the aggregator operator. The aggregator operator adds the new credentials to `aggregator-config.yaml` and restarts the server.
 
-The aggregator configuration can include credentials for both old and new member names. The aggregator periodically reads the current committee state from the network and uses the latest on-chain member list to determine which credentials to use.
+The aggregator configuration can include credentials for both old and new member names. The aggregator periodically reads the current committee state from the network and uses the latest onchain member list to determine which credentials to use.
 
 ## Running the server
 
@@ -65,7 +65,7 @@ key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000
 
 # API credentials for committee members.
 api_credentials:
-    server1: # on-chain server name
+    server1: # onchain server name
       api_key_name: keyname1
       api_key: key1
     server2:

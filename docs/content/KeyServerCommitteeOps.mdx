@@ -36,9 +36,9 @@ In addition to setting up the members of a decentralized key server, an **[aggre
 
 The DKG process involves two roles: a **coordinator** that orchestrates the workflow, and **committee members** that participate in key generation and rotation. Both fresh DKG and key rotation follow the same three-phase process:
 
-- **Phase A — Registration:** Members generate encryption keys and register them on-chain
+- **Phase A — Registration:** Members generate encryption keys and register them onchain
 - **Phase B — Message creation:** Members create and exchange DKG messages off-chain
-- **Phase C — Finalization:** Members process messages and propose the committee configuration on-chain
+- **Phase C — Finalization:** Members process messages and propose the committee configuration onchain
 
 The coordinator signals members when to move from one phase to the next.
 
@@ -52,7 +52,7 @@ The coordinator signals members when to move from one phase to the next.
 
 Before running the DKG or key rotation workflows, both the coordinator and all committee members must complete the following steps.
 
-1. Establish a trusted communication channel (e.g. group chat, email) with all other participants. This channel is used for the coordinator and members to share files at certain steps of the workflow, for the coordinator to announce phase transitions, and to verify each other's on-chain addresses. Address verification can also happen on-chain (for example, via a governance action).
+1. Establish a trusted communication channel (e.g. group chat, email) with all other participants. This channel is used for the coordinator and members to share files at certain steps of the workflow, for the coordinator to announce phase transitions, and to verify each other's onchain addresses. Address verification can also happen onchain (for example, via a governance action).
 
 2. Install Sui by following the [official installation guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
 ```bash
@@ -111,7 +111,7 @@ rm -rf dkg-state && mkdir dkg-state
 cp crates/seal-committee-cli/dkg.example.yaml dkg-state/dkg.yaml
 ```
 
-c. Collect the on-chain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
+c. Collect the onchain addresses of all participating members. Then open `dkg-state/dkg.yaml` and update the following fields:
 ```yaml
 init-params:
   NETWORK: Testnet # Target network
@@ -150,7 +150,7 @@ Share the updated `dkg.yaml` file with all committee members. Notify members to 
 
 4. **Monitor member registration**
 
-Check on-chain registration status:
+Check onchain registration status:
 ```bash
 cargo run --bin seal-committee-cli -- check-committee
 ```
@@ -178,7 +178,7 @@ Notify members to begin **Phase C (Finalization)**.
 
 7. **Confirm committee finalization**
 
-Monitor on-chain state until all members have proposed and the committee is finalized:
+Monitor onchain state until all members have proposed and the committee is finalized:
 ```bash
 cargo run --bin seal-committee-cli -- check-committee
 ```
@@ -192,7 +192,7 @@ After all committee members have their key servers running, ask each member to g
 Collect and share the following with the aggregator operator:
 
 - API credentials for each committee member, including:
-    - The on-chain server name (the `PartialKeyServer.name` field)
+    - The onchain server name (the `PartialKeyServer.name` field)
     - The API key name
     - The API key
 - The committee's `KEY_SERVER_OBJ_ID` from the previous step.
@@ -205,7 +205,7 @@ Follow these steps to participate as a member in a fresh DKG.
 
 1. **Share your address with the coordinator**
 
-Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all on-chain actions during the DKG.
+Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all onchain actions during the DKG.
 
 Make sure:
 
@@ -233,7 +233,7 @@ mv path/to/dkg.yaml dkg-state/
 
 b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both `dkg.yaml` and the addresses shared in the trusted communication channel.
 
-c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
+c. Then run the command to generate your keys and register them onchain by providing your server URL and name:
 ```bash
 cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
@@ -244,7 +244,7 @@ This command:
 
 - Generates DKG key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME`, and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
-- Registers your public keys on-chain.
+- Registers your public keys onchain.
 
 3. **Create and share your DKG message (Phase B: Message creation)**
 
@@ -275,7 +275,7 @@ This command:
   - `KEY_SERVER_PK`: New key server public key.
   - `PARTIAL_PKS_V0`: Partial public keys for all members.
   - `MASTER_SHARE_V0`: Your master share, used to start the key server. Back it up securely and do not share it with anyone.
-- Proposes the committee on-chain by calling the `propose` function.
+- Proposes the committee onchain by calling the `propose` function.
 
 5. **Configure and start your key server**
 
@@ -304,7 +304,7 @@ After your key server is running successfully, generate API credentials for aggr
 
 - Generate an **API key name** and **API key** for your key server.
 - Share the following details with the coordinator:
-   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the on-chain `PartialKeyServer.name`)
+   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the onchain `PartialKeyServer.name`)
    - API key name
    - API key
 
@@ -375,7 +375,7 @@ cargo run --bin seal-committee-cli -- init-rotation
 This command:
 
 - Fetches the current key server object to determine the existing committee ID and package ID.
-- Initializes the new committee object on-chain.
+- Initializes the new committee object onchain.
 - Appends the following fields to the `init-rotation` section in `dkg.yaml`:
   - `COORDINATOR_ADDRESS`: Address executing the rotation
   - `COMMITTEE_PKG`: Package ID of the committee contract
@@ -388,7 +388,7 @@ Share the updated `dkg.yaml` file with all committee members. Notify members to 
 
 4. **Monitor member registration**
 
-Check on-chain registration status:
+Check onchain registration status:
 ```bash
 cargo run --bin seal-committee-cli -- check-committee
 ```
@@ -418,7 +418,7 @@ c. Remind members that the current committee is at version `X` (e.g. 0) and it i
 
 7. **Confirm committee finalization**
 
-Monitor on-chain state until all members have proposed and the committee is finalized:
+Monitor onchain state until all members have proposed and the committee is finalized:
 ```bash
 cargo run --bin seal-committee-cli -- check-committee
 ```
@@ -430,7 +430,7 @@ If new members join the committee during rotation or existing members change API
 Collect and share the following with the aggregator operator:
 
 - API credentials for each committee member, including:
-    - The on-chain server name (the `PartialKeyServer.name` field)
+    - The onchain server name (the `PartialKeyServer.name` field)
     - The API key name
     - The API key
 
@@ -442,7 +442,7 @@ Follow these steps to participate as a member in a key rotation.
 
 1. **Share your address with the coordinator**
 
-Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all on-chain actions during the rotation.
+Share your wallet address (`MY_ADDRESS`) with the coordinator. This address is used for all onchain actions during the rotation.
 
 Make sure:
 
@@ -460,7 +460,7 @@ mv path/to/dkg.yaml dkg-state/
 
 b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both `dkg.yaml` and the addresses shared in the trusted communication channel.
 
-c. Then run the command to generate your keys and register them on-chain by providing your server URL and name:
+c. Then run the command to generate your keys and register them onchain by providing your server URL and name:
 ```bash
 cargo run --bin seal-committee-cli -- genkey-and-register \
   -u <YOUR_SERVER_URL> \
@@ -471,7 +471,7 @@ This command:
 
 - Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
 - Appends `DKG_ENC_PK`, `DKG_SIGNING_PK`, `MY_SERVER_URL`, `MY_SERVER_NAME`, and `MY_ADDRESS` (from `sui client active-address`) to `dkg.yaml`.
-- Registers your public keys on-chain.
+- Registers your public keys onchain.
 
 3. **Create and share your DKG message (Phase B: Message creation)**
 
@@ -512,7 +512,7 @@ This command:
 - Appends the following fields to `dkg.yaml`:
   - `PARTIAL_PKS_VX+1`: New partial public keys for all members.
   - `MASTER_SHARE_VX+1`: Your new master share, used to start the key server. Back it up securely and do not share it with anyone.
-- Proposes the rotation on-chain by calling `propose_for_rotation`.
+- Proposes the rotation onchain by calling `propose_for_rotation`.
 
 5. **Start or update your key server**
 
@@ -532,7 +532,7 @@ server_mode: !Committee
     target_version: <X+1> # Increment this
 ```
 
-b. Restart the key server with both the old and new master shares (`MASTER_SHARE_VX` corresponds to the current committee version `X` and `MASTER_SHARE_VX+1` corresponds to the next committee version `X+1`). The server monitors on-chain state and selects the correct share automatically.
+b. Restart the key server with both the old and new master shares (`MASTER_SHARE_VX` corresponds to the current committee version `X` and `MASTER_SHARE_VX+1` corresponds to the next committee version `X+1`). The server monitors onchain state and selects the correct share automatically.
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX=<MASTER_SHARE_VX> \
@@ -583,7 +583,7 @@ If you are joining the committee as a new member during rotation, generate API c
 
 a. Generate an **API key name** and **API key** for your key server.
 b. Share the following with the coordinator:
-   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the on-chain `PartialKeyServer.name`)
+   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the onchain `PartialKeyServer.name`)
    - API key name
    - API key
 
@@ -711,7 +711,7 @@ This command:
 | Old master share needed | N/A | Yes (continuing members must provide via `-o` flag) |
 | Message creation | All members create messages | Only continuing members create messages |
 | Key server startup | Start with `MASTER_SHARE_V0` | Transition from `MASTER_SHARE_VX` to `MASTER_SHARE_VX+1` |
-| on-chain proposal function | `propose` | `propose_for_rotation` |
+| onchain proposal function | `propose` | `propose_for_rotation` |
 | Result | New key server object | Updated key server object's version |
 
 ## Infrastructure requirements

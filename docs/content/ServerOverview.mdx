@@ -18,7 +18,7 @@ Seal supports two server types for key management: **Decentralized** (committee 
 
 ## Decentralized server type
 
-A decentralized server appears on-chain as a single logical key server — one object ID and public key — while internally being operated by a committee of multiple independent providers coordinating through threshold cryptography. The committee maintains a stable public key with rotatable membership, allowing operators to be added, removed, or replaced over time without client updates or data re-encryption.
+A decentralized server appears onchain as a single logical key server — one object ID and public key — while internally being operated by a committee of multiple independent providers coordinating through threshold cryptography. The committee maintains a stable public key with rotatable membership, allowing operators to be added, removed, or replaced over time without client updates or data re-encryption.
 
 Behind the scenes, operators participate in a Distributed Key Generation (DKG) ceremony that produces distributed key shares. Each operator runs a key server that holds only its partial share. When a client requests a decryption key, the request flows through an aggregator, which collects encrypted partial responses from operators and combines them into a single encrypted result. The client then decrypts the final key locally.
 
@@ -62,7 +62,7 @@ An independent server is registered with one object ID and one server URL. Clien
 
 **Open mode**
 - Uses a single master key to serve all access policies across all packages.
-- Accepts decryption requests for any on-chain package without restrictions.
+- Accepts decryption requests for any onchain package without restrictions.
 - No client management or API keys required.
 
 **Permissioned mode**
