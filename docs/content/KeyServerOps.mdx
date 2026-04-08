@@ -39,7 +39,7 @@ Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on t
 
 When running an independent server, you can choose between Open or Permissioned mode:
 
-- **Open mode**: In Open mode, the key server accepts decryption requests for any on-chain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
+- **Open mode**: In Open mode, the key server accepts decryption requests for any onchain package. It uses a single master key to serve all access policies across packages. This mode is suitable for public or general-purpose deployments where package-level isolation is not required.
 - **Permissioned mode**: In Permissioned mode, the key server restricts access to a manually approved list of packages associated with specific clients or applications. Each client is served using a dedicated master key.
     - This mode also supports importing or exporting the client-specific key if needed, for purposes such as disaster recovery or key server rotation.
     - The approved package ID for a client **must** be the package's **first published version**. This ensures that the key server continues to recognize the package after upgrades. You do not need to add new versions of the package to a client's allowlist.
@@ -57,7 +57,7 @@ Master key: <MASTER_KEY>
 Public key: <MASTER_PUBKEY>
 ```
 
-To make the key server discoverable by Seal clients, register it on-chain. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet:
+To make the key server discoverable by Seal clients, register it onchain. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet:
 ```shell
 sui client switch --env <NETWORK>
 sui client active-address # fund this if necessary
@@ -76,7 +76,7 @@ In the config file, make sure to:
 - Set the network, for example, `Testnet`, `Mainnet`, or `!Custom` for custom RPC endpoints.
     - For `!Custom` network, you can either specify `node_url` in the config or set the `NODE_URL` environment variable.
 - Set the mode to `!Open`.
-- Set the `key_server_object_id` field to `<KEY_SERVER_OBJECT_ID>`, the ID of the key server object you registered on-chain.
+- Set the `key_server_object_id` field to `<KEY_SERVER_OBJECT_ID>`, the ID of the key server object you registered onchain.
 ```shell
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 
@@ -125,14 +125,14 @@ MASTER_KEY=0x680d7268095510940a3cce0d0cfdbd82b3422f776e6da46c90eb36f25ce2b30e CO
 2025-06-15T02:02:56.304418Z  INFO key_server: Unassigned derived public key with index 2: "<PUBKEY_2>"
 ```
 
-Each supported client must have a registered on-chain key server object to enable discovery and policy validation.
+Each supported client must have a registered onchain key server object to enable discovery and policy validation.
 
 ### Register a client
 
 Follow these steps to add every new client to a Permissioned key server:
 
 - The client sends the key server provider a list of Seal policy package IDs to allow on the key server (for example, `<POLICY_PACKAGE_ID_0>`, `<POLICY_PACKAGE_ID_1>`).
-- The key server provider registers a new key server on-chain with an **unassigned derived public key**. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet.
+- The key server provider registers a new key server onchain with an **unassigned derived public key**. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet.
     - Copy an unassigned derived public key from the server logs (see preceding section). Use the next available derivation index (for the first client, `0`; for the nth client, `n-1`).
 
 |  Index  |  Derived Public Key  | 
@@ -191,7 +191,7 @@ docker run -p 2024:2024 \
   seal-key-server
 ```
 
-To add another client in the future, repeat the preceding steps. Register a new unassigned derived public key on-chain, note the returned `key_server_object_id`, add a config entry with the next `derivation_index` and the client's `package_ids`, then restart the server. The logs show the next unassigned indices and public keys.
+To add another client in the future, repeat the preceding steps. Register a new unassigned derived public key onchain, note the returned `key_server_object_id`, add a config entry with the next `derivation_index` and the client's `package_ids`, then restart the server. The logs show the next unassigned indices and public keys.
 
 ### Export and import keys
 
@@ -233,7 +233,7 @@ sui client call --function update --module key_server --package <SEAL_PACKAGE_ID
 - The new key server owner can now add it to their config file:
     - `client_master_key` set to type `Imported`.
     - The name of the environment variable containing the key, for example, `BOB_BLS_KEY`. This name is used later.
-    - The key server object registered on-chain for this client earlier, for example, `<KEY_SERVER_OBJECT_ID_0>`.
+    - The key server object registered onchain for this client earlier, for example, `<KEY_SERVER_OBJECT_ID_0>`.
     - The list of packages associated with the client.
 
 For example:

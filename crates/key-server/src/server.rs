@@ -42,10 +42,12 @@ use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use rand::thread_rng;
+use seal_committee::grpc_helper::fetch_upgrade_proposal;
 use seal_committee::grpc_helper::{
     fetch_committee_from_key_server, fetch_committee_server_version,
     get_partial_key_server_for_member,
 };
+use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
@@ -60,13 +62,14 @@ use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::error::Error;
-use sui_sdk::rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
+use sui_sdk::rpc_types::{EventFilter, SuiExecutionStatus, SuiTransactionBlockEffectsAPI};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
+use sui_types::event::EventID;
 use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -234,6 +237,8 @@ impl Server {
                     fetch_committee_from_key_server(&mut grpc_client, key_server_obj_id)
                         .await
                         .expect("Failed to fetch committee from key server");
+
+                info!("Committee ID: {}", committee_id);
 
                 // Fetch server name from onchain PartialKeyServer
                 let member_info = get_partial_key_server_for_member(
@@ -727,6 +732,197 @@ impl Server {
             });
         }
     }
+
+    /// Spawns a background task that monitors for CommitteeRotationInitiated events.
+    /// Only spawns in Committee mode. Alerts when a new committee rotation is initiated.
+    /// Refreshes committee_id and package_id from key server object.
+    async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
+        // Only run in committee mode
+        let ServerMode::Committee {
+            key_server_obj_id, ..
+        } = &self.options.server_mode
+        else {
+            return;
+        };
+        let key_server_obj_id = *key_server_obj_id;
+
+        info!(
+            "Starting committee rotation event monitor for key_server_obj_id: {}",
+            key_server_obj_id
+        );
+
+        let sui_client = self.sui_rpc_client.sui_client().clone();
+        let sui_rpc_client = self.sui_rpc_client.clone();
+
+        // Spawn the background task to poll for events.
+        tokio::spawn(async move {
+            info!("Committee rotation event monitor task started");
+            let mut last_event_seq: Option<EventID> = None;
+
+            loop {
+                // Fetch current committee ID and package ID from key server object
+                let (committee_id, committee_pkg_id) = {
+                    let mut grpc_client = sui_rpc_client.sui_grpc_client();
+                    match fetch_committee_from_key_server(&mut grpc_client, &key_server_obj_id)
+                        .await
+                    {
+                        Ok((id, pkg_id)) => {
+                            debug!("Current committee_id: {}, package_id: {}", id, pkg_id);
+                            (id, pkg_id)
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to fetch committee ID and package ID from key server: {}",
+                                e
+                            );
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            continue;
+                        }
+                    }
+                };
+
+                let event_filter = EventFilter::MoveEventType(
+                    format!(
+                        "{}::seal_committee::CommitteeRotationInitiated",
+                        committee_pkg_id
+                    )
+                    .parse()
+                    .expect("Parsing should not fail"),
+                );
+
+                // Query for the latest rotation event to detect changes
+                let events_result = sui_client
+                    .event_api()
+                    .query_events(
+                        event_filter,
+                        last_event_seq,
+                        Some(1), // Fetch the last event
+                        false,   // ascending order
+                    )
+                    .await;
+
+                match events_result {
+                    Ok(page) => {
+                        for event in &page.data {
+                            let event_data = bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
+                                event.bcs.bytes(),
+                            )
+                            .expect("BCS should not fail");
+
+                            if event_data.old_committee_id != committee_id {
+                                // This means a different committee is initialized with this committee package ID and being rotated, should never happen.
+                                error!(
+                                    "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
+                                    event_data.committee_id, event_data.old_committee_id, committee_id
+                                );
+                            }
+
+                            warn!(
+                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+                                event_data.committee_id, event_data.old_committee_id
+                            );
+
+                            metrics
+                                .committee_mode_rotation_events
+                                .with_label_values(&[
+                                    &event_data.committee_id.to_string(),
+                                    &"rotation_initiated".to_string(),
+                                ])
+                                .set(1);
+
+                            last_event_seq = Some(event.id);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to query committee rotation events: {}", e);
+                    }
+                }
+
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+
+    /// Spawns a background task that monitors for package digest changes from UpgradeManager.
+    /// Only spawns in Committee mode. Alerts when a new upgrade proposal is detected.
+    async fn spawn_package_digest_monitor(&self, metrics: Arc<KeyServerMetrics>) {
+        // Only run in committee mode
+        let ServerMode::Committee {
+            key_server_obj_id, ..
+        } = &self.options.server_mode
+        else {
+            return;
+        };
+        let key_server_obj_id = *key_server_obj_id;
+
+        info!(
+            "Starting package upgrade proposal monitor for key_server_obj_id: {}",
+            key_server_obj_id
+        );
+
+        // Define the fetch function for upgrade proposal existence
+        let fetch_fn = move |client: SuiRpcClient| async move {
+            let mut grpc = client.sui_grpc_client();
+
+            // Fetch current committee ID from key server object owner
+            let (committee_id, _) =
+                match fetch_committee_from_key_server(&mut grpc, &key_server_obj_id).await {
+                    Ok(result) => result,
+                    Err(e) => {
+                        return Err(RpcError::new(format!(
+                            "Failed to fetch committee ID: {}",
+                            e
+                        )))
+                    }
+                };
+
+            fetch_upgrade_proposal(&mut grpc, &committee_id)
+                .await
+                .map(|proposal_opt| if proposal_opt.is_some() { 1u64 } else { 0u64 })
+                .map_err(|e| RpcError::new(e.to_string()))
+        };
+
+        // Spawn periodic updater
+        let (receiver, _updater_handle) = spawn_periodic_updater(
+            &self.sui_rpc_client,
+            Duration::from_secs(30),
+            fetch_fn,
+            "upgrade proposal",
+            None::<fn(bool)>,
+        )
+        .await;
+
+        let mut receiver_clone = receiver;
+        let mut last_proposal_exists = false;
+
+        // Spawn the background task to monitor upgrade proposal changes
+        tokio::spawn(async move {
+            loop {
+                match receiver_clone.changed().await {
+                    Ok(_) => {
+                        let proposal_exists = *receiver_clone.borrow() == 1;
+
+                        // Warn if a new upgrade proposal was created (None -> Some)
+                        if proposal_exists && !last_proposal_exists {
+                            warn!("New package upgrade proposal detected!");
+
+                            // Record package upgrade proposal event to metrics
+                            metrics
+                                .committee_mode_package_upgrade_events
+                                .with_label_values(&["upgrade_initiated"])
+                                .set(1);
+                        }
+
+                        last_proposal_exists = proposal_exists;
+                    }
+                    Err(e) => {
+                        warn!("Package digest monitor channel closed: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
 }
 
 #[allow(clippy::single_match)]
@@ -952,6 +1148,14 @@ async fn start_server_background_tasks(
     // Spawn committee version updater only if the server is in committee mode and is during
     // rotation (current onchain version is target-1).
     server.spawn_committee_version_updater().await;
+
+    // Spawn committee rotation event monitor to detect CommitteeRotationInitiated events
+    server
+        .spawn_committee_rotation_event_monitor(metrics.clone())
+        .await;
+
+    // Spawn package digest monitor to alert on package upgrades
+    server.spawn_package_digest_monitor(metrics.clone()).await;
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);

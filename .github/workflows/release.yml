@@ -1,0 +1,179 @@
+name: Release on Version Bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Optional explicit commit SHA to tag (defaults to latest main)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
+
+jobs:
+  release:
+    name: Create release tag on version bump
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.create_release.outputs.tag }}
+      should_build: ${{ steps.create_release.outputs.should_build }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.commit_sha || 'main' }}
+
+      - name: Check if version changed and create release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          commit="${{ inputs.commit_sha }}"
+          if [[ -z "${commit}" ]]; then
+            commit="$(git rev-parse HEAD)"
+          fi
+
+          # Get current version
+          version=$(grep '^version = ' Cargo.toml | head -n 1 | tr -d '"' | awk '{print $3}')
+          tag="seal-v${version}"
+
+          # Check if tag already exists
+          if git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
+            echo "Tag ${tag} already exists — nothing to do"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # For manual dispatch, always create release
+          # For push trigger, verify version actually changed
+          if [[ "${{ github.event_name }}" == "push" ]] && git show HEAD~1:Cargo.toml &>/dev/null; then
+            previous_version=$(git show HEAD~1:Cargo.toml | grep '^version = ' | head -n 1 | tr -d '"' | awk '{print $3}')
+            if [[ "${version}" == "${previous_version}" ]]; then
+              echo "Version unchanged (${version}) — nothing to do"
+              echo "should_build=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Version changed from ${previous_version} to ${version}"
+          fi
+
+          echo "Creating tag ${tag} at ${commit}"
+          gh api repos/${{ github.repository }}/git/refs \
+            --method POST \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${commit}"
+
+          gh release create "${tag}" \
+            --title "${tag}" \
+            --generate-notes \
+            --target "${commit}"
+
+          echo "Release created: https://github.com/${{ github.repository }}/releases/tag/${tag}"
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+          echo "should_build=true" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build binaries
+    needs: release
+    if: needs.release.outputs.should_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-ghcloud
+            platform: linux-x86_64
+          - runner: ubuntu-arm64
+            platform: linux-aarch64
+          - runner: macos-latest-large
+            platform: macos-x86_64
+          - runner: macos-latest-xlarge
+            platform: macos-aarch64
+          - runner: windows-ghcloud
+            platform: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Build seal-cli
+        shell: bash
+        run: |
+          cargo build --release --package seal-cli
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/seal-cli.exe seal-${{ matrix.platform }}.exe
+          else
+            cp target/release/seal-cli seal-${{ matrix.platform }}
+          fi
+
+      - name: Build seal-committee-cli
+        shell: bash
+        run: |
+          cargo build --release --package seal-committee-cli
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/seal-committee-cli.exe seal-committee-${{ matrix.platform }}.exe
+          else
+            cp target/release/seal-committee-cli seal-committee-${{ matrix.platform }}
+          fi
+
+      - name: Build key-server
+        shell: bash
+        run: |
+          cargo build --release --package key-server --bin key-server
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/key-server.exe key-server-${{ matrix.platform }}.exe
+          else
+            cp target/release/key-server key-server-${{ matrix.platform }}
+          fi
+
+      - name: Upload binaries to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            gh release upload ${{ needs.release.outputs.tag }} \
+              seal-${{ matrix.platform }}.exe \
+              seal-committee-${{ matrix.platform }}.exe \
+              key-server-${{ matrix.platform }}.exe
+          else
+            gh release upload ${{ needs.release.outputs.tag }} \
+              seal-${{ matrix.platform }} \
+              seal-committee-${{ matrix.platform }} \
+              key-server-${{ matrix.platform }}
+          fi
