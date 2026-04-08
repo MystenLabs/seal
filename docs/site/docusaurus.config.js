@@ -55,6 +55,43 @@ const config = {
   clientModules: [require.resolve("./src/client/pushfeedback-toc.js")],
   
   plugins: [
+    function markdownHeadersPlugin() {
+      return {
+        name: 'markdown-headers-plugin',
+        configureWebpack() {
+          return {
+            devServer: {
+              headers: {
+                '*.md': {
+                  'Content-Type': 'text/markdown; charset=utf-8',
+                  'Content-Disposition': 'inline',
+                },
+                '*.txt': {
+                  'Content-Type': 'text/plain; charset=utf-8',
+                  'Content-Disposition': 'inline',
+                },
+              },
+              setupMiddlewares(middlewares) {
+                middlewares.unshift({
+                  name: 'markdown-content-type',
+                  middleware: (req, res, next) => {
+                    if (req.url.endsWith('.md')) {
+                      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+                      res.setHeader('Content-Disposition', 'inline');
+                    } else if (req.url.endsWith('.txt')) {
+                      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                      res.setHeader('Content-Disposition', 'inline');
+                    }
+                    next();
+                  },
+                });
+                return middlewares;
+              },
+            },
+          };
+        },
+      };
+    },
     //require.resolve('./src/plugins/framework'),
     "docusaurus-plugin-copy-page-button",
     [
