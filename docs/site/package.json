@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "prestart": "node src/shared/js/copy-markdown-files.js; node src/scripts/generate-llmstxt.mjs",
+    "prestart": "node src/shared/js/copy-markdown-files.js; node src/scripts/generate-llmstxt.js",
     "start": "docusaurus start",
-    "prebuild": "node src/shared/js/copy-markdown-files.js; node src/scripts/generate-llmstxt.mjs",
+    "prebuild": "node src/shared/js/copy-markdown-files.js; node src/scripts/generate-llmstxt.js",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
