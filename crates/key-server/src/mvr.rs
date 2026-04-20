@@ -139,7 +139,11 @@ pub(crate) async fn mvr_forward_resolution(
             let package_info: PackageInfo = sui_rpc_client
                 .get_object(package_info_id)
                 .await
-                .map_err(|_| Failure(format!("Failed to get object {package_info_id}")))?;
+                .map_err(|e| match e.code {
+                    // None = FN protocol violation (missing BCS / decode failure) — deterministic, not retryable.
+                    None => InvalidPackage,
+                    _ => Failure(format!("Failed to get object {package_info_id}")),
+                })?;
 
             // Check that the name in the package info matches the MVR name.
             let metadata: HashMap<_, _> = package_info.metadata.into();
@@ -182,6 +186,7 @@ async fn get_from_mvr_registry(
         .await
         .map_err(|e| match e.code {
             Some(Code::NotFound) => InvalidMVRName,
+            // None = FN protocol violation (missing BCS / decode failure) — deterministic, not retryable.
             None => InvalidPackage,
             _ => Failure(format!(
                 "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"

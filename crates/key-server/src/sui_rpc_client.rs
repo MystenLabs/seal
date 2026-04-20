@@ -40,11 +40,12 @@ impl RetriableError for sui_sdk::error::Error {
 /// Result type for RPC operations
 pub type RpcResult<T> = Result<T, RpcError>;
 
-/// Error type for RPC operations
+/// Error type for RPC operations.
 #[derive(Debug)]
 pub struct RpcError {
     #[allow(dead_code)]
     message: String,
+    /// `Some(code)` for gRPC transport errors; `None` for local post-processing failures (missing BCS, decode failure, wrong shape) — deterministic, never retried.
     pub(crate) code: Option<tonic::Code>,
 }
 
@@ -58,7 +59,7 @@ impl std::error::Error for RpcError {}
 
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
-        // Only gRPC errors with specific status codes should be retried
+        // Retry only transient gRPC statuses; `code: None` (local decode failures) is deterministic.
         self.code.is_some_and(|code| {
             matches!(
                 code,
@@ -72,7 +73,7 @@ impl RetriableError for RpcError {
 }
 
 impl RpcError {
-    /// Helper to convert gRPC errors to RpcError
+    /// Wrap a gRPC status; produces `code: Some(...)`.
     fn from_grpc(e: tonic::Status) -> Self {
         Self {
             message: format!("gRPC error: {e}"),
@@ -80,7 +81,7 @@ impl RpcError {
         }
     }
 
-    /// Create a new RpcError with a message
+    /// Wrap a local post-processing failure (missing BCS, decode failure, wrong shape); produces `code: None`.
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),

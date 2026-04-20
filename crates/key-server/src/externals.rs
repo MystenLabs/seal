@@ -70,13 +70,14 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let package = sui_rpc_client.get_package(*pkg_id).await.map_err(|e| {
-                if e.code == Some(Code::NotFound) {
-                    InternalError::InvalidPackage
-                } else {
-                    InternalError::Failure("FN failed to respond".to_string())
-                }
-            })?;
+            let package = sui_rpc_client
+                .get_package(*pkg_id)
+                .await
+                .map_err(|e| match e.code {
+                    // NotFound = missing/non-package; None = FN protocol violation (missing BCS / decode failure) — both are client-facing, deterministic.
+                    Some(Code::NotFound) | None => InternalError::InvalidPackage,
+                    _ => InternalError::Failure("FN failed to respond".to_string()),
+                })?;
             let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
             Ok(first)
