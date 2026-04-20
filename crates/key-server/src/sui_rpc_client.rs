@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
+use serde::{Deserialize, Serialize};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk::{
     error::SuiRpcResult,
@@ -12,6 +13,12 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
+
+const VERIFY_ZKLOGIN_SIGNATURE_QUERY: &str = r#"query verifyZkLoginSignature($bytes: Base64!, $signature: Base64!, $intentScope: ZkLoginIntentScope!, $author: SuiAddress!) {
+  verifyZkLoginSignature(bytes: $bytes, signature: $signature, intentScope: $intentScope, author: $author) {
+    success
+  }
+}"#;
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -162,6 +169,7 @@ where
 pub struct SuiRpcClient {
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
+    graphql_url: Option<String>,
     rpc_retry_config: RetryConfig,
     metrics: Option<Arc<KeyServerMetrics>>,
 }
@@ -170,12 +178,14 @@ impl SuiRpcClient {
     pub fn new(
         sui_client: SuiClient,
         sui_grpc_client: SuiGrpcClient,
+        graphql_url: Option<String>,
         rpc_retry_config: RetryConfig,
         metrics: Option<Arc<KeyServerMetrics>>,
     ) -> Self {
         Self {
             sui_client,
             sui_grpc_client,
+            graphql_url,
             rpc_retry_config,
             metrics,
         }
@@ -189,6 +199,11 @@ impl SuiRpcClient {
     /// Returns a reference to the underlying gRPC client.
     pub fn sui_grpc_client(&self) -> SuiGrpcClient {
         self.sui_grpc_client.clone()
+    }
+
+    /// Returns the configured GraphQL URL.
+    pub fn graphql_url(&self) -> Option<&str> {
+        self.graphql_url.as_deref()
     }
 
     /// Returns a clone of the metrics object.
@@ -279,6 +294,122 @@ impl SuiRpcClient {
         )
         .await
     }
+
+    /// Verifies a zkLogin personal-message signature through the Sui GraphQL API.
+    pub async fn verify_zklogin_personal_message_signature(
+        &self,
+        bytes_base64: &str,
+        signature_base64: &str,
+        author: &str,
+    ) -> RpcResult<()> {
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "verify_zklogin_personal_message_signature",
+            self.metrics.clone(),
+            || async {
+                let request = GraphqlRequest {
+                    query: VERIFY_ZKLOGIN_SIGNATURE_QUERY,
+                    variables: VerifyZkLoginSignatureVariables {
+                        bytes: bytes_base64,
+                        signature: signature_base64,
+                        intent_scope: "PERSONAL_MESSAGE",
+                        author,
+                    },
+                };
+
+                let response = reqwest::Client::new()
+                    .post(
+                        self.graphql_url()
+                            .ok_or_else(|| RpcError::new("Missing graphql_url for zkLogin verification"))?,
+                    )
+                    .json(&request)
+                    .send()
+                    .await
+                    .map_err(|e| RpcError::new(format!("verifyZkLoginSignature request failed: {e}")))?;
+
+                let status = response.status();
+                let response_body = response.text().await.map_err(|e| {
+                    RpcError::new(format!("Failed to read verifyZkLoginSignature response: {e}"))
+                })?;
+
+                if !status.is_success() {
+                    return Err(RpcError::new(format!(
+                        "verifyZkLoginSignature HTTP {} {}",
+                        status.as_u16(),
+                        response_body
+                    )));
+                }
+
+                let payload: GraphqlResponse = serde_json::from_str(&response_body).map_err(|e| {
+                    RpcError::new(format!("verifyZkLoginSignature response parsing failed: {e}"))
+                })?;
+
+                if let Some(errors) = payload.errors
+                    && !errors.is_empty()
+                {
+                    return Err(RpcError::new(format!(
+                        "verifyZkLoginSignature GraphQL error: {}",
+                        errors
+                            .into_iter()
+                            .map(|error| error.message)
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    )));
+                }
+
+                let result = payload
+                    .data
+                    .and_then(|data| data.verify_zklogin_signature)
+                    .ok_or_else(|| RpcError::new("verifyZkLoginSignature returned no result"))?;
+
+                if result.success.unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(RpcError::new(
+                        "verifyZkLoginSignature returned success=false".to_string(),
+                    ))
+                }
+            },
+        )
+        .await
+    }
+}
+
+#[derive(Serialize)]
+struct GraphqlRequest<'a> {
+    query: &'static str,
+    variables: VerifyZkLoginSignatureVariables<'a>,
+}
+
+#[derive(Serialize)]
+struct VerifyZkLoginSignatureVariables<'a> {
+    bytes: &'a str,
+    signature: &'a str,
+    #[serde(rename = "intentScope")]
+    intent_scope: &'static str,
+    author: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphqlResponse {
+    data: Option<VerifyZkLoginSignatureData>,
+    errors: Option<Vec<GraphqlError>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifyZkLoginSignatureData {
+    #[serde(rename = "verifyZkLoginSignature")]
+    verify_zklogin_signature: Option<ZkLoginVerifyResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphqlError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZkLoginVerifyResult {
+    success: Option<bool>,
 }
 
 #[cfg(test)]

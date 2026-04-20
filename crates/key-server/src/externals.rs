@@ -141,6 +141,7 @@ mod tests {
                 ),
             SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
+            Some(Network::Testnet.default_graphql_url().to_string()),
             RetryConfig::default(),
             None,
         );
@@ -169,6 +170,7 @@ mod tests {
                 ),
             SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
+            Some(Network::Mainnet.default_graphql_url().to_string()),
             RetryConfig::default(),
             None,
         );

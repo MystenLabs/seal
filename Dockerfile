@@ -3,15 +3,16 @@ FROM rust:1.90-bullseye  AS builder
 
 ARG PROFILE=release
 
-WORKDIR work
+WORKDIR /work
 
 COPY ./crates ./crates
 COPY ./Cargo.toml ./
+COPY ./Cargo.lock ./
 
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 
-RUN cargo build --bin key-server --profile $PROFILE --config net.git-fetch-with-cli=true
+RUN cargo build --locked --bin key-server --profile $PROFILE --config net.git-fetch-with-cli=true
 FROM debian:bullseye-slim AS runtime
 
 EXPOSE 2024

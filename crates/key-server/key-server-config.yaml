@@ -34,7 +34,7 @@ node_url: https://fullnode.testnet.sui.io:443
 #
 # Example:
 server_mode: !Open
-  key_server_object_id: '0x0000000000000000000000000000000000000000000000000000000000000000'
+  key_server_object_id: '0xd8e2a7aec4ab44848c06d81c8d401963346e12c0889705a14f0d701d1725165f'
 
 # #### PERMISSIONED MODE ####
 # For the Permissioned mode, set the allowed clients and their configurations.

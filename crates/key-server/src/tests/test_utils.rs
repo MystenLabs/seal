@@ -49,6 +49,7 @@ pub(crate) async fn create_test_server(
     let sui_rpc_client = SuiRpcClient::new(
         sui_client,
         grpc_client.into_inner(),
+        None,
         RetryConfig::default(),
         None,
     );

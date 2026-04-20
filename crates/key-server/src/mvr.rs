@@ -118,6 +118,7 @@ pub(crate) async fn mvr_forward_resolution(
                         .map_err(|_| Failure("Failed to build sui client".to_string()))?,
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
+                    Some(Network::Mainnet.default_graphql_url().to_string()),
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.get_metrics(),
                 ),
@@ -230,6 +231,7 @@ mod tests {
             &SuiRpcClient::new(
                 SuiClientBuilder::default().build_mainnet().await.unwrap(),
                 SuiGrpcClient::new(Network::Mainnet.default_node_url()).unwrap(),
+                Some(Network::Mainnet.default_graphql_url().to_string()),
                 RetryConfig::default(),
                 None,
             ),
@@ -258,6 +260,7 @@ mod tests {
                 &SuiRpcClient::new(
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
                     SuiGrpcClient::new(Network::Testnet.default_node_url()).unwrap(),
+                    Some(Network::Testnet.default_graphql_url().to_string()),
                     RetryConfig::default(),
                     None,
                 ),
@@ -279,6 +282,7 @@ mod tests {
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
+                    Some(Network::Mainnet.default_graphql_url().to_string()),
                     RetryConfig::default(),
                     None,
                 ),
@@ -298,6 +302,7 @@ mod tests {
                     SuiClientBuilder::default().build_testnet().await.unwrap(),
                     SuiGrpcClient::new(Network::Testnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
+                    Some(Network::Testnet.default_graphql_url().to_string()),
                     RetryConfig::default(),
                     None,
                 ),
@@ -321,6 +326,7 @@ mod tests {
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
+                    Some(Network::Mainnet.default_graphql_url().to_string()),
                     RetryConfig::default(),
                     None,
                 ),
@@ -339,6 +345,7 @@ mod tests {
                     SuiClientBuilder::default().build_mainnet().await.unwrap(),
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
+                    Some(Network::Mainnet.default_graphql_url().to_string()),
                     RetryConfig::default(),
                     None,
                 ),

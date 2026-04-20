@@ -196,6 +196,7 @@ impl SealTestCluster {
                         #[allow(deprecated)]
                         self.cluster.sui_client().clone(),
                         self.cluster.grpc_client().into_inner(),
+                        None,
                         RetryConfig::default(),
                         None,
                     ),

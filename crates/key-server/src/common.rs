@@ -30,6 +30,16 @@ impl Network {
             Network::TestCluster { .. } => panic!(), // Currently not used, but can be found from cluster.rpc_url() if needed
         }
     }
+
+    pub fn default_graphql_url(&self) -> &str {
+        match self {
+            Network::Devnet { .. } => "https://graphql.devnet.sui.io/graphql",
+            Network::Testnet => "https://graphql.testnet.sui.io/graphql",
+            Network::Mainnet => "https://graphql.mainnet.sui.io/graphql",
+            #[cfg(test)]
+            Network::TestCluster { .. } => panic!(), // Currently not used
+        }
+    }
 }
 
 /// HTTP header name for client SDK version.

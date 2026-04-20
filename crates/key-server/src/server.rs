@@ -27,7 +27,7 @@ use crypto::ibe::{self};
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
 use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
-use fastcrypto::encoding::{Encoding, Hex};
+use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
 use jsonrpsee::core::ClientError;
@@ -51,7 +51,7 @@ use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
@@ -106,12 +106,52 @@ mod time;
 const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = crate::git_version!();
 const DEFAULT_PORT: u16 = 2024;
-
 // Transaction size limit: 128KB + 33% for base64 + some extra room for other parameters
 const MAX_REQUEST_SIZE: usize = 180 * 1024;
 
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
+
+// TODO: Remove legacy once key-server crate uses sui-sdk-types.
+#[derive(Clone, Debug)]
+struct ParsedSignature {
+    legacy: GenericSignature,
+    raw_base64: String,
+}
+
+impl ParsedSignature {
+    fn legacy(&self) -> &GenericSignature {
+        &self.legacy
+    }
+
+    fn raw_base64(&self) -> &str {
+        &self.raw_base64
+    }
+}
+
+impl<'de> Deserialize<'de> for ParsedSignature {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw_base64 = String::deserialize(deserializer)?;
+        let legacy = serde_json::from_value::<GenericSignature>(serde_json::Value::String(
+            raw_base64.clone(),
+        ))
+        .map_err(serde::de::Error::custom)?;
+
+        Ok(Self { legacy, raw_base64 })
+    }
+}
+
+impl Serialize for ParsedSignature {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.raw_base64)
+    }
+}
 
 // TODO: Remove legacy once key-server crate uses sui-sdk-types.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -120,7 +160,7 @@ struct Certificate {
     pub session_vk: Ed25519PublicKey,
     pub creation_time: u64,
     pub ttl_min: u16,
-    pub signature: GenericSignature,
+    pub signature: ParsedSignature,
     pub mvr_name: Option<String>,
 }
 
@@ -183,6 +223,10 @@ async fn has_address_aliases(
     }
 }
 
+fn is_zklogin_signature(sig: &ParsedSignature) -> bool {
+    matches!(sig.legacy(), GenericSignature::ZkLoginAuthenticator(_))
+}
+
 impl Server {
     /// Check if the server is in committee mode.
     fn is_committee_mode(&self) -> bool {
@@ -213,6 +257,7 @@ impl Server {
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
             SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
+            Some(options.graphql_url().to_string()),
             options.rpc_config.retry_config.clone(),
             metrics,
         );
@@ -365,20 +410,46 @@ impl Server {
             }
         }
 
-        verify_personal_message_signature(
-            cert.signature.clone(),
-            msg.as_bytes(),
-            cert.user,
-            Some(self.sui_rpc_client.sui_grpc_client()),
-        )
-        .await
-        .tap_err(|e| {
-            debug!(
-                "Signature verification failed: {:?} (req_id: {:?})",
-                e, req_id
-            );
-        })
-        .map_err(|_| InternalError::InvalidSignature)?;
+        let sig_b64 = cert.signature.raw_base64().to_string();
+        let is_zklogin = is_zklogin_signature(&cert.signature);
+        debug!(
+            "User signature parsed as zkLogin: {} (req_id: {:?})",
+            is_zklogin, req_id
+        );
+
+        if is_zklogin {
+            self.sui_rpc_client
+                .verify_zklogin_personal_message_signature(
+                    &Base64::encode(msg.as_bytes()),
+                    &sig_b64,
+                    &cert.user.to_string(),
+                )
+                .await
+                .tap_err(|e| {
+                    debug!(
+                        "zkLogin signature verification failed: {:?}, graphql_url_present: {} (req_id: {:?})",
+                        e,
+                        self.sui_rpc_client.graphql_url().is_some(),
+                        req_id
+                    );
+                })
+                .map_err(|_| InternalError::InvalidSignature)?;
+        } else {
+            verify_personal_message_signature(
+                cert.signature.legacy().clone(),
+                msg.as_bytes(),
+                cert.user,
+                Some(self.sui_rpc_client.sui_grpc_client()),
+            )
+            .await
+            .tap_err(|e| {
+                debug!(
+                    "Signature verification failed: {:?} (req_id: {:?})",
+                    e, req_id
+                );
+            })
+            .map_err(|_| InternalError::InvalidSignature)?;
+        }
 
         // Check session signature
         let signed_msg = signed_request(ptb, enc_key, enc_verification_key);
@@ -1243,6 +1314,21 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                     info!("Using default NODE_URL: {}", opts.node_url());
                 }
             }
+            match (&opts.graphql_url, env::var("GRAPHQL_URL").ok()) {
+                (Some(_), Some(_)) => {
+                    panic!("GRAPHQL_URL cannot be provided in both config file and environment variable. Please use only one source.");
+                }
+                (None, Some(url)) => {
+                    info!("Using GRAPHQL_URL from environment variable: {}", url);
+                    opts.graphql_url = Some(url.clone());
+                }
+                (Some(_), None) => {
+                    info!("Using GRAPHQL_URL from config file: {}", opts.graphql_url());
+                }
+                (None, None) => {
+                    info!("Using default GRAPHQL_URL: {}", opts.graphql_url());
+                }
+            }
             opts
         }
         Err(_) => {
@@ -1251,10 +1337,17 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 .ok()
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(Network::Testnet);
-            KeyServerOptions::new_open_server_with_default_values(
+            let mut opts = KeyServerOptions::new_open_server_with_default_values(
                 network,
                 utils::decode_object_id("KEY_SERVER_OBJECT_ID")?,
-            )
+            );
+            if let Ok(graphql_url) = env::var("GRAPHQL_URL") {
+                info!("Using GRAPHQL_URL from environment variable: {}", graphql_url);
+                opts.graphql_url = Some(graphql_url);
+            } else {
+                info!("Using default GRAPHQL_URL: {}", opts.graphql_url());
+            }
+            opts
         }
     };
 

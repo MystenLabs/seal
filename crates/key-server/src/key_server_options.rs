@@ -121,6 +121,10 @@ pub struct KeyServerOptions {
     /// A custom node URL. If not set, the default for the given network is used.
     pub node_url: Option<String>,
 
+    /// A custom GraphQL URL. If not set, the default for the given network is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_url: Option<String>,
+
     /// If the server is open, permissioned, or committee.
     pub server_mode: ServerMode,
 
@@ -185,6 +189,7 @@ impl KeyServerOptions {
         Self {
             network,
             node_url: None,
+            graphql_url: None,
             ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
@@ -204,6 +209,7 @@ impl KeyServerOptions {
         Self {
             network,
             node_url: None,
+            graphql_url: None,
             ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             server_mode: ServerMode::Open {
@@ -289,6 +295,12 @@ impl KeyServerOptions {
             }
         }
         Ok(())
+    }
+
+    pub fn graphql_url(&self) -> &str {
+        self.graphql_url
+            .as_deref()
+            .unwrap_or_else(|| self.network.default_graphql_url())
     }
     pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
         match &self.server_mode {
