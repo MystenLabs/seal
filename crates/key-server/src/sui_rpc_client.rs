@@ -4,14 +4,15 @@
 use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
+use prost_types::FieldMask;
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::{
-    error::SuiRpcResult,
-    rpc_types::{DryRunTransactionBlockResponse, SuiObjectDataOptions, SuiObjectResponse},
-    SuiClient,
-};
+use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest, GetObjectResponse};
+use sui_sdk::{error::SuiRpcResult, rpc_types::DryRunTransactionBlockResponse, SuiClient};
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
-use sui_types::{dynamic_field::DynamicFieldName, transaction::TransactionData};
+use sui_types::move_package::MovePackage;
+use sui_types::object::{Data, Object as SuiObject};
+use sui_types::transaction::TransactionData;
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -39,17 +40,26 @@ impl RetriableError for sui_sdk::error::Error {
 /// Result type for RPC operations
 pub type RpcResult<T> = Result<T, RpcError>;
 
-/// Error type for RPC operations
+/// Error type for RPC operations.
 #[derive(Debug)]
 pub struct RpcError {
     #[allow(dead_code)]
     message: String,
-    code: Option<tonic::Code>,
+    /// `Some(code)` for gRPC transport errors; `None` for local post-processing failures (missing BCS, decode failure, wrong shape) — deterministic, never retried.
+    pub(crate) code: Option<tonic::Code>,
 }
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
 
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
-        // Only gRPC errors with specific status codes should be retried
+        // Retry only transient gRPC statuses; `code: None` (local decode failures) is deterministic.
         self.code.is_some_and(|code| {
             matches!(
                 code,
@@ -63,7 +73,7 @@ impl RetriableError for RpcError {
 }
 
 impl RpcError {
-    /// Helper to convert gRPC errors to RpcError
+    /// Wrap a gRPC status; produces `code: Some(...)`.
     fn from_grpc(e: tonic::Status) -> Self {
         Self {
             message: format!("gRPC error: {e}"),
@@ -71,12 +81,33 @@ impl RpcError {
         }
     }
 
-    /// Create a new RpcError with a message
+    /// Wrap a local post-processing failure (missing BCS, decode failure, wrong shape); produces `code: None`.
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code: None,
         }
+    }
+}
+
+fn extract_object(response: GetObjectResponse) -> RpcResult<SuiObject> {
+    let bcs_bytes = response
+        .object
+        .and_then(|obj| obj.bcs)
+        .and_then(|bcs| bcs.value)
+        .map(|bytes| bytes.to_vec())
+        .ok_or_else(|| RpcError::new("No BCS data in response"))?;
+    bcs::from_bytes(&bcs_bytes)
+        .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))
+}
+
+fn extract_package(response: GetObjectResponse) -> RpcResult<MovePackage> {
+    match extract_object(response)?.into_inner().data {
+        Data::Package(p) => Ok(p),
+        _ => Err(RpcError {
+            message: "Object is not a package".to_string(),
+            code: Some(tonic::Code::NotFound),
+        }),
     }
 }
 
@@ -215,27 +246,78 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Returns an object with the given options.
-    pub async fn get_object_with_options(
+    /// Fetches a Move object via gRPC and deserializes its contents as type T.
+    pub async fn get_object<T: serde::de::DeserializeOwned>(
         &self,
         object_id: ObjectID,
-        options: SuiObjectDataOptions,
-    ) -> SuiRpcResult<SuiObjectResponse> {
+    ) -> RpcResult<T> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "get_object_with_options",
+            "get_object",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_object_with_options(object_id, options.clone())
-                    .await
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let address = Address::new(object_id.into_bytes());
+
+                    let mut request = GetObjectRequest::default();
+                    request.object_id = Some(address.to_string());
+                    request.read_mask = Some(FieldMask {
+                        paths: vec!["bcs".to_string()],
+                    });
+
+                    let response = grpc_client
+                        .ledger_client()
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)?;
+
+                    let obj = extract_object(response)?;
+                    let move_object = match &obj.data {
+                        Data::Move(m) => m,
+                        _ => return Err(RpcError::new("Object is not a Move struct")),
+                    };
+                    bcs::from_bytes(move_object.contents())
+                        .map_err(|e| RpcError::new(format!("Failed to deserialize contents: {e}")))
+                }
             },
         )
         .await
     }
 
-    /// Returns the current reference gas price.
+    /// Fetches a Move package via gRPC.
+    pub async fn get_package(&self, object_id: ObjectID) -> RpcResult<MovePackage> {
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            "get_package",
+            self.metrics.clone(),
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                async move {
+                    let address = Address::new(object_id.into_bytes());
+
+                    let mut request = GetObjectRequest::default();
+                    request.object_id = Some(address.to_string());
+                    request.read_mask = Some(FieldMask {
+                        paths: vec!["bcs".to_string()],
+                    });
+
+                    let response = grpc_client
+                        .ledger_client()
+                        .get_object(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)?;
+
+                    extract_package(response)
+                }
+            },
+        )
+        .await
+    }
+
+    /// Returns the current reference gas price via gRPC.
     pub async fn get_reference_gas_price(&self) -> RpcResult<u64> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
@@ -245,8 +327,8 @@ impl SuiRpcClient {
                 let mut grpc_client = self.sui_grpc_client.clone();
                 async move {
                     let mut client = grpc_client.ledger_client();
-                    let mut request = sui_rpc::proto::sui::rpc::v2::GetEpochRequest::default();
-                    request.read_mask = Some(prost_types::FieldMask {
+                    let mut request = GetEpochRequest::default();
+                    request.read_mask = Some(FieldMask {
                         paths: vec!["reference_gas_price".to_string()],
                     });
                     client
@@ -255,26 +337,6 @@ impl SuiRpcClient {
                         .map(|r| r.into_inner().epoch().reference_gas_price())
                         .map_err(RpcError::from_grpc)
                 }
-            },
-        )
-        .await
-    }
-
-    /// Returns an object with the given dynamic field name.
-    pub async fn get_dynamic_field_object(
-        &self,
-        object_id: ObjectID,
-        dynamic_field_name: DynamicFieldName,
-    ) -> SuiRpcResult<SuiObjectResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_dynamic_field_object",
-            self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .get_dynamic_field_object(object_id, dynamic_field_name.clone())
-                    .await
             },
         )
         .await

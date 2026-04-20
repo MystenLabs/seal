@@ -168,8 +168,7 @@ async fn has_address_aliases(
     .map_err(|_| InternalError::InvalidSignature)?;
 
     // Convert ObjectID to Address for gRPC request
-    let address_id = Address::from_bytes(address_aliases_id.into_bytes())
-        .map_err(|_| InternalError::InvalidSignature)?;
+    let address_id = Address::new(address_aliases_id.into_bytes());
 
     let request = GetObjectRequest::default().with_object_id(address_id.to_string());
 

@@ -9,9 +9,9 @@ use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
-use sui_sdk::rpc_types::{SuiData, SuiObjectDataOptions};
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
+use tonic::Code;
 use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
@@ -70,23 +70,14 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let object = sui_rpc_client
-                .get_object_with_options(*pkg_id, SuiObjectDataOptions::default().with_bcs())
+            let package = sui_rpc_client
+                .get_package(*pkg_id)
                 .await
-                .map_err(|_| InternalError::Failure("FN failed to respond".to_string()))? // internal error that fullnode fails to respond, check fullnode.
-                .into_object()
-                .map_err(|_| InternalError::InvalidPackage)?; // user error that object does not exist or deleted.
-
-            let package = object
-                .bcs
-                .ok_or(InternalError::Failure(
-                    "No BCS object in response".to_string(),
-                ))? // internal error that fullnode does not respond with bcs even though request includes the bcs option.
-                .try_as_package()
-                .ok_or(InternalError::InvalidPackage)?
-                .to_move_package(u64::MAX)
-                .map_err(|_| InternalError::InvalidPackage)?; // user error if the provided package throw MovePackageTooBig.
-
+                .map_err(|e| match e.code {
+                    // NotFound = missing/non-package; None = FN protocol violation (missing BCS / decode failure) — both are client-facing, deterministic.
+                    Some(Code::NotFound) | None => InternalError::InvalidPackage,
+                    _ => InternalError::Failure("FN failed to respond".to_string()),
+                })?;
             let first = package.original_package_id();
             CACHE.insert(*pkg_id, first);
             Ok(first)

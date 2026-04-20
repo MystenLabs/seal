@@ -5,9 +5,9 @@ use crate::return_err;
 use crate::KeyId;
 use crypto::create_full_id;
 use fastcrypto::encoding::{Base64, Encoding};
-use sui_sdk::types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::ProgrammableMoveCall;
+use sui_types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};
 use tracing::debug;
 
 ///
@@ -171,8 +171,8 @@ impl ValidPtb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sui_sdk::types::base_types::SuiAddress;
     use sui_types::base_types::ObjectID;
+    use sui_types::base_types::SuiAddress;
     use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
     use sui_types::Identifier;
 
