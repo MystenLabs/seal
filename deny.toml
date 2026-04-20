@@ -43,6 +43,12 @@ ignore = [
     "RUSTSEC-2026-0002",
     # bincode is unmaintained
     "RUSTSEC-2025-0141",
+    # RUSTSEC-2026-0097 still fires on rand 0.7.3 (transitively pulled in by
+    # `fail v0.4.0`, a dev-dep of move-vm-runtime from Sui) — no fix on 0.7.x.
+    # Vulnerability requires custom logger + trace logging + ThreadRng reseed,
+    # which doesn't apply to this dev-only path. Other rand versions (0.8/0.9/0.10)
+    # have been updated to fixed releases.
+    { id = "RUSTSEC-2026-0097", reason = "unresolved on rand 0.7.3 (dev-dep only via move-vm-runtime)" },
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
