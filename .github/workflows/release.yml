@@ -181,8 +181,8 @@ jobs:
 
   publish-image:
     name: Publish Docker image
-    needs: [release, build]
-    if: needs.release.outputs.should_build == 'true' && needs.build.result == 'success'
+    needs: release
+    if: needs.release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     env:
       ECR_HOST: ${{ vars.ECR_HOST || secrets.ECR_HOST }}
