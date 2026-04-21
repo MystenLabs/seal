@@ -17,6 +17,9 @@ NO_CACHE="${NO_CACHE:-false}"
 DOCKERFILE="${DOCKERFILE:-${ROOT_DIR}/Dockerfile}"
 CONTEXT_DIR="${CONTEXT_DIR:-${ROOT_DIR}}"
 GIT_REVISION="${GIT_REVISION:-$(git -C "${ROOT_DIR}" describe --always --abbrev=12 --dirty --exclude '*')}"
+ECR_HOST="${ECR_HOST:-}"
+REPO="${REPO:-}"
+RELEASE_TAG="${RELEASE_TAG:-}"
 
 declare -a image_refs=()
 
@@ -24,6 +27,12 @@ if [[ -n "${IMAGE_REFS:-}" ]]; then
   while IFS= read -r ref; do
     [[ -n "${ref}" ]] && image_refs+=("${ref}")
   done <<< "${IMAGE_REFS}"
+elif [[ -n "${ECR_HOST}" || -n "${REPO}" || -n "${RELEASE_TAG}" ]]; then
+  if [[ -z "${ECR_HOST}" || -z "${REPO}" || -z "${RELEASE_TAG}" ]]; then
+    echo "ECR_HOST, REPO, and RELEASE_TAG must be provided together" >&2
+    exit 1
+  fi
+  image_refs+=("${ECR_HOST}/${REPO}:${RELEASE_TAG}")
 elif [[ -n "${IMAGE_TAGS:-}" ]]; then
   while IFS= read -r tag; do
     [[ -n "${tag}" ]] && image_refs+=("${IMAGE_NAME}:${tag}")

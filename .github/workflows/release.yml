@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -184,6 +183,11 @@ jobs:
     needs: [release, build]
     if: needs.release.outputs.should_build == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
+    env:
+      ECR_HOST: ${{ vars.ECR_HOST || secrets.ECR_HOST }}
+      REPO: ${{ vars.REPO || secrets.REPO }}
+      RELEASE_TAG: ${{ needs.release.outputs.tag }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION }}
 
     steps:
       - name: Checkout
@@ -192,39 +196,36 @@ jobs:
           fetch-depth: 0
           ref: ${{ needs.release.outputs.tag }}
 
-      - name: Compute image refs
-        id: refs
+      - name: Validate image config
         shell: bash
         run: |
           set -euo pipefail
+          : "${ECR_HOST:?ECR_HOST is required}"
+          : "${REPO:?REPO is required}"
+          : "${RELEASE_TAG:?RELEASE_TAG is required}"
 
-          image_name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seal-key-server"
-          git_revision="$(git rev-parse HEAD)"
-          sha_short="$(git rev-parse --short=12 HEAD)"
-          version="${{ needs.release.outputs.tag }}"
-          version="${version#seal-v}"
-
-          {
-            echo "image_name=${image_name}"
-            echo "git_revision=${git_revision}"
-            echo "image_refs<<EOF"
-            printf '%s\n' \
-              "${image_name}:sha-${sha_short}" \
-              "${image_name}:${{ needs.release.outputs.tag }}" \
-              "${image_name}:${version}" \
-              "${image_name}:main" \
-              "${image_name}:latest"
-            echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Login to GitHub Container Registry
+      - name: Resolve AWS region
+        id: aws-region
         shell: bash
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: |
+          set -euo pipefail
+          region="${AWS_REGION:-$(printf '%s' "${ECR_HOST}" | cut -d. -f4)}"
+          : "${region:?AWS region is required}"
+          echo "region=${region}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ steps.aws-region.outputs.region }}
+
+      - name: Login to Amazon ECR
+        shell: bash
+        run: aws ecr get-login-password --region "${{ steps.aws-region.outputs.region }}" | docker login --username AWS --password-stdin "${ECR_HOST}"
 
       - name: Build and push Docker image
         env:
-          IMAGE_NAME: ${{ steps.refs.outputs.image_name }}
-          IMAGE_REFS: ${{ steps.refs.outputs.image_refs }}
-          GIT_REVISION: ${{ steps.refs.outputs.git_revision }}
           PUSH: "true"
         run: bash scripts/build.sh
