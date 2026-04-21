@@ -113,16 +113,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-ghcloud
+          # - runner: ubuntu-ghcloud
+          - runner: ubuntu-latest
             platform: linux-x86_64
-          - runner: ubuntu-arm64
-            platform: linux-aarch64
-          - runner: macos-latest-large
-            platform: macos-x86_64
-          - runner: macos-latest-xlarge
-            platform: macos-aarch64
-          - runner: windows-ghcloud
-            platform: windows-x86_64
+          # - runner: ubuntu-arm64
+          #   platform: linux-aarch64
+          # - runner: macos-latest-large
+          #   platform: macos-x86_64
+          # - runner: macos-latest-xlarge
+          #   platform: macos-aarch64
+          # - runner: windows-ghcloud
+          #   platform: windows-x86_64
     runs-on: ${{ matrix.runner }}
 
     steps:
