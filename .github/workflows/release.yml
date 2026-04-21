@@ -48,6 +48,7 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
         with:
           fetch-depth: 0
+          fetch-tags: true
           ref: ${{ inputs.commit_sha != '' && inputs.commit_sha || github.sha }}
 
       - name: Check if version changed and create release
@@ -62,7 +63,6 @@ jobs:
           if [[ -z "${commit}" ]]; then
             commit="$(git rev-parse HEAD)"
           fi
-          echo "commit=${commit}" >> $GITHUB_OUTPUT
 
           # Get current version
           version=$(grep '^version = ' Cargo.toml | head -n 1 | tr -d '"' | awk '{print $3}')
@@ -70,8 +70,23 @@ jobs:
 
           # Check if tag already exists
           if git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
-            echo "Tag ${tag} already exists — nothing to do"
-            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "Tag ${tag} already exists — reusing existing release"
+            git fetch --force --tags origin "refs/tags/${tag}:refs/tags/${tag}"
+            commit="$(git rev-list -n 1 "refs/tags/${tag}")"
+
+            if gh release view "${tag}" >/dev/null 2>&1; then
+              echo "Release ${tag} already exists"
+            else
+              echo "Release ${tag} is missing — creating it for existing tag"
+              gh release create "${tag}" \
+                --title "${tag}" \
+                --generate-notes \
+                --target "${commit}"
+            fi
+
+            echo "commit=${commit}" >> $GITHUB_OUTPUT
+            echo "tag=${tag}" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -99,6 +114,7 @@ jobs:
             --target "${commit}"
 
           echo "Release created: https://github.com/${{ github.repository }}/releases/tag/${tag}"
+          echo "commit=${commit}" >> $GITHUB_OUTPUT
           echo "tag=${tag}" >> $GITHUB_OUTPUT
           echo "should_build=true" >> $GITHUB_OUTPUT
 
@@ -168,12 +184,14 @@ jobs:
             gh release upload ${{ needs.release.outputs.tag }} \
               seal-${{ matrix.platform }}.exe \
               seal-committee-${{ matrix.platform }}.exe \
-              key-server-${{ matrix.platform }}.exe
+              key-server-${{ matrix.platform }}.exe \
+              --clobber
           else
             gh release upload ${{ needs.release.outputs.tag }} \
               seal-${{ matrix.platform }} \
               seal-committee-${{ matrix.platform }} \
-              key-server-${{ matrix.platform }}
+              key-server-${{ matrix.platform }} \
+              --clobber
           fi
 
   publish-image:
