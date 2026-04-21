@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c), Mysten Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 is_true() {

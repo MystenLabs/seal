@@ -1342,7 +1342,10 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
                 utils::decode_object_id("KEY_SERVER_OBJECT_ID")?,
             );
             if let Ok(graphql_url) = env::var("GRAPHQL_URL") {
-                info!("Using GRAPHQL_URL from environment variable: {}", graphql_url);
+                info!(
+                    "Using GRAPHQL_URL from environment variable: {}",
+                    graphql_url
+                );
                 opts.graphql_url = Some(graphql_url);
             } else {
                 info!("Using default GRAPHQL_URL: {}", opts.graphql_url());

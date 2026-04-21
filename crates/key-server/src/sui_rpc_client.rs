@@ -318,18 +318,21 @@ impl SuiRpcClient {
                 };
 
                 let response = reqwest::Client::new()
-                    .post(
-                        self.graphql_url()
-                            .ok_or_else(|| RpcError::new("Missing graphql_url for zkLogin verification"))?,
-                    )
+                    .post(self.graphql_url().ok_or_else(|| {
+                        RpcError::new("Missing graphql_url for zkLogin verification")
+                    })?)
                     .json(&request)
                     .send()
                     .await
-                    .map_err(|e| RpcError::new(format!("verifyZkLoginSignature request failed: {e}")))?;
+                    .map_err(|e| {
+                        RpcError::new(format!("verifyZkLoginSignature request failed: {e}"))
+                    })?;
 
                 let status = response.status();
                 let response_body = response.text().await.map_err(|e| {
-                    RpcError::new(format!("Failed to read verifyZkLoginSignature response: {e}"))
+                    RpcError::new(format!(
+                        "Failed to read verifyZkLoginSignature response: {e}"
+                    ))
                 })?;
 
                 if !status.is_success() {
@@ -340,9 +343,12 @@ impl SuiRpcClient {
                     )));
                 }
 
-                let payload: GraphqlResponse = serde_json::from_str(&response_body).map_err(|e| {
-                    RpcError::new(format!("verifyZkLoginSignature response parsing failed: {e}"))
-                })?;
+                let payload: GraphqlResponse =
+                    serde_json::from_str(&response_body).map_err(|e| {
+                        RpcError::new(format!(
+                            "verifyZkLoginSignature response parsing failed: {e}"
+                        ))
+                    })?;
 
                 if let Some(errors) = payload.errors
                     && !errors.is_empty()
