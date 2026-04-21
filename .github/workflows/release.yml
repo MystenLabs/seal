@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -177,3 +178,53 @@ jobs:
               seal-committee-${{ matrix.platform }} \
               key-server-${{ matrix.platform }}
           fi
+
+  publish-image:
+    name: Publish Docker image
+    needs: [release, build]
+    if: needs.release.outputs.should_build == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Compute image refs
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seal-key-server"
+          git_revision="$(git rev-parse HEAD)"
+          sha_short="$(git rev-parse --short=12 HEAD)"
+          version="${{ needs.release.outputs.tag }}"
+          version="${version#seal-v}"
+
+          {
+            echo "image_name=${image_name}"
+            echo "git_revision=${git_revision}"
+            echo "image_refs<<EOF"
+            printf '%s\n' \
+              "${image_name}:sha-${sha_short}" \
+              "${image_name}:${{ needs.release.outputs.tag }}" \
+              "${image_name}:${version}" \
+              "${image_name}:main" \
+              "${image_name}:latest"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Login to GitHub Container Registry
+        shell: bash
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push Docker image
+        env:
+          IMAGE_NAME: ${{ steps.refs.outputs.image_name }}
+          IMAGE_REFS: ${{ steps.refs.outputs.image_refs }}
+          GIT_REVISION: ${{ steps.refs.outputs.git_revision }}
+          PUSH: "true"
+        run: bash scripts/build.sh
