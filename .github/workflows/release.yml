@@ -1,11 +1,6 @@
 name: Release on Version Bump
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Cargo.toml'
   workflow_dispatch:
     inputs:
       commit_sha:

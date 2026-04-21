@@ -2,12 +2,6 @@ name: Docs Deploy
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'ws-resources.json'
 
 concurrency:
   group: docs-deploy-${{ github.ref }}

@@ -1,17 +1,14 @@
 name: Build and deploy GitHub Pages preview for PRs
 
 on:
-  pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - closed
-    paths:
-      - "docs/**"
-      - ".github/workflows/pages-preview.yaml"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number for the preview path"
+        type: string
+        required: true
 
-concurrency: preview-${{ github.ref }}
+concurrency: preview-pr-${{ inputs.pr_number }}
 
 permissions:
   contents: write
@@ -26,20 +23,16 @@ jobs:
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
         with:
           version: 9
-        if: github.event.action != 'closed'
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: docs/site/pnpm-lock.yaml
-        if: github.event.action != 'closed'
       - name: Install dependencies
         run: cd docs/site && pnpm install --frozen-lockfile
-        if: github.event.action != 'closed'
       - name: Build site
         run: cd docs/site && pnpm run build
-        if: github.event.action != 'closed'
 
   preview:
     runs-on: ubuntu-latest
@@ -50,20 +43,16 @@ jobs:
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
         with:
           version: 9
-        if: github.event.action != 'closed'
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: docs/site/pnpm-lock.yaml
-        if: github.event.action != 'closed'
       - name: Install dependencies
         run: cd docs/site && pnpm install --frozen-lockfile
-        if: github.event.action != 'closed'
       - name: Build site
-        run: cd docs/site && DOCUSAURUS_BASE_URL="/seal/pr-preview/pr-${{ github.event.number }}/" pnpm run build
-        if: github.event.action != 'closed'
+        run: cd docs/site && DOCUSAURUS_BASE_URL="/seal/pr-preview/pr-${{ inputs.pr_number }}/" pnpm run build
       - name: Deploy preview
         uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # pin@v1.8.1
         with:

@@ -1,11 +1,7 @@
 name: Rust
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -113,16 +109,22 @@ jobs:
       - name: Check for crate changes
         id: crate-changes
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile$|^scripts/build\.sh$)'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           else
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
-          fi
-
-          if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile$|^scripts/build\.sh$)'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile$|^scripts/build\.sh$)'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           fi
       - name: Build Docker image
         if: steps.crate-changes.outputs.changed == 'true'
@@ -141,16 +143,22 @@ jobs:
       - name: Check for crate changes
         id: crate-changes
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile\.aggregator$)'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           else
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
-          fi
-
-          if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile\.aggregator$)'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            if echo "$CHANGED_FILES" | grep -qE '(^crates/.*\.(rs|toml)$|^Cargo\.(toml|lock)$|^Dockerfile\.aggregator$)'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           fi
       - name: Set up Docker Buildx
         if: steps.crate-changes.outputs.changed == 'true'
