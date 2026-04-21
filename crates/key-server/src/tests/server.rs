@@ -7,6 +7,7 @@ use tracing_test::traced_test;
 
 use crate::metrics::KeyServerMetrics;
 use crate::start_server_background_tasks;
+use crate::tests::parsed_signature;
 use crate::tests::SealTestCluster;
 
 use crate::common::{HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION, SDK_TYPE_AGGREGATOR};
@@ -298,7 +299,7 @@ async fn test_fetch_key() {
         session_vk: session.public().clone(),
         creation_time,
         ttl_min,
-        signature,
+        signature: parsed_signature(&signature),
         mvr_name: None,
     };
     let request_message = signed_request(&ptb, &enc_key, &enc_verification_key);

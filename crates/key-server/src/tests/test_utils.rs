@@ -35,6 +35,7 @@ pub(crate) async fn create_test_server(
     let options = KeyServerOptions {
         network: Network::TestCluster { seal_package },
         node_url: None,
+        graphql_url: None,
         server_mode,
         metrics_host_port: 0,
         rgp_update_interval: Duration::from_secs(60),

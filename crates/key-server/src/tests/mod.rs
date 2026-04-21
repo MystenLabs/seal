@@ -18,6 +18,7 @@ use futures::future::join_all;
 use move_package_alt::PackageLoader;
 use rand::thread_rng;
 use semver::VersionReq;
+use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,6 +34,16 @@ use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::effects::TransactionEffectsAPI;
 use sui_types::move_package::UpgradePolicy;
 use test_cluster::{TestCluster, TestClusterBuilder};
+
+pub(crate) fn parsed_signature<S: Serialize>(sig: &S) -> crate::ParsedSignature {
+    let raw_base64 = match serde_json::to_value(sig).expect("signature serialization should work") {
+        serde_json::Value::String(value) => value,
+        other => panic!("expected signature to serialize as a JSON string, got {other:?}"),
+    };
+
+    serde_json::from_value(serde_json::Value::String(raw_base64))
+        .expect("signature deserialization should work")
+}
 
 // Helper trait to add compatibility methods to ExecutedTransaction for tests
 pub(crate) trait ExecutedTransactionTestExt {
@@ -231,6 +242,7 @@ impl SealTestCluster {
                     KeyServerOptions {
                         network: Network::TestCluster { seal_package },
                         node_url: None,
+                        graphql_url: None,
                         server_mode: ServerMode::Open {
                             key_server_object_id,
                         },

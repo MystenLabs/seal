@@ -3,6 +3,7 @@
 
 use crate::errors::InternalError;
 use crate::signed_message::signed_request;
+use crate::tests::parsed_signature;
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
 use crate::{Certificate, Server};
@@ -47,7 +48,7 @@ pub(super) fn sign(
         session_vk: kp.public().clone(),
         creation_time,
         ttl_min,
-        signature: cert_sig,
+        signature: parsed_signature(&cert_sig),
         mvr_name: None,
     };
     // session sig
