@@ -17,7 +17,7 @@ use axum::{
 use futures::future::pending;
 use futures::stream::{FuturesUnordered, StreamExt};
 use key_server::aggregator::utils::{
-    aggregate_verified_encrypted_responses, verify_decryption_keys,
+    aggregate_verified_encrypted_responses, verify_decryption_keys, SharesByKeyId,
 };
 use key_server::common::{
     add_response_headers, ClientSdkType, Network, NetworkConfig, HEADER_CLIENT_SDK_TYPE,
@@ -361,7 +361,7 @@ async fn handle_fetch_key(
 
                 match fetch_from_member(
                     &partial_key_server,
-                    &request.clone(),
+                    &request,
                     req_id,
                     &ks_version_req,
                     creds,
@@ -384,10 +384,15 @@ async fn handle_fetch_key(
         })
         .collect();
 
-    // Collect responses until we have threshold, then abort remaining.
+    // Keep polling until every key id has threshold shares, or the task stream exhausts.
     let threshold = *state.threshold.read().await;
     let total_committee_members = state.committee_members.read().await.len();
-    let mut responses = Vec::new();
+
+    // Build key_id -> (party_id, encrypted_share).
+    let mut shares_by_key_id: SharesByKeyId = HashMap::new();
+
+    // Partie that responded with at least one share
+    let mut responded_parties = HashSet::new();
     let mut errors = Vec::new();
     let mut completed = 0;
 
@@ -395,8 +400,20 @@ async fn handle_fetch_key(
         completed += 1;
         match result {
             Ok((party_id, response)) => {
-                responses.push((party_id, response));
-                if responses.len() >= threshold as usize {
+                responded_parties.insert(party_id);
+                for dk in response.decryption_keys {
+                    shares_by_key_id
+                        .entry(dk.id)
+                        .or_default()
+                        .push((party_id, dk.encrypted_key));
+                }
+                // Stop once 1) we have at least threshold distinct responders, and 2) every
+                // observed id has threshold shares.
+                if responded_parties.len() >= threshold as usize
+                    && shares_by_key_id
+                        .values()
+                        .all(|v| (v.len() as u16) >= threshold)
+                {
                     break;
                 }
             }
@@ -405,13 +422,14 @@ async fn handle_fetch_key(
             }
         }
 
-        // Early termination: check if threshold is still achievable
+        // If threshold is not reachable with remaining tasks, give up early and surface the
+        // majority upstream error below.
         let tasks_remaining = total_committee_members - completed;
-        if responses.len() + tasks_remaining < threshold as usize {
+        if responded_parties.len() + tasks_remaining < threshold as usize {
             warn!(
                 "Cannot reach threshold {} with {} responses and {} tasks remaining (req_id: {})",
                 threshold,
-                responses.len(),
+                responded_parties.len(),
                 tasks_remaining,
                 req_id
             );
@@ -421,29 +439,31 @@ async fn handle_fetch_key(
 
     info!(
         "Collected {} responses, {} errors, threshold {}",
-        responses.len(),
+        responded_parties.len(),
         errors.len(),
         threshold
     );
 
     // If not enough responses, return majority error from key servers.
-    if responses.len() < threshold as usize {
-        let err = handle_insufficient_responses(responses.len(), threshold as usize, errors);
+    if responded_parties.len() < threshold as usize {
+        let err =
+            handle_insufficient_responses(responded_parties.len(), threshold as usize, errors);
         state.aggregator_metrics.observe_error(&err.error);
         return Err(err);
     }
 
     // Aggregate encrypted responses and return.
-    let aggregated_response = aggregate_verified_encrypted_responses(threshold, responses)
-        .map_err(|e| {
-            let msg = format!("Aggregating responses failed: {e}");
-            warn!("{}", msg);
-            let internal_err = InternalError::Failure(msg);
-            state
-                .aggregator_metrics
-                .observe_error(internal_err.as_str());
-            internal_err
-        })?;
+    let aggregated_response =
+        aggregate_verified_encrypted_responses(threshold, shares_by_key_id, &responded_parties)
+            .map_err(|e| {
+                let msg = format!("Aggregating responses failed: {e}");
+                warn!("{}", msg);
+                let internal_err = InternalError::Failure(msg);
+                state
+                    .aggregator_metrics
+                    .observe_error(internal_err.as_str());
+                internal_err
+            })?;
 
     // Log successful aggregation
     let committee_size = state.committee_members.read().await.len();
@@ -578,6 +598,7 @@ fn validate_key_server_version(
         Ok(())
     }
 }
+
 /// Handle insufficient responses by finding and returning the majority error, or a generic error.
 fn handle_insufficient_responses(
     got: usize,
