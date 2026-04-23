@@ -10,7 +10,6 @@ use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest, GetObjectR
 use sui_sdk::{error::SuiRpcResult, rpc_types::DryRunTransactionBlockResponse, SuiClient};
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
-use sui_types::move_package::MovePackage;
 use sui_types::object::{Data, Object as SuiObject};
 use sui_types::transaction::TransactionData;
 
@@ -99,16 +98,6 @@ fn extract_object(response: GetObjectResponse) -> RpcResult<SuiObject> {
         .ok_or_else(|| RpcError::new("No BCS data in response"))?;
     bcs::from_bytes(&bcs_bytes)
         .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))
-}
-
-fn extract_package(response: GetObjectResponse) -> RpcResult<MovePackage> {
-    match extract_object(response)?.into_inner().data {
-        Data::Package(p) => Ok(p),
-        _ => Err(RpcError {
-            message: "Object is not a package".to_string(),
-            code: Some(tonic::Code::NotFound),
-        }),
-    }
 }
 
 /// Executes an async function with automatic retries for retriable errors
@@ -280,37 +269,6 @@ impl SuiRpcClient {
                     };
                     bcs::from_bytes(move_object.contents())
                         .map_err(|e| RpcError::new(format!("Failed to deserialize contents: {e}")))
-                }
-            },
-        )
-        .await
-    }
-
-    /// Fetches a Move package via gRPC.
-    pub async fn get_package(&self, object_id: ObjectID) -> RpcResult<MovePackage> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_package",
-            self.metrics.clone(),
-            || {
-                let mut grpc_client = self.sui_grpc_client.clone();
-                async move {
-                    let address = Address::new(object_id.into_bytes());
-
-                    let mut request = GetObjectRequest::default();
-                    request.object_id = Some(address.to_string());
-                    request.read_mask = Some(FieldMask {
-                        paths: vec!["bcs".to_string()],
-                    });
-
-                    let response = grpc_client
-                        .ledger_client()
-                        .get_object(request)
-                        .await
-                        .map(|r| r.into_inner())
-                        .map_err(RpcError::from_grpc)?;
-
-                    extract_package(response)
                 }
             },
         )

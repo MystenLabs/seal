@@ -24,13 +24,13 @@ use fastcrypto::groups::bls12381::{G1Element, G2Element};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use futures::future::join_all;
 use key_server::aggregator::utils::{
-    aggregate_verified_encrypted_responses, verify_decryption_keys, SharesByKeyId,
+    aggregate_verified_encrypted_responses, verify_decryption_keys,
 };
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -991,9 +991,15 @@ async fn get_aggregated_key_from_committee(
     }))
     .await;
 
-    // Verify encrypted keys and group shares by key id.
-    let mut shares_by_key_id: SharesByKeyId = HashMap::new();
-    let mut responded_parties: HashSet<u16> = HashSet::new();
+    // Expected full ids derive from PTB.
+    let expected_full_ids = ValidPtb::try_from(ptb.clone())
+        .unwrap()
+        .full_ids(package_id)
+        .into_iter()
+        .collect();
+
+    // Verify each response and collect them.
+    let mut verified_responses = Vec::new();
     for (party_id, response, server) in responses_with_party_ids.into_iter().flatten() {
         let master_share = server
             .master_keys
@@ -1001,24 +1007,27 @@ async fn get_aggregated_key_from_committee(
             .expect("Should have master share for committee member");
         let partial_pk = public_key_from_master_key(master_share);
 
-        let verified_keys =
-            verify_decryption_keys(&response.decryption_keys, &partial_pk, &eg_vk, party_id)
-                .expect("Verification should succeed");
+        let verified_keys = verify_decryption_keys(
+            &response.decryption_keys,
+            &partial_pk,
+            &eg_vk,
+            party_id,
+            &expected_full_ids,
+        )
+        .expect("Verification should succeed");
         assert_eq!(verified_keys.len(), response.decryption_keys.len());
 
-        responded_parties.insert(party_id);
-        for dk in verified_keys {
-            shares_by_key_id
-                .entry(dk.id)
-                .or_default()
-                .push((party_id, dk.encrypted_key));
-        }
+        verified_responses.push((
+            party_id,
+            FetchKeyResponse {
+                decryption_keys: verified_keys,
+            },
+        ));
     }
 
     // Aggregate the verified encrypted responses.
-    let aggregated_response =
-        aggregate_verified_encrypted_responses(threshold, shares_by_key_id, &responded_parties)
-            .map_err(|e| format!("Aggregation failed: {e}"))?;
+    let aggregated_response = aggregate_verified_encrypted_responses(threshold, verified_responses)
+        .map_err(|e| format!("Aggregation failed: {e}"))?;
 
     // Client decrypts all keys with ephemeral secret key.
     Ok(aggregated_response
