@@ -90,6 +90,12 @@ const decryptedBytes = await client.decrypt({
 });
 ```
 
+:::tip
+
+If your `seal_approve` function takes an owned object as an argument (for example, a `PurchaseReceipt` NFT), you must call `tx.setSender(account.address)` before `tx.build()`. See the [Decryption Guide](/UsingSeal#decryption) for details.
+
+:::
+
 Learn more in the [Decryption Guide](/UsingSeal#decryption).
 
 ## Next steps
