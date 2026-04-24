@@ -5,9 +5,8 @@ use crate::errors::InternalError;
 use crate::time::current_epoch_time;
 use move_core_types::identifier::Identifier;
 use std::str::FromStr;
-use sui_sdk::rpc_types::{
-    SuiExecutionStatus, SuiMoveAbort, SuiTransactionBlockEffects, SuiTransactionBlockEffectsV1,
-};
+use sui_rpc::proto::sui::rpc::v2::execution_error::ErrorDetails;
+use sui_rpc::proto::sui::rpc::v2::SimulateTransactionResponse;
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::Argument::Input;
 use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, ProgrammableTransaction};
@@ -39,23 +38,14 @@ impl SealPackage {
         }
     }
 
-    fn staleness_module(&self) -> String {
-        format!("{}::{}", self.package_id(), STALENESS_MODULE)
-    }
-
-    pub fn is_staleness_error(&self, effects: &SuiTransactionBlockEffects) -> bool {
-        if let SuiTransactionBlockEffects::V1(SuiTransactionBlockEffectsV1 {
-            status: SuiExecutionStatus::Failure { .. },
-            abort_error:
-                Some(SuiMoveAbort {
-                    module_id: Some(module_id),
-                    error_code: Some(error_code),
-                    ..
-                }),
-            ..
-        }) = effects
-            && error_code == &STALENESS_ERROR_CODE
-            && module_id == &self.staleness_module()
+    pub fn is_staleness_error(&self, simulate_response: &SimulateTransactionResponse) -> bool {
+        let status = simulate_response.transaction().effects().status();
+        if let Some(error) = &status.error
+            && let Some(ErrorDetails::Abort(abort)) = &error.error_details
+            && abort.abort_code() == STALENESS_ERROR_CODE
+            && let Some(location) = &abort.location
+            && location.package.as_deref() == Some(&self.package_id().to_string())
+            && location.module.as_deref() == Some(STALENESS_MODULE)
         {
             return true;
         }

@@ -6,8 +6,11 @@ use std::sync::Arc;
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
 use prost_types::FieldMask;
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc::proto::sui::rpc::v2::{GetEpochRequest, GetObjectRequest, GetObjectResponse};
-use sui_sdk::{error::SuiRpcResult, rpc_types::DryRunTransactionBlockResponse, SuiClient};
+use sui_rpc::proto::sui::rpc::v2::{
+    Bcs, GetEpochRequest, GetObjectRequest, GetObjectResponse, SimulateTransactionRequest,
+    SimulateTransactionResponse, Transaction,
+};
+use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use sui_types::move_package::MovePackage;
@@ -43,8 +46,7 @@ pub type RpcResult<T> = Result<T, RpcError>;
 /// Error type for RPC operations.
 #[derive(Debug)]
 pub struct RpcError {
-    #[allow(dead_code)]
-    message: String,
+    pub(crate) message: String,
     /// `Some(code)` for gRPC transport errors; `None` for local post-processing failures (missing BCS, decode failure, wrong shape) — deterministic, never retried.
     pub(crate) code: Option<tonic::Code>,
 }
@@ -227,20 +229,43 @@ impl SuiRpcClient {
         self.metrics.clone()
     }
 
-    /// Dry runs a transaction block.
-    pub async fn dry_run_transaction_block(
+    /// Simulates a transaction block via gRPC.
+    pub async fn simulate_transaction(
         &self,
         tx_data: TransactionData,
-    ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
+    ) -> RpcResult<SimulateTransactionResponse> {
         sui_rpc_with_retries(
             &self.rpc_retry_config,
-            "dry_run_transaction_block",
+            "simulate_transaction",
             self.metrics.clone(),
-            || async {
-                self.sui_client
-                    .read_api()
-                    .dry_run_transaction_block(tx_data.clone())
-                    .await
+            || {
+                let mut grpc_client = self.sui_grpc_client.clone();
+                let tx_data = tx_data.clone();
+                async move {
+                    let tx_bcs = Bcs::from(
+                        bcs::to_bytes(&tx_data)
+                            .map_err(|e| RpcError::new(format!("BCS encode failed: {e}")))?,
+                    );
+                    let mut transaction = Transaction::default();
+                    transaction.bcs = Some(tx_bcs);
+
+                    let request =
+                        SimulateTransactionRequest::new(transaction).with_read_mask(FieldMask {
+                            paths: vec![
+                                "transaction.effects.status".to_string(),
+                                "transaction.effects.gas_used".to_string(),
+                            ],
+                        });
+
+                    let response = grpc_client
+                        .execution_client()
+                        .simulate_transaction(request)
+                        .await
+                        .map(|r| r.into_inner())
+                        .map_err(RpcError::from_grpc)?;
+
+                    Ok(response)
+                }
             },
         )
         .await
