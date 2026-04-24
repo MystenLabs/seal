@@ -31,6 +31,7 @@ use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -992,10 +993,14 @@ async fn get_aggregated_key_from_committee(
     .await;
 
     // Expected full ids derive from PTB.
-    let expected_full_ids = ValidPtb::try_from(ptb.clone())
+    let expected_full_ids_owned: HashSet<Vec<u8>> = ValidPtb::try_from(ptb.clone())
         .unwrap()
         .full_ids(package_id)
         .into_iter()
+        .collect();
+    let expected_full_ids: HashSet<_> = expected_full_ids_owned
+        .iter()
+        .map(|id| id.as_slice())
         .collect();
 
     // Verify each response and collect them.
@@ -1007,7 +1012,8 @@ async fn get_aggregated_key_from_committee(
             .expect("Should have master share for committee member");
         let partial_pk = public_key_from_master_key(master_share);
 
-        let verified_keys = verify_decryption_keys(
+        let key_count = response.decryption_keys.len();
+        verify_decryption_keys(
             &response.decryption_keys,
             &partial_pk,
             &eg_vk,
@@ -1015,14 +1021,9 @@ async fn get_aggregated_key_from_committee(
             &expected_full_ids,
         )
         .expect("Verification should succeed");
-        assert_eq!(verified_keys.len(), response.decryption_keys.len());
+        assert_eq!(key_count, response.decryption_keys.len());
 
-        verified_responses.push((
-            party_id,
-            FetchKeyResponse {
-                decryption_keys: verified_keys,
-            },
-        ));
+        verified_responses.push((party_id, response));
     }
 
     // Aggregate the verified encrypted responses.

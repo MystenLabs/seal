@@ -329,8 +329,12 @@ async fn handle_fetch_key(
 
     // Parse the PTB and build the set of expected full ids every honest committee member should
     // return.
-    let expected_full_ids =
+    let expected_full_ids_owned =
         get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb).await?;
+    let expected_full_ids: HashSet<_> = expected_full_ids_owned
+        .iter()
+        .map(|id| id.as_slice())
+        .collect();
 
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
@@ -474,7 +478,7 @@ async fn fetch_from_member(
     api_credentials: ApiCredentials,
     client: &reqwest::Client,
     timeout_secs: u64,
-    expected_full_ids: &HashSet<Vec<u8>>,
+    expected_full_ids: &HashSet<&[u8]>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
@@ -531,14 +535,14 @@ async fn fetch_from_member(
 
     validate_key_server_version(version, ks_version_req)?;
 
-    let mut body = response.json::<FetchKeyResponse>().await.map_err(|e| {
+    let body = response.json::<FetchKeyResponse>().await.map_err(|e| {
         let msg = format!("Parse failed: {e} (req_id: {})", req_id);
         warn!("{}", msg);
         InternalError::Failure(msg)
     })?;
 
     // Verify each decryption key and expected key IDs. Errors early if any key fails.
-    let verified_keys = verify_decryption_keys(
+    verify_decryption_keys(
         &body.decryption_keys,
         &member.partial_pk,
         &request.enc_verification_key,
@@ -546,7 +550,6 @@ async fn fetch_from_member(
         expected_full_ids,
     )?;
 
-    body.decryption_keys = verified_keys;
     Ok(body)
 }
 

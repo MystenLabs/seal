@@ -71,12 +71,10 @@ pub(crate) async fn fetch_first_pkg_id(
         Some(first) => Ok(first),
         None => {
             let mut grpc = sui_rpc_client.sui_grpc_client();
-            let first = seal_committee::fetch_first_pkg_id(
-                &mut grpc,
-                &Address::new(pkg_id.into_bytes()),
-            )
-            .await
-            .map_err(|_| InternalError::InvalidPackage)?;
+            let first =
+                seal_committee::fetch_first_pkg_id(&mut grpc, &Address::new(pkg_id.into_bytes()))
+                    .await
+                    .map_err(|_| InternalError::InvalidPackage)?;
             CACHE.insert(*pkg_id, first);
             Ok(first)
         }

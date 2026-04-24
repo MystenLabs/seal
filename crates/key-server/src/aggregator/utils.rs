@@ -25,12 +25,10 @@ pub async fn get_expected_full_ids(
     ptb_b64: &str,
 ) -> Result<HashSet<Vec<u8>>, InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(ptb_b64)?;
-    let first_pkg_id = fetch_first_pkg_id(
-        grpc_client,
-        &Address::new(valid_ptb.pkg_id().into_bytes()),
-    )
-    .await
-    .map_err(|_| InternalError::InvalidPackage)?;
+    let first_pkg_id =
+        fetch_first_pkg_id(grpc_client, &Address::new(valid_ptb.pkg_id().into_bytes()))
+            .await
+            .map_err(|_| InternalError::InvalidPackage)?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
 }
 
@@ -75,8 +73,8 @@ pub fn verify_decryption_keys(
     partial_pk: &G2Element,
     ephemeral_vk: &ElgamalVerificationKey,
     party_id: u16,
-    expected_full_ids: &HashSet<Vec<u8>>,
-) -> Result<Vec<DecryptionKey>, InternalError> {
+    expected_full_ids: &HashSet<&[u8]>,
+) -> Result<(), InternalError> {
     if decryption_keys.len() != expected_full_ids.len() {
         return Err(InternalError::Failure(format!(
             "party {party_id} returned {} key(s), expected {}",
@@ -85,23 +83,20 @@ pub fn verify_decryption_keys(
         )));
     }
 
-    let mut seen = HashSet::with_capacity(decryption_keys.len());
-    for dk in decryption_keys {
-        if !expected_full_ids.contains(&dk.id) {
-            return Err(InternalError::Failure(format!(
-                "unexpected key_id {} from party {party_id}",
-                Hex::encode(&dk.id)
-            )));
-        }
-        if !seen.insert(&dk.id) {
-            return Err(InternalError::Failure(format!(
-                "duplicate key_id {} from party {party_id}",
-                Hex::encode(&dk.id)
-            )));
-        }
+    let seen: HashSet<_> = decryption_keys.iter().map(|dk| dk.id.as_slice()).collect();
+    if seen.len() != decryption_keys.len() {
+        return Err(InternalError::Failure(format!(
+            "duplicate key ids from party {party_id}"
+        )));
+    }
+    if seen != *expected_full_ids {
+        let seen_ids: Vec<_> = seen.iter().map(Hex::encode).collect();
+        let expected_ids: Vec<_> = expected_full_ids.iter().map(Hex::encode).collect();
+        return Err(InternalError::Failure(format!(
+            "returned key ids did not match expected ids for party {party_id}: returned={seen_ids:?}, expected={expected_ids:?}"
+        )));
     }
 
-    let mut verified_keys = Vec::with_capacity(decryption_keys.len());
     for dk in decryption_keys {
         verify_encrypted_signature(&dk.encrypted_key, ephemeral_vk, partial_pk, &dk.id).map_err(
             |e| {
@@ -111,7 +106,6 @@ pub fn verify_decryption_keys(
                 ))
             },
         )?;
-        verified_keys.push(dk.clone());
     }
 
     info!(
@@ -120,7 +114,7 @@ pub fn verify_decryption_keys(
         party_id
     );
 
-    Ok(verified_keys)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -180,9 +174,10 @@ mod tests {
     #[test]
     fn verify_rejects_too_few_keys() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
-        let expected = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
             .into_iter()
             .collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"a")];
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
@@ -191,7 +186,8 @@ mod tests {
     #[test]
     fn verify_rejects_too_many_keys() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
-        let expected = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"a"), dk_for_testing(b"b")];
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
@@ -200,7 +196,8 @@ mod tests {
     #[test]
     fn verify_rejects_unexpected_id() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
-        let expected = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"b")];
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
@@ -210,7 +207,8 @@ mod tests {
     fn verify_rejects_wrong_pkg_id_prefix() {
         // A malicious key server returns full id with wrong package id, fails.
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
-        let expected = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let wrong_full_id = [&[9u8; 32][..], b"a"].concat();
         let mut key = dk_for_testing(b"a");
         key.id = wrong_full_id;
@@ -222,9 +220,10 @@ mod tests {
     #[test]
     fn verify_rejects_duplicate_id() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
-        let expected = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
             .into_iter()
             .collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"a"), dk_for_testing(b"a")];
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
