@@ -31,6 +31,7 @@ use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
 use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -991,34 +992,39 @@ async fn get_aggregated_key_from_committee(
     }))
     .await;
 
-    // Verify encrypted keys.
-    let verified_responses: Vec<_> = responses_with_party_ids
+    // Expected full ids derive from PTB.
+    let expected_full_ids_owned: HashSet<Vec<u8>> = ValidPtb::try_from(ptb.clone())
+        .unwrap()
+        .full_ids(package_id)
         .into_iter()
-        .flatten()
-        .map(|(party_id, response, server)| {
-            // Derive partial key.
-            let master_share = server
-                .master_keys
-                .get_committee_server_master_share()
-                .expect("Should have master share for committee member");
-            let partial_pk = public_key_from_master_key(master_share);
-
-            // Verify all decryption keys.
-            let verified_keys =
-                verify_decryption_keys(&response.decryption_keys, &partial_pk, &eg_vk, party_id)
-                    .expect("Verification should succeed");
-
-            // All keys were verified.
-            assert_eq!(verified_keys.len(), response.decryption_keys.len());
-
-            (
-                party_id,
-                FetchKeyResponse {
-                    decryption_keys: verified_keys,
-                },
-            )
-        })
         .collect();
+    let expected_full_ids: HashSet<_> = expected_full_ids_owned
+        .iter()
+        .map(|id| id.as_slice())
+        .collect();
+
+    // Verify each response and collect them.
+    let mut verified_responses = Vec::new();
+    for (party_id, response, server) in responses_with_party_ids.into_iter().flatten() {
+        let master_share = server
+            .master_keys
+            .get_committee_server_master_share()
+            .expect("Should have master share for committee member");
+        let partial_pk = public_key_from_master_key(master_share);
+
+        let key_count = response.decryption_keys.len();
+        verify_decryption_keys(
+            &response.decryption_keys,
+            &partial_pk,
+            &eg_vk,
+            party_id,
+            &expected_full_ids,
+        )
+        .expect("Verification should succeed");
+        assert_eq!(key_count, response.decryption_keys.len());
+
+        verified_responses.push((party_id, response));
+    }
 
     // Aggregate the verified encrypted responses.
     let aggregated_response = aggregate_verified_encrypted_responses(threshold, verified_responses)

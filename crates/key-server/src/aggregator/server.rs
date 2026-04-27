@@ -17,7 +17,7 @@ use axum::{
 use futures::future::pending;
 use futures::stream::{FuturesUnordered, StreamExt};
 use key_server::aggregator::utils::{
-    aggregate_verified_encrypted_responses, verify_decryption_keys,
+    aggregate_verified_encrypted_responses, get_expected_full_ids, verify_decryption_keys,
 };
 use key_server::common::{
     add_response_headers, ClientSdkType, Network, NetworkConfig, HEADER_CLIENT_SDK_TYPE,
@@ -327,12 +327,22 @@ async fn handle_fetch_key(
         req_id, version_str, sdk_type_enum, request.certificate.user
     );
 
+    // Parse the PTB and build the set of expected full ids every honest committee member should
+    // return.
+    let expected_full_ids_owned =
+        get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb).await?;
+    let expected_full_ids: HashSet<_> = expected_full_ids_owned
+        .iter()
+        .map(|id| id.as_slice())
+        .collect();
+
     // Call to committee members' servers in parallel.
     let ks_version_req = &state.options.key_server_version_requirement;
     let api_credentials = &state.options.api_credentials;
     let timeout_secs = state.options.key_server_timeout_secs;
     let metrics = state.aggregator_metrics.clone();
     let http_client = state.http_client.clone();
+    let expected_full_ids = &expected_full_ids;
     let mut fetch_tasks: FuturesUnordered<_> = state
         .committee_members
         .read()
@@ -361,12 +371,13 @@ async fn handle_fetch_key(
 
                 match fetch_from_member(
                     &partial_key_server,
-                    &request.clone(),
+                    &request,
                     req_id,
                     &ks_version_req,
                     creds,
                     &http_client,
                     timeout_secs,
+                    expected_full_ids,
                 )
                 .await
                 {
@@ -455,7 +466,10 @@ async fn handle_fetch_key(
     Ok(Json(aggregated_response))
 }
 
-/// Fetch encrypted partial key from a single committee member's URL, use aggregator type and its version.
+/// Fetch encrypted partial key from a single committee member's URL, use aggregator type and its
+/// version. Responses must be validated with expected key ids, and all keys for all key ids must
+/// be verified. Returns error if any of the validation or verification fails.
+#[allow(clippy::too_many_arguments)]
 async fn fetch_from_member(
     member: &PartialKeyServer,
     request: &FetchKeyRequest,
@@ -464,6 +478,7 @@ async fn fetch_from_member(
     api_credentials: ApiCredentials,
     client: &reqwest::Client,
     timeout_secs: u64,
+    expected_full_ids: &HashSet<&[u8]>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
     info!(
         "Fetching from party {} at {} (req_id: {})",
@@ -520,26 +535,21 @@ async fn fetch_from_member(
 
     validate_key_server_version(version, ks_version_req)?;
 
-    let mut body = response.json::<FetchKeyResponse>().await.map_err(|e| {
+    let body = response.json::<FetchKeyResponse>().await.map_err(|e| {
         let msg = format!("Parse failed: {e} (req_id: {})", req_id);
         warn!("{}", msg);
         InternalError::Failure(msg)
     })?;
 
-    // Verify each decryption key. Errors early if any key fails.
-    let verified_keys = verify_decryption_keys(
+    // Verify each decryption key and expected key IDs. Errors early if any key fails.
+    verify_decryption_keys(
         &body.decryption_keys,
         &member.partial_pk,
         &request.enc_verification_key,
         member.party_id,
-    )
-    .map_err(|e| {
-        let msg = format!("Verification failed: {e} (req_id: {})", req_id);
-        warn!("{}", msg);
-        InternalError::Failure(msg)
-    })?;
+        expected_full_ids,
+    )?;
 
-    body.decryption_keys = verified_keys;
     Ok(body)
 }
 
@@ -578,6 +588,7 @@ fn validate_key_server_version(
         Ok(())
     }
 }
+
 /// Handle insufficient responses by finding and returning the majority error, or a generic error.
 fn handle_insufficient_responses(
     got: usize,
@@ -761,17 +772,52 @@ mod tests {
     use super::*;
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::{Ed25519KeyPair, Ed25519Signature};
+    use fastcrypto::encoding::{Base64, Encoding};
     use fastcrypto::groups::bls12381::G1Element;
-    use fastcrypto::groups::{bls12381::G2Element, GroupElement};
+    use fastcrypto::groups::{bls12381::G2Element, GroupElement, Scalar};
     use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
+    use key_server::valid_ptb::ValidPtb;
     use rand::thread_rng;
     use seal_sdk::types::Certificate;
     use serde_json::json;
+    use std::str::FromStr;
     use sui_sdk_types::UserSignature;
+    use sui_types::base_types::ObjectID;
+    use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+    use sui_types::Identifier;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
+
+    /// Build a valid PTB with a single `seal_approve` call.
+    fn test_valid_ptb() -> (String, ObjectID, Vec<u8>, ObjectID) {
+        let pkg_id = ObjectID::from_str(
+            "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
+        )
+        .unwrap();
+        let first_pkg_id = ObjectID::from_str(
+            "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16",
+        )
+        .unwrap();
+        let mut builder = ProgrammableTransactionBuilder::new();
+        let inner_id = vec![1u8, 2, 3, 4];
+        let id = builder.pure(inner_id.clone()).unwrap();
+        builder.programmable_move_call(
+            pkg_id,
+            Identifier::new("module").unwrap(),
+            Identifier::new("seal_approve").unwrap(),
+            vec![],
+            vec![id],
+        );
+        let ptb = builder.finish();
+        (
+            Base64::encode(bcs::to_bytes(&ptb).unwrap()),
+            pkg_id,
+            inner_id,
+            first_pkg_id,
+        )
+    }
 
     /// Helper to create a FetchKeyRequest for testing.
     fn create_test_fetch_key_request(
@@ -789,8 +835,9 @@ mod tests {
         user_sig_bytes.extend_from_slice(sig.as_bytes());
         user_sig_bytes.extend_from_slice(pk.as_bytes());
 
+        let (ptb, _, _, _) = test_valid_ptb();
         let request = FetchKeyRequest {
-            ptb: "{}".to_string(),
+            ptb,
             enc_key: enc_key.clone(),
             enc_verification_key: enc_verification_key.clone(),
             request_signature: sig,
@@ -860,8 +907,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_version_validations() {
-        use mysten_service::package_version;
-
         // Test 1: Aggregator rejects client SDK if version is too old
         {
             let server1 = MockServer::start().await;
@@ -926,6 +971,26 @@ mod tests {
 
         // Test 3: If key server responses are good, return aggregator's own version to client
         {
+            let mut rng = thread_rng();
+
+            // Construct a valid signed decryption key so the aggregator accepts the response.
+            let master_key = crypto::ibe::MasterKey::rand(&mut rng);
+            let partial_pk = crypto::ibe::public_key_from_master_key(&master_key);
+
+            let (request, enc_key, _) = create_test_fetch_key_request(&mut rng);
+            let valid_ptb = ValidPtb::try_from_base64(&request.ptb).unwrap();
+            let (_, _, _, first_pkg_id) = test_valid_ptb();
+            let full_id = valid_ptb.full_ids(&first_pkg_id).remove(0);
+            let usk = crypto::ibe::extract(&master_key, &full_id);
+            let encrypted_key = crypto::elgamal::encrypt(&mut rng, &usk, &enc_key);
+
+            let response_body = seal_sdk::FetchKeyResponse {
+                decryption_keys: vec![seal_sdk::types::DecryptionKey {
+                    id: full_id,
+                    encrypted_key,
+                }],
+            };
+
             let server3 = MockServer::start().await;
             Mock::given(method("POST"))
                 .and(path("/v1/fetch_key"))
@@ -933,15 +998,12 @@ mod tests {
                     ResponseTemplate::new(200)
                         .insert_header(HEADER_KEYSERVER_VERSION, package_version!())
                         .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git-abc123")
-                        .set_body_json(json!({
-                            "decryption_keys": []
-                        })),
+                        .set_body_json(serde_json::to_value(&response_body).unwrap()),
                 )
                 .mount(&server3)
                 .await;
 
-            let state = create_test_app_state(&[server3], 1, vec![G2Element::zero()]);
-            let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
+            let state = create_test_app_state(&[server3], 1, vec![partial_pk]);
 
             let mut headers = HeaderMap::new();
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
@@ -1021,5 +1083,146 @@ mod tests {
             }
             Ok(_) => panic!("Expected error but got success"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_drop_one_bad_response_still_aggregates_threshold() {
+        // 2 out of 3 committee, if one server returns a response missing the expected key id it
+        // gets discarded while the other two produce valid responses that still meet threshold and
+        // aggregate ok.
+        let mut rng = thread_rng();
+
+        let (request, enc_key, _) = create_test_fetch_key_request(&mut rng);
+        let valid_ptb = ValidPtb::try_from_base64(&request.ptb).unwrap();
+        let (_, _, _, first_pkg_id) = test_valid_ptb();
+        let full_id = valid_ptb.full_ids(&first_pkg_id).remove(0);
+
+        // Two honest servers with independent master keys and valid signed responses.
+        let master_0 = crypto::ibe::MasterKey::rand(&mut rng);
+        let partial_pk_0 = crypto::ibe::public_key_from_master_key(&master_0);
+        let body_0 = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![seal_sdk::types::DecryptionKey {
+                id: full_id.clone(),
+                encrypted_key: crypto::elgamal::encrypt(
+                    &mut rng,
+                    &crypto::ibe::extract(&master_0, &full_id),
+                    &enc_key,
+                ),
+            }],
+        };
+        let master_1 = crypto::ibe::MasterKey::rand(&mut rng);
+        let partial_pk_1 = crypto::ibe::public_key_from_master_key(&master_1);
+        let body_1 = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![seal_sdk::types::DecryptionKey {
+                id: full_id.clone(),
+                encrypted_key: crypto::elgamal::encrypt(
+                    &mut rng,
+                    &crypto::ibe::extract(&master_1, &full_id),
+                    &enc_key,
+                ),
+            }],
+        };
+        // Third server is byzantine, returns an empty response.
+        let body_bad = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![],
+        };
+
+        async fn mount(body: seal_sdk::FetchKeyResponse) -> MockServer {
+            let s = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/fetch_key"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header(HEADER_KEYSERVER_VERSION, package_version!())
+                        .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git")
+                        .set_body_json(serde_json::to_value(&body).unwrap()),
+                )
+                .mount(&s)
+                .await;
+            s
+        }
+
+        let s0 = mount(body_0).await;
+        let s1 = mount(body_1).await;
+        let s_bad = mount(body_bad).await;
+
+        let state = create_test_app_state(
+            &[s0, s1, s_bad],
+            2,
+            vec![partial_pk_0, partial_pk_1, G2Element::generator()],
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
+        let result = handle_fetch_key(State(state), headers, Json(request)).await;
+        let response =
+            result.expect("aggregation should succeed with 2 of 3 good responses at threshold=2");
+        assert_eq!(response.decryption_keys.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_missing_key_id_response_dropped_and_threshold_fails() {
+        // 2 out of 2 committee, if one server returns a response missing an expected key id the
+        // aggregator discards that whole response. The remaining valid response can no longer
+        // reach threshold, so the aggregator returns an error.
+        let mut rng = thread_rng();
+
+        // Server 0 returns a valid signed response for the expected full id.
+        let master_0 = crypto::ibe::MasterKey::rand(&mut rng);
+        let partial_pk_0 = crypto::ibe::public_key_from_master_key(&master_0);
+        let (request, enc_key, _) = create_test_fetch_key_request(&mut rng);
+        let valid_ptb = ValidPtb::try_from_base64(&request.ptb).unwrap();
+        let (_, _, _, first_pkg_id) = test_valid_ptb();
+        let full_id = valid_ptb.full_ids(&first_pkg_id).remove(0);
+        let encrypted_key = crypto::elgamal::encrypt(
+            &mut rng,
+            &crypto::ibe::extract(&master_0, &full_id),
+            &enc_key,
+        );
+        let good_body = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![seal_sdk::types::DecryptionKey {
+                id: full_id,
+                encrypted_key,
+            }],
+        };
+        let server_good = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fetch_key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header(HEADER_KEYSERVER_VERSION, package_version!())
+                    .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git-good")
+                    .set_body_json(serde_json::to_value(&good_body).unwrap()),
+            )
+            .mount(&server_good)
+            .await;
+
+        // Server 1 returns an empty response — missing the expected key id. Aggregator must drop
+        // the entire response.
+        let empty_body = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![],
+        };
+        let server_missing = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fetch_key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header(HEADER_KEYSERVER_VERSION, package_version!())
+                    .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git-missing")
+                    .set_body_json(serde_json::to_value(&empty_body).unwrap()),
+            )
+            .mount(&server_missing)
+            .await;
+
+        let state = create_test_app_state(
+            &[server_good, server_missing],
+            2,
+            vec![partial_pk_0, G2Element::generator()],
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
+        let result = handle_fetch_key(State(state), headers, Json(request)).await;
+        assert_eq!(result.err().unwrap().error, "Failure");
     }
 }
