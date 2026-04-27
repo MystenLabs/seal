@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::errors::InternalError;
 use crate::return_err;
-use crate::KeyId;
 use crypto::create_full_id;
 use fastcrypto::encoding::{Base64, Encoding};
+use seal_sdk::types::KeyId;
 use sui_types::base_types::ObjectID;
 use sui_types::transaction::ProgrammableMoveCall;
 use sui_types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};

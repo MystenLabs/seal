@@ -9,9 +9,9 @@ use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
+use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
-use tonic::Code;
 use tracing::{debug, warn};
 
 static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
@@ -70,15 +70,11 @@ pub(crate) async fn fetch_first_pkg_id(
     match CACHE.get(pkg_id) {
         Some(first) => Ok(first),
         None => {
-            let package = sui_rpc_client
-                .get_package(*pkg_id)
-                .await
-                .map_err(|e| match e.code {
-                    // NotFound = missing/non-package; None = FN protocol violation (missing BCS / decode failure) — both are client-facing, deterministic.
-                    Some(Code::NotFound) | None => InternalError::InvalidPackage,
-                    _ => InternalError::Failure("FN failed to respond".to_string()),
-                })?;
-            let first = package.original_package_id();
+            let mut grpc = sui_rpc_client.sui_grpc_client();
+            let first =
+                seal_committee::fetch_first_pkg_id(&mut grpc, &Address::new(pkg_id.into_bytes()))
+                    .await
+                    .map_err(|_| InternalError::InvalidPackage)?;
             CACHE.insert(*pkg_id, first);
             Ok(first)
         }

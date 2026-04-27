@@ -49,9 +49,10 @@ ignore = [
     # which doesn't apply to this dev-only path. Other rand versions (0.8/0.9/0.10)
     # have been updated to fixed releases.
     { id = "RUSTSEC-2026-0097", reason = "unresolved on rand 0.7.3 (dev-dep only via move-vm-runtime)" },
-    # core2 is pulled transitively through multiaddr/mysten-network from Sui;
-    # all core2 versions are yanked and there is no direct upgrade in this repo.
-    { id = "RUSTSEC-2026-0105", reason = "transitive via Sui networking stack" },
+    # core2 is unmaintained (all versions yanked). Pulled in transitively via
+    # multihash -> multiaddr -> mysten-network from sui. No safe upgrade available
+    # until sui drops the multiaddr/multihash chain.
+    { id = "RUSTSEC-2026-0105", reason = "unmaintained core2 pulled in transitively via sui's mysten-network; no safe upgrade" },
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
