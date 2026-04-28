@@ -1,5 +1,7 @@
-// Copyright (c) Walrus Foundation
+/*
+// Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+*/
 
 /**
  * Local server that serves the Docusaurus build with proper headers
