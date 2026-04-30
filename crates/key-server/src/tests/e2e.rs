@@ -38,7 +38,9 @@ use std::sync::Arc;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
-use sui_types::transaction::ProgrammableTransaction;
+use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use sui_types::transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability};
+use sui_types::Identifier;
 use test_cluster::TestClusterBuilder;
 use tracing_test::traced_test;
 
@@ -832,6 +834,32 @@ async fn test_e2e_committee_mode_with_rotation() {
     .await
     .expect("Aggregation should succeed");
 
+    let second_inner_id = [whitelist.to_vec(), b"second-key".to_vec()].concat();
+    let multi_key_ptb = whitelist_create_multi_key_ptb(
+        package_id,
+        whitelist,
+        initial_shared_version,
+        vec![whitelist.to_vec(), second_inner_id.clone()],
+    );
+    let multi_key_usks = get_aggregated_key_from_committee(
+        &committee,
+        &selected_party_ids,
+        2,
+        &package_id,
+        multi_key_ptb,
+        &user_keypair,
+    )
+    .await
+    .expect("Multi-key aggregation should succeed");
+    assert!(multi_key_usks.contains_key(&create_full_id(
+        &package_id.into_bytes(),
+        &whitelist.to_vec()
+    )));
+    assert!(
+        multi_key_usks.contains_key(&create_full_id(&package_id.into_bytes(), &second_inner_id))
+    );
+    assert_eq!(multi_key_usks.len(), 2);
+
     // Compute the full_id for this encrypted object to look up the correct key.
     let full_id = create_full_id(&package_id.into_bytes(), &encryption.id);
     let aggregated_usk = aggregated_usks
@@ -932,6 +960,38 @@ async fn test_e2e_committee_mode_with_rotation() {
     )
     .unwrap();
     assert_eq!(new_decryption, message);
+}
+
+fn whitelist_create_multi_key_ptb(
+    package_id: ObjectID,
+    whitelist_id: ObjectID,
+    initial_shared_version: u64,
+    inner_ids: Vec<Vec<u8>>,
+) -> ProgrammableTransaction {
+    let mut builder = ProgrammableTransactionBuilder::new();
+    let ids = inner_ids
+        .into_iter()
+        .map(|inner_id| builder.pure(inner_id).unwrap())
+        .collect::<Vec<_>>();
+    let list = builder
+        .obj(ObjectArg::SharedObject {
+            id: whitelist_id,
+            initial_shared_version: initial_shared_version.into(),
+            mutability: SharedObjectMutability::Immutable,
+        })
+        .unwrap();
+
+    for id in ids {
+        builder.programmable_move_call(
+            package_id,
+            Identifier::new("whitelist").unwrap(),
+            Identifier::new("seal_approve").unwrap(),
+            vec![],
+            vec![id, list],
+        );
+    }
+
+    builder.finish()
 }
 
 /// Simulate a client with generated ephemeral ElGamal key pair and user keypair requesting

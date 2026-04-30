@@ -28,8 +28,17 @@ pub async fn get_expected_full_ids(
     let first_pkg_id =
         fetch_first_pkg_id(grpc_client, &Address::new(valid_ptb.pkg_id().into_bytes()))
             .await
-            .map_err(|_| InternalError::InvalidPackage)?;
+            .map_err(classify_package_resolution_error)?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
+}
+
+fn classify_package_resolution_error(error: anyhow::Error) -> InternalError {
+    if error.downcast_ref::<tonic::Status>().is_some() {
+        // tonic::Status indicates a fullnode/gRPC failure, not an invalid package id.
+        InternalError::Failure(format!("Failed to resolve package id: {error}"))
+    } else {
+        InternalError::InvalidPackage
+    }
 }
 
 /// Aggregate verified encrypted responses into a single response. Each response is expected to have
@@ -172,6 +181,27 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_errors_when_party_ids_are_duplicate() {
+        let responses = vec![
+            (
+                0u16,
+                FetchKeyResponse {
+                    decryption_keys: vec![dk_for_testing(b"a")],
+                },
+            ),
+            (
+                0u16,
+                FetchKeyResponse {
+                    decryption_keys: vec![dk_for_testing(b"a")],
+                },
+            ),
+        ];
+
+        let result = aggregate_verified_encrypted_responses(2, responses);
+        assert!(matches!(result, Err(FastCryptoError::InvalidInput)));
+    }
+
+    #[test]
     fn verify_rejects_too_few_keys() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
         let expected_owned: HashSet<_> = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
@@ -225,6 +255,17 @@ mod tests {
             .collect();
         let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"a"), dk_for_testing(b"a")];
+        let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
+        assert!(matches!(result, Err(InternalError::Failure(_))));
+    }
+
+    #[test]
+    fn verify_rejects_invalid_encrypted_signature() {
+        let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
+        let keys = vec![dk_for_testing(b"a")];
+
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
     }
