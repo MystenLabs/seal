@@ -1098,49 +1098,6 @@ fn validate_sdk_version_for_type(
     Ok(())
 }
 
-#[cfg(test)]
-mod sdk_validation_tests {
-    use super::*;
-
-    #[test]
-    fn key_server_validates_sdk_versions_by_type() {
-        let aggregator_requirement = VersionReq::parse(">=3.0.0").unwrap();
-        let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
-        let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
-
-        let validate = |version, sdk_type| {
-            validate_sdk_version_for_type(
-                version,
-                sdk_type,
-                &aggregator_requirement,
-                &ts_requirement,
-                &rust_requirement,
-            )
-        };
-
-        assert_eq!(validate("3.0.0", ClientSdkType::Aggregator), Ok(()));
-        assert_eq!(
-            validate("2.9.9", ClientSdkType::Aggregator),
-            Err(DeprecatedSDKVersion)
-        );
-        assert_eq!(validate("1.2.3", ClientSdkType::TypeScript), Ok(()));
-        assert_eq!(
-            validate("1.2.2", ClientSdkType::TypeScript),
-            Err(DeprecatedSDKVersion)
-        );
-        assert_eq!(validate("2.0.0", ClientSdkType::Rust), Ok(()));
-        assert_eq!(
-            validate("1.9.9", ClientSdkType::Rust),
-            Err(DeprecatedSDKVersion)
-        );
-        assert_eq!(validate("0.0.1", ClientSdkType::Other), Ok(()));
-        assert_eq!(
-            validate("not-semver", ClientSdkType::Other),
-            Err(InvalidSDKVersion)
-        );
-    }
-}
-
 /// Middleware to validate the SDK version.
 async fn handle_request_headers(
     state: State<MyState>,
@@ -1391,4 +1348,47 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_SIZE))
         .layer(cors);
     Ok((monitor_handle, app))
+}
+
+#[cfg(test)]
+mod sdk_validation_tests {
+    use super::*;
+
+    #[test]
+    fn key_server_validates_sdk_versions_by_type() {
+        let aggregator_requirement = VersionReq::parse(">=3.0.0").unwrap();
+        let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
+        let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+
+        let validate = |version, sdk_type| {
+            validate_sdk_version_for_type(
+                version,
+                sdk_type,
+                &aggregator_requirement,
+                &ts_requirement,
+                &rust_requirement,
+            )
+        };
+
+        assert_eq!(validate("3.0.0", ClientSdkType::Aggregator), Ok(()));
+        assert_eq!(
+            validate("2.9.9", ClientSdkType::Aggregator),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("1.2.3", ClientSdkType::TypeScript), Ok(()));
+        assert_eq!(
+            validate("1.2.2", ClientSdkType::TypeScript),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("2.0.0", ClientSdkType::Rust), Ok(()));
+        assert_eq!(
+            validate("1.9.9", ClientSdkType::Rust),
+            Err(DeprecatedSDKVersion)
+        );
+        assert_eq!(validate("0.0.1", ClientSdkType::Other), Ok(()));
+        assert_eq!(
+            validate("not-semver", ClientSdkType::Other),
+            Err(InvalidSDKVersion)
+        );
+    }
 }
