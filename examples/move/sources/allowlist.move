@@ -34,7 +34,7 @@ public struct Cap has key {
 public fun create_allowlist(name: String, ctx: &mut TxContext): Cap {
     let allowlist = Allowlist {
         id: object::new(ctx),
-        list: vector::empty(),
+        list: vector[],
         name: name,
     };
     let cap = Cap {
@@ -98,7 +98,7 @@ public fun new_allowlist_for_testing(ctx: &mut TxContext): Allowlist {
     Allowlist {
         id: object::new(ctx),
         name: b"test".to_string(),
-        list: vector::empty(),
+        list: vector[],
     }
 }
 

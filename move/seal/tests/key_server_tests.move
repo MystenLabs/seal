@@ -23,7 +23,7 @@ public fun create_2_of_2_committee_server_v2(threshold: u16, ctx: &mut TxContext
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
 
-    let mut partial_key_servers = vector::empty();
+    let mut partial_key_servers = vector[];
     partial_key_servers.push_back(
         key_server::create_partial_key_server(
             b"server1".to_string(),
@@ -159,7 +159,7 @@ fun create_committee_v2_duplicate_party_ids() {
     let pk = g2_generator();
     let pk_bytes = *pk.bytes();
 
-    let mut partial_key_servers = vector::empty();
+    let mut partial_key_servers = vector[];
     partial_key_servers.push_back(
         key_server::create_partial_key_server(
             b"server1".to_string(),

@@ -120,13 +120,23 @@ async fn test_service() {
         let response = client
             .request(
                 Request::builder()
-                    .uri(format!("http://{addr}/v1/service"))
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), 400);
+        let error_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let error_json: Value = from_slice(&error_bytes).unwrap();
+        assert_eq!(
+            error_json.get("error").unwrap().as_str().unwrap(),
+            "MissingRequiredHeader"
+        );
 
         // Old client SDK version. Should fail with 426 Upgrade Required
         let response = client
@@ -136,6 +146,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.3.0") // Too old (requires >=0.4.6)
                     .body(Body::empty())
                     .unwrap(),
@@ -159,7 +170,7 @@ async fn test_service() {
                         key_server_object_id.as_str()
                     ))
                     .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
-                    .header(HEADER_CLIENT_SDK_VERSION, "0.5.14") // Too old (requires >=0.5.15)
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.5.14") // Too old (requires >=0.6.2)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -173,6 +184,23 @@ async fn test_service() {
             "DeprecatedSDKVersion"
         );
 
+        // Valid aggregator SDK version.
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header(HEADER_CLIENT_SDK_TYPE, SDK_TYPE_AGGREGATOR)
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.6.2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
         // Valid request
         let response = client
             .request(
@@ -181,6 +209,7 @@ async fn test_service() {
                         "http://{addr}/v1/service?service_id={}",
                         key_server_object_id.as_str()
                     ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .body(Body::empty())
                     .unwrap(),
@@ -200,6 +229,57 @@ async fn test_service() {
             response_json.get("service_id").unwrap().as_str().unwrap(),
             &key_server_object_id
         );
+
+        // Missing Client-Sdk-Type. Key server keeps accepting this as long as
+        // Client-Sdk-Version is present and valid.
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
+        // Unknown Client-Sdk-Type. Key server ignores unknown SDK types.
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "python")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+
+        // Valid Rust SDK request.
+        let response = client
+            .request(
+                Request::builder()
+                    .uri(format!(
+                        "http://{addr}/v1/service?service_id={}",
+                        key_server_object_id.as_str()
+                    ))
+                    .header(HEADER_CLIENT_SDK_TYPE, "rust")
+                    .header(HEADER_CLIENT_SDK_VERSION, "0.0.1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
 
         // If the service_id query param is NOT set, return error
         let response = client
@@ -328,6 +408,7 @@ async fn test_fetch_key() {
                 Request::builder()
                     .uri(format!("http://{addr}/v1/fetch_key",))
                     .method("POST")
+                    .header(HEADER_CLIENT_SDK_TYPE, "typescript")
                     .header(HEADER_CLIENT_SDK_VERSION, "0.4.11")
                     .header("Content-Type", "application/json")
                     .body(Body::from(json!(request).to_string()))

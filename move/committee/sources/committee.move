@@ -563,7 +563,7 @@ fun build_partial_key_servers(
     assert!(members.length() == partial_pks.length(), EInvalidMembers);
     assert!(members.length() == members_info.length(), EInvalidMembers);
 
-    let mut partial_key_servers = vector::empty();
+    let mut partial_key_servers = vector[];
     let mut i = 0;
     members.do!(|member| {
         let info = members_info.get(&member);

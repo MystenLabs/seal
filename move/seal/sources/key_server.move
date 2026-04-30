@@ -331,6 +331,7 @@ fun validate_partial_key_servers(threshold: u16, partial_key_servers: &vector<Pa
 }
 
 /// Check if KeyServer is v2 and is a committee server type.
+#[allow(deprecated_usage)]
 fun assert_committee_server_v2(s: &KeyServer) {
     assert!(s.first_version <= V2 && s.last_version >= V2, EInvalidVersion);
     assert!(df::exists_(&s.id, V2), EInvalidVersion);
@@ -346,6 +347,7 @@ fun assert_committee_server_v2(s: &KeyServer) {
 }
 
 /// Check if KeyServer has v2.
+#[allow(deprecated_usage)]
 fun has_v2(s: &KeyServer): bool {
     df::exists_(&s.id, V2)
 }
@@ -358,6 +360,7 @@ fun v2(s: &KeyServer): &KeyServerV2 {
 }
 
 /// Check if KeyServer has v1.
+#[allow(deprecated_usage)]
 fun has_v1(s: &KeyServer): bool {
     df::exists_(&s.id, V1)
 }
