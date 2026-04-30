@@ -785,7 +785,6 @@ mod tests {
     use fastcrypto::groups::{bls12381::G2Element, GroupElement, Scalar};
     use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
     use key_server::valid_ptb::ValidPtb;
-    use once_cell::sync::Lazy;
     use rand::thread_rng;
     use seal_sdk::types::Certificate;
     use serde_json::json;
@@ -798,9 +797,6 @@ mod tests {
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
-
-    static MOCK_SERVER_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
-        Lazy::new(|| tokio::sync::Mutex::new(()));
 
     /// Build a valid PTB with a single `seal_approve` call.
     fn test_valid_ptb() -> (String, ObjectID, Vec<u8>, ObjectID) {
@@ -1026,8 +1022,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_version_validations() {
-        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
-
         // Test 1: Aggregator rejects client SDK if version is too old
         {
             let server1 = MockServer::start().await;
@@ -1149,8 +1143,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_majority_error_with_3_invalid_ptb_2_noaccess() {
-        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
-
         // Create 5 mock key servers.
         let mut mock_servers = vec![];
 
@@ -1214,8 +1206,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_drop_one_bad_response_still_aggregates_threshold() {
-        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
-
         // 2 out of 3 committee, if one server returns a response missing the expected key id it
         // gets discarded while the other two produce valid responses that still meet threshold and
         // aggregate ok.
@@ -1292,8 +1282,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_key_id_response_dropped_and_threshold_fails() {
-        let _guard = MOCK_SERVER_TEST_LOCK.lock().await;
-
         // 2 out of 2 committee, if one server returns a response missing an expected key id the
         // aggregator discards that whole response. The remaining valid response can no longer
         // reach threshold, so the aggregator returns an error.
