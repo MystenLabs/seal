@@ -90,10 +90,20 @@ impl MasterKeys {
                     committee_version.expect("Onchain committee version must be loaded.");
 
                 let key_state = match committee_state {
-                    CommitteeState::Active => {
-                        let master_share = load_master_share(committee_version)?;
-                        CommitteeKeyState::Active { master_share }
-                    }
+                    CommitteeState::Active => match load_master_share(committee_version) {
+                        Ok(master_share) => CommitteeKeyState::Active { master_share },
+                        Err(_) => {
+                            let target = committee_version.checked_add(1).ok_or_else(|| {
+                                anyhow!("Invalid committee version: cannot infer next version")
+                            })?;
+                            let next_master_share = load_master_share(target)?;
+                            CommitteeKeyState::Rotation {
+                                master_share: None,
+                                next_master_share,
+                                target_version: target,
+                            }
+                        }
+                    },
                     CommitteeState::Rotation { target_version } => {
                         let target = *target_version;
                         if target == 0 {
@@ -476,9 +486,37 @@ fn test_master_keys_committee_mode() {
         },
     );
 
+    // Active config with only the next share starts, but cannot serve until onchain catches up.
+    with_vars(
+        [
+            ("MASTER_SHARE_V4", None::<&String>),
+            ("MASTER_SHARE_V5", Some(&master_share_v5_encoded)),
+        ],
+        || {
+            let mk = MasterKeys::load(&options, Some(4)).unwrap();
+
+            let result = mk.get_key_for_package(&package_id);
+            assert!(matches!(result, Err(InternalError::Failure(_))));
+
+            if let MasterKeys::Committee {
+                committee_version, ..
+            } = &mk
+            {
+                committee_version.store(5, Ordering::SeqCst);
+                assert_eq!(
+                    mk.get_key_for_package(&package_id).unwrap(),
+                    &master_share_v5
+                );
+            }
+        },
+    );
+
     // Error for missing MASTER_SHARE_V{onchain} in Active mode.
     with_vars(
-        [("MASTER_SHARE_V4", Some(&master_share_v4_encoded))],
+        [
+            ("MASTER_SHARE_V4", Some(&master_share_v4_encoded)),
+            ("MASTER_SHARE_V6", None::<&String>),
+        ],
         || {
             let result = MasterKeys::load(&options, Some(5));
             assert!(result.is_err());
