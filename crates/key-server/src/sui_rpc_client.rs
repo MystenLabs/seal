@@ -52,7 +52,10 @@ pub struct RpcError {
 
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        match self.code {
+            Some(code) => write!(f, "gRPC {code}: {}", self.message),
+            None => write!(f, "{}", self.message),
+        }
     }
 }
 
@@ -77,7 +80,7 @@ impl RpcError {
     /// Wrap a gRPC status; produces `code: Some(...)`.
     fn from_grpc(e: tonic::Status) -> Self {
         Self {
-            message: format!("gRPC error: {e}"),
+            message: e.message().to_string(),
             code: Some(e.code()),
         }
     }
