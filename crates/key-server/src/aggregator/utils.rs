@@ -9,14 +9,12 @@ use fastcrypto::{
     error::{FastCryptoError, FastCryptoResult},
     groups::bls12381::G2Element,
 };
-use seal_committee::fetch_first_pkg_id;
 use seal_sdk::{
     types::{DecryptionKey, ElgamalEncryption, ElgamalVerificationKey},
     FetchKeyResponse,
 };
 use std::collections::{HashMap, HashSet};
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk_types::Address;
 use tracing::info;
 
 /// Parse PTB, resolve its pkg id to the first pkg id via grpc, and return the set of full key ids.
@@ -25,20 +23,17 @@ pub async fn get_expected_full_ids(
     ptb_b64: &str,
 ) -> Result<HashSet<Vec<u8>>, InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(ptb_b64)?;
-    let first_pkg_id =
-        fetch_first_pkg_id(grpc_client, &Address::new(valid_ptb.pkg_id().into_bytes()))
-            .await
-            .map_err(classify_package_resolution_error)?;
+    let first_pkg_id = crate::common::fetch_first_pkg_id(grpc_client, &valid_ptb.pkg_id())
+        .await
+        .map_err(|error| {
+            if error.downcast_ref::<tonic::Status>().is_some() {
+                // tonic::Status means a fullnode/gRPC failure
+                InternalError::Failure(format!("Failed to resolve package id: {error}"))
+            } else {
+                InternalError::InvalidPackage
+            }
+        })?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
-}
-
-fn classify_package_resolution_error(error: anyhow::Error) -> InternalError {
-    if error.downcast_ref::<tonic::Status>().is_some() {
-        // tonic::Status indicates a fullnode/gRPC failure, not an invalid package id.
-        InternalError::Failure(format!("Failed to resolve package id: {error}"))
-    } else {
-        InternalError::InvalidPackage
-    }
 }
 
 /// Aggregate verified encrypted responses into a single response. Each response is expected to have

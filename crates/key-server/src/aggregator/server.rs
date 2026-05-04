@@ -30,8 +30,6 @@ use key_server::errors::InternalError::{
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
-#[cfg(test)]
-use key_server::valid_ptb::ValidPtb;
 use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
@@ -44,8 +42,6 @@ use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
-#[cfg(test)]
-use sui_types::base_types::ObjectID;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
@@ -142,8 +138,6 @@ struct AppState {
     grpc_client: SuiGrpcClient,
     http_client: reqwest::Client,
     committee: Arc<RwLock<CommitteeSnapshot>>,
-    #[cfg(test)]
-    first_pkg_id_override: Option<ObjectID>,
     options: AggregatorOptions,
 }
 
@@ -196,16 +190,6 @@ fn validate_client_sdk_headers<'a>(
     validate_client_sdk_version(version_str, sdk_type, ts_requirement, rust_requirement)?;
 
     Ok((sdk_type, version_str))
-}
-
-async fn expected_full_ids(state: &AppState, ptb: &str) -> Result<HashSet<Vec<u8>>, InternalError> {
-    #[cfg(test)]
-    if let Some(first_pkg_id) = &state.first_pkg_id_override {
-        let valid_ptb = ValidPtb::try_from_base64(ptb)?;
-        return Ok(valid_ptb.full_ids(first_pkg_id).into_iter().collect());
-    }
-
-    get_expected_full_ids(&mut state.grpc_client.clone(), ptb).await
 }
 
 #[tokio::main]
@@ -359,7 +343,8 @@ async fn handle_fetch_key(
 
     // Parse the PTB and build the set of expected full ids every honest committee member should
     // return.
-    let expected_full_ids_owned = expected_full_ids(&state, &request.ptb).await?;
+    let expected_full_ids_owned =
+        get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb).await?;
     if expected_full_ids_owned.is_empty() {
         let err = InternalError::InvalidPTB("Empty key ids".to_string());
         state.aggregator_metrics.observe_error(err.as_str());
@@ -378,7 +363,7 @@ async fn handle_fetch_key(
     let http_client = state.http_client.clone();
     let expected_full_ids = &expected_full_ids;
     let CommitteeSnapshot { threshold, members } = state.committee.read().await.clone();
-    let total_committee_members = members.len();
+    let committee_size = members.len();
     let mut fetch_tasks: FuturesUnordered<_> = members
         .iter()
         .map(|member| {
@@ -428,7 +413,7 @@ async fn handle_fetch_key(
         })
         .collect();
 
-    // Collect responses until we have threshold or threshold becomes impossible.
+    // Collect responses until we have threshold, then abort remaining.
     let mut responses = Vec::new();
     let mut errors = Vec::new();
     let mut completed = 0;
@@ -448,7 +433,7 @@ async fn handle_fetch_key(
         }
 
         // Early termination: check if threshold is still achievable
-        let tasks_remaining = total_committee_members - completed;
+        let tasks_remaining = committee_size - completed;
         if responses.len() + tasks_remaining < threshold as usize {
             warn!(
                 "Cannot reach threshold {} with {} responses and {} tasks remaining (req_id: {})",
@@ -490,7 +475,7 @@ async fn handle_fetch_key(
     // Log successful aggregation
     info!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
-        req_id, threshold, total_committee_members, request.certificate.user
+        req_id, threshold, committee_size, request.certificate.user
     );
 
     Ok(Json(aggregated_response))
@@ -521,6 +506,7 @@ async fn fetch_from_member(
         .header("Request-Id", req_id)
         .header("Content-Type", "application/json")
         .header(&api_credentials.api_key_name, &api_credentials.api_key);
+
     let response = request_builder
         .body(request.to_json_string().expect("should not fail"))
         .timeout(Duration::from_secs(timeout_secs))
@@ -728,8 +714,6 @@ async fn load_committee_state(
         grpc_client,
         http_client: reqwest::Client::new(),
         committee: Arc::new(RwLock::new(committee)),
-        #[cfg(test)]
-        first_pkg_id_override: None,
         options,
     })
 }
@@ -794,7 +778,7 @@ async fn monitor_members_update(mut state: AppState) {
             }
         }
 
-        // Update members and threshold in one snapshot.
+        // Update members and threshold in state.
         *state.committee.write().await = committee;
 
         info!(
@@ -813,6 +797,7 @@ mod tests {
     use fastcrypto::groups::bls12381::G1Element;
     use fastcrypto::groups::{bls12381::G2Element, GroupElement, Scalar};
     use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
+    use key_server::common::PACKAGE_ID_CACHE;
     use key_server::valid_ptb::ValidPtb;
     use rand::thread_rng;
     use seal_sdk::types::Certificate;
@@ -932,6 +917,8 @@ mod tests {
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         let http_client = reqwest::Client::new();
+        let (_, pkg_id, _, first_pkg_id) = test_valid_ptb();
+        PACKAGE_ID_CACHE.insert(pkg_id, first_pkg_id);
 
         AppState {
             aggregator_metrics: metrics,
@@ -941,7 +928,6 @@ mod tests {
                 threshold,
                 members: committee_contents,
             })),
-            first_pkg_id_override: Some(test_valid_ptb().3),
             options,
         }
     }
@@ -1118,8 +1104,7 @@ mod tests {
             }
         }
 
-        // Test 2b: Missing key server version is an upstream/internal failure, not a client
-        // MissingRequiredHeader error.
+        // Test 3: Missing key server version in key server response to aggregator, returns internal failure
         {
             let server_missing_version = MockServer::start().await;
             Mock::given(method("POST"))
@@ -1134,8 +1119,8 @@ mod tests {
                 .mount(&server_missing_version)
                 .await;
 
-            let state =
-                create_test_app_state(&[server_missing_version], 1, vec![G2Element::zero()]);
+            let servers = vec![server_missing_version];
+            let state = create_test_app_state(&servers, 1, vec![G2Element::zero()]);
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
@@ -1151,7 +1136,7 @@ mod tests {
             }
         }
 
-        // Test 3: If key server responses are good, return aggregator's own version to client
+        // Test 4: If key server responses are good, return aggregator's own version to client
         {
             let mut rng = thread_rng();
 
@@ -1389,12 +1374,10 @@ mod tests {
             })))
             .mount(&server_error)
             .await;
+        let mock_servers = vec![server_good, server_error];
 
-        let state = create_test_app_state(
-            &[server_good, server_error],
-            2,
-            vec![partial_pk_0, G2Element::generator()],
-        );
+        let state =
+            create_test_app_state(&mock_servers, 2, vec![partial_pk_0, G2Element::generator()]);
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());

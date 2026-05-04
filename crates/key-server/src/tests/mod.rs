@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::{add_package, add_upgraded_package};
+use crate::common::PACKAGE_ID_CACHE;
 use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
 use crate::master_keys::MasterKeys;
 use crate::sui_rpc_client::SuiRpcClient;
@@ -366,8 +366,6 @@ impl SealTestCluster {
             .expect("UpgradeCap should be created")
             .0;
 
-        add_package(package_id);
-
         (package_id, upgrade_cap)
     }
 
@@ -405,8 +403,7 @@ impl SealTestCluster {
             .expect("Upgraded package should be published")
             .0;
 
-        // Add new package id to internal registry
-        add_upgraded_package(package_id, new_package_id);
+        PACKAGE_ID_CACHE.insert(new_package_id, package_id);
 
         new_package_id
     }

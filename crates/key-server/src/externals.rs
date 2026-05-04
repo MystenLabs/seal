@@ -9,23 +9,11 @@ use crate::sui_rpc_client::RpcResult;
 use crate::sui_rpc_client::SuiRpcClient;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
-use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 use tap::TapFallible;
 use tracing::{debug, warn};
 
-static CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
 static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(default_lru_cache);
-
-#[cfg(test)]
-pub(crate) fn add_package(pkg_id: ObjectID) {
-    CACHE.insert(pkg_id, pkg_id);
-}
-
-#[cfg(test)]
-pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
-    CACHE.insert(new_pkg_id, pkg_id);
-}
 
 pub(crate) async fn check_mvr_package_id(
     mvr_name: &Option<String>,
@@ -63,24 +51,6 @@ pub(crate) async fn check_mvr_package_id(
     Ok(())
 }
 
-pub(crate) async fn fetch_first_pkg_id(
-    pkg_id: &ObjectID,
-    sui_rpc_client: &SuiRpcClient,
-) -> Result<ObjectID, InternalError> {
-    match CACHE.get(pkg_id) {
-        Some(first) => Ok(first),
-        None => {
-            let mut grpc = sui_rpc_client.sui_grpc_client();
-            let first =
-                seal_committee::fetch_first_pkg_id(&mut grpc, &Address::new(pkg_id.into_bytes()))
-                    .await
-                    .map_err(|_| InternalError::InvalidPackage)?;
-            CACHE.insert(*pkg_id, first);
-            Ok(first)
-        }
-    }
-}
-
 pub(crate) fn insert_mvr_cache(mvr_name: &str, package_id: ObjectID) {
     MVR_CACHE.insert(mvr_name.to_string(), package_id);
 }
@@ -97,7 +67,7 @@ pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> Rpc
 
 #[cfg(test)]
 mod tests {
-    use crate::externals::fetch_first_pkg_id;
+    use crate::common::fetch_first_pkg_id;
     use crate::key_server_options::RetryConfig;
     use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
@@ -131,7 +101,8 @@ mod tests {
             RetryConfig::default(),
             None,
         );
-        match fetch_first_pkg_id(&address, &sui_rpc_client).await {
+        let mut grpc_client = sui_rpc_client.sui_grpc_client();
+        match fetch_first_pkg_id(&mut grpc_client, &address).await {
             Ok(first) => {
                 assert_eq!(
                     first.to_hex_literal(),
@@ -159,7 +130,10 @@ mod tests {
             RetryConfig::default(),
             None,
         );
-        let result = fetch_first_pkg_id(&invalid_address, &sui_rpc_client).await;
+        let mut grpc_client = sui_rpc_client.sui_grpc_client();
+        let result = fetch_first_pkg_id(&mut grpc_client, &invalid_address)
+            .await
+            .map_err(|_| InternalError::InvalidPackage);
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
     }
 

@@ -4,6 +4,7 @@
 //! Shared modules for key-server and aggregator server binaries.
 
 pub mod aggregator;
+pub(crate) mod cache;
 pub mod common;
 pub mod errors;
 pub mod metrics;
