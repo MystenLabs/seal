@@ -3,14 +3,14 @@
 use crate::common::add_response_headers;
 use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
 use crate::externals::get_reference_gas_price;
-use crate::key_server_options::{CommitteeState, ServerMode};
+use crate::key_server_options::ServerMode;
 use crate::metrics::{call_with_duration, status_callback, uptime_metric, KeyServerMetrics};
 use crate::metrics_push::create_push_client;
 use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
 use crate::time::{checked_duration_since, from_mins};
-use crate::types::{IbePublicKey, MasterKeyPOP, Network};
+use crate::types::{IbeMasterKey, IbePublicKey, MasterKeyPOP, Network};
 use crate::InternalError::DeprecatedSDKVersion;
 use anyhow::{Context, Result};
 use axum::extract::{Query, Request};
@@ -33,7 +33,7 @@ use futures::future::pending;
 use jsonrpsee::core::ClientError;
 use jsonrpsee::types::error::{INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE};
 use key_server_options::KeyServerOptions;
-use master_keys::MasterKeys;
+use master_keys::{CommitteeKeyState, MasterKeys};
 use metrics::metrics_middleware;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -45,7 +45,7 @@ use rand::thread_rng;
 use seal_committee::grpc_helper::fetch_upgrade_proposal;
 use seal_committee::grpc_helper::{
     fetch_committee_from_key_server, fetch_committee_server_version,
-    get_partial_key_server_for_member,
+    fetch_partial_key_server_for_member,
 };
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
@@ -182,6 +182,26 @@ async fn has_address_aliases(
     }
 }
 
+async fn fetch_and_validate_committee_partial_pk(
+    sui_rpc_client: &SuiRpcClient,
+    key_server_obj_id: &Address,
+    member_address: &Address,
+    master_share: &IbeMasterKey,
+) -> Result<()> {
+    let mut grpc_client = sui_rpc_client.sui_grpc_client();
+    let member_info =
+        fetch_partial_key_server_for_member(&mut grpc_client, key_server_obj_id, member_address)
+            .await?;
+
+    let local_partial_pk = ibe::public_key_from_master_key(master_share);
+    if local_partial_pk != member_info.partial_pk {
+        anyhow::bail!(
+            "Configured committee master share public key does not match onchain partial public key"
+        );
+    }
+    Ok(())
+}
+
 impl Server {
     /// Check if the server is in committee mode.
     fn is_committee_mode(&self) -> bool {
@@ -217,42 +237,16 @@ impl Server {
         );
         info!("Server started with network: {:?}", options.network);
 
-        // Fetch current committee version and server name onchain for committee server.
-        let committee_version = match &mut options.server_mode {
+        let committee_version = match &options.server_mode {
             ServerMode::Committee {
-                key_server_obj_id,
-                member_address,
-                server_name,
-                ..
+                key_server_obj_id, ..
             } => {
                 let mut grpc_client = sui_rpc_client.sui_grpc_client();
-
-                let version = fetch_committee_server_version(&mut grpc_client, key_server_obj_id)
-                    .await
-                    .expect("Failed to fetch committee server version");
-
-                // Fetch committee_id from key server
-                let (committee_id, _) =
-                    fetch_committee_from_key_server(&mut grpc_client, key_server_obj_id)
+                Some(
+                    fetch_committee_server_version(&mut grpc_client, key_server_obj_id)
                         .await
-                        .expect("Failed to fetch committee from key server");
-
-                info!("Committee ID: {}", committee_id);
-
-                // Fetch server name from onchain PartialKeyServer
-                let member_info = get_partial_key_server_for_member(
-                    &mut grpc_client,
-                    key_server_obj_id,
-                    &committee_id,
-                    member_address,
+                        .expect("Failed to fetch committee server version"),
                 )
-                .await
-                .expect("Failed to fetch PartialKeyServer info from onchain");
-
-                *server_name = member_info.name;
-                info!("Committee server name: {}", server_name);
-
-                Some(version)
             }
             _ => None,
         };
@@ -260,6 +254,30 @@ impl Server {
         let master_keys = MasterKeys::load(&options, committee_version).unwrap_or_else(|e| {
             panic!("Failed to load master keys: {e}");
         });
+
+        if let (
+            ServerMode::Committee {
+                key_server_obj_id,
+                member_address,
+                ..
+            },
+            MasterKeys::Committee {
+                key_state: CommitteeKeyState::Active { master_share },
+                ..
+            },
+        ) = (&mut options.server_mode, &master_keys)
+        {
+            fetch_and_validate_committee_partial_pk(
+                &sui_rpc_client,
+                key_server_obj_id,
+                member_address,
+                master_share,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                panic!("Failed to validate active committee partial public key: {e}");
+            });
+        }
 
         let key_server_oid_to_pop = Self::build_key_server_pop_map(&options, &master_keys).await;
 
@@ -631,46 +649,47 @@ impl Server {
     }
 
     /// Spawns a background task that fetches committee key server version from onchain and updates
-    /// the committee version in MasterKeys::Committee. Only spawns a task if in Committee mode
-    /// during rotation and current version is 1 behind target version, and the task is stopped once
-    /// the version is updated.
-    async fn spawn_committee_version_updater(&self) {
-        // Load committee state from config.
+    /// the committee version in MasterKeys::Committee. Only spawns a task if the loaded committee
+    /// key state is waiting for a target rotation version, and the task is stopped once the version
+    /// is updated.
+    async fn spawn_committee_version_updater(&self) -> Option<JoinHandle<()>> {
         let ServerMode::Committee {
-            member_address: _,
+            member_address,
             key_server_obj_id,
-            committee_state: CommitteeState::Rotation { target_version },
-            server_name: _,
+            ..
         } = &self.options.server_mode
         else {
-            return;
+            return None;
         };
-        let target_version = *target_version;
+        let member_address = *member_address;
 
-        // Load current version from MasterKeys. This is initialized during MasterKeys::load().
-        let current_version = match self.master_keys.as_ref() {
-            MasterKeys::Committee {
-                committee_version, ..
-            } => committee_version.load(Ordering::SeqCst),
-            _ => return,
-        };
+        let (current_version, target_version, committee_version_arc, target_master_share) =
+            match self.master_keys.as_ref() {
+                MasterKeys::Committee {
+                    key_state:
+                        CommitteeKeyState::Rotation {
+                            next_master_share,
+                            target_version,
+                            ..
+                        },
+                    committee_version,
+                } => (
+                    committee_version.load(Ordering::SeqCst),
+                    *target_version,
+                    Arc::clone(committee_version),
+                    *next_master_share,
+                ),
+                _ => return None,
+            };
 
         if current_version == target_version {
             info!("Rotation already completed. You can restart in Active mode with only MASTER_SHARE_V{} set.", current_version);
-            return;
+            return None;
         }
 
         info!(
             "Rotation mode: current version {current_version}, target version {target_version}. Starting version monitor."
         );
-
-        // Clone the committee_version Arc for the spawned task
-        let committee_version_arc = match self.master_keys.as_ref() {
-            MasterKeys::Committee {
-                committee_version, ..
-            } => Arc::clone(committee_version),
-            _ => return,
-        };
 
         {
             // Define the fetch function for the periodic updater.
@@ -694,9 +713,11 @@ impl Server {
             .await;
 
             let mut receiver_clone = receiver;
+            let key_server_obj_id_for_validation = *key_server_obj_id;
+            let sui_rpc_client_for_validation = self.sui_rpc_client.clone();
 
             // Spawn the background task to monitor version changes.
-            tokio::spawn(async move {
+            Some(tokio::spawn(async move {
                 loop {
                     match receiver_clone.changed().await {
                         Ok(_) => {
@@ -705,7 +726,22 @@ impl Server {
 
                             // Rotation completes.
                             if version == target_version {
-                                info!("Rotation complete at version {version}. Updating committee version.");
+                                info!(
+                                    "Rotation complete at version {version}. Validating rotated partial public key."
+                                );
+
+                                fetch_and_validate_committee_partial_pk(
+                                    &sui_rpc_client_for_validation,
+                                    &key_server_obj_id_for_validation,
+                                    &member_address,
+                                    &target_master_share,
+                                )
+                                .await
+                                .unwrap_or_else(|e| {
+                                    panic!(
+                                        "Failed to validate rotated committee partial public key: {e}"
+                                    )
+                                });
 
                                 // Update the committee version
                                 committee_version_arc.store(target_version, Ordering::SeqCst);
@@ -728,7 +764,7 @@ impl Server {
                         }
                     }
                 }
-            });
+            }))
         }
     }
 
@@ -1162,7 +1198,7 @@ async fn start_server_background_tasks(
 
     // Spawn committee version updater only if the server is in committee mode and is during
     // rotation (current onchain version is target-1).
-    server.spawn_committee_version_updater().await;
+    let committee_version_updater_handle = server.spawn_committee_version_updater().await;
 
     // Spawn committee rotation event monitor to detect CommitteeRotationInitiated events
     server
@@ -1177,6 +1213,19 @@ async fn start_server_background_tasks(
 
     // Spawn a monitor task that will exit the program if any updater task panics
     let handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
+        let committee_version_monitor_handle = tokio::spawn(async move {
+            if let Some(handle) = committee_version_updater_handle {
+                if let Err(e) = handle.await {
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    panic!("Committee version updater stopped unexpectedly: {e}");
+                }
+                info!("Committee version updater completed.");
+            }
+            pending::<()>().await;
+        });
+
         tokio::select! {
             result = reference_gas_price_handle => {
                 if let Err(e) = result {
@@ -1190,6 +1239,15 @@ async fn start_server_background_tasks(
             result = metrics_push_handle => {
                 if let Err(e) = result {
                     error!("Metrics push task panicked: {:?}", e);
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    }
+                    return Err(e.into());
+                }
+            }
+            result = committee_version_monitor_handle => {
+                if let Err(e) = result {
+                    error!("Committee version updater panicked: {:?}", e);
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
                     }

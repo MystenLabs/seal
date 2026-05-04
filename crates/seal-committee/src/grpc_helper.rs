@@ -195,6 +195,23 @@ pub async fn get_partial_key_server_for_member(
         })
 }
 
+/// Fetch partial key server information for a specific committee member from onchain KeyServer
+/// object. This first resolves the current committee from the KeyServer object.
+pub async fn fetch_partial_key_server_for_member(
+    grpc_client: &mut Client,
+    key_server_obj_id: &Address,
+    member_address: &Address,
+) -> Result<PartialKeyServerInfo> {
+    let (committee_id, _) = fetch_committee_from_key_server(grpc_client, key_server_obj_id).await?;
+    get_partial_key_server_for_member(
+        grpc_client,
+        key_server_obj_id,
+        &committee_id,
+        member_address,
+    )
+    .await
+}
+
 /// Fetch committee ID and package ID from a key server object ID.
 /// Returns (committee_id, package_id).
 pub async fn fetch_committee_from_key_server(
