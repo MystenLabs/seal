@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Optional explicit commit SHA to tag (defaults to latest main)
+        description: "Explicit commit SHA on main to tag (defaults to current main HEAD). Must be a commit already on main — PR branch commits will be rejected."
         type: string
         required: false
         default: ""
@@ -42,17 +42,56 @@ env:
 jobs:
   release:
     name: Create release tag on version bump
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.create_release.outputs.tag }}
       should_build: ${{ steps.create_release.outputs.should_build }}
 
     steps:
+      - name: Resolve commit SHA
+        id: resolve_commit
+        shell: bash
+        run: |
+          COMMIT="${{ inputs.commit_sha }}"
+          if [[ -z "${COMMIT}" ]]; then
+            COMMIT="${{ github.sha }}"
+          fi
+          echo "sha=${COMMIT}" >> $GITHUB_OUTPUT
+
+      - name: Validate commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT="${{ steps.resolve_commit.outputs.sha }}"
+
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Commit must be a 40-character hex SHA, got: '$COMMIT'"
+            exit 1
+          fi
+          echo "✅ Commit format valid: $COMMIT"
+
+          if ! gh api "repos/${{ github.repository }}/commits/$COMMIT" --jq '.sha' > /dev/null 2>&1; then
+            echo "::error::Commit $COMMIT does not exist in ${{ github.repository }}"
+            exit 1
+          fi
+          echo "✅ Commit verified in ${{ github.repository }}"
+
+          status=$(gh api "repos/${{ github.repository }}/compare/${COMMIT}...main" \
+            --jq '.status' 2>/dev/null || echo "error")
+          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+            echo "::error::Commit $COMMIT is not an ancestor of main (compare status: ${status})"
+            exit 1
+          fi
+          echo "✅ Commit confirmed on main branch"
+
       - name: Checkout
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
         with:
           fetch-depth: 2
-          ref: ${{ inputs.commit_sha || 'main' }}
+          ref: ${{ steps.resolve_commit.outputs.sha }}
 
       - name: Check if version changed and create release
         id: create_release
@@ -62,24 +101,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          commit="${{ inputs.commit_sha }}"
-          if [[ -z "${commit}" ]]; then
-            commit="$(git rev-parse HEAD)"
-          fi
+          commit="${{ steps.resolve_commit.outputs.sha }}"
 
-          # Get current version
           version=$(grep '^version = ' Cargo.toml | head -n 1 | tr -d '"' | awk '{print $3}')
           tag="seal-v${version}"
 
-          # Check if tag already exists
           if git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
             echo "Tag ${tag} already exists — nothing to do"
             echo "should_build=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # For manual dispatch, always create release
-          # For push trigger, verify version actually changed
           if [[ "${{ github.event_name }}" == "push" ]] && git show HEAD~1:Cargo.toml &>/dev/null; then
             previous_version=$(git show HEAD~1:Cargo.toml | grep '^version = ' | head -n 1 | tr -d '"' | awk '{print $3}')
             if [[ "${version}" == "${previous_version}" ]]; then
