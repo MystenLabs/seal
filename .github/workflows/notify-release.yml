@@ -1,0 +1,21 @@
+name: Notify sui-operations on version bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+
+jobs:
+  dispatch:
+    name: Trigger release tagging in sui-operations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fire repository_dispatch to sui-operations
+        uses: peter-evans/repository-dispatch@5fc4efd1a4797ddb68ffd0714a238564e4cc0e6f # pin@v4.0.0
+        with:
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          repository: MystenLabs/sui-operations
+          event-type: seal-version-bump

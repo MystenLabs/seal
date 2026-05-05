@@ -1,0 +1,108 @@
+name: Create Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag suffix (default: 'release')"
+        type: string
+        required: false
+        default: "release"
+  schedule:
+    - cron: "0 0 */14 * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: seal-create-release-tag
+
+jobs:
+  create-release-tag:
+    name: Create approved release tag
+    runs-on: ubuntu-latest
+    environment:
+      name: seal-release
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Find latest commit with passing CI tag
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Find the most recent CI tag (format: seal_v*_ci) and its commit
+          ci_tag=$(git tag --list 'seal_v*_ci' --sort=-creatordate | head -n 1 || true)
+          if [[ -z "$ci_tag" ]]; then
+            echo "No CI tags found; skipping." >&2
+            echo "commit_hash=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          commit_hash=$(git rev-list -n 1 "$ci_tag")
+          echo "Using CI tag: $ci_tag -> $commit_hash"
+          echo "commit_hash=$commit_hash" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if no eligible CI-tagged commit
+        if: ${{ steps.find.outputs.commit_hash == '' }}
+        run: echo 'No eligible CI-tagged commit found; exiting.'
+
+      - name: Checkout eligible commit
+        if: ${{ steps.find.outputs.commit_hash != '' }}
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          fetch-depth: 1
+          ref: ${{ steps.find.outputs.commit_hash }}
+
+      - name: Read Seal crate version
+        if: ${{ steps.find.outputs.commit_hash != '' }}
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEAL_CRATE_VERSION=$(grep '^version =' Cargo.toml | head -n 1 | tr -d '"' | awk '{ print $3 }')
+          if [[ -z "$SEAL_CRATE_VERSION" ]]; then
+            echo "Failed to read version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "SEAL_CRATE_VERSION=$SEAL_CRATE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Compute release tag name
+        if: ${{ steps.find.outputs.commit_hash != '' }}
+        id: tagname
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEAL_TAG_NAME="seal_v${SEAL_CRATE_VERSION}_${{ inputs.tag }}"
+          echo "SEAL_TAG_NAME=$SEAL_TAG_NAME" >> "$GITHUB_ENV"
+          echo "tag_name=$SEAL_TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if release tag already exists
+        if: ${{ steps.find.outputs.commit_hash != '' }}
+        shell: bash
+        run: |
+          if git rev-parse -q --verify "refs/tags/${SEAL_TAG_NAME}" >/dev/null; then
+            echo "Release tag ${SEAL_TAG_NAME} already exists; skipping."
+            exit 0
+          fi
+
+      - name: Create and push release tag
+        if: ${{ steps.find.outputs.commit_hash != '' }}
+        shell: bash
+        env:
+          COMMIT_HASH: ${{ steps.find.outputs.commit_hash }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$SEAL_TAG_NAME" "$COMMIT_HASH"
+          git push origin -f "$SEAL_TAG_NAME"
+
+
+
+
+
+
