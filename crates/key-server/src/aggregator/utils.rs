@@ -1,8 +1,8 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::errors::InternalError;
 use crate::valid_ptb::ValidPtb;
+use crate::{common::fetch_first_pkg_id, errors::InternalError};
 use crypto::{elgamal, ibe::verify_encrypted_signature};
 use fastcrypto::{
     encoding::{Encoding, Hex},
@@ -23,16 +23,7 @@ pub async fn get_expected_full_ids(
     ptb_b64: &str,
 ) -> Result<HashSet<Vec<u8>>, InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(ptb_b64)?;
-    let first_pkg_id = crate::common::fetch_first_pkg_id(grpc_client, &valid_ptb.pkg_id())
-        .await
-        .map_err(|error| {
-            if error.downcast_ref::<tonic::Status>().is_some() {
-                // tonic::Status means a fullnode/gRPC failure
-                InternalError::Failure(format!("Failed to resolve package id: {error}"))
-            } else {
-                InternalError::InvalidPackage
-            }
-        })?;
+    let first_pkg_id = fetch_first_pkg_id(grpc_client, &valid_ptb.pkg_id()).await?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
 }
 

@@ -1064,12 +1064,8 @@ mod tests {
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.3.0".parse().unwrap()); // Too old
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
-            match result {
-                Err(error) => {
-                    assert_eq!(error.error, "DeprecatedSDKVersion");
-                }
-                Ok(_) => panic!("Expected error for deprecated SDK version"),
-            }
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "DeprecatedSDKVersion");
         }
 
         // Test 2: Aggregator rejects key server response if version is too old
@@ -1096,12 +1092,8 @@ mod tests {
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
-            match result {
-                Err(error) => {
-                    assert_eq!(error.error, "Failure");
-                }
-                Ok(_) => panic!("Expected error for deprecated key server version"),
-            }
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "Failure");
         }
 
         // Test 3: Missing key server version in key server response to aggregator, returns internal failure
@@ -1128,12 +1120,8 @@ mod tests {
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
-            match result {
-                Err(error) => {
-                    assert_eq!(error.error, "Failure");
-                }
-                Ok(_) => panic!("Expected error for missing key server version"),
-            }
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "Failure");
         }
 
         // Test 4: If key server responses are good, return aggregator's own version to client
@@ -1240,18 +1228,10 @@ mod tests {
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
-        match result {
-            Err(error) => {
-                // Either error can be the majority depending on which 3 errors arrive first. Both
-                // are valid.
-                assert!(
-                    error.error == "InvalidPTB" || error.error == "NoAccess",
-                    "Expected InvalidPTB or NoAccess, got: {}",
-                    error.error
-                );
-            }
-            Ok(_) => panic!("Expected error but got success"),
-        }
+        let error = result.err().unwrap();
+        // Either error can be the majority depending on which 3 errors arrive first. Both
+        // are valid.
+        assert!(error.error == "InvalidPTB" || error.error == "NoAccess");
     }
 
     #[tokio::test]

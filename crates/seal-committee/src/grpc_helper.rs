@@ -43,7 +43,7 @@ pub fn create_grpc_client(network: &Network) -> Result<Client> {
     create_grpc_client_with_url(network, None)
 }
 
-fn extract_object(response: GetObjectResponse) -> Result<Object> {
+pub fn extract_object(response: GetObjectResponse) -> Result<Object> {
     let bcs_bytes = response
         .object
         .and_then(|obj| obj.bcs)

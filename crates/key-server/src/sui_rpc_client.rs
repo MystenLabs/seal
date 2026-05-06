@@ -5,15 +5,16 @@ use std::sync::Arc;
 
 use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
 use prost_types::FieldMask;
+use seal_committee::grpc_helper::extract_object;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::{
-    Bcs, GetEpochRequest, GetObjectRequest, GetObjectResponse, SimulateTransactionRequest,
+    Bcs, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
     SimulateTransactionResponse, Transaction,
 };
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
-use sui_types::object::{Data, Object as SuiObject};
+use sui_types::object::Data;
 use sui_types::transaction::TransactionData;
 
 /// Trait for determining if an error is retriable
@@ -92,17 +93,6 @@ impl RpcError {
             code: None,
         }
     }
-}
-
-fn extract_object(response: GetObjectResponse) -> RpcResult<SuiObject> {
-    let bcs_bytes = response
-        .object
-        .and_then(|obj| obj.bcs)
-        .and_then(|bcs| bcs.value)
-        .map(|bytes| bytes.to_vec())
-        .ok_or_else(|| RpcError::new("No BCS data in response"))?;
-    bcs::from_bytes(&bcs_bytes)
-        .map_err(|e| RpcError::new(format!("Failed to deserialize Object: {e}")))
 }
 
 /// Executes an async function with automatic retries for retriable errors
@@ -290,7 +280,7 @@ impl SuiRpcClient {
                         .map(|r| r.into_inner())
                         .map_err(RpcError::from_grpc)?;
 
-                    let obj = extract_object(response)?;
+                    let obj = extract_object(response).map_err(|e| RpcError::new(e.to_string()))?;
                     let move_object = match &obj.data {
                         Data::Move(m) => m,
                         _ => return Err(RpcError::new("Object is not a Move struct")),

@@ -1,17 +1,18 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::Result;
 use axum::http::HeaderValue;
 use axum::response::Response;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
+use seal_committee::grpc_helper::extract_object;
 use serde::{Deserialize, Serialize};
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_rpc::proto::sui::rpc::v2::{GetObjectRequest, GetObjectResponse};
+use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
-use sui_types::object::{Data, Object};
+use sui_types::object::Data;
 
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
@@ -44,46 +45,41 @@ impl Network {
     }
 }
 
-fn extract_object(response: GetObjectResponse) -> Result<Object> {
-    let bcs_bytes = response
-        .object
-        .and_then(|obj| obj.bcs)
-        .and_then(|bcs| bcs.value)
-        .map(|bytes| bytes.to_vec())
-        .ok_or_else(|| anyhow!("No BCS data in response"))?;
-    Ok(bcs::from_bytes(&bcs_bytes)?)
-}
-
 /// Fetch the first package id for `pkg_id`, using the shared package id cache.
+/// Returns `InternalError::Failure` for grpc errors and `InternalError::InvalidPackage`
+/// when the package cannot resolve.
 pub async fn fetch_first_pkg_id(
     grpc_client: &mut SuiGrpcClient,
     pkg_id: &ObjectID,
-) -> Result<ObjectID> {
-    match PACKAGE_ID_CACHE.get(pkg_id) {
-        Some(first) => Ok(first),
-        None => {
-            let mut request = GetObjectRequest::default();
-            request.object_id = Some(Address::new(pkg_id.into_bytes()).to_string());
-            request.read_mask = Some(prost_types::FieldMask {
-                paths: vec!["bcs".to_string()],
-            });
-
-            let response = grpc_client
-                .ledger_client()
-                .get_object(request)
-                .await
-                .map(|r| r.into_inner())?;
-
-            let obj = extract_object(response)?;
-            let first = match &obj.data {
-                Data::Package(p) => p.original_package_id(),
-                _ => bail!("Object is not a package"),
-            };
-
-            PACKAGE_ID_CACHE.insert(*pkg_id, first);
-            Ok(first)
-        }
+) -> Result<ObjectID, InternalError> {
+    if let Some(first) = PACKAGE_ID_CACHE.get(pkg_id) {
+        return Ok(first);
     }
+
+    let mut request = GetObjectRequest::default();
+    request.object_id = Some(Address::new(pkg_id.into_bytes()).to_string());
+    request.read_mask = Some(prost_types::FieldMask {
+        paths: vec!["bcs".to_string()],
+    });
+
+    let response = grpc_client
+        .ledger_client()
+        .get_object(request)
+        .await
+        .map_err(|e| match e.code() {
+            tonic::Code::NotFound => InternalError::InvalidPackage,
+            _ => InternalError::Failure(format!("Failed to resolve package id: {e}")),
+        })?
+        .into_inner();
+
+    let obj = extract_object(response).map_err(|_| InternalError::InvalidPackage)?;
+    let first = match &obj.data {
+        Data::Package(p) => p.original_package_id(),
+        _ => return Err(InternalError::InvalidPackage),
+    };
+
+    PACKAGE_ID_CACHE.insert(*pkg_id, first);
+    Ok(first)
 }
 
 /// HTTP header name for client SDK version.

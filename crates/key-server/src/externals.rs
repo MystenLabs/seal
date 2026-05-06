@@ -15,6 +15,16 @@ use tracing::{debug, warn};
 
 static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(default_lru_cache);
 
+#[cfg(test)]
+pub(crate) fn add_package(pkg_id: ObjectID) {
+    crate::common::PACKAGE_ID_CACHE.insert(pkg_id, pkg_id);
+}
+
+#[cfg(test)]
+pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
+    crate::common::PACKAGE_ID_CACHE.insert(new_pkg_id, pkg_id);
+}
+
 pub(crate) async fn check_mvr_package_id(
     mvr_name: &Option<String>,
     sui_rpc_client: &SuiRpcClient,
@@ -131,9 +141,7 @@ mod tests {
             None,
         );
         let mut grpc_client = sui_rpc_client.sui_grpc_client();
-        let result = fetch_first_pkg_id(&mut grpc_client, &invalid_address)
-            .await
-            .map_err(|_| InternalError::InvalidPackage);
+        let result = fetch_first_pkg_id(&mut grpc_client, &invalid_address).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
     }
 

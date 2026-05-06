@@ -532,9 +532,7 @@ impl Server {
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
                 let mut grpc = self.sui_rpc_client.sui_grpc_client();
-                common::fetch_first_pkg_id(&mut grpc, &valid_ptb.pkg_id())
-                    .await
-                    .map_err(|_| InternalError::InvalidPackage)
+                common::fetch_first_pkg_id(&mut grpc, &valid_ptb.pkg_id()).await
             })
             .await?;
 
