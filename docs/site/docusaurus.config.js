@@ -97,7 +97,7 @@ const config = {
     [
     "docusaurus-plugin-plausible",
       {
-        domain: 'https://seal-docs.wal.app',
+        domain: 'seal-docs.wal.app',
       },
     ],
   ],
