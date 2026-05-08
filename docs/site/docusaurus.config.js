@@ -52,7 +52,32 @@ const config = {
     mermaid: true,
   },
 
-  clientModules: [require.resolve("./src/client/pushfeedback-toc.js")],
+  scripts: [
+    {
+      src: "https://widget.kapa.ai/kapa-widget.bundle.js",
+      "data-website-id": "PLACEHOLDER_SEAL_KAPA_ID",
+      "data-project-name": "Seal Knowledge",
+      "data-project-color": "#92a4ff",
+      "data-button-hide": "true",
+      "data-modal-title": "Ask Seal AI",
+      "data-modal-ask-ai-input-placeholder": "Ask me anything about Seal!",
+      "data-modal-example-questions":
+        "How do I encrypt data with Seal?,What is threshold encryption?,How do I create an access policy?,What are key servers?",
+      "data-modal-body-bg-color": "#E0E2E6",
+      "data-source-link-bg-color": "#FFFFFF",
+      "data-source-link-border": "#92a4ff",
+      "data-answer-feedback-button-bg-color": "#FFFFFF",
+      "data-answer-copy-button-bg-color": "#FFFFFF",
+      "data-thread-clear-button-bg-color": "#FFFFFF",
+      "data-modal-image": `${process.env.DOCUSAURUS_BASE_URL || '/'}img/logo.svg`,
+      async: true,
+    },
+  ],
+
+  clientModules: [
+    require.resolve("./src/client/pushfeedback-toc.js"),
+    require.resolve("./src/client/kapa-navbar.js"),
+  ],
   
   plugins: [
     function markdownHeadersPlugin() {

@@ -266,3 +266,42 @@ html[data-theme='dark'] {
   align-items: center;
   gap: 0.35rem;
 }
+
+/* Kapa AI button */
+.navbar .kapa-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid #e0e0e0;
+  transition: background 0.15s;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}
+.navbar .kapa-trigger-btn:hover {
+  background: #f5f5f5;
+}
+[data-theme="dark"] .navbar .kapa-trigger-btn {
+  background: #1e1e2e;
+  color: #e0e0e0;
+  border-color: #444;
+}
+[data-theme="dark"] .navbar .kapa-trigger-btn:hover {
+  background: #2a2a3e;
+}
+
+@media (max-width: 996px) {
+  .navbar .kapa-trigger-btn .kapa-label {
+    display: none;
+  }
+  .navbar .kapa-trigger-btn {
+    padding: 0.4rem;
+    border-radius: 50%;
+  }
+}
