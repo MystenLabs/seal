@@ -55,7 +55,7 @@ const config = {
   scripts: [
     {
       src: "https://widget.kapa.ai/kapa-widget.bundle.js",
-      "data-website-id": "PLACEHOLDER_SEAL_KAPA_ID",
+      "data-website-id": "91d6cd50-0276-4125-b8c1-3fe897e8fe47",
       "data-project-name": "Seal Knowledge",
       "data-project-color": "#92a4ff",
       "data-button-hide": "true",
@@ -69,7 +69,10 @@ const config = {
       "data-answer-feedback-button-bg-color": "#FFFFFF",
       "data-answer-copy-button-bg-color": "#FFFFFF",
       "data-thread-clear-button-bg-color": "#FFFFFF",
-      "data-modal-image": `${process.env.DOCUSAURUS_BASE_URL || '/'}img/logo.svg`,
+      "data-modal-image": "/img/logo.svg",
+      "data-mcp-enabled": "true",
+      "data-mcp-server-url": "https://sui.mcp.kapa.ai",
+      "data-mcp-button-text": "Use Seal MCP Server",
       async: true,
     },
   ],
