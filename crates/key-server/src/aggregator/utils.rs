@@ -1,22 +1,20 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::errors::InternalError;
 use crate::valid_ptb::ValidPtb;
+use crate::{common::fetch_first_pkg_id, errors::InternalError};
 use crypto::{elgamal, ibe::verify_encrypted_signature};
 use fastcrypto::{
     encoding::{Encoding, Hex},
     error::{FastCryptoError, FastCryptoResult},
     groups::bls12381::G2Element,
 };
-use seal_committee::fetch_first_pkg_id;
 use seal_sdk::{
     types::{DecryptionKey, ElgamalEncryption, ElgamalVerificationKey},
     FetchKeyResponse,
 };
 use std::collections::{HashMap, HashSet};
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk_types::Address;
 use tracing::info;
 
 /// Parse PTB, resolve its pkg id to the first pkg id via grpc, and return the set of full key ids.
@@ -25,10 +23,7 @@ pub async fn get_expected_full_ids(
     ptb_b64: &str,
 ) -> Result<HashSet<Vec<u8>>, InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(ptb_b64)?;
-    let first_pkg_id =
-        fetch_first_pkg_id(grpc_client, &Address::new(valid_ptb.pkg_id().into_bytes()))
-            .await
-            .map_err(|_| InternalError::InvalidPackage)?;
+    let first_pkg_id = fetch_first_pkg_id(grpc_client, &valid_ptb.pkg_id()).await?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
 }
 
@@ -172,6 +167,27 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_errors_when_party_ids_are_duplicate() {
+        let responses = vec![
+            (
+                0u16,
+                FetchKeyResponse {
+                    decryption_keys: vec![dk_for_testing(b"a")],
+                },
+            ),
+            (
+                0u16,
+                FetchKeyResponse {
+                    decryption_keys: vec![dk_for_testing(b"a")],
+                },
+            ),
+        ];
+
+        let result = aggregate_verified_encrypted_responses(2, responses);
+        assert!(matches!(result, Err(FastCryptoError::InvalidInput)));
+    }
+
+    #[test]
     fn verify_rejects_too_few_keys() {
         let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
         let expected_owned: HashSet<_> = [full_id_for_testing(b"a"), full_id_for_testing(b"b")]
@@ -225,6 +241,17 @@ mod tests {
             .collect();
         let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
         let keys = vec![dk_for_testing(b"a"), dk_for_testing(b"a")];
+        let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
+        assert!(matches!(result, Err(InternalError::Failure(_))));
+    }
+
+    #[test]
+    fn verify_rejects_invalid_encrypted_signature() {
+        let (partial_pk, eg_vk) = partial_pk_and_eph_vk_for_testing();
+        let expected_owned: HashSet<_> = [full_id_for_testing(b"a")].into_iter().collect();
+        let expected: HashSet<_> = expected_owned.iter().map(|id| id.as_slice()).collect();
+        let keys = vec![dk_for_testing(b"a")];
+
         let result = verify_decryption_keys(&keys, &partial_pk, &eg_vk, 0, &expected);
         assert!(matches!(result, Err(InternalError::Failure(_))));
     }

@@ -43,7 +43,7 @@ pub fn create_grpc_client(network: &Network) -> Result<Client> {
     create_grpc_client_with_url(network, None)
 }
 
-fn extract_object(response: GetObjectResponse) -> Result<Object> {
+pub fn extract_object(response: GetObjectResponse) -> Result<Object> {
     let bcs_bytes = response
         .object
         .and_then(|obj| obj.bcs)
@@ -75,27 +75,6 @@ async fn fetch_object<T: serde::de::DeserializeOwned>(
         _ => bail!("Object is not a Move struct"),
     };
     Ok(bcs::from_bytes(move_object.contents())?)
-}
-
-/// Fetch the first package id for `pkg_id` via grpc.
-pub async fn fetch_first_pkg_id(grpc_client: &mut Client, pkg_id: &Address) -> Result<ObjectID> {
-    let mut request = GetObjectRequest::default();
-    request.object_id = Some(pkg_id.to_string());
-    request.read_mask = Some(prost_types::FieldMask {
-        paths: vec!["bcs".to_string()],
-    });
-
-    let response = grpc_client
-        .ledger_client()
-        .get_object(request)
-        .await
-        .map(|r| r.into_inner())?;
-
-    let obj = extract_object(response)?;
-    match &obj.data {
-        Data::Package(p) => Ok(p.original_package_id()),
-        _ => bail!("Object is not a package"),
-    }
 }
 
 /// Fetch seal Committee object onchain.

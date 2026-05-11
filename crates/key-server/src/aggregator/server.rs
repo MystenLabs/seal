@@ -137,9 +137,14 @@ struct AppState {
     aggregator_metrics: Arc<AggregatorMetrics>,
     grpc_client: SuiGrpcClient,
     http_client: reqwest::Client,
-    threshold: Arc<RwLock<u16>>,
-    committee_members: Arc<RwLock<Vec<PartialKeyServer>>>,
+    committee: Arc<RwLock<CommitteeSnapshot>>,
     options: AggregatorOptions,
+}
+
+#[derive(Clone)]
+struct CommitteeSnapshot {
+    threshold: u16,
+    members: Vec<PartialKeyServer>,
 }
 
 fn validate_client_sdk_version(
@@ -243,10 +248,11 @@ async fn main() -> Result<()> {
         });
     }
 
+    let committee = state.committee.read().await.clone();
     info!(
         "Loaded committee with {} members, threshold {}",
-        state.committee_members.read().await.len(),
-        *state.threshold.read().await
+        committee.members.len(),
+        committee.threshold
     );
 
     let port: u16 = env::var("PORT")
@@ -339,6 +345,11 @@ async fn handle_fetch_key(
     // return.
     let expected_full_ids_owned =
         get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb).await?;
+    if expected_full_ids_owned.is_empty() {
+        let err = InternalError::InvalidPTB("Empty key ids".to_string());
+        state.aggregator_metrics.observe_error(err.as_str());
+        return Err(err.into());
+    }
     let expected_full_ids: HashSet<_> = expected_full_ids_owned
         .iter()
         .map(|id| id.as_slice())
@@ -351,10 +362,9 @@ async fn handle_fetch_key(
     let metrics = state.aggregator_metrics.clone();
     let http_client = state.http_client.clone();
     let expected_full_ids = &expected_full_ids;
-    let mut fetch_tasks: FuturesUnordered<_> = state
-        .committee_members
-        .read()
-        .await
+    let CommitteeSnapshot { threshold, members } = state.committee.read().await.clone();
+    let committee_size = members.len();
+    let mut fetch_tasks: FuturesUnordered<_> = members
         .iter()
         .map(|member| {
             let request = request.clone();
@@ -404,8 +414,6 @@ async fn handle_fetch_key(
         .collect();
 
     // Collect responses until we have threshold, then abort remaining.
-    let threshold = *state.threshold.read().await;
-    let total_committee_members = state.committee_members.read().await.len();
     let mut responses = Vec::new();
     let mut errors = Vec::new();
     let mut completed = 0;
@@ -425,7 +433,7 @@ async fn handle_fetch_key(
         }
 
         // Early termination: check if threshold is still achievable
-        let tasks_remaining = total_committee_members - completed;
+        let tasks_remaining = committee_size - completed;
         if responses.len() + tasks_remaining < threshold as usize {
             warn!(
                 "Cannot reach threshold {} with {} responses and {} tasks remaining (req_id: {})",
@@ -465,7 +473,6 @@ async fn handle_fetch_key(
         })?;
 
     // Log successful aggregation
-    let committee_size = state.committee_members.read().await.len();
     info!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
         req_id, threshold, committee_size, request.certificate.user
@@ -567,9 +574,11 @@ fn validate_key_server_version(
     ks_version_req: &VersionReq,
 ) -> Result<(), InternalError> {
     let version = version
-        .ok_or(InternalError::MissingRequiredHeader(
-            HEADER_KEYSERVER_VERSION.to_string(),
-        ))
+        .ok_or_else(|| {
+            let msg = format!("Missing key server version header: {HEADER_KEYSERVER_VERSION}");
+            warn!("{}", msg);
+            InternalError::Failure(msg)
+        })
         .and_then(|v| {
             v.to_str().map_err(|_| {
                 let msg = "Invalid key server version header".to_string();
@@ -695,16 +704,16 @@ async fn load_committee_state(
     let key_server_v2 =
         fetch_key_server_by_id(&mut grpc_client, &options.key_server_object_id).await?;
     let (threshold, members) = key_server_v2.extract_committee_info()?;
+    let committee = CommitteeSnapshot { threshold, members };
 
     // Check and warn about missing API credentials for current committee.
-    check_missing_api_credentials(&members, &options.api_credentials);
+    check_missing_api_credentials(&committee.members, &options.api_credentials);
 
     Ok(AppState {
         aggregator_metrics: metrics,
         grpc_client,
         http_client: reqwest::Client::new(),
-        committee_members: Arc::new(RwLock::new(members)),
-        threshold: Arc::new(RwLock::new(threshold)),
+        committee: Arc::new(RwLock::new(committee)),
         options,
     })
 }
@@ -723,14 +732,14 @@ async fn monitor_members_update(mut state: AppState) {
         ticker.tick().await;
 
         // Fetch the current state from onchain.
-        let (threshold, members) = match fetch_key_server_by_id(
+        let committee = match fetch_key_server_by_id(
             &mut state.grpc_client,
             &state.options.key_server_object_id,
         )
         .await
         .and_then(|ks| ks.extract_committee_info())
         {
-            Ok(info) => info,
+            Ok((threshold, members)) => CommitteeSnapshot { threshold, members },
             Err(e) => {
                 warn!(
                     "Committee refresh failed: {} - will retry in {}s",
@@ -741,11 +750,16 @@ async fn monitor_members_update(mut state: AppState) {
         };
 
         // Check for new members' API credentials by comparing with current state.
-        let member_count = members.len();
+        let member_count = committee.members.len();
+        let threshold = committee.threshold;
         let current_names: HashSet<String> = {
             // Read lock and drop after.
-            let current_members = state.committee_members.read().await;
-            current_members.iter().map(|m| m.name.clone()).collect()
+            let current_committee = state.committee.read().await;
+            current_committee
+                .members
+                .iter()
+                .map(|m| m.name.clone())
+                .collect()
         };
 
         info!(
@@ -753,7 +767,7 @@ async fn monitor_members_update(mut state: AppState) {
             member_count,
             current_names.len()
         );
-        for member in &members {
+        for member in &committee.members {
             if !current_names.contains(&member.name)
                 && !state.options.api_credentials.contains_key(&member.name)
             {
@@ -765,8 +779,7 @@ async fn monitor_members_update(mut state: AppState) {
         }
 
         // Update members and threshold in state.
-        *state.committee_members.write().await = members;
-        *state.threshold.write().await = threshold;
+        *state.committee.write().await = committee;
 
         info!(
             "Committee refreshed: {} members, threshold {}",
@@ -784,6 +797,7 @@ mod tests {
     use fastcrypto::groups::bls12381::G1Element;
     use fastcrypto::groups::{bls12381::G2Element, GroupElement, Scalar};
     use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
+    use key_server::common::PACKAGE_ID_CACHE;
     use key_server::valid_ptb::ValidPtb;
     use rand::thread_rng;
     use seal_sdk::types::Certificate;
@@ -903,13 +917,17 @@ mod tests {
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
         let http_client = reqwest::Client::new();
+        let (_, pkg_id, _, first_pkg_id) = test_valid_ptb();
+        PACKAGE_ID_CACHE.insert(pkg_id, first_pkg_id);
 
         AppState {
             aggregator_metrics: metrics,
             grpc_client,
             http_client,
-            threshold: Arc::new(RwLock::new(threshold)),
-            committee_members: Arc::new(RwLock::new(committee_contents)),
+            committee: Arc::new(RwLock::new(CommitteeSnapshot {
+                threshold,
+                members: committee_contents,
+            })),
             options,
         }
     }
@@ -1046,12 +1064,8 @@ mod tests {
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.3.0".parse().unwrap()); // Too old
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
-            match result {
-                Err(error) => {
-                    assert_eq!(error.error, "DeprecatedSDKVersion");
-                }
-                Ok(_) => panic!("Expected error for deprecated SDK version"),
-            }
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "DeprecatedSDKVersion");
         }
 
         // Test 2: Aggregator rejects key server response if version is too old
@@ -1078,15 +1092,39 @@ mod tests {
             headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
             let result = handle_fetch_key(State(state), headers, Json(request)).await;
 
-            match result {
-                Err(error) => {
-                    assert_eq!(error.error, "Failure");
-                }
-                Ok(_) => panic!("Expected error for deprecated key server version"),
-            }
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "Failure");
         }
 
-        // Test 3: If key server responses are good, return aggregator's own version to client
+        // Test 3: Missing key server version in key server response to aggregator, returns internal failure
+        {
+            let server_missing_version = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/fetch_key"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git-missing-version")
+                        .set_body_json(json!({
+                            "decryption_keys": []
+                        })),
+                )
+                .mount(&server_missing_version)
+                .await;
+
+            let servers = vec![server_missing_version];
+            let state = create_test_app_state(&servers, 1, vec![G2Element::zero()]);
+            let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
+
+            let mut headers = HeaderMap::new();
+            headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
+            headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
+            let result = handle_fetch_key(State(state), headers, Json(request)).await;
+
+            let error = result.err().unwrap();
+            assert_eq!(error.error, "Failure");
+        }
+
+        // Test 4: If key server responses are good, return aggregator's own version to client
         {
             let mut rng = thread_rng();
 
@@ -1190,18 +1228,10 @@ mod tests {
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
         let result = handle_fetch_key(State(state), headers, Json(request)).await;
-        match result {
-            Err(error) => {
-                // Either error can be the majority depending on which 3 errors arrive first. Both
-                // are valid.
-                assert!(
-                    error.error == "InvalidPTB" || error.error == "NoAccess",
-                    "Expected InvalidPTB or NoAccess, got: {}",
-                    error.error
-                );
-            }
-            Ok(_) => panic!("Expected error but got success"),
-        }
+        let error = result.err().unwrap();
+        // Either error can be the majority depending on which 3 errors arrive first. Both
+        // are valid.
+        assert!(error.error == "InvalidPTB" || error.error == "NoAccess");
     }
 
     #[tokio::test]
@@ -1278,6 +1308,62 @@ mod tests {
         let response =
             result.expect("aggregation should succeed with 2 of 3 good responses at threshold=2");
         assert_eq!(response.decryption_keys.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_key_server_error_not_counted_toward_threshold() {
+        // 2 out of 2 committee: one valid response and one upstream error must fail.
+        let mut rng = thread_rng();
+
+        let master_0 = crypto::ibe::MasterKey::rand(&mut rng);
+        let partial_pk_0 = crypto::ibe::public_key_from_master_key(&master_0);
+        let (request, enc_key, _) = create_test_fetch_key_request(&mut rng);
+        let valid_ptb = ValidPtb::try_from_base64(&request.ptb).unwrap();
+        let (_, _, _, first_pkg_id) = test_valid_ptb();
+        let full_id = valid_ptb.full_ids(&first_pkg_id).remove(0);
+        let encrypted_key = crypto::elgamal::encrypt(
+            &mut rng,
+            &crypto::ibe::extract(&master_0, &full_id),
+            &enc_key,
+        );
+        let good_body = seal_sdk::FetchKeyResponse {
+            decryption_keys: vec![seal_sdk::types::DecryptionKey {
+                id: full_id,
+                encrypted_key,
+            }],
+        };
+
+        let server_good = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fetch_key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header(HEADER_KEYSERVER_VERSION, package_version!())
+                    .insert_header(HEADER_KEYSERVER_GIT_VERSION, "git-good")
+                    .set_body_json(serde_json::to_value(&good_body).unwrap()),
+            )
+            .mount(&server_good)
+            .await;
+
+        let server_error = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fetch_key"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                "error": "NoAccess",
+                "message": "Access denied"
+            })))
+            .mount(&server_error)
+            .await;
+        let mock_servers = vec![server_good, server_error];
+
+        let state =
+            create_test_app_state(&mock_servers, 2, vec![partial_pk_0, G2Element::generator()]);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
+        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.9.6".parse().unwrap());
+        let result = handle_fetch_key(State(state), headers, Json(request)).await;
+        assert_eq!(result.err().unwrap().error, "NoAccess");
     }
 
     #[tokio::test]
