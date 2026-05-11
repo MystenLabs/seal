@@ -15,7 +15,7 @@ use seal_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 use sui_rpc::client::Client as SuiGrpcClient;
-use tracing::info;
+use tracing::debug;
 
 /// Parse PTB, resolve its pkg id to the first pkg id via grpc, and return the set of full key ids.
 pub async fn get_expected_full_ids(
@@ -103,7 +103,7 @@ pub fn verify_decryption_keys(
         )?;
     }
 
-    info!(
+    debug!(
         "Verified all {} decryption keys from party {}",
         decryption_keys.len(),
         party_id
