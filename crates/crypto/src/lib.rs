@@ -1177,4 +1177,160 @@ mod tests {
             dem_key,
         ))
     }
+
+    /// Run with: cargo test --release -p crypto --lib bench_ibe -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_ibe() {
+        use std::time::Instant;
+
+        fn fmt(d: std::time::Duration) -> String {
+            if d.as_secs_f64() >= 1.0 {
+                format!("{:>8.2} s ", d.as_secs_f64())
+            } else if d.as_millis() >= 1 {
+                format!("{:>8.2} ms", d.as_secs_f64() * 1e3)
+            } else {
+                format!("{:>8.2} us", d.as_secs_f64() * 1e6)
+            }
+        }
+
+        fn bench<R>(label: &str, iters: u32, f: impl Fn() -> R) -> std::time::Duration {
+            // Warm-up.
+            let _ = f();
+            let start = Instant::now();
+            for _ in 0..iters {
+                let _ = f();
+            }
+            let elapsed = start.elapsed() / iters;
+            println!("    {label:<32}{}  (avg of {iters})", fmt(elapsed));
+            elapsed
+        }
+
+        let data = b"Hello, World!".to_vec();
+        let aad = Some(b"something".to_vec());
+        let configs = [(3u8, 2u8), (5, 3), (7, 4), (10, 7)];
+
+        println!();
+        println!("=== Boneh-Franklin BLS12-381 ===");
+        for (n, t) in configs {
+            println!("  n={n}, threshold={t}");
+            let package_id = ObjectID::random();
+            let id = vec![1, 2, 3, 4];
+            let full_id = create_full_id(&package_id, &id);
+            let mut rng = rand::thread_rng();
+            let keypairs = (0..n).map(|_| ibe::generate_key_pair(&mut rng)).collect_vec();
+            let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+            let public_keys =
+                IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
+
+            bench("seal_encrypt", 20, || {
+                seal_encrypt(
+                    package_id,
+                    id.clone(),
+                    services.clone(),
+                    &public_keys,
+                    t,
+                    EncryptionInput::Hmac256Ctr {
+                        data: data.clone(),
+                        aad: aad.clone(),
+                    },
+                )
+                .unwrap()
+            });
+
+            let (encrypted, _) = seal_encrypt(
+                package_id,
+                id.clone(),
+                services.clone(),
+                &public_keys,
+                t,
+                EncryptionInput::Hmac256Ctr {
+                    data: data.clone(),
+                    aad: aad.clone(),
+                },
+            )
+            .unwrap();
+            let usks = IBEUserSecretKeys::BonehFranklinBLS12381(
+                services
+                    .iter()
+                    .zip(&keypairs)
+                    .map(|(s, kp)| (*s, ibe::extract(&kp.0, &full_id)))
+                    .collect(),
+            );
+
+            bench("seal_decrypt (no verify)", 20, || {
+                seal_decrypt(&encrypted, &usks, None).unwrap()
+            });
+            bench("seal_decrypt (verify)", 20, || {
+                seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
+            });
+        }
+
+        println!();
+        println!("=== Falcon-512 ===");
+        for (n, t) in configs {
+            println!("  n={n}, threshold={t}");
+            let package_id = ObjectID::random();
+            let id = vec![1, 2, 3, 4];
+            let full_id = create_full_id(&package_id, &id);
+
+            let kg_start = Instant::now();
+            let keypairs = (0..n)
+                .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
+                .collect_vec();
+            println!(
+                "    {:<32}{}  (one-shot, n={n})",
+                "FalconIBE::keygen total",
+                fmt(kg_start.elapsed())
+            );
+
+            let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+            let public_keys =
+                IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+            bench("seal_encrypt", 5, || {
+                seal_encrypt(
+                    package_id,
+                    id.clone(),
+                    services.clone(),
+                    &public_keys,
+                    t,
+                    EncryptionInput::Hmac256Ctr {
+                        data: data.clone(),
+                        aad: aad.clone(),
+                    },
+                )
+                .unwrap()
+            });
+
+            let (encrypted, _) = seal_encrypt(
+                package_id,
+                id.clone(),
+                services.clone(),
+                &public_keys,
+                t,
+                EncryptionInput::Hmac256Ctr {
+                    data: data.clone(),
+                    aad: aad.clone(),
+                },
+            )
+            .unwrap();
+            let usks = IBEUserSecretKeys::Falcon512(
+                services
+                    .iter()
+                    .zip(&keypairs)
+                    .map(|(s, kp)| {
+                        (*s, fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id))
+                    })
+                    .collect(),
+            );
+
+            bench("seal_decrypt (no verify)", 5, || {
+                seal_decrypt(&encrypted, &usks, None).unwrap()
+            });
+            bench("seal_decrypt (verify)", 5, || {
+                seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
+            });
+        }
+    }
 }
