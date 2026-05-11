@@ -336,7 +336,7 @@ async fn handle_fetch_key(
         .inc();
 
     // Log incoming request with structured data
-    info!(
+    debug!(
         "Aggregator request - req_id: {}, SDK version: {}, SDK type: {:?}, user: {:?}",
         req_id, version_str, sdk_type, request.certificate.user
     );
@@ -344,7 +344,15 @@ async fn handle_fetch_key(
     // Parse the PTB and build the set of expected full ids every honest committee member should
     // return.
     let expected_full_ids_owned =
-        get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb).await?;
+        get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb)
+            .await
+            .inspect_err(|e| {
+                state.aggregator_metrics.observe_error(e.as_str());
+            })?;
+    state
+        .aggregator_metrics
+        .expected_key_ids_per_request
+        .observe(expected_full_ids_owned.len() as f64);
     if expected_full_ids_owned.is_empty() {
         let err = InternalError::InvalidPTB("Empty key ids".to_string());
         state.aggregator_metrics.observe_error(err.as_str());
@@ -382,12 +390,13 @@ async fn handle_fetch_key(
                             "Missing API credentials config for server '{}' ({})",
                             partial_key_server.name, partial_key_server.url
                         );
-                        warn!("{}", msg);
+                        debug!("{}", msg);
                         return Err(ErrorResponse::from(InternalError::Failure(msg)));
                     }
                 };
 
-                match fetch_from_member(
+                let start = std::time::Instant::now();
+                let result = fetch_from_member(
                     &partial_key_server,
                     &request,
                     req_id,
@@ -397,8 +406,13 @@ async fn handle_fetch_key(
                     timeout_secs,
                     expected_full_ids,
                 )
-                .await
-                {
+                .await;
+                metrics.observe_key_server_fetch_duration(
+                    &partial_key_server.name,
+                    start.elapsed().as_millis() as f64,
+                );
+
+                match result {
                     Ok(response) => Ok((partial_key_server.party_id, response)),
                     Err(e) => {
                         metrics.observe_upstream_error(&partial_key_server.name, &e.error);
@@ -435,7 +449,7 @@ async fn handle_fetch_key(
         // Early termination: check if threshold is still achievable
         let tasks_remaining = committee_size - completed;
         if responses.len() + tasks_remaining < threshold as usize {
-            warn!(
+            debug!(
                 "Cannot reach threshold {} with {} responses and {} tasks remaining (req_id: {})",
                 threshold,
                 responses.len(),
@@ -446,7 +460,7 @@ async fn handle_fetch_key(
         }
     }
 
-    info!(
+    debug!(
         "Collected {} responses, {} errors, threshold {}",
         responses.len(),
         errors.len(),
@@ -473,7 +487,7 @@ async fn handle_fetch_key(
         })?;
 
     // Log successful aggregation
-    info!(
+    debug!(
         "Aggregation successful - req_id: {}, threshold: {}/{}, user: {:?}",
         req_id, threshold, committee_size, request.certificate.user
     );
@@ -495,7 +509,7 @@ async fn fetch_from_member(
     timeout_secs: u64,
     expected_full_ids: &HashSet<&[u8]>,
 ) -> Result<FetchKeyResponse, ErrorResponse> {
-    info!(
+    debug!(
         "Fetching from party {} at {} (req_id: {})",
         member.party_id, member.url, req_id
     );
@@ -543,7 +557,7 @@ async fn fetch_from_member(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    info!(
+    debug!(
         "Received response from party {} ({}) - version={}, git_version={} (req_id: {})",
         member.party_id, member.url, version_str, git_version_str, req_id
     );

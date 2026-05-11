@@ -298,6 +298,12 @@ pub struct AggregatorMetrics {
 
     /// Errors from upstream key servers by server name and error type
     pub upstream_key_server_errors: IntCounterVec,
+
+    /// Upstream key server fetch latency by server name
+    pub key_server_fetch_duration_millis: HistogramVec,
+
+    /// Number of expected key ids per request
+    pub expected_key_ids_per_request: Histogram,
 }
 
 #[allow(dead_code)]
@@ -353,6 +359,21 @@ impl AggregatorMetrics {
                 registry
             )
             .unwrap(),
+            key_server_fetch_duration_millis: register_histogram_vec_with_registry!(
+                "key_server_fetch_duration_millis",
+                "Upstream key server fetch latency in milliseconds by server name",
+                &["key_server_name"],
+                default_fast_call_duration_buckets(),
+                registry
+            )
+            .unwrap(),
+            expected_key_ids_per_request: register_histogram_with_registry!(
+                "expected_key_ids_per_request",
+                "Number of expected key ids per aggregator request",
+                buckets(0.0, 10.0, 1.0),
+                registry
+            )
+            .unwrap(),
         }
     }
 
@@ -364,6 +385,12 @@ impl AggregatorMetrics {
         self.upstream_key_server_errors
             .with_label_values(&[key_server_name, error_type])
             .inc();
+    }
+
+    pub fn observe_key_server_fetch_duration(&self, key_server_name: &str, duration_ms: f64) {
+        self.key_server_fetch_duration_millis
+            .with_label_values(&[key_server_name])
+            .observe(duration_ms);
     }
 }
 
