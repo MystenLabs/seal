@@ -54,7 +54,6 @@ const config = {
 
   clientModules: [
     require.resolve("./src/client/pushfeedback-toc.js"),
-    require.resolve("./src/client/kapa-navbar.js"),
   ],
   
   plugins: [
@@ -142,6 +141,7 @@ const config = {
       "data-mcp-enabled": "true",
       "data-mcp-server-url": "https://sui.mcp.kapa.ai",
       "data-mcp-button-text": "Use Seal MCP Server",
+      async: true,
     },
   ],
 

@@ -210,6 +210,18 @@ export default function NavbarContent() {
               <SearchLauncher />
             </NavbarSearch>
           )}
+          <button
+            type="button"
+            className="kapa-trigger-btn"
+            onClick={() => {
+              if (typeof window !== "undefined" && window.Kapa) {
+                window.Kapa.open();
+              }
+            }}
+          >
+            <img src="/img/logo.svg" alt="" width="23" height="23" />
+            <span className="kapa-label">Ask Seal AI</span>
+          </button>
         </div>
       }
     />
