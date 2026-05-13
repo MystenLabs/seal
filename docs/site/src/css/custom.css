@@ -305,3 +305,79 @@ html[data-theme='dark'] {
     border-radius: 50%;
   }
 }
+
+/* ---------------------------
+   Search: DocSearch button
+   --------------------------- */
+.navbar .DocSearch-Button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid #e0e0e0;
+  transition: background 0.15s;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}
+.navbar .DocSearch-Button:hover {
+  background: #f5f5f5;
+}
+[data-theme="dark"] .navbar .DocSearch-Button {
+  background: #1e1e2e;
+  color: #e0e0e0;
+  border-color: #444;
+}
+[data-theme="dark"] .navbar .DocSearch-Button:hover {
+  background: #2a2a3e;
+}
+.DocSearch-Search-Icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.6;
+}
+
+@media (max-width: 996px) {
+  .navbar .DocSearch-Button .DocSearch-Button-Placeholder {
+    display: none;
+  }
+  .navbar .DocSearch-Button {
+    padding: 0.4rem;
+    border-radius: 50%;
+  }
+}
+
+/* ---------------------------
+   Search: highlight marks
+   --------------------------- */
+.modal-result mark,
+.seal-search mark {
+  background-color: rgba(146, 164, 255, 0.3);
+  color: inherit;
+  padding: 0.1em 0.15em;
+  border-radius: 2px;
+}
+[data-theme="dark"] .modal-result mark,
+[data-theme="dark"] .seal-search mark {
+  background-color: rgba(159, 255, 192, 0.3);
+}
+
+/* ---------------------------
+   Search page layout
+   --------------------------- */
+.seal-search {
+  max-width: 100%;
+}
+.seal-refinement-section {
+  display: none;
+}
+@media (min-width: 768px) {
+  .seal-refinement-section {
+    display: block;
+  }
+}
