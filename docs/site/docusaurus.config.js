@@ -54,6 +54,8 @@ const config = {
 
   clientModules: [
     require.resolve("./src/client/pushfeedback-toc.js"),
+    require.resolve("./src/client/kapa-navbar.js"),
+    require.resolve("./src/client/search-navbar.js"),
   ],
   
   plugins: [

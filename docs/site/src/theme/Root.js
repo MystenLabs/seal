@@ -1,6 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import SearchModal from '@site/src/components/Search/SearchModal';
 
 export default function Root({children}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setSearchOpen(true);
+    document.addEventListener('open-search-modal', handler);
+    return () => document.removeEventListener('open-search-modal', handler);
+  }, []);
+
   return (
     <>
       <a
@@ -17,6 +26,7 @@ export default function Root({children}) {
         llms.txt
       </a>
       {children}
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </>
   );
 }
