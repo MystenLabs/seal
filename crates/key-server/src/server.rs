@@ -30,6 +30,7 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
+use key_server::sui_rpc_client::SuiRpcClient;
 use key_server_options::KeyServerOptions;
 use master_keys::{CommitteeKeyState, MasterKeys};
 use metrics::metrics_middleware;
@@ -40,11 +41,6 @@ use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use rand::thread_rng;
-use seal_committee::grpc_helper::fetch_upgrade_proposal;
-use seal_committee::grpc_helper::{
-    fetch_committee_from_key_server, fetch_committee_server_version,
-    fetch_partial_key_server_for_member,
-};
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
 use seal_sdk::{signed_message, FetchKeyResponse};
@@ -58,8 +54,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
-use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_rpc_client::{RpcError, SuiRpcClient};
 use sui_sdk::rpc_types::EventFilter;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
@@ -83,7 +77,6 @@ mod common;
 mod errors;
 mod externals;
 mod signed_message;
-mod sui_rpc_client;
 mod types;
 mod utils;
 mod valid_ptb;
@@ -147,7 +140,7 @@ struct Server {
 }
 
 async fn has_address_aliases(
-    client: &mut SuiGrpcClient,
+    sui_rpc_client: &SuiRpcClient,
     address: SuiAddress,
 ) -> Result<bool, InternalError> {
     let alias_key_type = TypeTag::Struct(Box::new(StructTag {
@@ -165,19 +158,10 @@ async fn has_address_aliases(
     )
     .map_err(|_| InternalError::InvalidSignature)?;
 
-    // Convert ObjectID to Address for gRPC request
-    let address_id = Address::new(address_aliases_id.into_bytes());
-
-    let request = GetObjectRequest::default().with_object_id(address_id.to_string());
-
-    match client.ledger_client().get_object(request).await {
-        Ok(_) => Ok(true),
-        Err(e) if e.code() == Code::NotFound => Ok(false),
-        Err(e) => Err(InternalError::Failure(format!(
-            "Failed to check address aliases: {}",
-            e
-        ))),
-    }
+    sui_rpc_client
+        .object_exists(Address::new(address_aliases_id.into_bytes()))
+        .await
+        .map_err(|e| InternalError::Failure(format!("Failed to check address aliases: {}", e)))
 }
 
 async fn fetch_and_validate_committee_partial_pk(
@@ -186,10 +170,9 @@ async fn fetch_and_validate_committee_partial_pk(
     member_address: &Address,
     master_share: &IbeMasterKey,
 ) -> Result<()> {
-    let mut grpc_client = sui_rpc_client.sui_grpc_client();
-    let member_info =
-        fetch_partial_key_server_for_member(&mut grpc_client, key_server_obj_id, member_address)
-            .await?;
+    let member_info = sui_rpc_client
+        .fetch_partial_key_server_for_member(key_server_obj_id, member_address)
+        .await?;
 
     let local_partial_pk = ibe::public_key_from_master_key(master_share);
     if local_partial_pk != member_info.partial_pk {
@@ -231,21 +214,21 @@ impl Server {
                 ),
             SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
-            metrics,
+            metrics
+                .as_ref()
+                .map(|m| m.sui_rpc_request_duration_millis.clone()),
         );
         info!("Server started with network: {:?}", options.network);
 
         let committee_version = match &options.server_mode {
             ServerMode::Committee {
                 key_server_obj_id, ..
-            } => {
-                let mut grpc_client = sui_rpc_client.sui_grpc_client();
-                Some(
-                    fetch_committee_server_version(&mut grpc_client, key_server_obj_id)
-                        .await
-                        .expect("Failed to fetch committee server version"),
-                )
-            }
+            } => Some(
+                sui_rpc_client
+                    .fetch_committee_server_version(key_server_obj_id)
+                    .await
+                    .expect("Failed to fetch committee server version"),
+            ),
             _ => None,
         };
 
@@ -365,8 +348,7 @@ impl Server {
         );
 
         // Check if the address has aliases enabled - if so, reject verification
-        let mut grpc_client = self.sui_rpc_client.sui_grpc_client();
-        match has_address_aliases(&mut grpc_client, cert.user).await {
+        match has_address_aliases(&self.sui_rpc_client, cert.user).await {
             Ok(true) => {
                 debug!(
                     "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
@@ -531,8 +513,7 @@ impl Server {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
-                let mut grpc = self.sui_rpc_client.sui_grpc_client();
-                common::fetch_first_pkg_id(&mut grpc, &valid_ptb.pkg_id()).await
+                common::fetch_first_pkg_id(&self.sui_rpc_client, &valid_ptb.pkg_id()).await
             })
             .await?;
 
@@ -702,11 +683,10 @@ impl Server {
             // Define the fetch function for the periodic updater.
             let key_server_obj_id_clone = *key_server_obj_id;
             let fetch_fn = move |client: SuiRpcClient| async move {
-                let mut grpc = client.sui_grpc_client();
-                fetch_committee_server_version(&mut grpc, &key_server_obj_id_clone)
+                client
+                    .fetch_committee_server_version(&key_server_obj_id_clone)
                     .await
                     .map(|v| v as u64)
-                    .map_err(|e| RpcError::new(e.to_string()))
             };
 
             // Define the periodic updater.
@@ -803,23 +783,21 @@ impl Server {
 
             loop {
                 // Fetch current committee ID and package ID from key server object
-                let (committee_id, committee_pkg_id) = {
-                    let mut grpc_client = sui_rpc_client.sui_grpc_client();
-                    match fetch_committee_from_key_server(&mut grpc_client, &key_server_obj_id)
-                        .await
-                    {
-                        Ok((id, pkg_id)) => {
-                            debug!("Current committee_id: {}, package_id: {}", id, pkg_id);
-                            (id, pkg_id)
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to fetch committee ID and package ID from key server: {}",
-                                e
-                            );
-                            tokio::time::sleep(Duration::from_secs(30)).await;
-                            continue;
-                        }
+                let (committee_id, committee_pkg_id) = match sui_rpc_client
+                    .fetch_committee_from_key_server(&key_server_obj_id)
+                    .await
+                {
+                    Ok((id, pkg_id)) => {
+                        debug!("Current committee_id: {}, package_id: {}", id, pkg_id);
+                        (id, pkg_id)
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to fetch committee ID and package ID from key server: {}",
+                            e
+                        );
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        continue;
                     }
                 };
 
@@ -904,24 +882,14 @@ impl Server {
 
         // Define the fetch function for upgrade proposal existence
         let fetch_fn = move |client: SuiRpcClient| async move {
-            let mut grpc = client.sui_grpc_client();
+            let (committee_id, _) = client
+                .fetch_committee_from_key_server(&key_server_obj_id)
+                .await?;
 
-            // Fetch current committee ID from key server object owner
-            let (committee_id, _) =
-                match fetch_committee_from_key_server(&mut grpc, &key_server_obj_id).await {
-                    Ok(result) => result,
-                    Err(e) => {
-                        return Err(RpcError::new(format!(
-                            "Failed to fetch committee ID: {}",
-                            e
-                        )))
-                    }
-                };
-
-            fetch_upgrade_proposal(&mut grpc, &committee_id)
+            client
+                .fetch_upgrade_proposal(&committee_id)
                 .await
                 .map(|proposal_opt| if proposal_opt.is_some() { 1u64 } else { 0u64 })
-                .map_err(|e| RpcError::new(e.to_string()))
         };
 
         // Spawn periodic updater

@@ -3,6 +3,7 @@
 
 pub mod grpc_helper;
 pub mod move_types;
+pub mod rpc_error;
 pub mod types;
 pub mod utils;
 
@@ -16,5 +17,6 @@ pub use move_types::{
     PartialKeyServerInfo, SealCommittee, ServerType, UidWrapper, UpgradeManager, UpgradeProposal,
     UpgradeVote, VecMap, Wrapper,
 };
+pub use rpc_error::{RpcError, RpcResult};
 pub use types::Network;
 pub use utils::build_new_to_old_map;

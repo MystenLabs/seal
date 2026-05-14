@@ -8287,6 +8287,7 @@ dependencies = [
  "sui-sdk-types 0.3.0",
  "sui-types",
  "tokio",
+ "tonic 0.14.5",
 ]
 
 [[package]]
