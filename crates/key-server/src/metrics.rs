@@ -304,6 +304,9 @@ pub struct AggregatorMetrics {
 
     /// Number of expected key ids per request
     pub expected_key_ids_per_request: Histogram,
+
+    /// Sui RPC call duration and status, by gRPC method
+    pub sui_rpc_request_duration_millis: HistogramVec,
 }
 
 #[allow(dead_code)]
@@ -371,6 +374,14 @@ impl AggregatorMetrics {
                 "expected_key_ids_per_request",
                 "Number of expected key ids per aggregator request",
                 buckets(0.0, 10.0, 1.0),
+                registry
+            )
+            .unwrap(),
+            sui_rpc_request_duration_millis: register_histogram_vec_with_registry!(
+                "sui_rpc_request_duration_millis",
+                "Sui RPC request duration and status in milliseconds",
+                &["method", "status"],
+                default_fast_call_duration_buckets(),
                 registry
             )
             .unwrap(),

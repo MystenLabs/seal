@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    key_server_options::{
-        ClientConfig, CommitteeState, KeyServerOptions, RetryConfig, RpcConfig, ServerMode,
-    },
+    key_server_options::{ClientConfig, CommitteeState, KeyServerOptions, RpcConfig, ServerMode},
     master_keys::MasterKeys,
-    sui_rpc_client::SuiRpcClient,
     time::from_mins,
     types::Network,
     DefaultEncoding, Server,
 };
 use fastcrypto::encoding::Encoding;
+use key_server::sui_rpc_client::{RetryConfig, SuiRpcClient};
 use semver::VersionReq;
 use std::{
     collections::HashMap,

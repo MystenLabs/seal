@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::externals::{add_package, add_upgraded_package};
-use crate::key_server_options::{KeyServerOptions, RetryConfig, RpcConfig, ServerMode};
+use crate::key_server_options::{KeyServerOptions, RpcConfig, ServerMode};
 use crate::master_keys::MasterKeys;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::tests::KeyServerType::Open;
 use crate::time::from_mins;
 use crate::types::Network;
@@ -14,6 +13,8 @@ use crypto::ibe::public_key_from_master_key;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::encoding::Encoding;
 use fastcrypto::serde_helpers::ToFromByteArray;
+use key_server::sui_rpc_client::RetryConfig;
+use key_server::sui_rpc_client::SuiRpcClient;
 use move_package_alt::PackageLoader;
 use rand::thread_rng;
 use seal_committee::grpc_helper::fetch_key_server_by_id;

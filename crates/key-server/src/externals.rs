@@ -5,8 +5,7 @@ use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use crate::key_server_options::KeyServerOptions;
 use crate::mvr_forward_resolution;
-use crate::sui_rpc_client::RpcResult;
-use crate::sui_rpc_client::SuiRpcClient;
+use key_server::sui_rpc_client::{RpcResult, SuiRpcClient};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use sui_types::base_types::ObjectID;
@@ -78,13 +77,13 @@ pub(crate) async fn get_reference_gas_price(sui_rpc_client: SuiRpcClient) -> Rpc
 #[cfg(test)]
 mod tests {
     use crate::common::fetch_first_pkg_id;
-    use crate::key_server_options::RetryConfig;
-    use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
     use crate::InternalError;
     use fastcrypto::ed25519::Ed25519KeyPair;
     use fastcrypto::secp256k1::Secp256k1KeyPair;
     use fastcrypto::secp256r1::Secp256r1KeyPair;
+    use key_server::sui_rpc_client::RetryConfig;
+    use key_server::sui_rpc_client::SuiRpcClient;
     use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
     use std::str::FromStr;
     use sui_rpc::client::Client as SuiGrpcClient;
@@ -111,8 +110,7 @@ mod tests {
             RetryConfig::default(),
             None,
         );
-        let mut grpc_client = sui_rpc_client.sui_grpc_client();
-        match fetch_first_pkg_id(&mut grpc_client, &address).await {
+        match fetch_first_pkg_id(&sui_rpc_client, &address).await {
             Ok(first) => {
                 assert_eq!(
                     first.to_hex_literal(),
@@ -140,8 +138,7 @@ mod tests {
             RetryConfig::default(),
             None,
         );
-        let mut grpc_client = sui_rpc_client.sui_grpc_client();
-        let result = fetch_first_pkg_id(&mut grpc_client, &invalid_address).await;
+        let result = fetch_first_pkg_id(&sui_rpc_client, &invalid_address).await;
         assert!(matches!(result, Err(InternalError::InvalidPackage)));
     }
 

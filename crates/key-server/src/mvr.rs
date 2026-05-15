@@ -16,8 +16,8 @@
 use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
-use crate::sui_rpc_client::SuiRpcClient;
 use crate::types::Network;
+use key_server::sui_rpc_client::SuiRpcClient;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::StructTag;
@@ -120,7 +120,7 @@ pub(crate) async fn mvr_forward_resolution(
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     key_server_options.rpc_config.retry_config.clone(),
-                    sui_rpc_client.get_metrics(),
+                    sui_rpc_client.request_duration_millis(),
                 ),
             )
             .await?
@@ -137,7 +137,7 @@ pub(crate) async fn mvr_forward_resolution(
                     "No package info ID for MVR name {mvr_name} on testnet"
                 )))?;
             let package_info: PackageInfo = sui_rpc_client
-                .get_object(package_info_id)
+                .get_object(Address::new(package_info_id.into_bytes()))
                 .await
                 .map_err(|e| match e.code {
                     // None = FN protocol violation (missing BCS / decode failure) — deterministic, not retryable.
@@ -179,10 +179,9 @@ async fn get_from_mvr_registry(
     )));
 
     let child_id = registry_address.derive_dynamic_child_id(&name_type_tag, &name_bcs);
-    let child_object_id = ObjectID::new(child_id.into_inner());
 
     mainnet_sui_rpc_client
-        .get_object::<Field<Name, AppRecord>>(child_object_id)
+        .get_object::<Field<Name, AppRecord>>(child_id)
         .await
         .map_err(|e| match e.code {
             Some(Code::NotFound) => InvalidMVRName,
@@ -215,10 +214,11 @@ fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError>
 #[cfg(test)]
 mod tests {
     use crate::errors::InternalError::InvalidMVRName;
-    use crate::key_server_options::{KeyServerOptions, RetryConfig};
+    use crate::key_server_options::KeyServerOptions;
     use crate::mvr::mvr_forward_resolution;
-    use crate::sui_rpc_client::SuiRpcClient;
     use crate::types::Network;
+    use key_server::sui_rpc_client::RetryConfig;
+    use key_server::sui_rpc_client::SuiRpcClient;
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
     use sui_rpc::client::Client as SuiGrpcClient;

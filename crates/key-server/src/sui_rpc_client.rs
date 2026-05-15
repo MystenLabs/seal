@@ -1,11 +1,23 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+//! Shared gRPC client wrapper used by both the key-server and aggregator binaries.
+//! All public methods retry via [`sui_rpc_with_retries`] and observe per-call
+//! metrics through the optional `sui_rpc_request_duration_millis` histogram.
 
-use crate::{key_server_options::RetryConfig, metrics::KeyServerMetrics};
+use prometheus::HistogramVec;
 use prost_types::FieldMask;
-use seal_committee::grpc_helper::extract_object;
+use seal_committee::grpc_helper::{
+    extract_object, fetch_committee_from_key_server as grpc_fetch_committee_from_key_server,
+    fetch_key_server_by_id as grpc_fetch_key_server_by_id, fetch_object as grpc_fetch_object,
+    fetch_upgrade_proposal as grpc_fetch_upgrade_proposal,
+};
+use seal_committee::move_types::{
+    KeyServerV2, PartialKeyServer, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeProposal,
+};
+pub use seal_committee::{RpcError, RpcResult};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::{
     Bcs, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
@@ -13,9 +25,50 @@ use sui_rpc::proto::sui::rpc::v2::{
 };
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
-use sui_types::base_types::ObjectID;
 use sui_types::object::Data;
 use sui_types::transaction::TransactionData;
+
+/// Configuration for the retry logic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryConfig {
+    /// The maximum number of retries.
+    pub max_retries: u32,
+
+    /// The minimum delay between retries.
+    pub min_delay: Duration,
+
+    /// The maximum delay between retries.
+    pub max_delay: Duration,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            min_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(10),
+        }
+    }
+}
+
+/// Configuration for the Sui RPC client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcConfig {
+    /// Timeout for individual RPC requests.
+    pub timeout: Duration,
+
+    /// Retry configuration applied to retriable transport-level failures.
+    pub retry_config: RetryConfig,
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(60),
+            retry_config: RetryConfig::default(),
+        }
+    }
+}
 
 /// Trait for determining if an error is retriable
 pub trait RetriableError {
@@ -40,28 +93,6 @@ impl RetriableError for sui_sdk::error::Error {
     }
 }
 
-/// Result type for RPC operations
-pub type RpcResult<T> = Result<T, RpcError>;
-
-/// Error type for RPC operations.
-#[derive(Debug)]
-pub struct RpcError {
-    pub(crate) message: String,
-    /// `Some(code)` for gRPC transport errors; `None` for local post-processing failures (missing BCS, decode failure, wrong shape) — deterministic, never retried.
-    pub(crate) code: Option<tonic::Code>,
-}
-
-impl std::fmt::Display for RpcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.code {
-            Some(code) => write!(f, "gRPC {code}: {}", self.message),
-            None => write!(f, "{}", self.message),
-        }
-    }
-}
-
-impl std::error::Error for RpcError {}
-
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
         // Retry only transient gRPC statuses; `code: None` (local decode failures) is deterministic.
@@ -77,30 +108,19 @@ impl RetriableError for RpcError {
     }
 }
 
-impl RpcError {
-    /// Wrap a gRPC status; produces `code: Some(...)`.
-    fn from_grpc(e: tonic::Status) -> Self {
-        Self {
-            message: e.message().to_string(),
-            code: Some(e.code()),
-        }
-    }
+/// Status label constants for `observe_attempt` callbacks.
+pub const RPC_STATUS_SUCCESS: &str = "success";
+pub const RPC_STATUS_RETRIABLE_ERROR: &str = "retriable_error";
+pub const RPC_STATUS_ERROR: &str = "error";
 
-    /// Wrap a local post-processing failure (missing BCS, decode failure, wrong shape); produces `code: None`.
-    pub(crate) fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            code: None,
-        }
-    }
-}
-
-/// Executes an async function with automatic retries for retriable errors
-async fn sui_rpc_with_retries<T, E, F, Fut>(
+/// Executes an async function with automatic retries for retriable errors.
+/// `observe_attempt(status, duration_ms)` is called after each attempt where
+/// `status` is one of `RPC_STATUS_SUCCESS | RPC_STATUS_RETRIABLE_ERROR | RPC_STATUS_ERROR`.
+pub async fn sui_rpc_with_retries<T, E, F, Fut>(
     rpc_config: &RetryConfig,
     label: &str,
-    metrics: Option<Arc<KeyServerMetrics>>,
     mut func: F,
+    mut observe_attempt: impl FnMut(&'static str, f64),
 ) -> Result<T, E>
 where
     E: RetriableError + std::fmt::Debug,
@@ -116,12 +136,7 @@ where
 
         // Return immediately on success
         if result.is_ok() {
-            if let Some(metrics) = metrics.as_ref() {
-                metrics
-                    .sui_rpc_request_duration_millis
-                    .with_label_values(&[label, "success"])
-                    .observe(start_time.elapsed().as_millis() as f64);
-            }
+            observe_attempt(RPC_STATUS_SUCCESS, start_time.elapsed().as_millis() as f64);
             return result;
         }
 
@@ -137,12 +152,10 @@ where
                 attempts_remaining
             );
 
-            if let Some(metrics) = metrics.as_ref() {
-                metrics
-                    .sui_rpc_request_duration_millis
-                    .with_label_values(&[label, "retriable_error"])
-                    .observe(start_time.elapsed().as_millis() as f64);
-            }
+            observe_attempt(
+                RPC_STATUS_RETRIABLE_ERROR,
+                start_time.elapsed().as_millis() as f64,
+            );
 
             // Wait before retrying with exponential backoff
             tokio::time::sleep(current_delay).await;
@@ -160,12 +173,7 @@ where
             result.as_ref().err().expect("should be error")
         );
 
-        if let Some(metrics) = metrics.as_ref() {
-            metrics
-                .sui_rpc_request_duration_millis
-                .with_label_values(&[label, "error"])
-                .observe(start_time.elapsed().as_millis() as f64);
-        }
+        observe_attempt(RPC_STATUS_ERROR, start_time.elapsed().as_millis() as f64);
 
         // Either non-retriable error or no attempts remaining
         return result;
@@ -178,7 +186,7 @@ pub struct SuiRpcClient {
     sui_client: SuiClient,
     sui_grpc_client: SuiGrpcClient,
     rpc_retry_config: RetryConfig,
-    metrics: Option<Arc<KeyServerMetrics>>,
+    request_duration_millis: Option<HistogramVec>,
 }
 
 impl SuiRpcClient {
@@ -186,13 +194,13 @@ impl SuiRpcClient {
         sui_client: SuiClient,
         sui_grpc_client: SuiGrpcClient,
         rpc_retry_config: RetryConfig,
-        metrics: Option<Arc<KeyServerMetrics>>,
+        request_duration_millis: Option<HistogramVec>,
     ) -> Self {
         Self {
             sui_client,
             sui_grpc_client,
             rpc_retry_config,
-            metrics,
+            request_duration_millis,
         }
     }
 
@@ -206,9 +214,34 @@ impl SuiRpcClient {
         self.sui_grpc_client.clone()
     }
 
-    /// Returns a clone of the metrics object.
-    pub fn get_metrics(&self) -> Option<Arc<KeyServerMetrics>> {
-        self.metrics.clone()
+    /// Returns a clone of the request-duration histogram (if any).
+    pub fn request_duration_millis(&self) -> Option<HistogramVec> {
+        self.request_duration_millis.clone()
+    }
+
+    /// Call grpc through retry and metrics.
+    async fn run_grpc_with_retries<T, E, F, Fut>(
+        &self,
+        method: &'static str,
+        mut op: F,
+    ) -> Result<T, E>
+    where
+        E: RetriableError + std::fmt::Debug,
+        F: FnMut(SuiGrpcClient) -> Fut,
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let hist = self.request_duration_millis.clone();
+        sui_rpc_with_retries(
+            &self.rpc_retry_config,
+            method,
+            || op(self.sui_grpc_client.clone()),
+            move |status, duration_ms| {
+                if let Some(h) = hist.as_ref() {
+                    h.with_label_values(&[method, status]).observe(duration_ms);
+                }
+            },
+        )
+        .await
     }
 
     /// Simulates a transaction block via gRPC.
@@ -216,77 +249,162 @@ impl SuiRpcClient {
         &self,
         tx_data: TransactionData,
     ) -> RpcResult<SimulateTransactionResponse> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "simulate_transaction",
-            self.metrics.clone(),
-            || {
-                let mut grpc_client = self.sui_grpc_client.clone();
-                let tx_data = tx_data.clone();
-                async move {
-                    let tx_bcs = Bcs::from(
-                        bcs::to_bytes(&tx_data)
-                            .map_err(|e| RpcError::new(format!("BCS encode failed: {e}")))?,
-                    );
-                    let mut transaction = Transaction::default();
-                    transaction.bcs = Some(tx_bcs);
+        self.run_grpc_with_retries("simulate_transaction", |mut grpc_client| {
+            let tx_data = tx_data.clone();
+            async move {
+                let tx_bcs = Bcs::from(
+                    bcs::to_bytes(&tx_data)
+                        .map_err(|e| RpcError::new(&format!("BCS encode failed: {e}")))?,
+                );
+                let mut transaction = Transaction::default();
+                transaction.bcs = Some(tx_bcs);
 
-                    let request =
-                        SimulateTransactionRequest::new(transaction).with_read_mask(FieldMask {
-                            paths: vec![
-                                "transaction.effects.status".to_string(),
-                                "transaction.effects.gas_used".to_string(),
-                            ],
-                        });
+                let request =
+                    SimulateTransactionRequest::new(transaction).with_read_mask(FieldMask {
+                        paths: vec![
+                            "transaction.effects.status".to_string(),
+                            "transaction.effects.gas_used".to_string(),
+                        ],
+                    });
 
-                    let response = grpc_client
-                        .execution_client()
-                        .simulate_transaction(request)
-                        .await
-                        .map(|r| r.into_inner())
-                        .map_err(RpcError::from_grpc)?;
-
-                    Ok(response)
-                }
-            },
-        )
+                grpc_client
+                    .execution_client()
+                    .simulate_transaction(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(RpcError::from_grpc)
+            }
+        })
         .await
     }
 
     /// Fetches a Move object via gRPC and deserializes its contents as type T.
     pub async fn get_object<T: serde::de::DeserializeOwned>(
         &self,
-        object_id: ObjectID,
+        object_id: Address,
     ) -> RpcResult<T> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_object",
-            self.metrics.clone(),
-            || {
-                let mut grpc_client = self.sui_grpc_client.clone();
-                async move {
-                    let address = Address::new(object_id.into_bytes());
+        self.run_grpc_with_retries("get_object", move |mut grpc| async move {
+            grpc_fetch_object::<T>(&mut grpc, &object_id).await
+        })
+        .await
+    }
 
-                    let mut request = GetObjectRequest::default();
-                    request.object_id = Some(address.to_string());
-                    request.read_mask = Some(FieldMask {
-                        paths: vec!["bcs".to_string()],
-                    });
+    /// Returns true if an object exists.
+    pub async fn object_exists(&self, object_id: Address) -> RpcResult<bool> {
+        self.run_grpc_with_retries("object_exists", move |mut grpc_client| async move {
+            let request = GetObjectRequest::default().with_object_id(object_id.to_string());
 
-                    let response = grpc_client
-                        .ledger_client()
-                        .get_object(request)
-                        .await
-                        .map(|r| r.into_inner())
-                        .map_err(RpcError::from_grpc)?;
+            match grpc_client.ledger_client().get_object(request).await {
+                Ok(_) => Ok(true),
+                Err(status) if status.code() == tonic::Code::NotFound => Ok(false),
+                Err(status) => Err(RpcError::from_grpc(status)),
+            }
+        })
+        .await
+    }
 
-                    let obj = extract_object(response).map_err(|e| RpcError::new(e.to_string()))?;
-                    let move_object = match &obj.data {
-                        Data::Move(m) => m,
-                        _ => return Err(RpcError::new("Object is not a Move struct")),
-                    };
-                    bcs::from_bytes(move_object.contents())
-                        .map_err(|e| RpcError::new(format!("Failed to deserialize contents: {e}")))
+    /// Fetch the on-chain `KeyServerV2` for `ks_obj_id`.
+    pub async fn fetch_key_server_by_id(&self, ks_obj_id: &Address) -> RpcResult<KeyServerV2> {
+        let ks_obj_id = *ks_obj_id;
+        self.run_grpc_with_retries("fetch_key_server_by_id", move |mut grpc| async move {
+            grpc_fetch_key_server_by_id(&mut grpc, &ks_obj_id).await
+        })
+        .await
+    }
+
+    /// Fetch the on-chain `KeyServerV2` and extract the committee `(threshold, members)`
+    /// in one call.
+    pub async fn fetch_committee_info(
+        &self,
+        ks_obj_id: &Address,
+    ) -> RpcResult<(u16, Vec<PartialKeyServer>)> {
+        let key_server_v2 = self.fetch_key_server_by_id(ks_obj_id).await?;
+        key_server_v2
+            .extract_committee_info()
+            .map_err(|e| RpcError::new(&e.to_string()))
+    }
+
+    /// Fetch the committee server version for the on-chain `KeyServerV2` at `ks_obj_id`.
+    pub async fn fetch_committee_server_version(&self, ks_obj_id: &Address) -> RpcResult<u32> {
+        match self.fetch_key_server_by_id(ks_obj_id).await?.server_type {
+            ServerType::Committee { version, .. } => Ok(version),
+            _ => Err(RpcError::new("KeyServer is not of type Committee")),
+        }
+    }
+
+    /// Fetch the partial key server info for `member_address` from the committee
+    /// rooted at `key_server_obj_id`.
+    pub async fn fetch_partial_key_server_for_member(
+        &self,
+        key_server_obj_id: &Address,
+        member_address: &Address,
+    ) -> RpcResult<PartialKeyServerInfo> {
+        let (committee_id, _) = self
+            .fetch_committee_from_key_server(key_server_obj_id)
+            .await?;
+        let ks = self.fetch_key_server_by_id(key_server_obj_id).await?;
+        let committee: SealCommittee = self.get_object(committee_id).await?;
+        let partials = ks
+            .to_partial_key_servers(&committee.members)
+            .map_err(|e| RpcError::new(&e.to_string()))?;
+        partials.get(member_address).cloned().ok_or_else(|| {
+            RpcError::new(&format!(
+                "PartialKeyServerInfo not found for member {member_address}"
+            ))
+        })
+    }
+
+    /// Fetch (committee_id, package_id) for the on-chain `KeyServer` at `ks_obj_id`.
+    pub async fn fetch_committee_from_key_server(
+        &self,
+        ks_obj_id: &Address,
+    ) -> RpcResult<(Address, Address)> {
+        let ks_obj_id = *ks_obj_id;
+        self.run_grpc_with_retries(
+            "fetch_committee_from_key_server",
+            move |mut grpc| async move {
+                let (committee_id, pkg_id) =
+                    grpc_fetch_committee_from_key_server(&mut grpc, &ks_obj_id).await?;
+                Ok((committee_id, Address::new(pkg_id.into_bytes())))
+            },
+        )
+        .await
+    }
+
+    /// Fetch the active upgrade proposal from the committee's UpgradeManager DOF.
+    pub async fn fetch_upgrade_proposal(
+        &self,
+        committee_id: &Address,
+    ) -> RpcResult<Option<UpgradeProposal>> {
+        let committee_id = *committee_id;
+        self.run_grpc_with_retries("fetch_upgrade_proposal", move |mut grpc| async move {
+            grpc_fetch_upgrade_proposal(&mut grpc, &committee_id).await
+        })
+        .await
+    }
+
+    /// Fetches a package object and returns its original package id.
+    pub async fn fetch_package_original_id(&self, package_id: Address) -> RpcResult<Address> {
+        self.run_grpc_with_retries(
+            "fetch_package_original_id",
+            move |mut grpc_client| async move {
+                let mut request = GetObjectRequest::default();
+                request.object_id = Some(package_id.to_string());
+                request.read_mask = Some(FieldMask {
+                    paths: vec!["bcs".to_string()],
+                });
+
+                let response = grpc_client
+                    .ledger_client()
+                    .get_object(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(RpcError::from_grpc)?;
+
+                let obj = extract_object(response).map_err(|_| RpcError::new("Invalid package"))?;
+                match &obj.data {
+                    Data::Package(p) => Ok(Address::new(p.original_package_id().into_bytes())),
+                    _ => Err(RpcError::new("Invalid package")),
                 }
             },
         )
@@ -295,35 +413,25 @@ impl SuiRpcClient {
 
     /// Returns the current reference gas price via gRPC.
     pub async fn get_reference_gas_price(&self) -> RpcResult<u64> {
-        sui_rpc_with_retries(
-            &self.rpc_retry_config,
-            "get_reference_gas_price",
-            self.metrics.clone(),
-            || {
-                let mut grpc_client = self.sui_grpc_client.clone();
-                async move {
-                    let mut client = grpc_client.ledger_client();
-                    let mut request = GetEpochRequest::default();
-                    request.read_mask = Some(FieldMask {
-                        paths: vec!["reference_gas_price".to_string()],
-                    });
-                    client
-                        .get_epoch(request)
-                        .await
-                        .map(|r| r.into_inner().epoch().reference_gas_price())
-                        .map_err(RpcError::from_grpc)
-                }
-            },
-        )
+        self.run_grpc_with_retries("get_reference_gas_price", |mut grpc_client| async move {
+            let mut client = grpc_client.ledger_client();
+            let mut request = GetEpochRequest::default();
+            request.read_mask = Some(FieldMask {
+                paths: vec!["reference_gas_price".to_string()],
+            });
+            client
+                .get_epoch(request)
+                .await
+                .map(|r| r.into_inner().epoch().reference_gas_price())
+                .map_err(RpcError::from_grpc)
+        })
         .await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::key_server_options::RetryConfig;
-    use crate::sui_rpc_client::sui_rpc_with_retries;
-    use crate::sui_rpc_client::RetriableError;
+    use super::{sui_rpc_with_retries, RetriableError, RetryConfig};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -363,6 +471,8 @@ mod tests {
         }
     }
 
+    fn noop_observer(_status: &'static str, _duration_ms: f64) {}
+
     #[tokio::test]
     async fn test_sui_rpc_with_retries_success_first_attempt() {
         let retry_config = RetryConfig {
@@ -374,14 +484,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                0, // Don't fail any attempts
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    0, // Don't fail any attempts
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         assert!(result.is_ok());
@@ -400,14 +515,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                2, // Fail first 2 attempts, succeed on 3rd
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    2, // Fail first 2 attempts, succeed on 3rd
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         assert!(result.is_ok());
@@ -426,14 +546,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Fail more attempts than max_retries
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Fail more attempts than max_retries
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         assert!(result.is_err());
@@ -452,16 +577,21 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Fail more attempts than max_retries
-                MockError {
-                    is_retriable: false,
-                }, // Non-retriable error
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Fail more attempts than max_retries
+                    MockError {
+                        is_retriable: false,
+                    }, // Non-retriable error
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         assert!(result.is_err());
@@ -480,14 +610,19 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                10, // Always fail
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    10, // Always fail
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         assert!(result.is_err());
@@ -507,14 +642,19 @@ mod tests {
 
         let start_time = std::time::Instant::now();
 
-        let result = sui_rpc_with_retries(&retry_config, "mock_function", None, || async {
-            mock_function_with_counter(
-                counter_clone.clone(),
-                5, // Fail first 5 attempts, succeed on 6th
-                MockError { is_retriable: true },
-            )
-            .await
-        })
+        let result = sui_rpc_with_retries(
+            &retry_config,
+            "mock_function",
+            || async {
+                mock_function_with_counter(
+                    counter_clone.clone(),
+                    5, // Fail first 5 attempts, succeed on 6th
+                    MockError { is_retriable: true },
+                )
+                .await
+            },
+            noop_observer,
+        )
         .await;
 
         let elapsed = start_time.elapsed();
