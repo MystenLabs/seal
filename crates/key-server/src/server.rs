@@ -780,6 +780,7 @@ impl Server {
         tokio::spawn(async move {
             info!("Committee rotation event monitor task started");
             let mut last_event_seq: Option<EventID> = None;
+            let mut initialized = false;
 
             loop {
                 // Fetch current committee ID and package ID from key server object
@@ -810,13 +811,38 @@ impl Server {
                     .expect("Parsing should not fail"),
                 );
 
-                // Query for the latest rotation event to detect changes
+                if !initialized {
+                    match sui_client
+                        .event_api()
+                        .query_events(event_filter.clone(), None, Some(1), true)
+                        .await
+                    {
+                        Ok(page) => {
+                            last_event_seq = page.data.first().map(|event| event.id);
+                            initialized = true;
+                            debug!(
+                                "Committee rotation event monitor initialized at cursor: {:?}",
+                                last_event_seq
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to initialize committee rotation event cursor: {}",
+                                e
+                            );
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    continue;
+                }
+
                 let events_result = sui_client
                     .event_api()
                     .query_events(
                         event_filter,
                         last_event_seq,
-                        Some(1), // Fetch the last event
+                        Some(1), // Fetch the next unseen event.
                         false,   // ascending order
                     )
                     .await;
@@ -842,13 +868,7 @@ impl Server {
                                 event_data.committee_id, event_data.old_committee_id
                             );
 
-                            metrics
-                                .committee_mode_rotation_events
-                                .with_label_values(&[
-                                    &event_data.committee_id.to_string(),
-                                    &"rotation_initiated".to_string(),
-                                ])
-                                .set(1);
+                            metrics.committee_mode_rotation_initiated_total.inc();
 
                             last_event_seq = Some(event.id);
                         }
@@ -889,7 +909,12 @@ impl Server {
             client
                 .fetch_upgrade_proposal(&committee_id)
                 .await
-                .map(|proposal_opt| if proposal_opt.is_some() { 1u64 } else { 0u64 })
+                .map(|proposal_opt| {
+                    proposal_opt
+                        .as_ref()
+                        .map(|proposal| proposal.version)
+                        .unwrap_or(0)
+                })
         };
 
         // Spawn periodic updater
@@ -903,27 +928,23 @@ impl Server {
         .await;
 
         let mut receiver_clone = receiver;
-        let mut last_proposal_exists = false;
+        let mut last_proposal_id = *receiver_clone.borrow_and_update();
 
         // Spawn the background task to monitor upgrade proposal changes
         tokio::spawn(async move {
             loop {
                 match receiver_clone.changed().await {
                     Ok(_) => {
-                        let proposal_exists = *receiver_clone.borrow() == 1;
+                        let proposal_id = *receiver_clone.borrow_and_update();
 
-                        // Warn if a new upgrade proposal was created (None -> Some)
-                        if proposal_exists && !last_proposal_exists {
+                        // Warn if a new upgrade proposal was created.
+                        if proposal_id != 0 && proposal_id != last_proposal_id {
                             warn!("New package upgrade proposal detected!");
 
-                            // Record package upgrade proposal event to metrics
-                            metrics
-                                .committee_mode_package_upgrade_events
-                                .with_label_values(&["upgrade_initiated"])
-                                .set(1);
+                            metrics.committee_mode_package_upgrade_initiated_total.inc();
                         }
 
-                        last_proposal_exists = proposal_exists;
+                        last_proposal_id = proposal_id;
                     }
                     Err(e) => {
                         warn!("Package digest monitor channel closed: {}", e);

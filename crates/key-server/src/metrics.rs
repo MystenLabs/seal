@@ -75,11 +75,11 @@ pub struct KeyServerMetrics {
     #[allow(dead_code)]
     pub client_sdk_version: IntCounterVec,
 
-    /// Committee mode rotation events with committee ID and state labels
-    pub committee_mode_rotation_events: IntGaugeVec,
+    /// Committee mode rotation initiated events observed while this server was running
+    pub committee_mode_rotation_initiated_total: IntCounter,
 
-    /// Committee mode package upgrade events with package digest and state labels
-    pub committee_mode_package_upgrade_events: IntGaugeVec,
+    /// Committee mode package upgrade initiated events observed while this server was running
+    pub committee_mode_package_upgrade_initiated_total: IntCounter,
 }
 
 impl KeyServerMetrics {
@@ -190,17 +190,15 @@ impl KeyServerMetrics {
                 registry
             )
             .unwrap(),
-            committee_mode_rotation_events: register_int_gauge_vec_with_registry!(
-                "committee_mode_rotation_events",
-                "Committee mode rotation events, labeled by committee_id and state (rotation_initiated)",
-                &["committee_id", "state"],
+            committee_mode_rotation_initiated_total: register_int_counter_with_registry!(
+                "committee_mode_rotation_initiated_total",
+                "Total number of committee rotation initiated events observed while this server was running",
                 registry
             )
             .unwrap(),
-            committee_mode_package_upgrade_events: register_int_gauge_vec_with_registry!(
-                "committee_mode_package_upgrade_events",
-                "Committee mode package upgrade events, labeled by state (upgrade_initiated)",
-                &["state"],
+            committee_mode_package_upgrade_initiated_total: register_int_counter_with_registry!(
+                "committee_mode_package_upgrade_initiated_total",
+                "Total number of package upgrade proposals observed while this server was running",
                 registry
             )
             .unwrap(),
