@@ -183,8 +183,7 @@ pub fn seal_encrypt(
                 .zip(&services)
                 .zip(shares)
                 .map(|((pk, (_, idx)), share)| {
-                    let polys =
-                        derive_falcon_share_randomness(&randomness, *idx, pk, &full_id);
+                    let polys = derive_falcon_share_randomness(&randomness, *idx, pk, &full_id);
                     fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
                         polys,
                         pk,
@@ -527,6 +526,10 @@ impl IBEEncryptions {
                 let randomness = decrypt_randomness(encrypted_randomness, &randomness_key)?;
                 verify_nonce(&randomness, nonce)?;
             }
+            IBEEncryptions::Falcon512 { .. } => {
+                // No nonce to verify; the encrypted randomness only matters when
+                // `combine_and_check_share_consistency` is called with the public keys.
+            }
         }
         Ok(base_key)
     }
@@ -626,13 +629,12 @@ impl IBEEncryptions {
                         // Recompute the ciphertext deterministically and verify it matches.
                         // This catches any tampering with `(u, v)` — `w` is checked transitively
                         // via the polynomial-consistency check in the caller.
-                        let recomputed =
-                            fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
-                                (k, r, e1, e2),
-                                pk,
-                                &fastcrypto_lattice::ibe::Plaintext::<32>(share),
-                                full_id,
-                            );
+                        let recomputed = fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
+                            (k, r, e1, e2),
+                            pk,
+                            &fastcrypto_lattice::ibe::Plaintext::<32>(share),
+                            full_id,
+                        );
                         if bcs::to_bytes(&recomputed).expect("serializable")
                             != bcs::to_bytes(ciphertext).expect("serializable")
                         {
@@ -874,15 +876,19 @@ mod tests {
             .collect_vec();
 
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+        let services_ids = services
+            .into_iter()
+            .map(|id| NewObjectID::new(id.into_bytes()))
+            .collect_vec();
 
         let threshold = 1;
         let public_keys =
             IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
 
-        let (encrypted, key) = seal_encrypt(
-            package_id,
+        let (encrypted, _key) = seal_encrypt(
+            NewObjectID::new(package_id.into_bytes()),
             id,
-            services.clone(),
+            services_ids.clone(),
             &public_keys,
             threshold,
             EncryptionInput::Aes256Gcm {
@@ -892,7 +898,7 @@ mod tests {
         )
         .unwrap();
 
-        let user_secret_keys = services
+        let user_secret_keys = services_ids
             .into_iter()
             .zip(keypairs)
             .map(|(s, kp)| {
@@ -925,14 +931,18 @@ mod tests {
             .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
             .collect_vec();
         let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+        let services_ids = services
+            .into_iter()
+            .map(|id| NewObjectID::new(id.into_bytes()))
+            .collect_vec();
         let threshold = 2;
         let public_keys =
             IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
 
         let encrypted = seal_encrypt(
-            package_id,
+            NewObjectID::new(package_id.into_bytes()),
             id,
-            services.clone(),
+            services_ids.clone(),
             &public_keys,
             threshold,
             EncryptionInput::Hmac256Ctr {
@@ -944,16 +954,20 @@ mod tests {
         .0;
 
         let user_secret_keys = IBEUserSecretKeys::Falcon512(
-            services
+            services_ids
                 .iter()
                 .zip(&keypairs)
-                .map(|(s, kp)| (*s, fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id)))
+                .map(|(s, kp)| {
+                    (
+                        *s,
+                        fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                    )
+                })
                 .collect(),
         );
 
         // Decryption with verification should succeed.
-        let decrypted =
-            seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap();
+        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap();
         assert_eq!(data, decrypted.as_slice());
 
         // Tampering with one encrypted_share's `w` should be caught by polynomial-consistency.
@@ -1215,17 +1229,24 @@ mod tests {
         for (n, t) in configs {
             println!("  n={n}, threshold={t}");
             let package_id = ObjectID::random();
+            let new_package_id = NewObjectID::new(package_id.into_bytes());
             let id = vec![1, 2, 3, 4];
             let full_id = create_full_id(&package_id, &id);
             let mut rng = rand::thread_rng();
-            let keypairs = (0..n).map(|_| ibe::generate_key_pair(&mut rng)).collect_vec();
-            let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
-            let public_keys =
-                IBEPublicKeys::BonehFranklinBLS12381(keypairs.iter().map(|(_, pk)| *pk).collect_vec());
+            let keypairs = (0..n)
+                .map(|_| ibe::generate_key_pair(&mut rng))
+                .collect_vec();
+            let services = keypairs
+                .iter()
+                .map(|_| NewObjectID::new(ObjectID::random().into_bytes()))
+                .collect_vec();
+            let public_keys = IBEPublicKeys::BonehFranklinBLS12381(
+                keypairs.iter().map(|(_, pk)| *pk).collect_vec(),
+            );
 
             bench("seal_encrypt", 20, || {
                 seal_encrypt(
-                    package_id,
+                    new_package_id,
                     id.clone(),
                     services.clone(),
                     &public_keys,
@@ -1239,7 +1260,7 @@ mod tests {
             });
 
             let (encrypted, _) = seal_encrypt(
-                package_id,
+                new_package_id,
                 id.clone(),
                 services.clone(),
                 &public_keys,
@@ -1271,6 +1292,7 @@ mod tests {
         for (n, t) in configs {
             println!("  n={n}, threshold={t}");
             let package_id = ObjectID::random();
+            let new_package_id = NewObjectID::new(package_id.into_bytes());
             let id = vec![1, 2, 3, 4];
             let full_id = create_full_id(&package_id, &id);
 
@@ -1284,13 +1306,16 @@ mod tests {
                 fmt(kg_start.elapsed())
             );
 
-            let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+            let services = keypairs
+                .iter()
+                .map(|_| NewObjectID::new(ObjectID::random().into_bytes()))
+                .collect_vec();
             let public_keys =
                 IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
 
             bench("seal_encrypt", 5, || {
                 seal_encrypt(
-                    package_id,
+                    new_package_id,
                     id.clone(),
                     services.clone(),
                     &public_keys,
@@ -1304,7 +1329,7 @@ mod tests {
             });
 
             let (encrypted, _) = seal_encrypt(
-                package_id,
+                new_package_id,
                 id.clone(),
                 services.clone(),
                 &public_keys,
@@ -1320,7 +1345,10 @@ mod tests {
                     .iter()
                     .zip(&keypairs)
                     .map(|(s, kp)| {
-                        (*s, fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id))
+                        (
+                            *s,
+                            fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                        )
                     })
                     .collect(),
             );
