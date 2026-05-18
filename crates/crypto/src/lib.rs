@@ -9,6 +9,10 @@ use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
 use fastcrypto::hash::{HashFunction, Sha3_256};
+use fastcrypto_lattice::falcon_util::falcon;
+use fastcrypto_lattice::falcon_util::falcon_field::Felt;
+use fastcrypto_lattice::falcon_util::polynomial::Polynomial;
+use fastcrypto_lattice::ibe::{sample_polynomial_from_seed, IBE};
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -16,7 +20,7 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 pub use sui_sdk_types::Address as ObjectID;
 use tss::split;
-use utils::generate_random_bytes;
+use utils::{generate_random_bytes, xor};
 
 pub mod dem;
 pub mod elgamal;
@@ -77,15 +81,21 @@ pub enum IBEEncryptions {
         encrypted_shares: Vec<ibe::Ciphertext>,
         encrypted_randomness: ibe::EncryptedRandomness,
     },
+    Falcon512 {
+        encrypted_shares: Vec<fastcrypto_lattice::ibe::Ciphertext<512>>,
+        encrypted_randomness: [u8; KEY_SIZE],
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IBEPublicKeys {
     BonehFranklinBLS12381(Vec<ibe::PublicKey>),
+    Falcon512(Vec<falcon::PublicKey<512>>),
 }
 
 pub enum IBEUserSecretKeys {
     BonehFranklinBLS12381(HashMap<ObjectID, ibe::UserSecretKey>),
+    Falcon512(HashMap<ObjectID, falcon::Signature<512>>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -161,13 +171,55 @@ pub fn seal_encrypt(
                 encrypted_randomness,
             }
         }
+        IBEPublicKeys::Falcon512(pks) => {
+            if pks.len() != number_of_shares as usize {
+                return Err(InvalidInput);
+            }
+
+            let randomness: [u8; KEY_SIZE] = generate_random_bytes(&mut rng);
+
+            let encrypted_shares = pks
+                .iter()
+                .zip(&services)
+                .zip(shares)
+                .map(|((pk, (_, idx)), share)| {
+                    let polys = derive_falcon_share_randomness(&randomness, *idx, pk, &full_id);
+                    fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
+                        polys,
+                        pk,
+                        &fastcrypto_lattice::ibe::Plaintext::<32>(share),
+                        &full_id,
+                    )
+                })
+                .collect_vec();
+
+            let ciphertext_bytes: Vec<Vec<u8>> = encrypted_shares
+                .iter()
+                .map(|c| bcs::to_bytes(c).expect("serializable"))
+                .collect();
+            let encrypted_randomness = xor(
+                &randomness,
+                &derive_key(
+                    KeyPurpose::EncryptedRandomness,
+                    &base_key,
+                    &ciphertext_bytes,
+                    threshold,
+                    &key_servers,
+                ),
+            );
+
+            IBEEncryptions::Falcon512 {
+                encrypted_shares,
+                encrypted_randomness,
+            }
+        }
     };
 
     // Derive the key used by the DEM
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        encrypted_shares.ciphertexts(),
+        &encrypted_shares.ciphertexts(),
         threshold,
         &key_servers,
     );
@@ -262,6 +314,43 @@ pub fn seal_decrypt(
                 })
                 .collect_vec()
         }
+        (
+            IBEEncryptions::Falcon512 {
+                encrypted_shares, ..
+            },
+            IBEUserSecretKeys::Falcon512(user_secret_keys),
+        ) => {
+            // Check that the encrypted object is valid,
+            // e.g., that there is an encrypted share of the key per service
+            if encrypted_shares.len() != services.len() {
+                return Err(InvalidInput);
+            }
+
+            let service_indices: Vec<usize> = services
+                .iter()
+                .enumerate()
+                .filter(|(_, (id, _))| user_secret_keys.contains_key(id))
+                .map(|(i, _)| i)
+                .collect();
+            if service_indices.len() < *threshold as usize {
+                return Err(InvalidInput);
+            }
+
+            service_indices
+                .into_iter()
+                .map(|i| {
+                    let (object_id, index) = services[i];
+                    let user_secret_key = user_secret_keys
+                        .get(&object_id)
+                        .expect("This shouldn't happen: It's checked above that this secret key is available");
+                    (index, fastcrypto_lattice::ibe::FalconIBE::decrypt(
+                        user_secret_key,
+                        &encrypted_shares[i],
+                    ).0)
+                })
+                .collect_vec()
+        }
+        _ => panic!("This shouldn't happen: It's not checked above that this secret"),
     };
 
     // Create the base key from the shares
@@ -281,7 +370,7 @@ pub fn seal_decrypt(
     let dem_key = derive_key(
         KeyPurpose::DEM,
         &base_key,
-        encrypted_shares.ciphertexts(),
+        &encrypted_shares.ciphertexts(),
         *threshold,
         &services.iter().map(|(id, _)| *id).collect_vec(),
     );
@@ -309,6 +398,45 @@ impl KeyPurpose {
             KeyPurpose::DEM => &[1],
         }
     }
+}
+
+/// Domain separation tag for the Falcon per-share randomness derivation.
+const DST_FALCON_SHARE_RANDOMNESS: &[u8] = b"SUI-SEAL-IBE-FALCON512-SHARE-RAND-00";
+
+/// Derive the four small polynomials needed by [`fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic`]
+/// from a global seed, the share index, the recipient's public key, and the full id.
+/// Corresponds to `Hash(r, i, A_i, H(ID))` in the protocol.
+fn derive_falcon_share_randomness(
+    seed: &[u8; KEY_SIZE],
+    index: u8,
+    pk: &falcon::PublicKey<512>,
+    full_id: &[u8],
+) -> (
+    Polynomial<Felt>,
+    Polynomial<Felt>,
+    Polynomial<Felt>,
+    Polynomial<Felt>,
+) {
+    const N: usize = 512;
+    let pk_bytes = bcs::to_bytes(pk).expect("serializable");
+    let make = |tag: &[u8], range: std::ops::RangeInclusive<i32>| {
+        let seed_input = [
+            DST_FALCON_SHARE_RANDOMNESS,
+            tag,
+            seed,
+            &[index],
+            &pk_bytes,
+            full_id,
+        ]
+        .concat();
+        sample_polynomial_from_seed(N, &seed_input, range)
+    };
+    (
+        make(b"k", 0..=1),
+        make(b"r", -1..=1),
+        make(b"e1", -1..=1),
+        make(b"e2", -1..=1),
+    )
 }
 
 /// Derive a key for a specific purpose from the base key.
@@ -398,6 +526,10 @@ impl IBEEncryptions {
                 let randomness = decrypt_randomness(encrypted_randomness, &randomness_key)?;
                 verify_nonce(&randomness, nonce)?;
             }
+            IBEEncryptions::Falcon512 { .. } => {
+                // No nonce to verify; the encrypted randomness only matters when
+                // `combine_and_check_share_consistency` is called with the public keys.
+            }
         }
         Ok(base_key)
     }
@@ -411,19 +543,22 @@ impl IBEEncryptions {
         base_key: &[u8; KEY_SIZE],
         threshold: u8,
     ) -> FastCryptoResult<Vec<(u8, [u8; KEY_SIZE])>> {
-        match self {
-            IBEEncryptions::BonehFranklinBLS12381 {
-                encrypted_randomness,
-                encrypted_shares,
-                nonce,
-            } => {
+        match (self, public_keys) {
+            (
+                IBEEncryptions::BonehFranklinBLS12381 {
+                    encrypted_randomness,
+                    encrypted_shares,
+                    nonce,
+                },
+                IBEPublicKeys::BonehFranklinBLS12381(public_keys),
+            ) => {
                 // Decrypt encrypted nonce,
                 let randomness = decrypt_randomness(
                     encrypted_randomness,
                     &derive_key(
                         KeyPurpose::EncryptedRandomness,
                         base_key,
-                        self.ciphertexts(),
+                        &self.ciphertexts(),
                         threshold,
                         &services.iter().map(|(id, _)| *id).collect_vec(),
                     ),
@@ -433,32 +568,100 @@ impl IBEEncryptions {
                 verify_nonce(&randomness, nonce)?;
 
                 // Decrypt all shares
-                match public_keys {
-                    IBEPublicKeys::BonehFranklinBLS12381(public_keys) => {
-                        if public_keys.len() != encrypted_shares.len() {
-                            return Err(InvalidInput);
-                        }
-                        public_keys
-                            .iter()
-                            .zip(encrypted_shares)
-                            .zip(services)
-                            .map(|((pk, ciphertext), service)| {
-                                decrypt_deterministic(&randomness, ciphertext, pk, full_id, service)
-                                    .map(|plaintext| (service.1, plaintext))
-                            })
-                            .collect::<FastCryptoResult<_>>()
-                    }
+                if public_keys.len() != encrypted_shares.len() {
+                    return Err(InvalidInput);
                 }
+                public_keys
+                    .iter()
+                    .zip(encrypted_shares)
+                    .zip(services)
+                    .map(|((pk, ciphertext), service)| {
+                        decrypt_deterministic(&randomness, ciphertext, pk, full_id, service)
+                            .map(|plaintext| (service.1, plaintext))
+                    })
+                    .collect::<FastCryptoResult<_>>()
             }
+            (
+                IBEEncryptions::Falcon512 {
+                    encrypted_shares,
+                    encrypted_randomness,
+                },
+                IBEPublicKeys::Falcon512(public_keys),
+            ) => {
+                if public_keys.len() != encrypted_shares.len()
+                    || encrypted_shares.len() != services.len()
+                {
+                    return Err(InvalidInput);
+                }
+
+                // Recover the global seed `r` used to derive every share's lattice randomness.
+                let randomness = xor(
+                    encrypted_randomness,
+                    &derive_key(
+                        KeyPurpose::EncryptedRandomness,
+                        base_key,
+                        &self.ciphertexts(),
+                        threshold,
+                        &services.iter().map(|(id, _)| *id).collect_vec(),
+                    ),
+                );
+
+                public_keys
+                    .iter()
+                    .zip(encrypted_shares)
+                    .zip(services)
+                    .map(|((pk, ciphertext), (_, idx))| {
+                        let (k, r, e1, e2) =
+                            derive_falcon_share_randomness(&randomness, *idx, pk, full_id);
+
+                        // The FO-style mask is `H(k_polynomial)`. Recover the share via
+                        // `share = w XOR H(k)`.
+                        let k_bytes: Vec<u8> = k
+                            .coefficients
+                            .iter()
+                            .flat_map(|f| f.value().to_le_bytes())
+                            .collect();
+                        let mut hash = Sha3_256::new();
+                        hash.update(&k_bytes);
+                        let hash_k: [u8; KEY_SIZE] = hash.finalize().digest;
+                        let share = xor(&hash_k, &ciphertext.w);
+
+                        // Recompute the ciphertext deterministically and verify it matches.
+                        // This catches any tampering with `(u, v)` — `w` is checked transitively
+                        // via the polynomial-consistency check in the caller.
+                        let recomputed = fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic(
+                            (k, r, e1, e2),
+                            pk,
+                            &fastcrypto_lattice::ibe::Plaintext::<32>(share),
+                            full_id,
+                        );
+                        if bcs::to_bytes(&recomputed).expect("serializable")
+                            != bcs::to_bytes(ciphertext).expect("serializable")
+                        {
+                            return Err(GeneralError(
+                                "Falcon ciphertext verification failed".to_string(),
+                            ));
+                        }
+                        Ok((*idx, share))
+                    })
+                    .collect::<FastCryptoResult<_>>()
+            }
+            _ => Err(InvalidInput),
         }
     }
 
     /// Returns a binary representation of all encrypted shares.
-    fn ciphertexts(&self) -> &[impl AsRef<[u8]>] {
+    fn ciphertexts(&self) -> Vec<Vec<u8>> {
         match self {
             IBEEncryptions::BonehFranklinBLS12381 {
                 encrypted_shares, ..
-            } => encrypted_shares,
+            } => encrypted_shares.iter().map(|c| c.to_vec()).collect_vec(),
+            IBEEncryptions::Falcon512 {
+                encrypted_shares, ..
+            } => encrypted_shares
+                .iter()
+                .map(|c| bcs::to_bytes(c).unwrap().to_vec())
+                .collect_vec(),
         }
     }
 }
@@ -663,6 +866,125 @@ mod tests {
     }
 
     #[test]
+    fn test_plain_round_trip_pq() {
+        let package_id = ObjectID::random();
+        let id = vec![1, 2, 3, 4];
+        let full_id = create_full_id(&package_id, &id);
+
+        let keypairs = (0..3)
+            .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
+            .collect_vec();
+
+        let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+        let services_ids = services
+            .into_iter()
+            .map(|id| NewObjectID::new(id.into_bytes()))
+            .collect_vec();
+
+        let threshold = 1;
+        let public_keys =
+            IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+        let (encrypted, _key) = seal_encrypt(
+            NewObjectID::new(package_id.into_bytes()),
+            id,
+            services_ids.clone(),
+            &public_keys,
+            threshold,
+            EncryptionInput::Aes256Gcm {
+                data: b"Hello, World!".to_vec(),
+                aad: None,
+            },
+        )
+        .unwrap();
+
+        let user_secret_keys = services_ids
+            .into_iter()
+            .zip(keypairs)
+            .map(|(s, kp)| {
+                (
+                    s,
+                    fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            b"Hello, World!".to_vec(),
+            seal_decrypt(
+                &encrypted,
+                &IBEUserSecretKeys::Falcon512(user_secret_keys),
+                None,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_pq_round_trip_with_verification() {
+        let data = b"Hello, World!";
+        let package_id = ObjectID::random();
+        let id = vec![1, 2, 3, 4];
+        let full_id = create_full_id(&package_id, &id);
+
+        let keypairs = (0..3)
+            .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
+            .collect_vec();
+        let services = keypairs.iter().map(|_| ObjectID::random()).collect_vec();
+        let services_ids = services
+            .into_iter()
+            .map(|id| NewObjectID::new(id.into_bytes()))
+            .collect_vec();
+        let threshold = 2;
+        let public_keys =
+            IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+        let encrypted = seal_encrypt(
+            NewObjectID::new(package_id.into_bytes()),
+            id,
+            services_ids.clone(),
+            &public_keys,
+            threshold,
+            EncryptionInput::Hmac256Ctr {
+                data: data.to_vec(),
+                aad: Some(b"something".to_vec()),
+            },
+        )
+        .unwrap()
+        .0;
+
+        let user_secret_keys = IBEUserSecretKeys::Falcon512(
+            services_ids
+                .iter()
+                .zip(&keypairs)
+                .map(|(s, kp)| {
+                    (
+                        *s,
+                        fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                    )
+                })
+                .collect(),
+        );
+
+        // Decryption with verification should succeed.
+        let decrypted = seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap();
+        assert_eq!(data, decrypted.as_slice());
+
+        // Tampering with one encrypted_share's `w` should be caught by polynomial-consistency.
+        let mut tampered = encrypted.clone();
+        match tampered.encrypted_shares {
+            IBEEncryptions::Falcon512 {
+                ref mut encrypted_shares,
+                ..
+            } => {
+                encrypted_shares[0].w[0] ^= 1;
+            }
+            _ => panic!(),
+        }
+        assert!(seal_decrypt(&tampered, &user_secret_keys, Some(&public_keys)).is_err());
+    }
+
+    #[test]
     fn typescript_test_vector() {
         let package_id = [0u8; 32];
         let inner_id = [1, 2, 3, 4];
@@ -839,7 +1161,7 @@ mod tests {
         let dem_key = derive_key(
             KeyPurpose::DEM,
             &base_key,
-            encrypted_shares.ciphertexts(),
+            &encrypted_shares.ciphertexts(),
             threshold,
             &service_ids,
         );
@@ -868,5 +1190,222 @@ mod tests {
             },
             dem_key,
         ))
+    }
+
+    /// Run with: cargo test --release -p crypto --lib bench_ibe -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_ibe() {
+        use std::time::Instant;
+
+        fn fmt(d: std::time::Duration) -> String {
+            if d.as_secs_f64() >= 1.0 {
+                format!("{:>8.2} s ", d.as_secs_f64())
+            } else if d.as_millis() >= 1 {
+                format!("{:>8.2} ms", d.as_secs_f64() * 1e3)
+            } else {
+                format!("{:>8.2} us", d.as_secs_f64() * 1e6)
+            }
+        }
+
+        fn bench<R>(label: &str, iters: u32, f: impl Fn() -> R) -> std::time::Duration {
+            // Warm-up.
+            let _ = f();
+            let start = Instant::now();
+            for _ in 0..iters {
+                let _ = f();
+            }
+            let elapsed = start.elapsed() / iters;
+            println!("    {label:<32}{}  (avg of {iters})", fmt(elapsed));
+            elapsed
+        }
+
+        fn size(label: &str, bytes: usize) {
+            println!("    {label:<32}{bytes:>8} B");
+        }
+
+        let data = b"Hello, World!".to_vec();
+        let aad = Some(b"something".to_vec());
+        let configs = [(3u8, 2u8), (5, 3), (7, 4), (10, 7)];
+
+        println!();
+        println!("=== Boneh-Franklin BLS12-381 ===");
+        for (n, t) in configs {
+            println!("  n={n}, threshold={t}");
+            let package_id = ObjectID::random();
+            let new_package_id = NewObjectID::new(package_id.into_bytes());
+            let id = vec![1, 2, 3, 4];
+            let full_id = create_full_id(&package_id, &id);
+            let mut rng = rand::thread_rng();
+            let keypairs = (0..n)
+                .map(|_| ibe::generate_key_pair(&mut rng))
+                .collect_vec();
+            let services = keypairs
+                .iter()
+                .map(|_| NewObjectID::new(ObjectID::random().into_bytes()))
+                .collect_vec();
+            let public_keys = IBEPublicKeys::BonehFranklinBLS12381(
+                keypairs.iter().map(|(_, pk)| *pk).collect_vec(),
+            );
+
+            let master_key = keypairs[0].0;
+            bench("extract (1 user key)", 50, || {
+                ibe::extract(&master_key, &full_id)
+            });
+
+            bench("seal_encrypt", 20, || {
+                seal_encrypt(
+                    new_package_id,
+                    id.clone(),
+                    services.clone(),
+                    &public_keys,
+                    t,
+                    EncryptionInput::Hmac256Ctr {
+                        data: data.clone(),
+                        aad: aad.clone(),
+                    },
+                )
+                .unwrap()
+            });
+
+            let (encrypted, _) = seal_encrypt(
+                new_package_id,
+                id.clone(),
+                services.clone(),
+                &public_keys,
+                t,
+                EncryptionInput::Hmac256Ctr {
+                    data: data.clone(),
+                    aad: aad.clone(),
+                },
+            )
+            .unwrap();
+            let usks = IBEUserSecretKeys::BonehFranklinBLS12381(
+                services
+                    .iter()
+                    .zip(&keypairs)
+                    .map(|(s, kp)| (*s, ibe::extract(&kp.0, &full_id)))
+                    .collect(),
+            );
+
+            bench("seal_decrypt (no verify)", 20, || {
+                seal_decrypt(&encrypted, &usks, None).unwrap()
+            });
+            bench("seal_decrypt (verify)", 20, || {
+                seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
+            });
+
+            size(
+                "public key size",
+                bcs::to_bytes(&keypairs[0].1).unwrap().len(),
+            );
+            size(
+                "user secret key size",
+                bcs::to_bytes(&ibe::extract(&keypairs[0].0, &full_id))
+                    .unwrap()
+                    .len(),
+            );
+            size(
+                "encrypted object size",
+                bcs::to_bytes(&encrypted).unwrap().len(),
+            );
+        }
+
+        println!();
+        println!("=== Falcon-512 ===");
+        for (n, t) in configs {
+            println!("  n={n}, threshold={t}");
+            let package_id = ObjectID::random();
+            let new_package_id = NewObjectID::new(package_id.into_bytes());
+            let id = vec![1, 2, 3, 4];
+            let full_id = create_full_id(&package_id, &id);
+
+            let kg_start = Instant::now();
+            let keypairs = (0..n)
+                .map(|_| fastcrypto_lattice::ibe::FalconIBE::keygen(&mut thread_rng()))
+                .collect_vec();
+            println!(
+                "    {:<32}{}  (one-shot, n={n})",
+                "FalconIBE::keygen total",
+                fmt(kg_start.elapsed())
+            );
+
+            let services = keypairs
+                .iter()
+                .map(|_| NewObjectID::new(ObjectID::random().into_bytes()))
+                .collect_vec();
+            let public_keys =
+                IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+            let master_key = keypairs[0].1.clone();
+            bench("extract (1 user key)", 5, || {
+                fastcrypto_lattice::ibe::FalconIBE::extract(&master_key, &full_id)
+            });
+
+            bench("seal_encrypt", 5, || {
+                seal_encrypt(
+                    new_package_id,
+                    id.clone(),
+                    services.clone(),
+                    &public_keys,
+                    t,
+                    EncryptionInput::Hmac256Ctr {
+                        data: data.clone(),
+                        aad: aad.clone(),
+                    },
+                )
+                .unwrap()
+            });
+
+            let (encrypted, _) = seal_encrypt(
+                new_package_id,
+                id.clone(),
+                services.clone(),
+                &public_keys,
+                t,
+                EncryptionInput::Hmac256Ctr {
+                    data: data.clone(),
+                    aad: aad.clone(),
+                },
+            )
+            .unwrap();
+            let usks = IBEUserSecretKeys::Falcon512(
+                services
+                    .iter()
+                    .zip(&keypairs)
+                    .map(|(s, kp)| {
+                        (
+                            *s,
+                            fastcrypto_lattice::ibe::FalconIBE::extract(&kp.1, &full_id),
+                        )
+                    })
+                    .collect(),
+            );
+
+            bench("seal_decrypt (no verify)", 5, || {
+                seal_decrypt(&encrypted, &usks, None).unwrap()
+            });
+            bench("seal_decrypt (verify)", 5, || {
+                seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
+            });
+
+            size(
+                "public key size",
+                bcs::to_bytes(&keypairs[0].0).unwrap().len(),
+            );
+            size(
+                "user secret key size",
+                bcs::to_bytes(&fastcrypto_lattice::ibe::FalconIBE::extract(
+                    &keypairs[0].1,
+                    &full_id,
+                ))
+                .unwrap()
+                .len(),
+            );
+            size(
+                "encrypted object size",
+                bcs::to_bytes(&encrypted).unwrap().len(),
+            );
+        }
     }
 }
