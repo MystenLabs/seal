@@ -46,9 +46,57 @@ function getCacheControl(filePath) {
   return 'public, max-age=3600';
 }
 
+/**
+ * Checks whether the request Accept header includes text/markdown.
+ */
+function acceptsMarkdown(req) {
+  const accept = req.headers['accept'] || '';
+  return accept.includes('text/markdown');
+}
+
+/**
+ * Tries to resolve a markdown file for the given pathname.
+ * Maps e.g. "/" → "markdown/index.md", "/developer" → "markdown/developer.md",
+ * "/developer/sdk" → "markdown/developer/sdk.md".
+ */
+function resolveMarkdownFile(pathname) {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+
+  // Direct .md path inside markdown/
+  if (clean === '/') {
+    const candidate = path.join(BUILD_DIR, 'markdown', 'index.md');
+    if (fs.existsSync(candidate)) return candidate;
+    return null;
+  }
+
+  // Try <path>.md first, then <path>/index.md
+  const asMd = path.join(BUILD_DIR, 'markdown', clean + '.md');
+  if (fs.existsSync(asMd)) return asMd;
+
+  const asIndex = path.join(BUILD_DIR, 'markdown', clean, 'index.md');
+  if (fs.existsSync(asIndex)) return asIndex;
+
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url);
   let pathname = parsedUrl.pathname;
+
+  // Content negotiation: serve markdown when Accept: text/markdown
+  if (acceptsMarkdown(req)) {
+    const mdFile = resolveMarkdownFile(pathname);
+    if (mdFile) {
+      const content = fs.readFileSync(mdFile);
+      res.writeHead(200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': 'inline',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
+      });
+      res.end(content);
+      return;
+    }
+  }
 
   // Resolve file path
   let filePath = path.join(BUILD_DIR, pathname);
