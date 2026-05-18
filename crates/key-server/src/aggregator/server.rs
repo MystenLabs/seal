@@ -347,6 +347,12 @@ async fn handle_fetch_key(
         get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb)
             .await
             .inspect_err(|e| {
+                warn!(
+                    req_id = %req_id,
+                    error_type = e.as_str(),
+                    error = ?e,
+                    "Aggregator failed to resolve expected full ids"
+                );
                 state.aggregator_metrics.observe_error(e.as_str());
             })?;
     state
@@ -417,8 +423,8 @@ async fn handle_fetch_key(
                     Err(e) => {
                         metrics.observe_upstream_error(&partial_key_server.name, &e.error);
                         debug!(
-                            "Failed to fetch from party_id={}, url={}: {:?}",
-                            partial_key_server.party_id, partial_key_server.url, e
+                            "Failed to fetch from party_id={}, url={}, req_id={}: {:?},",
+                            partial_key_server.party_id, partial_key_server.url, req_id, e
                         );
                         Err(e)
                     }
@@ -469,7 +475,20 @@ async fn handle_fetch_key(
 
     // If not enough responses, return majority error from key servers.
     if responses.len() < threshold as usize {
+        let response_count = responses.len();
+        let error_count = errors.len();
         let err = handle_insufficient_responses(responses.len(), threshold as usize, errors);
+        warn!(
+            req_id = %req_id,
+            responses = response_count,
+            errors = error_count,
+            completed,
+            committee_size,
+            threshold,
+            error_type = %err.error,
+            message = %err.message,
+            "Aggregator failed to collect threshold responses"
+        );
         state.aggregator_metrics.observe_error(&err.error);
         return Err(err);
     }
