@@ -74,7 +74,7 @@ public enum ServerType has drop, store {
 
 /// PartialKeyServer struct for a committee member.
 public struct PartialKeyServer has copy, drop, store {
-    /// Unique name of the partial key server.
+    /// Unique name of the partial key server. Information only.
     name: String,
     /// Server URL, can be updated by the owning member.
     url: String,

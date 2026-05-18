@@ -352,6 +352,12 @@ async fn handle_fetch_key(
     let expected_full_ids_owned = get_expected_full_ids(&state.sui_rpc_client, &request.ptb)
         .await
         .inspect_err(|e| {
+            warn!(
+                "Aggregator failed to resolve expected full ids (req_id: {}, error_type: {}, error: {:?})",
+                req_id,
+                e.as_str(),
+                e
+            );
             state.aggregator_metrics.observe_error(e.as_str());
         })?;
     state
@@ -360,6 +366,11 @@ async fn handle_fetch_key(
         .observe(expected_full_ids_owned.len() as f64);
     if expected_full_ids_owned.is_empty() {
         let err = InternalError::InvalidPTB("Empty key ids".to_string());
+        debug!(
+            "Aggregator request resolved no expected full ids (req_id: {}, error_type: {})",
+            req_id,
+            err.as_str()
+        );
         state.aggregator_metrics.observe_error(err.as_str());
         return Err(err.into());
     }
@@ -422,8 +433,8 @@ async fn handle_fetch_key(
                     Err(e) => {
                         metrics.observe_upstream_error(&partial_key_server.name, &e.error);
                         debug!(
-                            "Failed to fetch from party_id={}, url={}: {:?}",
-                            partial_key_server.party_id, partial_key_server.url, e
+                            "Failed to fetch from party_id={}, url={}, req_id={}: {:?},",
+                            partial_key_server.party_id, partial_key_server.url, req_id, e
                         );
                         Err(e)
                     }
@@ -474,7 +485,20 @@ async fn handle_fetch_key(
 
     // If not enough responses, return majority error from key servers.
     if responses.len() < threshold as usize {
+        let response_count = responses.len();
+        let error_count = errors.len();
         let err = handle_insufficient_responses(responses.len(), threshold as usize, errors);
+        warn!(
+            "Aggregator failed to collect threshold responses (req_id: {}, responses: {}, errors: {}, completed: {}, committee_size: {}, threshold: {}, error_type: {}, message: {})",
+            req_id,
+            response_count,
+            error_count,
+            completed,
+            committee_size,
+            threshold,
+            err.error,
+            err.message
+        );
         state.aggregator_metrics.observe_error(&err.error);
         return Err(err);
     }

@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
-use sui_package_alt::{mainnet_environment, testnet_environment};
+use sui_package_alt::{find_environment, mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_rpc::Client;
 use sui_rpc_api::client::ExecutedTransaction;
@@ -187,9 +187,13 @@ enum Commands {
         #[arg(short, long, default_value = "move/committee")]
         package_path: PathBuf,
 
-        /// Network to build for (Testnet or Mainnet).
+        /// Network to build for.
         #[arg(short, long)]
         network: Network,
+
+        /// Custom RPC URL to use for resolving the package environment. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        #[arg(long)]
+        rpc_url: Option<String>,
     },
 
     /// Approve package upgrade (as committee member).
@@ -206,7 +210,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -221,7 +225,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -240,7 +244,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -255,7 +259,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -270,7 +274,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -344,7 +348,9 @@ async fn main() -> Result<()> {
             }
 
             // Build and publish package.
-            let compiled_package = create_build_config(&network).build(&committee_path)?;
+            let build_config =
+                create_build_config(&committee_path, &network, Some(&wallet), true).await?;
+            let compiled_package = build_config.build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
@@ -1063,8 +1069,30 @@ async fn main() -> Result<()> {
         Commands::PackageDigest {
             package_path,
             network,
+            rpc_url,
         } => {
-            compute_package_digest(&package_path, &network)?;
+            let wallet = if matches!(network, Network::Custom) {
+                let wallet = if let Some(rpc_url) = rpc_url.as_deref() {
+                    load_wallet_for_network(
+                        cli.wallet.as_deref(),
+                        cli.active_address,
+                        &network,
+                        Some(rpc_url),
+                    )?
+                } else {
+                    load_wallet(cli.wallet.as_deref(), cli.active_address)?
+                };
+                let wallet_env = wallet.get_active_env()?;
+                println!("Network: custom");
+                println!(
+                    "Wallet environment: {} ({})",
+                    wallet_env.alias, wallet_env.rpc
+                );
+                Some(wallet)
+            } else {
+                None
+            };
+            compute_package_digest(&package_path, &network, wallet.as_ref()).await?;
         }
 
         Commands::ApproveUpgrade {
@@ -1073,7 +1101,12 @@ async fn main() -> Result<()> {
             network,
             rpc_url,
         } => {
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             vote_for_upgrade(
                 Some(&package_path),
                 &key_server_id,
@@ -1091,7 +1124,12 @@ async fn main() -> Result<()> {
             network,
             rpc_url,
         } => {
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             vote_for_upgrade(
                 None,
                 &key_server_id,
@@ -1111,18 +1149,25 @@ async fn main() -> Result<()> {
             rpc_url,
         } => {
             // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             let executor_address = wallet.active_address()?;
 
             println!("Executor address: {}", executor_address);
             print_network_info(&network, rpc_url.as_deref());
 
             // Build package and compute digest.
-            let digest = get_package_digest(&package_path, &network)?;
+            let digest = get_package_digest(&package_path, &network, Some(&wallet)).await?;
             println!("\nPackage digest: {}", digest);
 
             // Build the package to get compiled modules and dependencies.
-            let compiled_package = create_build_config(&network).build(&package_path)?;
+            let build_config =
+                create_build_config(&package_path, &network, Some(&wallet), true).await?;
+            let compiled_package = build_config.build(&package_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             // Fetch key server to get committee ID.
@@ -1643,7 +1688,12 @@ async fn create_dkg_state_and_message(
 
         let message = party.create_message(&mut thread_rng())?;
         let nizk_proof = party.nizk_pop_of_secret(&mut thread_rng());
-        let signed_message = sign_message(message.clone(), &local_keys.signing_sk, nizk_proof);
+        let signed_message = sign_message(
+            &committee_id,
+            message.clone(),
+            &local_keys.signing_sk,
+            nizk_proof,
+        );
 
         // Write message to file.
         let message_hex = bcs_hex_encode!(&signed_message);
@@ -1962,7 +2012,12 @@ fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str
 }
 
 /// Create a BuildConfig for package compilation.
-fn create_build_config(network: &Network) -> BuildConfig {
+async fn create_build_config(
+    package_path: &Path,
+    network: &Network,
+    wallet: Option<&WalletContext>,
+    for_publication: bool,
+) -> Result<BuildConfig> {
     let move_build_config = MoveBuildConfig {
         root_as_zero: true,
         ..Default::default()
@@ -1971,15 +2026,25 @@ fn create_build_config(network: &Network) -> BuildConfig {
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
-        Network::Custom => testnet_environment(),
+        Network::Custom => {
+            let wallet = wallet.ok_or_else(|| {
+                anyhow!(
+                    "Custom network package builds require a wallet environment; pass --rpc-url \
+                    or switch the active wallet environment to the custom network"
+                )
+            })?;
+            find_environment(package_path, None, wallet, for_publication)
+                .await
+                .context("Failed to resolve package environment for custom network")?
+        }
     };
 
-    BuildConfig {
+    Ok(BuildConfig {
         config: move_build_config,
         run_bytecode_verifier: true,
         print_diags_to_stderr: true,
         environment,
-    }
+    })
 }
 
 /// Load DKG messages from a directory.
@@ -2029,11 +2094,10 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
 }
 
 /// Process DKG messages and complete the protocol. Returns the DKG output and a consistency hash
-/// over all received messages `Blake2b256(BCS(msg_1) || ... || BCS(msg_n))` where messages are
-/// sorted by sender party ID.
+/// over one BCS-serialized vector of messages where messages are sorted by sender party ID.
 fn process_dkg_messages(
     state: &mut DkgState,
-    messages: Vec<SignedMessage>,
+    mut messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
 ) -> Result<(
     fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>,
@@ -2041,14 +2105,20 @@ fn process_dkg_messages(
 )> {
     println!("Processing {} message(s)...", messages.len());
 
-    // Compute hash over messages sorted by sender party ID.
-    let messages_hash = {
-        let mut sorted = messages.iter().collect::<Vec<_>>();
-        sorted.sort_by_key(|m| m.message.sender);
-        let mut hasher = Blake2b256::default();
-        for msg in sorted {
-            hasher.update(&bcs::to_bytes(&msg)?);
+    let mut seen_senders = HashSet::new();
+    for signed_msg in &messages {
+        let sender = signed_msg.message.sender;
+        if !seen_senders.insert(sender) {
+            bail!("Duplicate DKG message from party {sender}");
         }
+    }
+
+    // Compute hash over of the vector of messages sorted by sender party ID.
+    messages.sort_by_key(|m| m.message.sender);
+    let messages_hash = {
+        let hash_input = bcs::to_bytes(&messages)?;
+        let mut hasher = Blake2b256::default();
+        hasher.update(&hash_input);
         hasher.finalize().digest.to_vec()
     };
 
@@ -2093,7 +2163,7 @@ fn process_dkg_messages(
             .signing_pks
             .get(&sender_party_id)
             .ok_or_else(|| anyhow!("Signing public key not found for party {}", sender_party_id))?;
-        verify_signature(&signed_msg, sender_signing_pk)?;
+        verify_signature(&state.config.committee_id, &signed_msg, sender_signing_pk)?;
 
         let processed = if state.config.old_threshold.is_some() {
             let new_to_old_mapping = state
@@ -2194,11 +2264,15 @@ fn create_dkg_random_oracle(committee_id: &Address) -> RandomOracle {
 }
 
 /// Compute and display the package digest.
-fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> {
+async fn compute_package_digest(
+    package_path: &Path,
+    network: &Network,
+    wallet: Option<&WalletContext>,
+) -> Result<()> {
     println!("Building package at: {}", package_path.display());
     println!();
 
-    let digest = get_package_digest(package_path, network)?;
+    let digest = get_package_digest(package_path, network, wallet).await?;
     println!(
         "Digest for package '{}': {}",
         package_path
@@ -2212,10 +2286,15 @@ fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> 
 }
 
 /// Compute package digest as hex string.
-fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> {
-    let build_config = create_build_config(network);
+async fn get_package_digest(
+    package_path: &Path,
+    network: &Network,
+    wallet: Option<&WalletContext>,
+) -> Result<String> {
+    let package_path = package_path.canonicalize()?;
+    let build_config = create_build_config(&package_path, network, wallet, true).await?;
     let compiled_package = build_config
-        .build(&package_path.canonicalize()?)
+        .build(&package_path)
         .context("Failed to build package")?;
 
     let digest = compiled_package.get_package_digest(/* with_unpublished_deps */ false);
@@ -2261,7 +2340,7 @@ async fn vote_for_upgrade(
 
     // Build package and compute digest (only for approve).
     let digest = if let Some(path) = package_path {
-        let d = get_package_digest(path, network)?;
+        let d = get_package_digest(path, network, Some(wallet)).await?;
         println!("\nPackage digest: {}", d);
         Some(d)
     } else {
