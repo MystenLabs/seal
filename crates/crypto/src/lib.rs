@@ -1220,6 +1220,10 @@ mod tests {
             elapsed
         }
 
+        fn size(label: &str, bytes: usize) {
+            println!("    {label:<32}{bytes:>8} B");
+        }
+
         let data = b"Hello, World!".to_vec();
         let aad = Some(b"something".to_vec());
         let configs = [(3u8, 2u8), (5, 3), (7, 4), (10, 7)];
@@ -1243,6 +1247,11 @@ mod tests {
             let public_keys = IBEPublicKeys::BonehFranklinBLS12381(
                 keypairs.iter().map(|(_, pk)| *pk).collect_vec(),
             );
+
+            let master_key = keypairs[0].0;
+            bench("extract (1 user key)", 50, || {
+                ibe::extract(&master_key, &full_id)
+            });
 
             bench("seal_encrypt", 20, || {
                 seal_encrypt(
@@ -1285,6 +1294,21 @@ mod tests {
             bench("seal_decrypt (verify)", 20, || {
                 seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
             });
+
+            size(
+                "public key size",
+                bcs::to_bytes(&keypairs[0].1).unwrap().len(),
+            );
+            size(
+                "user secret key size",
+                bcs::to_bytes(&ibe::extract(&keypairs[0].0, &full_id))
+                    .unwrap()
+                    .len(),
+            );
+            size(
+                "encrypted object size",
+                bcs::to_bytes(&encrypted).unwrap().len(),
+            );
         }
 
         println!();
@@ -1312,6 +1336,11 @@ mod tests {
                 .collect_vec();
             let public_keys =
                 IBEPublicKeys::Falcon512(keypairs.iter().map(|(pk, _)| pk.clone()).collect_vec());
+
+            let master_key = keypairs[0].1.clone();
+            bench("extract (1 user key)", 5, || {
+                fastcrypto_lattice::ibe::FalconIBE::extract(&master_key, &full_id)
+            });
 
             bench("seal_encrypt", 5, || {
                 seal_encrypt(
@@ -1359,6 +1388,24 @@ mod tests {
             bench("seal_decrypt (verify)", 5, || {
                 seal_decrypt(&encrypted, &usks, Some(&public_keys)).unwrap()
             });
+
+            size(
+                "public key size",
+                bcs::to_bytes(&keypairs[0].0).unwrap().len(),
+            );
+            size(
+                "user secret key size",
+                bcs::to_bytes(&fastcrypto_lattice::ibe::FalconIBE::extract(
+                    &keypairs[0].1,
+                    &full_id,
+                ))
+                .unwrap()
+                .len(),
+            );
+            size(
+                "encrypted object size",
+                bcs::to_bytes(&encrypted).unwrap().len(),
+            );
         }
     }
 }
