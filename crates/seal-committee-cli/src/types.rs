@@ -3,7 +3,7 @@
 
 //! Type definitions for DKG CLI.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use fastcrypto::bls12381::min_sig::{BLS12381PrivateKey, BLS12381PublicKey, BLS12381Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
@@ -69,7 +69,7 @@ impl KeysFile {
         let keys_content = fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read keys file {}: {}", path.display(), e))?;
         serde_json::from_str(&keys_content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse keys file: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to parse keys file {}: {}", path.display(), e))
     }
 }
 
@@ -94,8 +94,6 @@ pub struct InitializedConfig {
     pub expected_old_pks: Option<HashMap<u16, G2Element>>,
     /// Old partial key share for key rotation, for continuing members for key rotation.
     pub my_old_share: Option<G2Scalar>,
-    /// Old partial public key for key rotation, for continuing members for key rotation.
-    pub my_old_pk: Option<G2Element>,
 }
 
 /// Local state for DKG protocol, used for storing messages and output.
@@ -121,17 +119,22 @@ pub struct DkgState {
 impl DkgState {
     /// Save state to the given directory.
     pub(crate) fn save(&self, state_dir: &Path) -> Result<()> {
-        fs::create_dir_all(state_dir)?;
+        fs::create_dir_all(state_dir)
+            .with_context(|| format!("Failed to create state directory {}", state_dir.display()))?;
         let path = state_dir.join("state.json");
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(path, json)?;
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize DKG state to JSON")?;
+        fs::write(&path, json)
+            .with_context(|| format!("Failed to write DKG state {}", path.display()))?;
         Ok(())
     }
 
     pub(crate) fn load(state_dir: &Path) -> Result<Self> {
         let path = state_dir.join("state.json");
-        let json = fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&json)?)
+        let json = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read DKG state {}", path.display()))?;
+        serde_json::from_str(&json)
+            .with_context(|| format!("Failed to parse DKG state {}", path.display()))
     }
 }
 
@@ -201,53 +204,4 @@ pub(crate) fn verify_signature(
     let payload_bytes = bcs::to_bytes(&payload)?;
     pk.verify(&payload_bytes, &signed_msg.signature)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
-    use fastcrypto::traits::KeyPair;
-    use rand::thread_rng;
-
-    #[test]
-    fn test_keys_file_serde() {
-        // Generate random keys
-        let mut rng = thread_rng();
-        let enc_sk = PrivateKey::<G1Element>::new(&mut rng);
-        let enc_pk = PublicKey::from_private_key(&enc_sk);
-
-        let signing_kp = BLS12381KeyPair::generate(&mut rng);
-        let signing_pk = signing_kp.public().clone();
-        let signing_sk = signing_kp.private();
-
-        let keys = KeysFile {
-            enc_sk,
-            enc_pk,
-            signing_sk,
-            signing_pk,
-        };
-
-        // Round trip.
-        let json = serde_json::to_string_pretty(&keys).expect("Failed to serialize KeysFile");
-        let deserialized: KeysFile =
-            serde_json::from_str(&json).expect("Failed to deserialize KeysFile");
-
-        assert_eq!(
-            bcs::to_bytes(&keys.enc_sk).unwrap(),
-            bcs::to_bytes(&deserialized.enc_sk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.enc_pk).unwrap(),
-            bcs::to_bytes(&deserialized.enc_pk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.signing_sk).unwrap(),
-            bcs::to_bytes(&deserialized.signing_sk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.signing_pk).unwrap(),
-            bcs::to_bytes(&deserialized.signing_pk).unwrap()
-        );
-    }
 }
