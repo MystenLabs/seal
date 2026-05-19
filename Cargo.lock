@@ -3018,7 +3018,7 @@ dependencies = [
 [[package]]
 name = "fastcrypto-lattice"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/fastcrypto-lattice?rev=20a0d5c#20a0d5cf08fc3f33b8cf3f8f8f2a17751b562a51"
+source = "git+https://github.com/MystenLabs/fastcrypto-lattice?rev=249d3e7#249d3e73d628b3d0d8391af0c36e4f5a5db07ebe"
 dependencies = [
  "bit-vec 0.6.3",
  "fastcrypto 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",

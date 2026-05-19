@@ -9,10 +9,10 @@ use fastcrypto::error::FastCryptoError::{GeneralError, InvalidInput};
 use fastcrypto::error::FastCryptoResult;
 use fastcrypto::groups::Scalar;
 use fastcrypto::hash::{HashFunction, Sha3_256};
-use fastcrypto_lattice::falcon_util::falcon;
-use fastcrypto_lattice::falcon_util::falcon_field::Felt;
-use fastcrypto_lattice::falcon_util::polynomial::Polynomial;
-use fastcrypto_lattice::ibe::{sample_polynomial_from_seed, IBE};
+use fastcrypto_lattice::falcon::falcon_field::Felt;
+use fastcrypto_lattice::falcon::polynomial::Polynomial;
+use fastcrypto_lattice::falcon::signature;
+use fastcrypto_lattice::ibe::sample_polynomial_from_seed;
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -90,12 +90,12 @@ pub enum IBEEncryptions {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IBEPublicKeys {
     BonehFranklinBLS12381(Vec<ibe::PublicKey>),
-    Falcon512(Vec<falcon::PublicKey<512>>),
+    Falcon512(Vec<signature::PublicKey<512>>),
 }
 
 pub enum IBEUserSecretKeys {
     BonehFranklinBLS12381(HashMap<ObjectID, ibe::UserSecretKey>),
-    Falcon512(HashMap<ObjectID, falcon::Signature<512>>),
+    Falcon512(HashMap<ObjectID, signature::Signature<512>>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -409,7 +409,7 @@ const DST_FALCON_SHARE_RANDOMNESS: &[u8] = b"SUI-SEAL-IBE-FALCON512-SHARE-RAND-0
 fn derive_falcon_share_randomness(
     seed: &[u8; KEY_SIZE],
     index: u8,
-    pk: &falcon::PublicKey<512>,
+    pk: &signature::PublicKey<512>,
     full_id: &[u8],
 ) -> (
     Polynomial<Felt>,
