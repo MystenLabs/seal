@@ -5,12 +5,12 @@
 
 use crate::{
     move_types::{
-        Field, KeyServerV2, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeManager,
-        UpgradeProposal, Wrapper,
+        Field, KeyServerV2, SealCommittee, ServerType, UpgradeManager, UpgradeProposal, Wrapper,
     },
+    rpc_error::{RpcError, RpcResult},
     Network,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use std::str::FromStr;
 use sui_rpc::client::Client;
 use sui_rpc::proto::sui::rpc::v2::{GetObjectRequest, GetObjectResponse};
@@ -53,10 +53,10 @@ pub fn extract_object(response: GetObjectResponse) -> Result<Object> {
     Ok(bcs::from_bytes(&bcs_bytes)?)
 }
 
-async fn fetch_object<T: serde::de::DeserializeOwned>(
+pub async fn fetch_object<T: serde::de::DeserializeOwned>(
     grpc_client: &mut Client,
     object_id: &Address,
-) -> Result<T> {
+) -> RpcResult<T> {
     let mut request = GetObjectRequest::default();
     request.object_id = Some(object_id.to_string());
     request.read_mask = Some(prost_types::FieldMask {
@@ -67,21 +67,23 @@ async fn fetch_object<T: serde::de::DeserializeOwned>(
         .ledger_client()
         .get_object(request)
         .await
-        .map(|r| r.into_inner())?;
+        .map(|r| r.into_inner())
+        .map_err(RpcError::from_grpc)?;
 
-    let obj = extract_object(response)?;
+    let obj = extract_object(response).map_err(|e| RpcError::new(&e.to_string()))?;
     let move_object = match &obj.data {
         Data::Move(m) => m,
-        _ => bail!("Object is not a Move struct"),
+        _ => return Err(RpcError::new("Object is not a Move struct")),
     };
-    Ok(bcs::from_bytes(move_object.contents())?)
+    bcs::from_bytes(move_object.contents())
+        .map_err(|e| RpcError::new(&format!("Failed to deserialize contents: {e}")))
 }
 
 /// Fetch seal Committee object onchain.
 pub async fn fetch_committee_data(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<SealCommittee> {
+) -> RpcResult<SealCommittee> {
     fetch_object(grpc_client, committee_id).await
 }
 
@@ -90,7 +92,7 @@ pub async fn fetch_committee_data(
 pub async fn fetch_key_server_by_id(
     grpc_client: &mut Client,
     ks_obj_id: &Address,
-) -> Result<KeyServerV2> {
+) -> RpcResult<KeyServerV2> {
     // Derive KeyServerV2 dynamic field ID on KeyServer object.
     // This is a regular dynamic_field, not dynamic_object_field.
     // Key type: u64, Key value: EXPECTED_KEY_SERVER_VERSION
@@ -104,28 +106,18 @@ pub async fn fetch_key_server_by_id(
     Ok(field.value)
 }
 
-pub async fn fetch_committee_server_version(
-    grpc_client: &mut Client,
-    ks_obj_id: &Address,
-) -> Result<u32> {
-    let key_server_v2 = fetch_key_server_by_id(grpc_client, ks_obj_id).await?;
-    match key_server_v2.server_type {
-        ServerType::Committee { version, .. } => Ok(version),
-        _ => Err(anyhow!("KeyServer is not of type Committee")),
-    }
-}
-
 /// Fetch the KeyServer object and KeyServerV2 data for a given committee.
 /// Returns the KeyServer object ID and the KeyServerV2 data.
+// TODO: use batch get objects from grpc
 pub async fn fetch_key_server_by_committee(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<(Address, KeyServerV2)> {
+) -> RpcResult<(Address, KeyServerV2)> {
     // Derive dynamic object field wrapper id.
     let wrapper_key = Wrapper {
         name: *committee_id,
     };
-    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
+    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key).map_err(|e| RpcError::new(&e.to_string()))?;
 
     let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag::new(
         Address::TWO,
@@ -151,52 +143,13 @@ pub async fn fetch_key_server_by_committee(
     Ok((ks_obj_id, key_server_v2))
 }
 
-/// Fetch partial key server information for a specific committee member from onchain KeyServer object.
-/// Returns the PartialKeyServerInfo for the specified member address.
-pub async fn get_partial_key_server_for_member(
-    grpc_client: &mut Client,
-    key_server_obj_id: &Address,
-    committee_id: &Address,
-    member_address: &Address,
-) -> Result<PartialKeyServerInfo> {
-    let ks = fetch_key_server_by_id(grpc_client, key_server_obj_id).await?;
-    let committee = fetch_committee_data(grpc_client, committee_id).await?;
-    let partial_key_servers = ks.to_partial_key_servers(&committee.members)?;
-
-    partial_key_servers
-        .get(member_address)
-        .cloned()
-        .ok_or_else(|| {
-            anyhow!(
-                "PartialKeyServerInfo not found for member {}",
-                member_address
-            )
-        })
-}
-
-/// Fetch partial key server information for a specific committee member from onchain KeyServer
-/// object. This first resolves the current committee from the KeyServer object.
-pub async fn fetch_partial_key_server_for_member(
-    grpc_client: &mut Client,
-    key_server_obj_id: &Address,
-    member_address: &Address,
-) -> Result<PartialKeyServerInfo> {
-    let (committee_id, _) = fetch_committee_from_key_server(grpc_client, key_server_obj_id).await?;
-    get_partial_key_server_for_member(
-        grpc_client,
-        key_server_obj_id,
-        &committee_id,
-        member_address,
-    )
-    .await
-}
-
 /// Fetch committee ID and package ID from a key server object ID.
 /// Returns (committee_id, package_id).
+// TODO: use batch get objects
 pub async fn fetch_committee_from_key_server(
     grpc_client: &mut Client,
     key_server_obj_id: &Address,
-) -> Result<(Address, ObjectID)> {
+) -> RpcResult<(Address, ObjectID)> {
     // Fetch key server object to get owner (field wrapper).
     let field_wrapper_id = {
         let mut ledger_client = grpc_client.ledger_client();
@@ -209,22 +162,23 @@ pub async fn fetch_committee_from_key_server(
         let ks_response = ledger_client
             .get_object(ks_request)
             .await
-            .map(|r| r.into_inner())?;
+            .map(|r| r.into_inner())
+            .map_err(RpcError::from_grpc)?;
 
         let ks_object = ks_response
             .object
-            .ok_or_else(|| anyhow!("Key server object not found"))?;
+            .ok_or_else(|| RpcError::new("Key server object not found"))?;
 
         // Parse owner to get field wrapper ID.
         let owner_data = ks_object
             .owner
-            .ok_or_else(|| anyhow!("Key server object has no owner"))?;
+            .ok_or_else(|| RpcError::new("Key server object has no owner"))?;
 
         let owner_address = owner_data
             .address
-            .ok_or_else(|| anyhow!("Owner has no address"))?;
+            .ok_or_else(|| RpcError::new("Owner has no address"))?;
 
-        Address::from_str(&owner_address)?
+        Address::from_str(&owner_address).map_err(|e| RpcError::new(&e.to_string()))?
     };
 
     // Fetch field wrapper to extract committee ID.
@@ -243,17 +197,19 @@ pub async fn fetch_committee_from_key_server(
     let committee_response = ledger_client
         .get_object(committee_request)
         .await
-        .map(|r| r.into_inner())?;
+        .map(|r| r.into_inner())
+        .map_err(RpcError::from_grpc)?;
 
     let committee_object = committee_response
         .object
-        .ok_or_else(|| anyhow!("Committee object not found"))?;
+        .ok_or_else(|| RpcError::new("Committee object not found"))?;
 
     let committee_type = committee_object
         .object_type
-        .ok_or_else(|| anyhow!("Committee has no type"))?;
+        .ok_or_else(|| RpcError::new("Committee has no type"))?;
 
-    let committee_struct_tag = StructTag::from_str(&committee_type)?;
+    let committee_struct_tag =
+        StructTag::from_str(&committee_type).map_err(|e| RpcError::new(&e.to_string()))?;
     let package_id = ObjectID::new(committee_struct_tag.address().into_inner());
 
     Ok((committee_id, package_id))
@@ -264,16 +220,17 @@ pub async fn fetch_committee_from_key_server(
 pub async fn fetch_upgrade_proposal(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<Option<UpgradeProposal>> {
+) -> RpcResult<Option<UpgradeProposal>> {
     let upgrade_manager = fetch_upgrade_manager(grpc_client, committee_id).await?;
     Ok(upgrade_manager.upgrade_proposal)
 }
 
 /// Fetch the full UpgradeManager from the committee's UpgradeManager DOF.
+// TODO: use batch get objects
 pub async fn fetch_upgrade_manager(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<UpgradeManager> {
+) -> RpcResult<UpgradeManager> {
     use std::str::FromStr;
 
     // First, we need to get the committee package address to construct the correct type tag.
@@ -287,20 +244,22 @@ pub async fn fetch_upgrade_manager(
     let committee_response = ledger_client
         .get_object(committee_request)
         .await
-        .map(|r| r.into_inner())?;
+        .map(|r| r.into_inner())
+        .map_err(RpcError::from_grpc)?;
 
     let object_type = committee_response
         .object
         .and_then(|obj| obj.object_type)
-        .ok_or_else(|| anyhow!("Committee object has no type"))?;
+        .ok_or_else(|| RpcError::new("Committee object has no type"))?;
 
-    let struct_tag = StructTag::from_str(&object_type)?;
+    let struct_tag =
+        StructTag::from_str(&object_type).map_err(|e| RpcError::new(&e.to_string()))?;
     let committee_pkg_addr = struct_tag.address();
 
     let wrapper_key = Wrapper {
         name: UpgradeManagerKey { dummy_field: false },
     };
-    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key)?;
+    let wrapper_key_bcs = bcs::to_bytes(&wrapper_key).map_err(|e| RpcError::new(&e.to_string()))?;
 
     // The type tag for Wrapper<UpgradeManagerKey>.
     let wrapper_type_tag = TypeTag::Struct(Box::new(StructTag::new(
@@ -336,32 +295,24 @@ pub async fn fetch_upgrade_manager(
 pub async fn get_committee_rotation_info(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> Result<(u32, Option<Vec<u8>>)> {
+) -> RpcResult<(u32, Option<Vec<u8>>)> {
     let committee = fetch_committee_data(grpc_client, committee_id).await?;
 
     if let Some(old_committee_id) = committee.old_committee_id {
         // Rotation: fetch the old committee's KeyServer version then increment by 1.
-        match fetch_key_server_by_committee(grpc_client, &old_committee_id).await {
-            Ok((_, key_server_v2)) => {
-                let pk = key_server_v2.pk;
-                match key_server_v2.server_type {
-                    ServerType::Committee { version, .. } => {
-                        println!(
-                            "Old committee version: {}, new version will be: {}",
-                            version,
-                            version + 1
-                        );
-                        Ok((version + 1, Some(pk)))
-                    }
-                    _ => bail!("Old KeyServer is not of type Committee"),
-                }
-            }
-            Err(e) => {
-                bail!(
-                    "Failed to fetch old committee's KeyServer for rotation: {}",
-                    e
+        let (_, key_server_v2) =
+            fetch_key_server_by_committee(grpc_client, &old_committee_id).await?;
+        let pk = key_server_v2.pk;
+        match key_server_v2.server_type {
+            ServerType::Committee { version, .. } => {
+                println!(
+                    "Old committee version: {}, new version will be: {}",
+                    version,
+                    version + 1
                 );
+                Ok((version + 1, Some(pk)))
             }
+            _ => Err(RpcError::new("Old KeyServer is not of type Committee")),
         }
     } else {
         Ok((0, None))

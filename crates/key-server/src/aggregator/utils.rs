@@ -1,8 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::common::fetch_first_pkg_id;
+use crate::errors::InternalError;
+use crate::sui_rpc_client::SuiRpcClient;
 use crate::valid_ptb::ValidPtb;
-use crate::{common::fetch_first_pkg_id, errors::InternalError};
 use crypto::{elgamal, ibe::verify_encrypted_signature};
 use fastcrypto::{
     encoding::{Encoding, Hex},
@@ -14,16 +16,15 @@ use seal_sdk::{
     FetchKeyResponse,
 };
 use std::collections::{HashMap, HashSet};
-use sui_rpc::client::Client as SuiGrpcClient;
 use tracing::debug;
 
 /// Parse PTB, resolve its pkg id to the first pkg id via grpc, and return the set of full key ids.
 pub async fn get_expected_full_ids(
-    grpc_client: &mut SuiGrpcClient,
+    sui_rpc_client: &SuiRpcClient,
     ptb_b64: &str,
 ) -> Result<HashSet<Vec<u8>>, InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(ptb_b64)?;
-    let first_pkg_id = fetch_first_pkg_id(grpc_client, &valid_ptb.pkg_id()).await?;
+    let first_pkg_id = fetch_first_pkg_id(sui_rpc_client, &valid_ptb.pkg_id()).await?;
     Ok(valid_ptb.full_ids(&first_pkg_id).into_iter().collect())
 }
 

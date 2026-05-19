@@ -30,10 +30,11 @@ use key_server::errors::InternalError::{
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
+use key_server::sui_rpc_client::{RpcConfig, RpcError, SuiRpcClient};
 use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
-use seal_committee::{fetch_key_server_by_id, move_types::PartialKeyServer};
+use seal_committee::move_types::PartialKeyServer;
 use seal_sdk::{FetchKeyRequest, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
@@ -41,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -116,6 +118,10 @@ struct AggregatorOptions {
     #[serde(default)]
     api_credentials: HashMap<String, ApiCredentials>,
 
+    /// The configuration for the Sui RPC client.
+    #[serde(default)]
+    rpc_config: RpcConfig,
+
     /// Optional metrics push configuration to send metrics to seal-proxy.
     #[serde(default)]
     metrics_push_config: Option<MetricsPushConfig>,
@@ -135,7 +141,7 @@ impl NetworkConfig for AggregatorOptions {
 #[derive(Clone)]
 struct AppState {
     aggregator_metrics: Arc<AggregatorMetrics>,
-    grpc_client: SuiGrpcClient,
+    sui_rpc_client: SuiRpcClient,
     http_client: reqwest::Client,
     committee: Arc<RwLock<CommitteeSnapshot>>,
     options: AggregatorOptions,
@@ -343,12 +349,11 @@ async fn handle_fetch_key(
 
     // Parse the PTB and build the set of expected full ids every honest committee member should
     // return.
-    let expected_full_ids_owned =
-        get_expected_full_ids(&mut state.grpc_client.clone(), &request.ptb)
-            .await
-            .inspect_err(|e| {
-                state.aggregator_metrics.observe_error(e.as_str());
-            })?;
+    let expected_full_ids_owned = get_expected_full_ids(&state.sui_rpc_client, &request.ptb)
+        .await
+        .inspect_err(|e| {
+            state.aggregator_metrics.observe_error(e.as_str());
+        })?;
     state
         .aggregator_metrics
         .expected_key_ids_per_request
@@ -713,11 +718,22 @@ async fn load_committee_state(
     options: AggregatorOptions,
     metrics: Arc<AggregatorMetrics>,
 ) -> Result<AppState> {
-    let mut grpc_client =
+    let grpc_client =
         SuiGrpcClient::new(options.node_url()).context("Failed to create SuiGrpcClient")?;
-    let key_server_v2 =
-        fetch_key_server_by_id(&mut grpc_client, &options.key_server_object_id).await?;
-    let (threshold, members) = key_server_v2.extract_committee_info()?;
+    let sui_client = SuiClientBuilder::default()
+        .build(&options.node_url())
+        .await
+        .context("Failed to build SuiClient")?;
+    let sui_rpc_client = SuiRpcClient::new(
+        sui_client,
+        grpc_client,
+        options.rpc_config.retry_config.clone(),
+        Some(metrics.sui_rpc_request_duration_millis.clone()),
+    );
+
+    let (threshold, members) = sui_rpc_client
+        .fetch_committee_info(&options.key_server_object_id)
+        .await?;
     let committee = CommitteeSnapshot { threshold, members };
 
     // Check and warn about missing API credentials for current committee.
@@ -725,7 +741,7 @@ async fn load_committee_state(
 
     Ok(AppState {
         aggregator_metrics: metrics,
-        grpc_client,
+        sui_rpc_client,
         http_client: reqwest::Client::new(),
         committee: Arc::new(RwLock::new(committee)),
         options,
@@ -734,7 +750,7 @@ async fn load_committee_state(
 
 /// Background task that periodically refreshes committee members from onchain.
 /// Polls every 30 seconds and updates the committee members.
-async fn monitor_members_update(mut state: AppState) {
+async fn monitor_members_update(state: AppState) {
     let mut ticker = interval(Duration::from_secs(REFRESH_INTERVAL_SECS));
 
     info!(
@@ -746,13 +762,14 @@ async fn monitor_members_update(mut state: AppState) {
         ticker.tick().await;
 
         // Fetch the current state from onchain.
-        let committee = match fetch_key_server_by_id(
-            &mut state.grpc_client,
-            &state.options.key_server_object_id,
-        )
-        .await
-        .and_then(|ks| ks.extract_committee_info())
-        {
+        let committee = match state
+            .sui_rpc_client
+            .fetch_key_server_by_id(&state.options.key_server_object_id)
+            .await
+            .and_then(|ks| {
+                ks.extract_committee_info()
+                    .map_err(|e| RpcError::new(&e.to_string()))
+            }) {
             Ok((threshold, members)) => CommitteeSnapshot { threshold, members },
             Err(e) => {
                 warn!(
@@ -891,7 +908,7 @@ mod tests {
     }
 
     /// Helper to create AppState for testing.
-    fn create_test_app_state(
+    async fn create_test_app_state(
         mock_servers: &[MockServer],
         threshold: u16,
         partial_pks: Vec<G2Element>,
@@ -925,18 +942,29 @@ mod tests {
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             key_server_timeout_secs: 8,
             api_credentials,
+            rpc_config: RpcConfig::default(),
             metrics_push_config: None,
         };
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
+        let sui_client = SuiClientBuilder::default()
+            .build(&options.node_url())
+            .await
+            .unwrap();
+        let sui_rpc_client = SuiRpcClient::new(
+            sui_client,
+            grpc_client,
+            options.rpc_config.retry_config.clone(),
+            None,
+        );
         let http_client = reqwest::Client::new();
         let (_, pkg_id, _, first_pkg_id) = test_valid_ptb();
         PACKAGE_ID_CACHE.insert(pkg_id, first_pkg_id);
 
         AppState {
             aggregator_metrics: metrics,
-            grpc_client,
+            sui_rpc_client,
             http_client,
             committee: Arc::new(RwLock::new(CommitteeSnapshot {
                 threshold,
@@ -1070,7 +1098,7 @@ mod tests {
                 .mount(&server1)
                 .await;
 
-            let state = create_test_app_state(&[server1], 1, vec![G2Element::zero()]);
+            let state = create_test_app_state(&[server1], 1, vec![G2Element::zero()]).await;
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
@@ -1098,7 +1126,7 @@ mod tests {
                 .mount(&server2)
                 .await;
 
-            let state = create_test_app_state(&[server2], 1, vec![G2Element::zero()]);
+            let state = create_test_app_state(&[server2], 1, vec![G2Element::zero()]).await;
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
@@ -1126,7 +1154,7 @@ mod tests {
                 .await;
 
             let servers = vec![server_missing_version];
-            let state = create_test_app_state(&servers, 1, vec![G2Element::zero()]);
+            let state = create_test_app_state(&servers, 1, vec![G2Element::zero()]).await;
             let (request, _, _) = create_test_fetch_key_request(&mut thread_rng());
 
             let mut headers = HeaderMap::new();
@@ -1172,7 +1200,7 @@ mod tests {
                 .mount(&server3)
                 .await;
 
-            let state = create_test_app_state(&[server3], 1, vec![partial_pk]);
+            let state = create_test_app_state(&[server3], 1, vec![partial_pk]).await;
 
             let mut headers = HeaderMap::new();
             headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
@@ -1231,7 +1259,8 @@ mod tests {
             &mock_servers,
             3,
             vec![G2Element::zero(); mock_servers.len()],
-        );
+        )
+        .await;
 
         // Create a FetchKeyRequest for testing.
         let mut rng = thread_rng();
@@ -1313,7 +1342,8 @@ mod tests {
             &[s0, s1, s_bad],
             2,
             vec![partial_pk_0, partial_pk_1, G2Element::generator()],
-        );
+        )
+        .await;
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
@@ -1371,7 +1401,8 @@ mod tests {
         let mock_servers = vec![server_good, server_error];
 
         let state =
-            create_test_app_state(&mock_servers, 2, vec![partial_pk_0, G2Element::generator()]);
+            create_test_app_state(&mock_servers, 2, vec![partial_pk_0, G2Element::generator()])
+                .await;
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
@@ -1438,7 +1469,8 @@ mod tests {
             &[server_good, server_missing],
             2,
             vec![partial_pk_0, G2Element::generator()],
-        );
+        )
+        .await;
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());

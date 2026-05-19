@@ -71,47 +71,7 @@ pub enum ServerMode {
     },
 }
 
-/// Configuration for the RPC client.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcConfig {
-    /// The timeout for RPC requests.
-    pub timeout: Duration,
-
-    /// The retry configuration for RPC requests.
-    pub retry_config: RetryConfig,
-}
-
-impl Default for RpcConfig {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_secs(60),
-            retry_config: RetryConfig::default(),
-        }
-    }
-}
-
-/// Configuration for the retry logic.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryConfig {
-    /// The maximum number of retries.
-    pub max_retries: u32,
-
-    /// The minimum delay between retries.
-    pub min_delay: Duration,
-
-    /// The maximum delay between retries.
-    pub max_delay: Duration,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            min_delay: Duration::from_millis(100),
-            max_delay: Duration::from_secs(10),
-        }
-    }
-}
+pub use key_server::sui_rpc_client::RpcConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyServerOptions {

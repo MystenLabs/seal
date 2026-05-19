@@ -1,8 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::sui_rpc_client::RpcResult;
-use crate::sui_rpc_client::SuiRpcClient;
+use key_server::sui_rpc_client::{RpcResult, SuiRpcClient};
 use std::time::Duration;
 use tokio::sync::watch::{channel, Receiver};
 use tokio::task::JoinHandle;
