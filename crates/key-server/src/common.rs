@@ -58,8 +58,7 @@ pub async fn fetch_first_pkg_id(
         .fetch_package_original_id(Address::new(pkg_id.into_bytes()))
         .await
         .map_err(|e| match e.code {
-            Some(tonic::Code::NotFound) => InternalError::InvalidPackage,
-            None if e.message == "Invalid package" => InternalError::InvalidPackage,
+            Some(tonic::Code::NotFound) | None => InternalError::InvalidPackage, // rpc not found error or failed to extract the package object.
             _ => InternalError::Failure(format!("Failed to resolve package id: {e}")),
         })?;
 
