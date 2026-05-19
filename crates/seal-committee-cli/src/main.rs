@@ -840,7 +840,12 @@ async fn main() -> Result<()> {
             }
 
             // Load wallet.
-            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
 
             if is_rotation {
                 println!("\n=== Proposing committee rotation onchain ===");
@@ -1053,16 +1058,12 @@ async fn main() -> Result<()> {
             rpc_url,
         } => {
             let wallet = if matches!(network, Network::Custom) {
-                let wallet = if let Some(rpc_url) = rpc_url.as_deref() {
-                    load_wallet_for_network(
-                        cli.wallet.as_deref(),
-                        cli.active_address,
-                        &network,
-                        Some(rpc_url),
-                    )?
-                } else {
-                    load_wallet(cli.wallet.as_deref(), cli.active_address)?
-                };
+                let wallet = load_wallet_for_network(
+                    cli.wallet.as_deref(),
+                    cli.active_address,
+                    &network,
+                    rpc_url.as_deref(),
+                )?;
                 let wallet_env = wallet.get_active_env()?;
                 println!("Network: custom");
                 println!(
@@ -1241,7 +1242,12 @@ async fn main() -> Result<()> {
             rpc_url,
         } => {
             // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             let member_address = wallet.active_address()?;
 
             println!("Member address: {}", member_address);
@@ -1840,14 +1846,14 @@ fn load_wallet_for_network(
                 if let Some(alias) = matching_env {
                     alias
                 } else {
-                    // No alias found for the dkg.yaml URL, create a new one with sui cli.
+                    // No alias found for the provided URL, create a new one with sui cli.
                     bail!(
                         "Custom RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-custom-devnet --rpc https://my-custom-rpc.example.com:443'",
                         url
                     );
                 }
             } else {
-                bail!("Custom network specified but no NODE_URL provided in config");
+                bail!("Custom network specified but no RPC URL provided");
             }
         }
     };
@@ -2331,8 +2337,7 @@ async fn create_build_config(
         Network::Custom => {
             let wallet = wallet.ok_or_else(|| {
                 anyhow!(
-                    "Custom network package builds require a wallet environment; pass --rpc-url \
-                    or switch the active wallet environment to the custom network"
+                    "Custom network package builds require a wallet environment; pass --rpc-url"
                 )
             })?;
             find_environment(package_path, None, wallet, for_publication)

@@ -352,7 +352,7 @@ async fn handle_fetch_key(
     let expected_full_ids_owned = get_expected_full_ids(&state.sui_rpc_client, &request.ptb)
         .await
         .inspect_err(|e| {
-            warn!(
+            debug!(
                 "Aggregator failed to resolve expected full ids (req_id: {}, error_type: {}, error: {:?})",
                 req_id,
                 e.as_str(),
@@ -488,7 +488,7 @@ async fn handle_fetch_key(
         let response_count = responses.len();
         let error_count = errors.len();
         let err = handle_insufficient_responses(responses.len(), threshold as usize, errors);
-        warn!(
+        debug!(
             "Aggregator failed to collect threshold responses (req_id: {}, responses: {}, errors: {}, completed: {}, committee_size: {}, threshold: {}, error_type: {}, message: {})",
             req_id,
             response_count,

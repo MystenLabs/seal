@@ -1,3 +1,6 @@
+// Copyright (c), Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use super::*;
 use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
 use serde::de::DeserializeOwned;
@@ -73,7 +76,7 @@ fn valid_process_output_material() -> (Vec<u8>, Vec<u8>, String) {
         G2Element::generator() * G2Scalar::from(40u128),
     ]
     .iter()
-    .map(|pk| Hex::encode_with_format(&bcs::to_bytes(pk).unwrap()))
+    .map(|pk| Hex::encode_with_format(bcs::to_bytes(pk).unwrap()))
     .collect();
     (
         key_server_pk,
@@ -264,8 +267,8 @@ fn test_dkg_key_file_matches_registered_public_keys() {
         signing_sk,
         signing_pk,
     };
-    let dkg_enc_pk = Hex::encode_with_format(&bcs::to_bytes(&keys.enc_pk).unwrap());
-    let dkg_signing_pk = Hex::encode_with_format(&bcs::to_bytes(&keys.signing_pk).unwrap());
+    let dkg_enc_pk = Hex::encode_with_format(bcs::to_bytes(&keys.enc_pk).unwrap());
+    let dkg_signing_pk = Hex::encode_with_format(bcs::to_bytes(&keys.signing_pk).unwrap());
 
     let config: serde_yaml::Value = serde_yaml::from_str(&format!(
         "\
@@ -433,7 +436,7 @@ fn test_validate_continuing_member_old_share_matches_onchain_pk() {
     let mut new_to_old_mapping = HashMap::new();
     new_to_old_mapping.insert(1, 0);
     let mut expected_old_pks = HashMap::new();
-    expected_old_pks.insert(0, expected_old_pk.clone());
+    expected_old_pks.insert(0, expected_old_pk);
 
     validate_continuing_member_old_share(
         &my_address,
