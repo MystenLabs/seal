@@ -18,7 +18,7 @@ use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{
-    build_new_to_old_map, create_grpc_client_from_config, fetch_committee_data,
+    build_new_to_old_map, create_grpc_client_with_url, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
     fetch_upgrade_proposal, get_committee_rotation_info, CommitteeState, KeyServerV2, Network,
     ServerType, UpgradeVote,
@@ -49,6 +49,21 @@ use crate::types::{sign_message, verify_signature, SignedMessage};
 
 /// Domain separation tag for DKG random oracle
 const DST_DKG: &str = "SEAL_DKG_V0:";
+
+macro_rules! bcs_hex_encode {
+    ($val:expr) => {
+        Hex::encode(bcs::to_bytes($val)?)
+    };
+}
+
+macro_rules! bcs_hex_decode {
+    ($ty:ty, $value:expr) => {{
+        (|| -> Result<$ty> {
+            let bytes = Hex::decode($value)?;
+            Ok(bcs::from_bytes::<$ty>(&bytes)?)
+        })()
+    }};
+}
 
 /// Default gas budgets in MIST.
 mod gas_defaults {
@@ -324,14 +339,14 @@ async fn main() -> Result<()> {
                     "Removing {} to enable fresh publish...",
                     published_toml.display()
                 );
-                fs::remove_file(&published_toml)?;
+                fs::remove_file(published_toml)?;
             }
 
             // Build and publish package.
             let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
                 &mut grpc_client,
                 &wallet,
@@ -461,7 +476,7 @@ async fn main() -> Result<()> {
             // Fetch committee ID and package ID from key server.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let (current_committee_id, package_id) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_obj_id).await?;
 
@@ -644,7 +659,7 @@ async fn main() -> Result<()> {
 
             println!("\n=== Registering onchain ===");
             print_network_info(&network, node_url.as_deref());
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
 
             // Register onchain.
             let mut register_builder = ProgrammableTransactionBuilder::new();
@@ -718,18 +733,6 @@ async fn main() -> Result<()> {
             let node_url = get_node_url(&config_content);
             print_network_info(&network, node_url.as_deref());
 
-            // Check if this is a rotation.
-            let current_committee_id =
-                get_config_field(&config_content, "init-rotation", "CURRENT_COMMITTEE_ID")
-                    .and_then(|v| v.as_str())
-                    .map(|id| {
-                        Address::from_str(id).with_context(|| {
-                            format!("Invalid init-rotation.CURRENT_COMMITTEE_ID {id}")
-                        })
-                    })
-                    .transpose()?;
-            let is_rotation = current_committee_id.is_some();
-
             // Process DKG messages.
             println!("\n=== Processing DKG messages ===");
             println!("  Messages directory: {:?}", full_messages_dir);
@@ -737,31 +740,47 @@ async fn main() -> Result<()> {
             println!("  Keys file: {:?}\n", keys_file);
 
             let mut state = DkgState::load(&state_dir)?;
+            if committee_id != state.config.committee_id {
+                bail!(
+                    "dkg.yaml COMMITTEE_ID {} does not match state.json committee ID {}",
+                    committee_id,
+                    state.config.committee_id,
+                );
+            }
             let local_keys = KeysFile::load(&keys_file)?;
 
             // Determine version and fetch old key server PK (for rotation).
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
-            let (next_version, old_key_server_pk) =
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
+            let (next_version, old_key_server_pk, current_committee_id) =
                 get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
             validate_process_section(&config_content, next_version, old_key_server_pk.as_deref())?;
 
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
+            let active_address = wallet.active_address()?;
+            if my_address != active_address {
+                bail!(
+                    "Active wallet address {} does not match genkey-and-register.MY_ADDRESS {}",
+                    active_address,
+                    my_address,
+                );
+            }
+
             // Load and process all messages.
             let messages = load_messages_from_dir(&full_messages_dir)?;
-            let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)
-                .context("Failed to process DKG messages")?;
+            let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
             // Extract key server PK and master share.
-            let key_server_pk_bytes =
-                bcs::to_bytes(&output.vss_pk.c0()).context("Failed to serialize KEY_SERVER_PK")?;
+            let key_server_pk_bytes = bcs::to_bytes(&output.vss_pk.c0())?;
             let master_share_bytes = output
                 .shares
                 .as_ref()
                 .and_then(|shares| shares.first())
-                .map(|share| {
-                    bcs::to_bytes(&share.value).with_context(|| {
-                        format!("Failed to serialize MASTER_SHARE_V{next_version}")
-                    })
-                })
+                .map(|share| bcs::to_bytes(&share.value))
                 .transpose()?
                 .ok_or_else(|| anyhow!("DKG output did not contain a master share"))?;
 
@@ -770,12 +789,9 @@ async fn main() -> Result<()> {
             for party_id in 0..state.config.nodes.num_nodes() {
                 let share_index = NonZeroU16::new(party_id as u16 + 1).expect("must be valid");
                 let partial_pk = output.vss_pk.eval(share_index);
-                partial_pks.push(to_hex(&partial_pk.value).with_context(|| {
-                    format!("Failed to serialize PARTIAL_PKS_V{next_version}[{party_id}]")
-                })?);
+                partial_pks.push(to_hex(&partial_pk.value)?);
             }
-            let partial_pks_yaml = serde_yaml::to_string(&partial_pks)
-                .with_context(|| format!("Failed to serialize PARTIAL_PKS_V{next_version}"))?;
+            let partial_pks_yaml = serde_yaml::to_string(&partial_pks)?;
 
             persist_process_outputs(
                 &config,
@@ -785,6 +801,7 @@ async fn main() -> Result<()> {
                 partial_pks_yaml.trim(),
                 &master_share_bytes,
             )?;
+            validate_process_outputs_added(&load_config(&config)?, next_version)?;
 
             if next_version == 0 {
                 println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
@@ -792,18 +809,10 @@ async fn main() -> Result<()> {
                 println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             }
 
-            // Load wallet.
-            let wallet = load_wallet_for_network(
-                cli.wallet.as_deref(),
-                cli.active_address,
-                &network,
-                node_url.as_deref(),
-            )?;
-
-            if is_rotation {
+            if let Some(current_committee_id) = current_committee_id {
                 println!("\n=== Proposing committee rotation onchain ===");
                 println!("  New Committee ID: {}", committee_id);
-                println!("  Current Committee ID: {}", current_committee_id.unwrap());
+                println!("  Current Committee ID: {}", current_committee_id);
             } else {
                 println!("\n=== Proposing committee onchain ===");
             }
@@ -821,10 +830,9 @@ async fn main() -> Result<()> {
 
             let messages_hash_arg = propose_builder.pure(messages_hash)?;
 
-            if is_rotation {
+            if let Some(current_committee_id) = current_committee_id {
                 let current_committee_arg = propose_builder.obj(
-                    get_shared_committee_arg(&mut grpc_client, current_committee_id.unwrap(), true)
-                        .await?,
+                    get_shared_committee_arg(&mut grpc_client, current_committee_id, true).await?,
                 )?;
 
                 propose_builder.programmable_move_call(
@@ -895,7 +903,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, node_url.as_deref());
 
             // Fetch committee from onchain.
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             println!("Committee ID: {committee_id}");
@@ -1010,7 +1018,7 @@ async fn main() -> Result<()> {
             network,
         } => {
             println!("Network: {}", network);
-            compute_package_digest(&package_path, &network).await?;
+            compute_package_digest(&package_path, &network)?;
         }
 
         Commands::ApproveUpgrade {
@@ -1079,7 +1087,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
 
             // Build package and compute digest.
-            let digest = get_package_digest(&package_path, &network).await?;
+            let digest = get_package_digest(&package_path, &network)?;
             println!("\nPackage digest: {}", digest);
 
             // Build the package to get compiled modules and dependencies.
@@ -1087,7 +1095,7 @@ async fn main() -> Result<()> {
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1188,7 +1196,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1278,7 +1286,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
             println!("Key Server ID: {}", key_server_id);
 
-            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
 
             // Fetch committee information.
             let (committee_id, _committee_pkg) =
@@ -1361,10 +1369,7 @@ async fn execute_tx_and_log_status(
     tx_data: TransactionData,
 ) -> Result<ExecutedTransaction> {
     let transaction = wallet.sign_transaction(&tx_data).await;
-    let response = wallet
-        .execute_transaction_may_fail(transaction)
-        .await
-        .context("Failed to execute transaction")?;
+    let response = wallet.execute_transaction_may_fail(transaction).await?;
 
     let digest = response.transaction.digest();
     let status = response.effects.status();
@@ -1419,11 +1424,7 @@ async fn get_shared_committee_arg(
         paths: vec!["owner".to_string()],
     });
 
-    let response = ledger_client
-        .get_object(request)
-        .await
-        .with_context(|| format!("Failed to fetch committee object {}", committee_id))?
-        .into_inner();
+    let response = ledger_client.get_object(request).await?.into_inner();
 
     let object = response
         .object
@@ -1468,7 +1469,7 @@ async fn create_dkg_state_and_message(
     let local_keys = KeysFile::load(keys_file)?;
 
     // Compute old public key from old share if provided. Provided for continuing members in key rotation.
-    let (my_old_share, derived_old_pk) = if let Some(key_share) = old_share {
+    let (my_old_share, my_old_pk) = if let Some(key_share) = old_share {
         let key_pk = G2Element::generator() * key_share;
         println!("Continuing member for key rotation, old share parsed.");
         (Some(key_share), Some(key_pk))
@@ -1477,10 +1478,8 @@ async fn create_dkg_state_and_message(
     };
 
     // Fetch current committee from onchain.
-    let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
-    let committee = fetch_committee_data(&mut grpc_client, &committee_id)
-        .await
-        .with_context(|| format!("Failed to fetch committee {}", committee_id))?;
+    let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
+    let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
     // Validate committee state contains my address.
     if !committee.contains(&my_address) {
@@ -1498,9 +1497,7 @@ async fn create_dkg_state_and_message(
     );
 
     // Fetch members info.
-    let members_info = committee
-        .get_members_info()
-        .with_context(|| format!("Failed to parse member info for committee {}", committee_id))?;
+    let members_info = committee.get_members_info()?;
 
     let my_member_info = members_info
         .get(&my_address)
@@ -1538,34 +1535,22 @@ async fn create_dkg_state_and_message(
         Some(old_committee_id) => {
             println!("Old committee ID: {old_committee_id}, performing key rotation.");
 
-            let old_committee = fetch_committee_data(&mut grpc_client, &old_committee_id)
-                .await
-                .with_context(|| format!("Failed to fetch old committee {}", old_committee_id))?;
+            let old_committee = fetch_committee_data(&mut grpc_client, &old_committee_id).await?;
             let old_threshold = Some(old_committee.threshold);
             let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
-            validate_rotation_quorum(
-                &old_committee_id,
-                old_committee.threshold,
-                new_to_old_mapping.len(),
-            )?;
+            if new_to_old_mapping.len() < old_committee.threshold as usize {
+                bail!(
+                    "Rotation cannot meet old committee threshold: old committee {} requires {} continuing member message(s), but only {} new committee member(s) continue from the old committee.",
+                    old_committee_id,
+                    old_committee.threshold,
+                    new_to_old_mapping.len(),
+                );
+            }
 
             // Fetch partial key server info from the old committee's key server object.
-            let (_, ks) = fetch_key_server_by_committee(&mut grpc_client, &old_committee_id)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to fetch key server for old committee {}",
-                        old_committee_id
-                    )
-                })?;
-            let old_partial_key_infos = ks
-                .to_partial_key_servers(&old_committee.members)
-                .with_context(|| {
-                    format!(
-                        "Failed to parse old partial key server info for committee {}",
-                        old_committee_id
-                    )
-                })?;
+            let (_, ks) =
+                fetch_key_server_by_committee(&mut grpc_client, &old_committee_id).await?;
+            let old_partial_key_infos = ks.to_partial_key_servers(&old_committee.members)?;
 
             // Build mapping from old party ID to partial public key.
             let expected_old_pks: HashMap<u16, G2Element> = old_partial_key_infos
@@ -1583,17 +1568,21 @@ async fn create_dkg_state_and_message(
                             old_committee_id
                         ));
                     }
-                    let derived_old_pk = derived_old_pk.as_ref().ok_or_else(|| {
-                        anyhow!("Internal error: --old-share was parsed but no old public key was derived")
-                    })?;
-                    validate_continuing_member_old_share(
-                        &my_address,
-                        &old_committee_id,
-                        my_party_id,
-                        &new_to_old_mapping,
-                        &expected_old_pks,
-                        derived_old_pk,
-                    )?;
+                    let my_old_pk = my_old_pk
+                        .as_ref()
+                        .expect("--old-share should derive an old public key");
+                    let old_party_id = new_to_old_mapping[&my_party_id];
+                    let expected_old_pk = &expected_old_pks[&old_party_id];
+                    if expected_old_pk != my_old_pk {
+                        bail!(
+                            "Invalid --old-share for address {}: derived old partial public key does not match onchain old committee {} party {}.\n  Expected (onchain): {}\n  Got (from --old-share): {}",
+                            my_address,
+                            old_committee_id,
+                            old_party_id,
+                            to_hex(expected_old_pk)?,
+                            to_hex(my_old_pk)?,
+                        );
+                    }
                     println!("Continuing member for key rotation.");
                 }
                 None => {
@@ -1635,20 +1624,15 @@ async fn create_dkg_state_and_message(
         let random_oracle = create_dkg_random_oracle(&committee_id);
         let party = Party::<G2Element, G1Element>::new_advanced(
             local_keys.enc_sk.clone(),
-            Nodes::new(nodes.clone())
-                .context("Failed to build DKG nodes")?
-                .clone(),
+            Nodes::new(nodes.clone())?.clone(),
             committee.threshold,
             random_oracle,
             my_old_share,
             old_threshold,
             &mut thread_rng(),
-        )
-        .context("Failed to initialize DKG party")?;
+        )?;
 
-        let message = party
-            .create_message(&mut thread_rng())
-            .context("Failed to create DKG message")?;
+        let message = party.create_message(&mut thread_rng())?;
         let nizk_proof = party.nizk_pop_of_secret(&mut thread_rng());
         let signed_message = sign_message(
             &committee_id,
@@ -1658,17 +1642,13 @@ async fn create_dkg_state_and_message(
         );
 
         // Write message to file.
-        let message_bytes =
-            bcs::to_bytes(&signed_message).context("Failed to serialize signed DKG message")?;
-        let message_hex = Hex::encode(message_bytes);
+        let message_hex = bcs_hex_encode!(&signed_message);
         let message_file = state_dir.join(format!("message_{my_party_id}.json"));
 
         let message_json = serde_json::json!({
             "message": message_hex
         });
-        let message_json = serde_json::to_string_pretty(&message_json)
-            .context("Failed to serialize DKG message JSON")?;
-        fs::write(&message_file, message_json)?;
+        fs::write(&message_file, serde_json::to_string_pretty(&message_json)?)?;
 
         println!(
             "DKG message written to: {}. Share this file with the coordinator.",
@@ -1683,7 +1663,7 @@ async fn create_dkg_state_and_message(
     let state = DkgState {
         config: InitializedConfig {
             my_party_id,
-            nodes: Nodes::new(nodes).context("Failed to build DKG state nodes")?,
+            nodes: Nodes::new(nodes)?,
             committee_id,
             threshold: committee.threshold,
             signing_pks,
@@ -1691,7 +1671,7 @@ async fn create_dkg_state_and_message(
             new_to_old_mapping,
             expected_old_pks,
             my_old_share,
-            my_old_pk: derived_old_pk,
+            my_old_pk,
         },
         my_message,
         received_messages: HashMap::new(),
@@ -1700,9 +1680,7 @@ async fn create_dkg_state_and_message(
         output: None,
     };
 
-    state
-        .save(state_dir)
-        .with_context(|| format!("Failed to save DKG state in {}", state_dir.display()))?;
+    state.save(state_dir)?;
     println!(
         "State saved to {state_dir:?}. Wait for coordinator to announce Phase C (Finalization)."
     );
@@ -1724,7 +1702,7 @@ async fn get_gas_params(
     Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
 }
 
-/// Load wallet context from path.
+/// Load wallet context from path and optionally set active environment.
 fn load_wallet(
     wallet_path: Option<&Path>,
     active_address: Option<SuiAddress>,
@@ -1804,48 +1782,10 @@ fn to_hex<T: Serialize>(value: &T) -> Result<String> {
     Ok(Hex::encode_with_format(&bcs::to_bytes(value)?))
 }
 
-/// Validate a continuing rotation member's old share against the old onchain partial public key.
-fn validate_continuing_member_old_share(
-    my_address: &Address,
-    old_committee_id: &Address,
-    new_party_id: u16,
-    new_to_old_mapping: &HashMap<u16, u16>,
-    expected_old_pks: &HashMap<u16, G2Element>,
-    derived_old_pk: &G2Element,
-) -> Result<()> {
-    let old_party_id = new_to_old_mapping.get(&new_party_id).ok_or_else(|| {
-        anyhow!(
-            "Continuing member {} with new party ID {} is missing an old party mapping for committee {}",
-            my_address,
-            new_party_id,
-            old_committee_id,
-        )
-    })?;
-    let expected_old_pk = expected_old_pks.get(old_party_id).ok_or_else(|| {
-        anyhow!(
-            "Old partial public key not found for old party {} in committee {}",
-            old_party_id,
-            old_committee_id,
-        )
-    })?;
-
-    if expected_old_pk != derived_old_pk {
-        bail!(
-            "Invalid --old-share for address {}: derived old partial public key does not match onchain old committee {} party {}.\n  Expected (onchain): {}\n  Got (from --old-share): {}",
-            my_address,
-            old_committee_id,
-            old_party_id,
-            to_hex(expected_old_pk)?,
-            to_hex(derived_old_pk)?,
-        );
-    }
-
-    Ok(())
-}
-
 /// Load YAML configuration file.
 fn load_config(path: &Path) -> Result<serde_yaml::Value> {
-    let content = fs::read_to_string(path)?;
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
     serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse YAML config: {}", path.display()))
 }
@@ -1898,8 +1838,7 @@ fn get_members(config: &serde_yaml::Value) -> Result<Vec<Address>> {
             let addr_str = member
                 .as_str()
                 .ok_or_else(|| anyhow!("MEMBERS[{index}] must be a string"))?;
-            Address::from_str(addr_str)
-                .with_context(|| format!("Invalid MEMBERS[{index}] address {addr_str}"))
+            Ok(Address::from_str(addr_str)?)
         })
         .collect()
 }
@@ -1922,7 +1861,7 @@ fn get_key_server_obj_id(config: &serde_yaml::Value) -> Result<Address> {
     let id_str = get_config_field(config, "init-rotation-params", "KEY_SERVER_OBJ_ID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("KEY_SERVER_OBJ_ID not found in config"))?;
-    Address::from_str(id_str).with_context(|| format!("Invalid KEY_SERVER_OBJ_ID {id_str}"))
+    Ok(Address::from_str(id_str)?)
 }
 
 /// Get COMMITTEE_PKG from config.
@@ -1931,7 +1870,7 @@ fn get_committee_pkg(config: &serde_yaml::Value) -> Result<Address> {
     let pkg_str = get_config_field(config, section, "COMMITTEE_PKG")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("COMMITTEE_PKG not found in config"))?;
-    Address::from_str(pkg_str).with_context(|| format!("Invalid {section}.COMMITTEE_PKG {pkg_str}"))
+    Ok(Address::from_str(pkg_str)?)
 }
 
 /// Get COMMITTEE_ID from config.
@@ -1940,7 +1879,7 @@ fn get_committee_id(config: &serde_yaml::Value) -> Result<Address> {
     let id_str = get_config_field(config, section, "COMMITTEE_ID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("COMMITTEE_ID not found in config"))?;
-    Address::from_str(id_str).with_context(|| format!("Invalid {section}.COMMITTEE_ID {id_str}"))
+    Ok(Address::from_str(id_str)?)
 }
 
 /// Select the generated config section that owns COMMITTEE_PKG and COMMITTEE_ID.
@@ -1957,28 +1896,25 @@ fn get_my_address(config: &serde_yaml::Value) -> Result<Address> {
     let addr_str = get_config_field(config, "genkey-and-register", "MY_ADDRESS")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("MY_ADDRESS not found in config"))?;
-    Address::from_str(addr_str).with_context(|| format!("Invalid MY_ADDRESS {addr_str}"))
+    Ok(Address::from_str(addr_str)?)
 }
 
 /// Update fields within a specific section of the YAML config with hex-encoded byte values.
 fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8])>) -> Result<()> {
     let content = fs::read_to_string(path)?;
-    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
-        .with_context(|| format!("Failed to parse YAML config {}", path.display()))?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
     // Ensure the section exists.
     if config.get(section).is_none() {
         config[section] = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
     }
 
-    // Hex byte fields must stay strings. Parsing them as YAML can turn 0x-prefixed values into
-    // numbers, which breaks later config reads that expect strings.
+    // Write as hex strings.
     for (key, bytes) in updates {
         config[section][key] = serde_yaml::Value::String(Hex::encode_with_format(bytes));
     }
 
-    let updated = serde_yaml::to_string(&config)
-        .with_context(|| format!("Failed to serialize YAML config {}", path.display()))?;
+    let updated = serde_yaml::to_string(&config)?;
     fs::write(path, updated)?;
     Ok(())
 }
@@ -1986,8 +1922,7 @@ fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8]
 /// Update fields within a specific section of the YAML config with string values.
 fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str)>) -> Result<()> {
     let content = fs::read_to_string(path)?;
-    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
-        .with_context(|| format!("Failed to parse YAML config {}", path.display()))?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
     // Ensure the section exists.
     if config.get(section).is_none() {
@@ -2001,8 +1936,7 @@ fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str
         config[section][key] = yaml_value;
     }
 
-    let updated = serde_yaml::to_string(&config)
-        .with_context(|| format!("Failed to serialize YAML config {}", path.display()))?;
+    let updated = serde_yaml::to_string(&config)?;
     fs::write(path, updated)?;
     Ok(())
 }
@@ -2018,25 +1952,6 @@ fn persist_process_outputs(
 ) -> Result<()> {
     let master_share_key = format!("MASTER_SHARE_V{}", next_version);
     let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
-    let config_content = load_config(config)?;
-    validate_process_section(&config_content, next_version, old_key_server_pk)?;
-
-    bcs::from_bytes::<G2Element>(key_server_pk_bytes)
-        .context("KEY_SERVER_PK must be a valid BCS G2Element")?;
-    bcs::from_bytes::<G2Scalar>(master_share_bytes)
-        .with_context(|| format!("{master_share_key} must be a valid BCS scalar"))?;
-
-    let partial_pks: Vec<String> = serde_yaml::from_str(partial_pks_yaml)
-        .with_context(|| format!("{partial_pks_key} must be a YAML list of hex G2Elements"))?;
-    if partial_pks.is_empty() {
-        bail!("{partial_pks_key} must not be empty");
-    }
-    for (index, partial_pk) in partial_pks.iter().enumerate() {
-        let partial_pk_bytes = Hex::decode(partial_pk)
-            .with_context(|| format!("{partial_pks_key}[{index}] must be hex"))?;
-        bcs::from_bytes::<G2Element>(&partial_pk_bytes)
-            .with_context(|| format!("{partial_pks_key}[{index}] must be a valid BCS G2Element"))?;
-    }
 
     if next_version == 0 {
         update_config_bytes_val(
@@ -2044,7 +1959,9 @@ fn persist_process_outputs(
             "process-all-and-propose",
             vec![("KEY_SERVER_PK", key_server_pk_bytes)],
         )?;
-    } else if let Some(onchain_pk) = old_key_server_pk {
+    } else {
+        let onchain_pk =
+            old_key_server_pk.expect("rotation output should have old onchain KEY_SERVER_PK");
         if onchain_pk != key_server_pk_bytes {
             bail!(
                 "KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (from rotation DKG): {}",
@@ -2069,24 +1986,6 @@ fn persist_process_outputs(
     Ok(())
 }
 
-/// Validate that a rotation has enough continuing members to satisfy the old threshold.
-fn validate_rotation_quorum(
-    old_committee_id: &Address,
-    old_threshold: u16,
-    continuing_count: usize,
-) -> Result<()> {
-    if continuing_count < old_threshold as usize {
-        bail!(
-            "Rotation cannot meet old committee threshold: old committee {} requires {} continuing member message(s), but only {} new committee member(s) continue from the old committee.",
-            old_committee_id,
-            old_threshold,
-            continuing_count,
-        );
-    }
-
-    Ok(())
-}
-
 /// Validate rotation message senders against the new-party IDs that continue from the old committee.
 fn validate_rotation_message_senders(
     old_threshold: u16,
@@ -2101,8 +2000,6 @@ fn validate_rotation_message_senders(
         );
     }
 
-    let mut continuing_party_ids: Vec<_> = new_to_old_mapping.keys().copied().collect();
-    continuing_party_ids.sort_unstable();
     let mut invalid_senders: Vec<_> = message_senders
         .iter()
         .copied()
@@ -2111,26 +2008,9 @@ fn validate_rotation_message_senders(
     invalid_senders.sort_unstable();
     if !invalid_senders.is_empty() {
         bail!(
-            "Key rotation messages must come from continuing members. Invalid new party ID(s): {:?}. Continuing new party ID(s): {:?}",
+            "Key rotation messages must come from continuing members. Invalid new party ID(s): {:?}",
             invalid_senders,
-            continuing_party_ids,
         );
-    }
-
-    if new_to_old_mapping.len() == old_threshold as usize {
-        let mut missing_senders: Vec<_> = continuing_party_ids
-            .iter()
-            .copied()
-            .filter(|sender| !message_senders.contains(sender))
-            .collect();
-        missing_senders.sort_unstable();
-        if !missing_senders.is_empty() {
-            bail!(
-                "Key rotation requires messages from continuing new party ID(s) {:?}. Missing new party ID(s): {:?}",
-                continuing_party_ids,
-                missing_senders,
-            );
-        }
     }
 
     Ok(())
@@ -2154,12 +2034,9 @@ fn validate_process_section(
     let existing_key_server_pk =
         get_config_field(config, "process-all-and-propose", "KEY_SERVER_PK")
             .and_then(|value| value.as_str());
+
+    // Skip validation for fresh dkg.
     if next_version == 0 {
-        if existing_key_server_pk.is_some() {
-            bail!(
-                "process-all-and-propose.KEY_SERVER_PK already exists for fresh DKG. Remove the process-all-and-propose section before reprocessing."
-            );
-        }
         return Ok(());
     }
 
@@ -2170,10 +2047,8 @@ fn validate_process_section(
         )
     })?;
     if let Some(config_pk) = existing_key_server_pk {
-        let config_pk_bytes =
-            Hex::decode(config_pk).context("process-all-and-propose.KEY_SERVER_PK must be hex")?;
-        bcs::from_bytes::<G2Element>(&config_pk_bytes)
-            .context("process-all-and-propose.KEY_SERVER_PK must be a valid BCS G2Element")?;
+        let config_pk_bytes = Hex::decode(config_pk)
+            .map_err(|e| anyhow!("process-all-and-propose.KEY_SERVER_PK must be hex: {e}"))?;
         if config_pk_bytes != onchain_pk {
             bail!(
                 "process-all-and-propose.KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (config): {}",
@@ -2186,8 +2061,7 @@ fn validate_process_section(
     Ok(())
 }
 
-/// Return process output field names that would be overwritten for this DKG version.
-fn existing_process_output_fields(config: &serde_yaml::Value, next_version: u32) -> Vec<String> {
+fn expected_process_output_fields(next_version: u32) -> Vec<String> {
     let mut fields = vec![
         format!("MASTER_SHARE_V{}", next_version),
         format!("PARTIAL_PKS_V{}", next_version),
@@ -2195,11 +2069,31 @@ fn existing_process_output_fields(config: &serde_yaml::Value, next_version: u32)
     if next_version == 0 {
         fields.push("KEY_SERVER_PK".to_string());
     }
-
     fields
+}
+
+/// Return process output field names that would be overwritten for this DKG version.
+fn existing_process_output_fields(config: &serde_yaml::Value, next_version: u32) -> Vec<String> {
+    expected_process_output_fields(next_version)
         .into_iter()
         .filter(|field| get_config_field(config, "process-all-and-propose", field).is_some())
         .collect()
+}
+
+/// Validate expected process output fields were added for this DKG version.
+fn validate_process_outputs_added(config: &serde_yaml::Value, next_version: u32) -> Result<()> {
+    let missing_fields: Vec<_> = expected_process_output_fields(next_version)
+        .into_iter()
+        .filter(|field| get_config_field(config, "process-all-and-propose", field).is_none())
+        .collect();
+    if !missing_fields.is_empty() {
+        bail!(
+            "process-all-and-propose did not write expected field(s) for version {}: {:?}",
+            next_version,
+            missing_fields,
+        );
+    }
+    Ok(())
 }
 
 /// Create a BuildConfig for package compilation.
@@ -2249,16 +2143,14 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
             .as_str()
             .ok_or_else(|| anyhow!("Missing 'message' field in {}", path.display()))?;
 
-        let message_bytes = Hex::decode(message_hex)
-            .map_err(|e| anyhow!("Failed to decode message from {}: {}", path.display(), e))?;
-
-        let signed_message: SignedMessage = bcs::from_bytes(&message_bytes).map_err(|e| {
-            anyhow!(
-                "Failed to deserialize message from {}: {}",
-                path.display(),
-                e
-            )
-        })?;
+        let signed_message: SignedMessage =
+            bcs_hex_decode!(SignedMessage, message_hex).map_err(|e| {
+                anyhow!(
+                    "Failed to deserialize message from {}: {}",
+                    path.display(),
+                    e
+                )
+            })?;
 
         messages.push(signed_message);
     }
@@ -2293,8 +2185,7 @@ fn process_dkg_messages(
     // Compute hash over of the vector of messages sorted by sender party ID.
     messages.sort_by_key(|m| m.message.sender);
     let messages_hash = {
-        let hash_input =
-            bcs::to_bytes(&messages).context("Failed to serialize DKG messages for hashing")?;
+        let hash_input = bcs::to_bytes(&messages)?;
         let mut hasher = Blake2b256::default();
         hasher.update(&hash_input);
         hasher.finalize().digest.to_vec()
@@ -2328,8 +2219,7 @@ fn process_dkg_messages(
         state.config.my_old_share,
         state.config.old_threshold,
         &mut thread_rng(),
-    )
-    .context("Failed to initialize DKG party for message processing")?;
+    )?;
 
     // Process each message.
     for signed_msg in messages {
@@ -2376,22 +2266,16 @@ fn process_dkg_messages(
                     anyhow!("Key rotation verification failed for party {sender_party_id}: {e}")
                 })?
         } else {
-            party
-                .process_message_with_checks(
-                    signed_msg.message.clone(),
-                    &None,
-                    &Some(signed_msg.nizk_proof.clone()),
-                    &mut thread_rng(),
-                )
-                .with_context(|| {
-                    format!("Fresh DKG verification failed for party {sender_party_id}")
-                })?
+            party.process_message_with_checks(
+                signed_msg.message.clone(),
+                &None,
+                &Some(signed_msg.nizk_proof.clone()),
+                &mut thread_rng(),
+            )?
         };
 
         if let Some(complaint) = &processed.complaint {
-            let complaint_bytes =
-                bcs::to_bytes(complaint).context("Failed to serialize DKG complaint")?;
-            let complaint_hex = Hex::encode(complaint_bytes);
+            let complaint_hex = bcs_hex_encode!(complaint);
             bail!(
                 "Do NOT propose onchain. Complaint against party {}.\n\
                 Abort the protocol and share the following proof with the coordinator:\n  {}",
@@ -2404,9 +2288,7 @@ fn process_dkg_messages(
     }
 
     // Merge and complete.
-    let (confirmation, used_msgs) = party
-        .merge(&state.processed_messages)
-        .context("Failed to merge processed DKG messages")?;
+    let (confirmation, used_msgs) = party.merge(&state.processed_messages)?;
 
     if !confirmation.complaints.is_empty() {
         bail!(
@@ -2430,13 +2312,9 @@ fn process_dkg_messages(
             .collect();
 
         println!("Completing key rotation with mapping: {sender_to_old_map:?}");
-        party
-            .complete_optimistic_key_rotation(&used_msgs, &sender_to_old_map)
-            .context("Failed to complete optimistic key rotation")?
+        party.complete_optimistic_key_rotation(&used_msgs, &sender_to_old_map)?
     } else {
-        party
-            .complete_optimistic(&used_msgs)
-            .context("Failed to complete fresh optimistic DKG")?
+        party.complete_optimistic(&used_msgs)?
     };
 
     state.output = Some(output.clone());
@@ -2445,8 +2323,7 @@ fn process_dkg_messages(
 
 /// Parse a hex-encoded BCS-serialized G2Scalar from a CLI argument.
 fn parse_old_share(s: &str) -> anyhow::Result<G2Scalar> {
-    let bytes = Hex::decode(s).context("--old-share must be hex")?;
-    bcs::from_bytes(&bytes).context("--old-share must be a BCS-serialized G2Scalar")
+    Ok(bcs_hex_decode!(G2Scalar, s)?)
 }
 
 /// Create a RandomOracle with the DKG domain separator and committee ID.
@@ -2455,11 +2332,11 @@ fn create_dkg_random_oracle(committee_id: &Address) -> RandomOracle {
 }
 
 /// Compute and display the package digest.
-async fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> {
+fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> {
     println!("Building package at: {}", package_path.display());
     println!();
 
-    let digest = get_package_digest(package_path, network).await?;
+    let digest = get_package_digest(package_path, network)?;
     println!(
         "Digest for package '{}': {}",
         package_path
@@ -2473,11 +2350,10 @@ async fn compute_package_digest(package_path: &Path, network: &Network) -> Resul
 }
 
 /// Compute package digest as hex string.
-async fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> {
-    let package_path = package_path.canonicalize()?;
+fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> {
     let build_config = create_build_config(network);
     let compiled_package = build_config
-        .build(&package_path)
+        .build(&package_path.canonicalize()?)
         .context("Failed to build package")?;
 
     let digest = compiled_package.get_package_digest(/* with_unpublished_deps */ false);
@@ -2523,7 +2399,7 @@ async fn vote_for_upgrade(
 
     // Build package and compute digest (only for approve).
     let digest = if let Some(path) = package_path {
-        let d = get_package_digest(path, network).await?;
+        let d = get_package_digest(path, network)?;
         println!("\nPackage digest: {}", d);
         Some(d)
     } else {
@@ -2531,7 +2407,7 @@ async fn vote_for_upgrade(
     };
 
     // Fetch key server to get committee ID.
-    let mut grpc_client = create_grpc_client_from_config(network, rpc_url)?;
+    let mut grpc_client = create_grpc_client_with_url(network, rpc_url)?;
     let (committee_id, _) =
         fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 

@@ -85,29 +85,6 @@ fn valid_process_output_material() -> (Vec<u8>, Vec<u8>, String) {
     )
 }
 
-/// Persist process outputs into a temp config and return the resulting error text.
-fn persist_process_outputs_error(
-    test_name: &str,
-    config_content: &str,
-    next_version: u32,
-    key_server_pk: &[u8],
-    old_key_server_pk: Option<&[u8]>,
-    partial_pks_yaml: &str,
-    master_share: &[u8],
-) -> String {
-    let config_path = write_temp_config(test_name, config_content);
-    persist_process_outputs(
-        &config_path,
-        next_version,
-        key_server_pk,
-        old_key_server_pk,
-        partial_pks_yaml.trim(),
-        master_share,
-    )
-    .unwrap_err()
-    .to_string()
-}
-
 #[test]
 fn test_committee_ids_follow_fresh_and_rotation_config_shapes() {
     let initial_fresh_config: serde_yaml::Value =
@@ -315,6 +292,7 @@ fn test_persist_process_outputs_for_fresh_dkg_writes_v0_fields() {
     .unwrap();
 
     let config = load_config(&config_path).unwrap();
+    validate_process_outputs_added(&config, 0).unwrap();
     assert_eq!(
         config_str_field(&config, "process-all-and-propose", "KEY_SERVER_PK"),
         Hex::encode_with_format(&key_server_pk)
@@ -363,6 +341,7 @@ process-all-and-propose:
     .unwrap();
 
     let config = load_config(&config_path).unwrap();
+    validate_process_outputs_added(&config, 1).unwrap();
     assert_eq!(
         config_str_field(&config, "process-all-and-propose", "KEY_SERVER_PK"),
         existing_key_server_pk
@@ -389,19 +368,6 @@ process-all-and-propose:
 }
 
 #[test]
-fn test_validate_rotation_quorum_rejects_too_few_continuing_members() {
-    let old_committee_id = Address::from_str(COMMITTEE_ID).unwrap();
-
-    validate_rotation_quorum(&old_committee_id, 2, 2).unwrap();
-
-    let err = validate_rotation_quorum(&old_committee_id, 3, 2)
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("requires 3 continuing member message"));
-    assert!(err.contains("only 2 new committee member"));
-}
-
-#[test]
 fn test_validate_rotation_message_senders_rejects_new_members() {
     let mut new_to_old_mapping = HashMap::new();
     new_to_old_mapping.insert(0, 1);
@@ -425,123 +391,54 @@ fn test_validate_rotation_message_senders_rejects_new_members() {
 }
 
 #[test]
-fn test_validate_continuing_member_old_share_matches_onchain_pk() {
-    let my_address = Address::from_str(MEMBER_0).unwrap();
-    let old_committee_id = Address::from_str(COMMITTEE_ID).unwrap();
-    let old_share = G2Scalar::from(50u128);
-    let expected_old_pk = G2Element::generator() * old_share;
-
-    let mut new_to_old_mapping = HashMap::new();
-    new_to_old_mapping.insert(1, 0);
-    let mut expected_old_pks = HashMap::new();
-    expected_old_pks.insert(0, expected_old_pk);
-
-    validate_continuing_member_old_share(
-        &my_address,
-        &old_committee_id,
-        1,
-        &new_to_old_mapping,
-        &expected_old_pks,
-        &expected_old_pk,
-    )
-    .unwrap();
-
-    let wrong_old_pk = G2Element::generator() * G2Scalar::from(51u128);
-    let err = validate_continuing_member_old_share(
-        &my_address,
-        &old_committee_id,
-        1,
-        &new_to_old_mapping,
-        &expected_old_pks,
-        &wrong_old_pk,
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(err.contains("Invalid --old-share"));
-    assert!(err.contains("party 0"));
-}
-
-#[test]
-fn test_persist_process_outputs_rejects_version_mismatch() {
-    let (key_server_pk, master_share, partial_pks_yaml) = valid_process_output_material();
-    let err = persist_process_outputs_error(
-        "existing-version-output",
+fn test_validate_process_section_rejects_existing_or_mismatched_outputs() {
+    let (key_server_pk, _, _) = valid_process_output_material();
+    let config: serde_yaml::Value = serde_yaml::from_str(
         "\
 process-all-and-propose:
   MASTER_SHARE_V1: '0x1234'
 ",
-        1,
-        &key_server_pk,
-        Some(&key_server_pk),
-        &partial_pks_yaml,
-        &master_share,
-    );
+    )
+    .unwrap();
+    let err = validate_process_section(&config, 1, Some(&key_server_pk))
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("already contains output field"));
 
-    let err = persist_process_outputs_error(
-        "missing-old-key-server-pk",
-        "init-params: {}\n",
-        1,
-        &key_server_pk,
-        None,
-        &partial_pks_yaml,
-        &master_share,
-    );
+    let config: serde_yaml::Value = serde_yaml::from_str("init-params: {}\n").unwrap();
+    let err = validate_process_section(&config, 1, None)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("requires the old onchain KEY_SERVER_PK"));
 
     let mismatched_key_server_pk =
         bcs::to_bytes(&(G2Element::generator() * G2Scalar::from(99u128))).unwrap();
     let mismatched_key_server_pk_hex = Hex::encode_with_format(&mismatched_key_server_pk);
-    let err = persist_process_outputs_error(
-        "mismatched-key-server-pk",
-        &format!(
-            "\
+    let config: serde_yaml::Value = serde_yaml::from_str(&format!(
+        "\
 process-all-and-propose:
   KEY_SERVER_PK: '{mismatched_key_server_pk_hex}'
 "
-        ),
-        1,
-        &key_server_pk,
-        Some(&key_server_pk),
-        &partial_pks_yaml,
-        &master_share,
-    );
+    ))
+    .unwrap();
+    let err = validate_process_section(&config, 1, Some(&key_server_pk))
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("process-all-and-propose.KEY_SERVER_PK mismatch"));
 }
 
 #[test]
-fn test_persist_process_outputs_rejects_invalid_key_material() {
-    let (key_server_pk, master_share, partial_pks_yaml) = valid_process_output_material();
-    let err = persist_process_outputs_error(
-        "invalid-key-server-pk",
-        "init-params: {}\n",
-        0,
-        &[0, 0],
-        None,
-        &partial_pks_yaml,
-        &master_share,
-    );
-    assert!(err.contains("KEY_SERVER_PK must be a valid BCS G2Element"));
-
-    let err = persist_process_outputs_error(
-        "invalid-master-share",
-        "init-params: {}\n",
-        1,
-        &key_server_pk,
-        Some(&key_server_pk),
-        &partial_pks_yaml,
-        &[0],
-    );
-    assert!(err.contains("MASTER_SHARE_V1 must be a valid BCS scalar"));
-
-    let err = persist_process_outputs_error(
-        "invalid-partial-pk",
-        "init-params: {}\n",
-        1,
-        &key_server_pk,
-        Some(&key_server_pk),
-        "- 0xaa\n",
-        &master_share,
-    );
-    assert!(err.contains("PARTIAL_PKS_V1[0] must be a valid BCS G2Element"));
+fn test_validate_process_outputs_added_rejects_missing_fields() {
+    let config: serde_yaml::Value = serde_yaml::from_str(
+        "\
+process-all-and-propose:
+  KEY_SERVER_PK: '0x1234'
+",
+    )
+    .unwrap();
+    let err = validate_process_outputs_added(&config, 0)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("MASTER_SHARE_V0"));
+    assert!(err.contains("PARTIAL_PKS_V0"));
 }

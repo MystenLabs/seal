@@ -3,7 +3,7 @@
 
 //! Type definitions for DKG CLI.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use fastcrypto::bls12381::min_sig::{BLS12381PrivateKey, BLS12381PublicKey, BLS12381Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
@@ -121,22 +121,17 @@ pub struct DkgState {
 impl DkgState {
     /// Save state to the given directory.
     pub(crate) fn save(&self, state_dir: &Path) -> Result<()> {
-        fs::create_dir_all(state_dir)
-            .with_context(|| format!("Failed to create state directory {}", state_dir.display()))?;
+        fs::create_dir_all(state_dir)?;
         let path = state_dir.join("state.json");
-        let json =
-            serde_json::to_string_pretty(self).context("Failed to serialize DKG state to JSON")?;
-        fs::write(&path, json)
-            .with_context(|| format!("Failed to write DKG state {}", path.display()))?;
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(&path, json)?;
         Ok(())
     }
 
     pub(crate) fn load(state_dir: &Path) -> Result<Self> {
         let path = state_dir.join("state.json");
-        let json = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read DKG state {}", path.display()))?;
-        serde_json::from_str(&json)
-            .with_context(|| format!("Failed to parse DKG state {}", path.display()))
+        let json = fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&json)?)
     }
 }
 
