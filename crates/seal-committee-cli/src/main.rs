@@ -33,7 +33,6 @@ use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
 use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_rpc::Client;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk_types::Address;
@@ -51,19 +50,21 @@ use crate::types::{sign_message, verify_signature, SignedMessage};
 /// Domain separation tag for DKG random oracle
 const DST_DKG: &str = "SEAL_DKG_V0:";
 
-/// BCS-serialize a value and hex-encode the result.
 macro_rules! bcs_hex_encode {
     ($val:expr) => {
         Hex::encode(bcs::to_bytes($val)?)
     };
 }
 
-/// Hex-decode a string and BCS-deserialize to the given type.
 macro_rules! bcs_hex_decode {
-    ($ty:ty, $s:expr) => {
-        bcs::from_bytes::<$ty>(&Hex::decode($s)?)
-    };
+    ($ty:ty, $value:expr) => {{
+        (|| -> Result<$ty> {
+            let bytes = Hex::decode($value)?;
+            Ok(bcs::from_bytes::<$ty>(&bytes)?)
+        })()
+    }};
 }
+
 /// Default gas budgets in MIST.
 mod gas_defaults {
     /// Higher budget for package ops: publish, authorize-and-upgrade.
@@ -79,7 +80,6 @@ fn package_ops_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::PACKAGE_OPS_TESTNET,
         Network::Mainnet => gas_defaults::PACKAGE_OPS_MAINNET,
-        Network::Custom => gas_defaults::PACKAGE_OPS_TESTNET,
     })
 }
 
@@ -87,7 +87,6 @@ fn regular_gas_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::REGULAR_TESTNET,
         Network::Mainnet => gas_defaults::REGULAR_MAINNET,
-        Network::Custom => gas_defaults::REGULAR_TESTNET,
     })
 }
 
@@ -187,7 +186,7 @@ enum Commands {
         #[arg(short, long, default_value = "move/committee")]
         package_path: PathBuf,
 
-        /// Network to build for (Testnet or Mainnet).
+        /// Network to build for.
         #[arg(short, long)]
         network: Network,
     },
@@ -206,7 +205,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -221,7 +220,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -240,7 +239,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -255,7 +254,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -270,7 +269,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL.
+        /// RPC URL override.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -295,8 +294,8 @@ async fn main() -> Result<()> {
             let config_content = load_config(&config)?;
 
             // Check if already initialized.
-            if config_content.get("COMMITTEE_PKG").is_some()
-                || config_content.get("COMMITTEE_ID").is_some()
+            if get_config_field(&config_content, "publish-and-init", "COMMITTEE_PKG").is_some()
+                || get_config_field(&config_content, "publish-and-init", "COMMITTEE_ID").is_some()
             {
                 println!("Committee already initialized. Skipping publish and init. Remove these fields from config to reinitialize.");
                 return Ok(());
@@ -347,7 +346,7 @@ async fn main() -> Result<()> {
             let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let (gas_price, gas_budget, gas_coin_ref) = get_gas_params(
                 &mut grpc_client,
                 &wallet,
@@ -452,7 +451,7 @@ async fn main() -> Result<()> {
             let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
-            if get_config_field(&config_content, &["init-rotation"], "COMMITTEE_ID").is_some() {
+            if get_config_field(&config_content, "init-rotation", "COMMITTEE_ID").is_some() {
                 println!("Committee rotation already initialized. Skipping init-rotation. Remove COMMITTEE_ID from config to re-initialize.");
                 return Ok(());
             }
@@ -477,10 +476,9 @@ async fn main() -> Result<()> {
             // Fetch committee ID and package ID from key server.
             println!("\nFetching key server: {}...", key_server_obj_id);
 
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
-            let key_server_addr = Address::from_hex(&key_server_obj_id)?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let (current_committee_id, package_id) =
-                fetch_committee_from_key_server(&mut grpc_client, &key_server_addr).await?;
+                fetch_committee_from_key_server(&mut grpc_client, &key_server_obj_id).await?;
 
             println!("\nCurrent committee ID: {}", current_committee_id);
             println!("Committee package ID: {}", package_id);
@@ -500,9 +498,8 @@ async fn main() -> Result<()> {
 
             // Call init_rotation.
             let mut rotation_builder = ProgrammableTransactionBuilder::new();
-            let current_committee_obj_id = ObjectID::new(current_committee_id.into_inner());
             let current_committee_arg = rotation_builder.obj(
-                get_shared_committee_arg(&mut grpc_client, current_committee_obj_id, false).await?,
+                get_shared_committee_arg(&mut grpc_client, current_committee_id, false).await?,
             )?;
             let threshold_arg = rotation_builder.pure(threshold)?;
             let members_arg = rotation_builder.pure(members)?;
@@ -561,8 +558,8 @@ async fn main() -> Result<()> {
             let config_content = load_config(&config)?;
 
             // Check if already generated keys.
-            if get_config_field(&config_content, &["genkey-and-register"], "DKG_ENC_PK").is_some()
-                || get_config_field(&config_content, &["genkey-and-register"], "DKG_SIGNING_PK")
+            if get_config_field(&config_content, "genkey-and-register", "DKG_ENC_PK").is_some()
+                || get_config_field(&config_content, "genkey-and-register", "DKG_SIGNING_PK")
                     .is_some()
             {
                 println!("Keys already generated. Skipping key generation and registration. Remove the genkey-and-register section from the config file to re-run this operation.");
@@ -662,7 +659,7 @@ async fn main() -> Result<()> {
 
             println!("\n=== Registering onchain ===");
             print_network_info(&network, node_url.as_deref());
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
 
             // Register onchain.
             let mut register_builder = ProgrammableTransactionBuilder::new();
@@ -674,7 +671,7 @@ async fn main() -> Result<()> {
             let name_arg = register_builder.pure(server_name.as_str())?;
 
             register_builder.programmable_move_call(
-                committee_pkg,
+                committee_pkg.into(),
                 "seal_committee".parse()?,
                 "register".parse()?,
                 vec![],
@@ -736,14 +733,6 @@ async fn main() -> Result<()> {
             let node_url = get_node_url(&config_content);
             print_network_info(&network, node_url.as_deref());
 
-            // Check if this is a rotation.
-            let current_committee_id =
-                get_config_field(&config_content, &["init-rotation"], "CURRENT_COMMITTEE_ID")
-                    .and_then(|v| v.as_str())
-                    .map(ObjectID::from_hex_literal)
-                    .transpose()?;
-            let is_rotation = current_committee_id.is_some();
-
             // Process DKG messages.
             println!("\n=== Processing DKG messages ===");
             println!("  Messages directory: {:?}", full_messages_dir);
@@ -751,49 +740,49 @@ async fn main() -> Result<()> {
             println!("  Keys file: {:?}\n", keys_file);
 
             let mut state = DkgState::load(&state_dir)?;
+            if committee_id != state.config.committee_id {
+                bail!(
+                    "dkg.yaml COMMITTEE_ID {} does not match state.json committee ID {}",
+                    committee_id,
+                    state.config.committee_id,
+                );
+            }
             let local_keys = KeysFile::load(&keys_file)?;
+
+            // Determine version and fetch old key server PK (for rotation).
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
+            let (next_version, old_key_server_pk, current_committee_id) =
+                get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
+            validate_process_section(&config_content, next_version, old_key_server_pk.as_deref())?;
+
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                node_url.as_deref(),
+            )?;
+            let active_address = wallet.active_address()?;
+            if my_address != active_address {
+                bail!(
+                    "Active wallet address {} does not match genkey-and-register.MY_ADDRESS {}",
+                    active_address,
+                    my_address,
+                );
+            }
 
             // Load and process all messages.
             let messages = load_messages_from_dir(&full_messages_dir)?;
             let (output, messages_hash) = process_dkg_messages(&mut state, messages, &local_keys)?;
 
-            // Determine version and fetch old key server PK (for rotation).
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
-            let (next_version, old_key_server_pk) =
-                get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
-
             // Extract key server PK and master share.
             let key_server_pk_bytes = bcs::to_bytes(&output.vss_pk.c0())?;
-            let master_share_bytes = if let Some(shares) = &output.shares {
-                shares
-                    .first()
-                    .map(|share| bcs::to_bytes(&share.value))
-                    .transpose()?
-                    .unwrap_or_default()
-            } else {
-                vec![]
-            };
-
-            // Check if already written to config.
-            let master_share_key = format!("MASTER_SHARE_V{}", next_version);
-            let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
-
-            if get_config_field(
-                &config_content,
-                &["process-all-and-propose"],
-                &master_share_key,
-            )
-            .is_some()
-                || get_config_field(
-                    &config_content,
-                    &["process-all-and-propose"],
-                    &partial_pks_key,
-                )
-                .is_some()
-            {
-                println!("[WARNING] Skipping processing and onchain proposal. To reprocess messages and propose onchain, remove the process-all-and-propose section from the config file.");
-                return Ok(());
-            }
+            let master_share_bytes = output
+                .shares
+                .as_ref()
+                .and_then(|shares| shares.first())
+                .map(|share| bcs::to_bytes(&share.value))
+                .transpose()?
+                .ok_or_else(|| anyhow!("DKG output did not contain a master share"))?;
 
             // Serialize partial_pks to yaml list.
             let mut partial_pks = Vec::new();
@@ -804,46 +793,15 @@ async fn main() -> Result<()> {
             }
             let partial_pks_yaml = serde_yaml::to_string(&partial_pks)?;
 
-            if next_version == 0 {
-                // For v0, add KEY_SERVER_PK, PARTIAL_PKS_V0, MASTER_SHARE_V0.
-                update_config_bytes_val(
-                    &config,
-                    "process-all-and-propose",
-                    vec![("KEY_SERVER_PK", &key_server_pk_bytes)],
-                )?;
-                update_config_string_val(
-                    &config,
-                    "process-all-and-propose",
-                    vec![(partial_pks_key.as_str(), partial_pks_yaml.trim())],
-                )?;
-                update_config_bytes_val(
-                    &config,
-                    "process-all-and-propose",
-                    vec![(master_share_key.as_str(), &master_share_bytes)],
-                )?;
-            } else {
-                // For rotation, verify KEY_SERVER_PK matches the onchain old committee's key server PK.
-                if let Some(onchain_pk) = old_key_server_pk {
-                    if onchain_pk != key_server_pk_bytes {
-                        bail!(
-                            "KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (from rotation DKG): {}",
-                            Hex::encode_with_format(&onchain_pk),
-                            Hex::encode_with_format(&key_server_pk_bytes),
-                        );
-                    }
-                    println!("✓ KEY_SERVER_PK matches onchain old committee.");
-                }
-                update_config_string_val(
-                    &config,
-                    "process-all-and-propose",
-                    vec![(partial_pks_key.as_str(), partial_pks_yaml.trim())],
-                )?;
-                update_config_bytes_val(
-                    &config,
-                    "process-all-and-propose",
-                    vec![(master_share_key.as_str(), &master_share_bytes)],
-                )?;
-            }
+            persist_process_outputs(
+                &config,
+                next_version,
+                &key_server_pk_bytes,
+                old_key_server_pk.as_deref(),
+                partial_pks_yaml.trim(),
+                &master_share_bytes,
+            )?;
+            validate_process_outputs_added(&load_config(&config)?, next_version)?;
 
             if next_version == 0 {
                 println!("\n✓ Updated {} process-all-and-propose section with KEY_SERVER_PK, PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
@@ -851,13 +809,10 @@ async fn main() -> Result<()> {
                 println!("\n✓ Updated {} process-all-and-propose section with PARTIAL_PKS_V{}, MASTER_SHARE_V{}", config.display(), next_version, next_version);
             }
 
-            // Load wallet.
-            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
-
-            if is_rotation {
+            if let Some(current_committee_id) = current_committee_id {
                 println!("\n=== Proposing committee rotation onchain ===");
                 println!("  New Committee ID: {}", committee_id);
-                println!("  Current Committee ID: {}", current_committee_id.unwrap());
+                println!("  Current Committee ID: {}", current_committee_id);
             } else {
                 println!("\n=== Proposing committee onchain ===");
             }
@@ -875,15 +830,13 @@ async fn main() -> Result<()> {
 
             let messages_hash_arg = propose_builder.pure(messages_hash)?;
 
-            if is_rotation {
-                let current_committee_obj_id = current_committee_id.unwrap();
+            if let Some(current_committee_id) = current_committee_id {
                 let current_committee_arg = propose_builder.obj(
-                    get_shared_committee_arg(&mut grpc_client, current_committee_obj_id, true)
-                        .await?,
+                    get_shared_committee_arg(&mut grpc_client, current_committee_id, true).await?,
                 )?;
 
                 propose_builder.programmable_move_call(
-                    committee_pkg,
+                    committee_pkg.into(),
                     "seal_committee".parse()?,
                     "propose_for_rotation".parse()?,
                     vec![],
@@ -899,7 +852,7 @@ async fn main() -> Result<()> {
                 let key_server_pk_arg = propose_builder.pure(key_server_pk_bytes)?;
 
                 propose_builder.programmable_move_call(
-                    committee_pkg,
+                    committee_pkg.into(),
                     "seal_committee".parse()?,
                     "propose".parse()?,
                     vec![],
@@ -944,13 +897,13 @@ async fn main() -> Result<()> {
             let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
-            let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
+            let committee_id = get_committee_id(&config_content)?;
             let network = get_network(&config_content)?;
             let node_url = get_node_url(&config_content);
             print_network_info(&network, node_url.as_deref());
 
             // Fetch committee from onchain.
-            let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
             let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
             println!("Committee ID: {committee_id}");
@@ -1064,6 +1017,7 @@ async fn main() -> Result<()> {
             package_path,
             network,
         } => {
+            println!("Network: {}", network);
             compute_package_digest(&package_path, &network)?;
         }
 
@@ -1073,7 +1027,12 @@ async fn main() -> Result<()> {
             network,
             rpc_url,
         } => {
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             vote_for_upgrade(
                 Some(&package_path),
                 &key_server_id,
@@ -1091,7 +1050,12 @@ async fn main() -> Result<()> {
             network,
             rpc_url,
         } => {
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             vote_for_upgrade(
                 None,
                 &key_server_id,
@@ -1111,7 +1075,12 @@ async fn main() -> Result<()> {
             rpc_url,
         } => {
             // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             let executor_address = wallet.active_address()?;
 
             println!("Executor address: {}", executor_address);
@@ -1138,8 +1107,6 @@ async fn main() -> Result<()> {
             println!("Current package: {}", committee_pkg);
             println!("Package version: {}", upgrade_manager.cap.version);
 
-            let committee_obj_id = ObjectID::new(committee_id.into_inner());
-
             // Get dependencies for upgrade.
             let dependencies: Vec<ObjectID> = compiled_package
                 .dependency_ids
@@ -1152,7 +1119,7 @@ async fn main() -> Result<()> {
 
             // Call authorize_upgrade.
             let committee_arg_auth = upgrade_builder
-                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
 
             let upgrade_ticket = upgrade_builder.programmable_move_call(
                 committee_pkg,
@@ -1172,7 +1139,7 @@ async fn main() -> Result<()> {
 
             // Commit upgrade.
             let committee_arg_commit = upgrade_builder
-                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
 
             upgrade_builder.programmable_move_call(
                 committee_pkg,
@@ -1217,7 +1184,12 @@ async fn main() -> Result<()> {
             rpc_url,
         } => {
             // Load wallet.
-            let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let mut wallet = load_wallet_for_network(
+                cli.wallet.as_deref(),
+                cli.active_address,
+                &network,
+                rpc_url.as_deref(),
+            )?;
             let member_address = wallet.active_address()?;
 
             println!("Member address: {}", member_address);
@@ -1237,9 +1209,8 @@ async fn main() -> Result<()> {
 
             // Build reset transaction.
             let mut reset_builder = ProgrammableTransactionBuilder::new();
-            let committee_obj_id = ObjectID::new(committee_id.into_inner());
             let committee_arg = reset_builder
-                .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+                .obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
 
             reset_builder.programmable_move_call(
                 committee_pkg,
@@ -1404,7 +1375,7 @@ async fn execute_tx_and_log_status(
     let status = response.effects.status();
 
     if !status.is_ok() {
-        bail!("Transaction FAILED with status: {:?}", status);
+        bail!("Transaction FAILED: digest {}, status {:?}", digest, status);
     }
 
     println!("Transaction SUCCESS!");
@@ -1442,7 +1413,7 @@ fn extract_created_committee_id(response: &ExecutedTransaction) -> Result<Object
 /// Get shared object argument for a committee object using gRPC.
 async fn get_shared_committee_arg(
     grpc_client: &mut sui_rpc::client::Client,
-    committee_id: ObjectID,
+    committee_id: Address,
     mutable: bool,
 ) -> Result<ObjectArg> {
     let mut ledger_client = grpc_client.ledger_client();
@@ -1453,26 +1424,23 @@ async fn get_shared_committee_arg(
         paths: vec!["owner".to_string()],
     });
 
-    let response = ledger_client
-        .get_object(request)
-        .await
-        .map(|r| r.into_inner())?;
+    let response = ledger_client.get_object(request).await?.into_inner();
 
     let object = response
         .object
-        .ok_or_else(|| anyhow!("Committee object not found"))?;
+        .ok_or_else(|| anyhow!("Committee object {} not found", committee_id))?;
 
     let owner = object
         .owner
-        .ok_or_else(|| anyhow!("Committee object has no owner"))?;
+        .ok_or_else(|| anyhow!("Committee object {} has no owner", committee_id))?;
 
     // Get initial_shared_version for shared object committee.
     let initial_shared_version = owner
         .version
-        .ok_or_else(|| anyhow!("Shared object has no version"))?;
+        .ok_or_else(|| anyhow!("Shared committee object {} has no version", committee_id))?;
 
     Ok(ObjectArg::SharedObject {
-        id: committee_id,
+        id: committee_id.into(),
         initial_shared_version: initial_shared_version.into(),
         mutability: if mutable {
             SharedObjectMutability::Mutable
@@ -1492,7 +1460,7 @@ async fn create_dkg_state_and_message(
     // Load config to get parameters.
     let config_content = load_config(config)?;
     let my_address = get_my_address(&config_content)?;
-    let committee_id = Address::from(get_committee_id(&config_content)?.into_bytes());
+    let committee_id = get_committee_id(&config_content)?;
     let network = get_network(&config_content)?;
     let node_url = get_node_url(&config_content);
     print_network_info(&network, node_url.as_deref());
@@ -1510,7 +1478,7 @@ async fn create_dkg_state_and_message(
     };
 
     // Fetch current committee from onchain.
-    let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
+    let mut grpc_client = create_grpc_client_with_url(&network, node_url.as_deref())?;
     let committee = fetch_committee_data(&mut grpc_client, &committee_id).await?;
 
     // Validate committee state contains my address.
@@ -1570,6 +1538,14 @@ async fn create_dkg_state_and_message(
             let old_committee = fetch_committee_data(&mut grpc_client, &old_committee_id).await?;
             let old_threshold = Some(old_committee.threshold);
             let new_to_old_mapping = build_new_to_old_map(&committee, &old_committee);
+            if new_to_old_mapping.len() < old_committee.threshold as usize {
+                bail!(
+                    "Rotation cannot meet old committee threshold: old committee {} requires {} continuing member message(s), but only {} new committee member(s) continue from the old committee.",
+                    old_committee_id,
+                    old_committee.threshold,
+                    new_to_old_mapping.len(),
+                );
+            }
 
             // Fetch partial key server info from the old committee's key server object.
             let (_, ks) =
@@ -1591,6 +1567,21 @@ async fn create_dkg_state_and_message(
                             my_address,
                             old_committee_id
                         ));
+                    }
+                    let my_old_pk = my_old_pk
+                        .as_ref()
+                        .expect("--old-share should derive an old public key");
+                    let old_party_id = new_to_old_mapping[&my_party_id];
+                    let expected_old_pk = &expected_old_pks[&old_party_id];
+                    if expected_old_pk != my_old_pk {
+                        bail!(
+                            "Invalid --old-share for address {}: derived old partial public key does not match onchain old committee {} party {}.\n  Expected (onchain): {}\n  Got (from --old-share): {}",
+                            my_address,
+                            old_committee_id,
+                            old_party_id,
+                            to_hex(expected_old_pk)?,
+                            to_hex(my_old_pk)?,
+                        );
                     }
                     println!("Continuing member for key rotation.");
                 }
@@ -1643,7 +1634,12 @@ async fn create_dkg_state_and_message(
 
         let message = party.create_message(&mut thread_rng())?;
         let nizk_proof = party.nizk_pop_of_secret(&mut thread_rng());
-        let signed_message = sign_message(message.clone(), &local_keys.signing_sk, nizk_proof);
+        let signed_message = sign_message(
+            &committee_id,
+            message.clone(),
+            &local_keys.signing_sk,
+            nizk_proof,
+        );
 
         // Write message to file.
         let message_hex = bcs_hex_encode!(&signed_message);
@@ -1738,33 +1734,25 @@ fn load_wallet_for_network(
 ) -> Result<WalletContext> {
     let wallet = load_wallet(wallet_path, active_address)?;
 
-    // Determine the environment alias to use
+    if let Some(url) = rpc_url {
+        let target_env = wallet
+            .config
+            .envs
+            .iter()
+            .find(|env| env.rpc == url)
+            .map(|env| env.alias.clone())
+            .ok_or_else(|| {
+                anyhow!(
+                    "RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-testnet-rpc --rpc https://my-rpc.example.com:443'",
+                    url
+                )
+            })?;
+        return Ok(wallet.with_env_override(target_env));
+    }
+
     let target_env = match network {
         Network::Testnet => "testnet".to_string(),
         Network::Mainnet => "mainnet".to_string(),
-        Network::Custom => {
-            // For custom network, find or create an env with matching RPC URL
-            if let Some(url) = rpc_url {
-                let matching_env = wallet
-                    .config
-                    .envs
-                    .iter()
-                    .find(|env| env.rpc == url)
-                    .map(|env| env.alias.clone());
-
-                if let Some(alias) = matching_env {
-                    alias
-                } else {
-                    // No alias found for the dkg.yaml URL, create a new one with sui cli.
-                    bail!(
-                        "Custom RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-custom-devnet --rpc https://my-custom-rpc.example.com:443'",
-                        url
-                    );
-                }
-            } else {
-                bail!("Custom network specified but no NODE_URL provided in config");
-            }
-        }
     };
 
     Ok(wallet.with_env_override(target_env))
@@ -1802,59 +1790,40 @@ fn load_config(path: &Path) -> Result<serde_yaml::Value> {
         .with_context(|| format!("Failed to parse YAML config: {}", path.display()))
 }
 
-/// Get a field from config, checking nested sections first, then flat structure.
+/// Get a field from a named config section.
 fn get_config_field<'a>(
     config: &'a serde_yaml::Value,
-    sections: &[&str],
+    section: &str,
     field: &str,
 ) -> Option<&'a serde_yaml::Value> {
-    for section in sections {
-        if let Some(section_val) = config.get(section)
-            && let Some(field_val) = section_val.get(field)
-        {
-            return Some(field_val);
-        }
-    }
-    None
+    config.get(section)?.get(field)
 }
 
 /// Get network from config.
 fn get_network(config: &serde_yaml::Value) -> Result<Network> {
-    let network_str = get_config_field(config, &["init-params"], "NETWORK")
+    let network_str = get_config_field(config, "init-params", "NETWORK")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("NETWORK not found in config or invalid"))?;
 
-    Network::from_str(network_str).map_err(|e| anyhow!(e))
+    Network::from_str(network_str).map_err(|e| anyhow!("Invalid NETWORK {network_str}: {e}"))
 }
 
 /// Get optional NODE_URL from config.
 fn get_node_url(config: &serde_yaml::Value) -> Option<String> {
-    get_config_field(config, &["init-params"], "NODE_URL")
+    get_config_field(config, "init-params", "NODE_URL")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
 }
 
-/// Create gRPC client with rpc url or network default.
-fn create_grpc_client_from_config(
-    network: &Network,
-    config_node_url: Option<&str>,
-) -> Result<Client> {
-    let rpc_url = config_node_url.or_else(|| network.default_rpc_url());
-    create_grpc_client_with_url(network, rpc_url)
-}
-
 /// Print network with rpc url.
 fn print_network_info(network: &Network, rpc_url: Option<&str>) {
-    let rpc_url = rpc_url.or_else(|| network.default_rpc_url());
-    match rpc_url {
-        Some(url) => println!("Network: {} ({})", network, url),
-        None => println!("Network: {}", network),
-    }
+    let rpc_url = rpc_url.unwrap_or_else(|| network.default_rpc_url());
+    println!("Network: {} ({})", network, rpc_url);
 }
 
 /// Get members list from config.
-fn get_members(config: &serde_yaml::Value) -> Result<Vec<SuiAddress>> {
-    let members = get_config_field(config, &["init-params"], "MEMBERS")
+fn get_members(config: &serde_yaml::Value) -> Result<Vec<Address>> {
+    let members = get_config_field(config, "init-params", "MEMBERS")
         .and_then(|v| v.as_sequence())
         .ok_or_else(|| anyhow!("MEMBERS list not found or invalid in config"))?;
 
@@ -1864,18 +1833,19 @@ fn get_members(config: &serde_yaml::Value) -> Result<Vec<SuiAddress>> {
 
     members
         .iter()
-        .map(|member| {
+        .enumerate()
+        .map(|(index, member)| {
             let addr_str = member
                 .as_str()
-                .ok_or_else(|| anyhow!("Member address must be a string"))?;
-            SuiAddress::from_str(addr_str).context("Invalid member address")
+                .ok_or_else(|| anyhow!("MEMBERS[{index}] must be a string"))?;
+            Ok(Address::from_str(addr_str)?)
         })
         .collect()
 }
 
 /// Get threshold from config.
 fn get_threshold(config: &serde_yaml::Value) -> Result<u16> {
-    let threshold = get_config_field(config, &["init-params"], "THRESHOLD")
+    let threshold = get_config_field(config, "init-params", "THRESHOLD")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| anyhow!("THRESHOLD not found or invalid in config"))?;
 
@@ -1887,40 +1857,43 @@ fn get_threshold(config: &serde_yaml::Value) -> Result<u16> {
 }
 
 /// Get key server object ID from config.
-fn get_key_server_obj_id(config: &serde_yaml::Value) -> Result<String> {
-    get_config_field(config, &["init-rotation-params"], "KEY_SERVER_OBJ_ID")
+fn get_key_server_obj_id(config: &serde_yaml::Value) -> Result<Address> {
+    let id_str = get_config_field(config, "init-rotation-params", "KEY_SERVER_OBJ_ID")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow!("KEY_SERVER_OBJ_ID not found in config"))
+        .ok_or_else(|| anyhow!("KEY_SERVER_OBJ_ID not found in config"))?;
+    Ok(Address::from_str(id_str)?)
 }
 
 /// Get COMMITTEE_PKG from config.
-fn get_committee_pkg(config: &serde_yaml::Value) -> Result<ObjectID> {
-    let pkg_str = get_config_field(
-        config,
-        &["publish-and-init", "init-rotation"],
-        "COMMITTEE_PKG",
-    )
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow!("COMMITTEE_PKG not found in config"))?;
-    Ok(ObjectID::from_hex_literal(pkg_str)?)
+fn get_committee_pkg(config: &serde_yaml::Value) -> Result<Address> {
+    let section = committee_id_section(config);
+    let pkg_str = get_config_field(config, section, "COMMITTEE_PKG")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("COMMITTEE_PKG not found in config"))?;
+    Ok(Address::from_str(pkg_str)?)
 }
 
 /// Get COMMITTEE_ID from config.
-fn get_committee_id(config: &serde_yaml::Value) -> Result<ObjectID> {
-    let id_str = get_config_field(
-        config,
-        &["publish-and-init", "init-rotation"],
-        "COMMITTEE_ID",
-    )
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow!("COMMITTEE_ID not found in config"))?;
-    Ok(ObjectID::from_hex_literal(id_str)?)
+fn get_committee_id(config: &serde_yaml::Value) -> Result<Address> {
+    let section = committee_id_section(config);
+    let id_str = get_config_field(config, section, "COMMITTEE_ID")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("COMMITTEE_ID not found in config"))?;
+    Ok(Address::from_str(id_str)?)
+}
+
+/// Select the generated config section that owns COMMITTEE_PKG and COMMITTEE_ID.
+fn committee_id_section(config: &serde_yaml::Value) -> &'static str {
+    if get_config_field(config, "init-rotation-params", "KEY_SERVER_OBJ_ID").is_some() {
+        "init-rotation"
+    } else {
+        "publish-and-init"
+    }
 }
 
 /// Get MY_ADDRESS from config.
 fn get_my_address(config: &serde_yaml::Value) -> Result<Address> {
-    let addr_str = get_config_field(config, &["genkey-and-register"], "MY_ADDRESS")
+    let addr_str = get_config_field(config, "genkey-and-register", "MY_ADDRESS")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("MY_ADDRESS not found in config"))?;
     Ok(Address::from_str(addr_str)?)
@@ -1928,15 +1901,22 @@ fn get_my_address(config: &serde_yaml::Value) -> Result<Address> {
 
 /// Update fields within a specific section of the YAML config with hex-encoded byte values.
 fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8])>) -> Result<()> {
-    let string_updates: Vec<(&str, String)> = updates
-        .into_iter()
-        .map(|(key, bytes)| (key, Hex::encode_with_format(bytes)))
-        .collect();
-    let string_refs: Vec<(&str, &str)> = string_updates
-        .iter()
-        .map(|(k, v)| (*k, v.as_str()))
-        .collect();
-    update_config_string_val(path, section, string_refs)
+    let content = fs::read_to_string(path)?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)?;
+
+    // Ensure the section exists.
+    if config.get(section).is_none() {
+        config[section] = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+    }
+
+    // Write as hex strings.
+    for (key, bytes) in updates {
+        config[section][key] = serde_yaml::Value::String(Hex::encode_with_format(bytes));
+    }
+
+    let updated = serde_yaml::to_string(&config)?;
+    fs::write(path, updated)?;
+    Ok(())
 }
 
 /// Update fields within a specific section of the YAML config with string values.
@@ -1961,6 +1941,161 @@ fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str
     Ok(())
 }
 
+/// Validate and persist process-all-and-propose outputs for fresh DKG or rotation.
+fn persist_process_outputs(
+    config: &Path,
+    next_version: u32,
+    key_server_pk_bytes: &[u8],
+    old_key_server_pk: Option<&[u8]>,
+    partial_pks_yaml: &str,
+    master_share_bytes: &[u8],
+) -> Result<()> {
+    let master_share_key = format!("MASTER_SHARE_V{}", next_version);
+    let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
+
+    if next_version == 0 {
+        update_config_bytes_val(
+            config,
+            "process-all-and-propose",
+            vec![("KEY_SERVER_PK", key_server_pk_bytes)],
+        )?;
+    } else {
+        let onchain_pk =
+            old_key_server_pk.expect("rotation output should have old onchain KEY_SERVER_PK");
+        if onchain_pk != key_server_pk_bytes {
+            bail!(
+                "KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (from rotation DKG): {}",
+                Hex::encode_with_format(onchain_pk),
+                Hex::encode_with_format(key_server_pk_bytes),
+            );
+        }
+        println!("✓ KEY_SERVER_PK matches onchain old committee.");
+    }
+
+    update_config_string_val(
+        config,
+        "process-all-and-propose",
+        vec![(partial_pks_key.as_str(), partial_pks_yaml.trim())],
+    )?;
+    update_config_bytes_val(
+        config,
+        "process-all-and-propose",
+        vec![(master_share_key.as_str(), master_share_bytes)],
+    )?;
+
+    Ok(())
+}
+
+/// Validate rotation message senders against the new-party IDs that continue from the old committee.
+fn validate_rotation_message_senders(
+    old_threshold: u16,
+    new_to_old_mapping: &HashMap<u16, u16>,
+    message_senders: &HashSet<u16>,
+) -> Result<()> {
+    if message_senders.len() != old_threshold as usize {
+        bail!(
+            "Key rotation requires exactly {} messages from continuing members, got {}",
+            old_threshold,
+            message_senders.len()
+        );
+    }
+
+    let mut invalid_senders: Vec<_> = message_senders
+        .iter()
+        .copied()
+        .filter(|sender| !new_to_old_mapping.contains_key(sender))
+        .collect();
+    invalid_senders.sort_unstable();
+    if !invalid_senders.is_empty() {
+        bail!(
+            "Key rotation messages must come from continuing members. Invalid new party ID(s): {:?}",
+            invalid_senders,
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate process-all-and-propose fields before writing new DKG output into config.
+fn validate_process_section(
+    config: &serde_yaml::Value,
+    next_version: u32,
+    old_key_server_pk: Option<&[u8]>,
+) -> Result<()> {
+    let existing_output_fields = existing_process_output_fields(config, next_version);
+    if !existing_output_fields.is_empty() {
+        bail!(
+            "process-all-and-propose already contains output field(s) for version {}: {:?}. Remove them before reprocessing.",
+            next_version,
+            existing_output_fields,
+        );
+    }
+
+    let existing_key_server_pk =
+        get_config_field(config, "process-all-and-propose", "KEY_SERVER_PK")
+            .and_then(|value| value.as_str());
+
+    // Skip validation for fresh dkg.
+    if next_version == 0 {
+        return Ok(());
+    }
+
+    let onchain_pk = old_key_server_pk.ok_or_else(|| {
+        anyhow!(
+            "Rotation output for version {} requires the old onchain KEY_SERVER_PK",
+            next_version
+        )
+    })?;
+    if let Some(config_pk) = existing_key_server_pk {
+        let config_pk_bytes = Hex::decode(config_pk)
+            .map_err(|e| anyhow!("process-all-and-propose.KEY_SERVER_PK must be hex: {e}"))?;
+        if config_pk_bytes != onchain_pk {
+            bail!(
+                "process-all-and-propose.KEY_SERVER_PK mismatch!\n  Expected (onchain): {}\n  Got (config): {}",
+                Hex::encode_with_format(onchain_pk),
+                Hex::encode_with_format(&config_pk_bytes),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn expected_process_output_fields(next_version: u32) -> Vec<String> {
+    let mut fields = vec![
+        format!("MASTER_SHARE_V{}", next_version),
+        format!("PARTIAL_PKS_V{}", next_version),
+    ];
+    if next_version == 0 {
+        fields.push("KEY_SERVER_PK".to_string());
+    }
+    fields
+}
+
+/// Return process output field names that would be overwritten for this DKG version.
+fn existing_process_output_fields(config: &serde_yaml::Value, next_version: u32) -> Vec<String> {
+    expected_process_output_fields(next_version)
+        .into_iter()
+        .filter(|field| get_config_field(config, "process-all-and-propose", field).is_some())
+        .collect()
+}
+
+/// Validate expected process output fields were added for this DKG version.
+fn validate_process_outputs_added(config: &serde_yaml::Value, next_version: u32) -> Result<()> {
+    let missing_fields: Vec<_> = expected_process_output_fields(next_version)
+        .into_iter()
+        .filter(|field| get_config_field(config, "process-all-and-propose", field).is_none())
+        .collect();
+    if !missing_fields.is_empty() {
+        bail!(
+            "process-all-and-propose did not write expected field(s) for version {}: {:?}",
+            next_version,
+            missing_fields,
+        );
+    }
+    Ok(())
+}
+
 /// Create a BuildConfig for package compilation.
 fn create_build_config(network: &Network) -> BuildConfig {
     let move_build_config = MoveBuildConfig {
@@ -1971,7 +2106,6 @@ fn create_build_config(network: &Network) -> BuildConfig {
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
-        Network::Custom => testnet_environment(),
     };
 
     BuildConfig {
@@ -2029,11 +2163,10 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
 }
 
 /// Process DKG messages and complete the protocol. Returns the DKG output and a consistency hash
-/// over all received messages `Blake2b256(BCS(msg_1) || ... || BCS(msg_n))` where messages are
-/// sorted by sender party ID.
+/// over one BCS-serialized vector of messages where messages are sorted by sender party ID.
 fn process_dkg_messages(
     state: &mut DkgState,
-    messages: Vec<SignedMessage>,
+    mut messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
 ) -> Result<(
     fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>,
@@ -2041,26 +2174,31 @@ fn process_dkg_messages(
 )> {
     println!("Processing {} message(s)...", messages.len());
 
-    // Compute hash over messages sorted by sender party ID.
-    let messages_hash = {
-        let mut sorted = messages.iter().collect::<Vec<_>>();
-        sorted.sort_by_key(|m| m.message.sender);
-        let mut hasher = Blake2b256::default();
-        for msg in sorted {
-            hasher.update(&bcs::to_bytes(&msg)?);
+    let mut seen_senders = HashSet::new();
+    for signed_msg in &messages {
+        let sender = signed_msg.message.sender;
+        if !seen_senders.insert(sender) {
+            bail!("Duplicate DKG message from party {sender}");
         }
+    }
+
+    // Compute hash over of the vector of messages sorted by sender party ID.
+    messages.sort_by_key(|m| m.message.sender);
+    let messages_hash = {
+        let hash_input = bcs::to_bytes(&messages)?;
+        let mut hasher = Blake2b256::default();
+        hasher.update(&hash_input);
         hasher.finalize().digest.to_vec()
     };
 
     // Validate message count.
     if let Some(old_threshold) = state.config.old_threshold {
-        if messages.len() != old_threshold as usize {
-            bail!(
-                "Key rotation requires exactly {} messages from continuing members, got {}",
-                old_threshold,
-                messages.len()
-            );
-        }
+        let new_to_old_mapping = state
+            .config
+            .new_to_old_mapping
+            .as_ref()
+            .ok_or_else(|| anyhow!("Missing new-to-old mapping for key rotation"))?;
+        validate_rotation_message_senders(old_threshold, new_to_old_mapping, &seen_senders)?;
     } else {
         let num_parties = state.config.nodes.num_nodes();
         if messages.len() != num_parties {
@@ -2093,7 +2231,7 @@ fn process_dkg_messages(
             .signing_pks
             .get(&sender_party_id)
             .ok_or_else(|| anyhow!("Signing public key not found for party {}", sender_party_id))?;
-        verify_signature(&signed_msg, sender_signing_pk)?;
+        verify_signature(&state.config.committee_id, &signed_msg, sender_signing_pk)?;
 
         let processed = if state.config.old_threshold.is_some() {
             let new_to_old_mapping = state
@@ -2252,12 +2390,12 @@ async fn vote_for_upgrade(
     wallet: &mut WalletContext,
     gas_budget: u64,
     approve: bool,
-    custom_rpc_url: Option<&str>,
+    rpc_url: Option<&str>,
 ) -> Result<()> {
     let voter_address = wallet.active_address()?;
 
     println!("Voter address: {}", voter_address);
-    print_network_info(network, custom_rpc_url);
+    print_network_info(network, rpc_url);
 
     // Build package and compute digest (only for approve).
     let digest = if let Some(path) = package_path {
@@ -2269,7 +2407,7 @@ async fn vote_for_upgrade(
     };
 
     // Fetch key server to get committee ID.
-    let mut grpc_client = create_grpc_client_with_url(network, custom_rpc_url)?;
+    let mut grpc_client = create_grpc_client_with_url(network, rpc_url)?;
     let (committee_id, _) =
         fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 
@@ -2282,9 +2420,8 @@ async fn vote_for_upgrade(
 
     // Build vote transaction.
     let mut vote_builder = ProgrammableTransactionBuilder::new();
-    let committee_obj_id = ObjectID::new(committee_id.into_inner());
-    let committee_arg = vote_builder
-        .obj(get_shared_committee_arg(&mut grpc_client, committee_obj_id, true).await?)?;
+    let committee_arg =
+        vote_builder.obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
 
     let function_name = if approve {
         "approve_digest_for_upgrade"
@@ -2326,3 +2463,6 @@ async fn vote_for_upgrade(
     println!("\n✓ Successfully voted to {}!", function_name);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

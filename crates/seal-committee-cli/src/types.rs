@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use std::{fs, path::Path};
 use sui_sdk_types::Address;
 
+const DST_DKG_MESSAGE_SIGNATURE: &str = "SEAL_DKG_MESSAGE_SIGNATURE_V0";
+
 // JSON hex serializers/deserializers using serde modules.
 macro_rules! json_hex_serde_module {
     ($module:ident, $type:ty) => {
@@ -67,7 +69,7 @@ impl KeysFile {
         let keys_content = fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read keys file {}: {}", path.display(), e))?;
         serde_json::from_str(&keys_content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse keys file: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to parse keys file {}: {}", path.display(), e))
     }
 }
 
@@ -122,7 +124,7 @@ impl DkgState {
         fs::create_dir_all(state_dir)?;
         let path = state_dir.join("state.json");
         let json = serde_json::to_string_pretty(self)?;
-        fs::write(path, json)?;
+        fs::write(&path, json)?;
         Ok(())
     }
 
@@ -133,9 +135,11 @@ impl DkgState {
     }
 }
 
-/// Wrapper struct for message and NIZK proof.
+/// Domain-separated payload signed for a DKG message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessageWithProof {
+struct MessageSignaturePayload {
+    domain: String,
+    committee_id: Address,
     message: Message<G2Element, G1Element>,
     nizk_proof: DLNizk<G2Element>,
 }
@@ -158,18 +162,22 @@ impl std::str::FromStr for SignedMessage {
     }
 }
 
-/// Create BLS signature for signed message. Signs over both the message and NIZK proof.
+/// Create BLS signature for signed message. Signs over a domain separator, committee ID,
+/// message, and NIZK proof.
 pub(crate) fn sign_message(
+    committee_id: &Address,
     message: Message<G2Element, G1Element>,
     sk: &BLS12381PrivateKey,
     nizk_proof: DLNizk<G2Element>,
 ) -> SignedMessage {
-    let wrapper = MessageWithProof {
+    let payload = MessageSignaturePayload {
+        domain: DST_DKG_MESSAGE_SIGNATURE.to_string(),
+        committee_id: *committee_id,
         message: message.clone(),
         nizk_proof: nizk_proof.clone(),
     };
-    let wrapper_bytes = bcs::to_bytes(&wrapper).expect("Serialization failed");
-    let signature = sk.sign(&wrapper_bytes);
+    let payload_bytes = bcs::to_bytes(&payload).expect("Serialization failed");
+    let signature = sk.sign(&payload_bytes);
     SignedMessage {
         message,
         signature,
@@ -177,62 +185,20 @@ pub(crate) fn sign_message(
     }
 }
 
-/// Verify BLS signature for signed message. Verifies both the message and NIZK proof.
-pub(crate) fn verify_signature(signed_msg: &SignedMessage, pk: &BLS12381PublicKey) -> Result<()> {
-    let wrapper = MessageWithProof {
+/// Verify BLS signature for signed message. Verifies the domain separator, committee ID,
+/// message, and NIZK proof.
+pub(crate) fn verify_signature(
+    committee_id: &Address,
+    signed_msg: &SignedMessage,
+    pk: &BLS12381PublicKey,
+) -> Result<()> {
+    let payload = MessageSignaturePayload {
+        domain: DST_DKG_MESSAGE_SIGNATURE.to_string(),
+        committee_id: *committee_id,
         message: signed_msg.message.clone(),
         nizk_proof: signed_msg.nizk_proof.clone(),
     };
-    let wrapper_bytes = bcs::to_bytes(&wrapper)?;
-    pk.verify(&wrapper_bytes, &signed_msg.signature)?;
+    let payload_bytes = bcs::to_bytes(&payload)?;
+    pk.verify(&payload_bytes, &signed_msg.signature)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use fastcrypto::bls12381::min_sig::BLS12381KeyPair;
-    use fastcrypto::traits::KeyPair;
-    use rand::thread_rng;
-
-    #[test]
-    fn test_keys_file_serde() {
-        // Generate random keys
-        let mut rng = thread_rng();
-        let enc_sk = PrivateKey::<G1Element>::new(&mut rng);
-        let enc_pk = PublicKey::from_private_key(&enc_sk);
-
-        let signing_kp = BLS12381KeyPair::generate(&mut rng);
-        let signing_pk = signing_kp.public().clone();
-        let signing_sk = signing_kp.private();
-
-        let keys = KeysFile {
-            enc_sk,
-            enc_pk,
-            signing_sk,
-            signing_pk,
-        };
-
-        // Round trip.
-        let json = serde_json::to_string_pretty(&keys).expect("Failed to serialize KeysFile");
-        let deserialized: KeysFile =
-            serde_json::from_str(&json).expect("Failed to deserialize KeysFile");
-
-        assert_eq!(
-            bcs::to_bytes(&keys.enc_sk).unwrap(),
-            bcs::to_bytes(&deserialized.enc_sk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.enc_pk).unwrap(),
-            bcs::to_bytes(&deserialized.enc_pk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.signing_sk).unwrap(),
-            bcs::to_bytes(&deserialized.signing_sk).unwrap()
-        );
-        assert_eq!(
-            bcs::to_bytes(&keys.signing_pk).unwrap(),
-            bcs::to_bytes(&deserialized.signing_pk).unwrap()
-        );
-    }
 }

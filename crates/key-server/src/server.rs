@@ -990,7 +990,7 @@ async fn handle_fetch_key_internal(
             match r {
                 Ok(_) => info!("Valid request: {request_info}"),
                 Err(InternalError::Failure(s)) => warn!("Check request failed with debug message '{s}': {request_info}"),
-                _ => {},
+                Err(e) => debug!("Check request failed with error {e:?}: {request_info}"),
             }
         })
 }

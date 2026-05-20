@@ -27,14 +27,12 @@ struct UpgradeManagerKey {
     dummy_field: bool,
 }
 
-/// Create gRPC client for a given network. Use custom_rpc_url if provided.
+/// Create gRPC client from a network and optional RPC URL override.
 pub fn create_grpc_client_with_url(
     network: &Network,
     custom_rpc_url: Option<&str>,
 ) -> Result<Client> {
-    let rpc_url = custom_rpc_url
-        .or_else(|| network.default_rpc_url())
-        .ok_or_else(|| anyhow!("Custom network requires NODE_URL in config or --rpc-url flag"))?;
+    let rpc_url = custom_rpc_url.unwrap_or_else(|| network.default_rpc_url());
     Ok(Client::new(rpc_url)?)
 }
 
@@ -289,13 +287,13 @@ pub async fn fetch_upgrade_manager(
     Ok(upgrade_manager)
 }
 
-/// Get next committee version and key server pk if exists. For fresh DKG, the next version is 0,
-/// old pk is None. For rotation, the next version is the old committee's KeyServer version + 1.
-/// Old pk is returned as Some from the key server object.
+/// Get next committee version, old key server pk, and old committee ID if they exist.
+/// For fresh DKG, the next version is 0 and the old values are None. For rotation, the next
+/// version is the old committee's KeyServer version + 1.
 pub async fn get_committee_rotation_info(
     grpc_client: &mut Client,
     committee_id: &Address,
-) -> RpcResult<(u32, Option<Vec<u8>>)> {
+) -> RpcResult<(u32, Option<Vec<u8>>, Option<Address>)> {
     let committee = fetch_committee_data(grpc_client, committee_id).await?;
 
     if let Some(old_committee_id) = committee.old_committee_id {
@@ -310,12 +308,12 @@ pub async fn get_committee_rotation_info(
                     version,
                     version + 1
                 );
-                Ok((version + 1, Some(pk)))
+                Ok((version + 1, Some(pk), Some(old_committee_id)))
             }
             _ => Err(RpcError::new("Old KeyServer is not of type Committee")),
         }
     } else {
-        Ok((0, None))
+        Ok((0, None, None))
     }
 }
 

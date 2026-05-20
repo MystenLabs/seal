@@ -9,7 +9,6 @@ use std::{fmt::Display, str::FromStr};
 pub enum Network {
     Testnet,
     Mainnet,
-    Custom,
 }
 
 impl FromStr for Network {
@@ -20,9 +19,8 @@ impl FromStr for Network {
         match lower.as_str() {
             "mainnet" => Ok(Network::Mainnet),
             "testnet" => Ok(Network::Testnet),
-            "custom" => Ok(Network::Custom),
             _ => Err(format!(
-                "Unknown network: {s}. Supported networks: 'mainnet', 'testnet', 'custom'"
+                "Unknown network: {s}. Supported networks: 'mainnet', 'testnet'"
             )),
         }
     }
@@ -33,18 +31,16 @@ impl Display for Network {
         match self {
             Network::Mainnet => write!(f, "Mainnet"),
             Network::Testnet => write!(f, "Testnet"),
-            Network::Custom => write!(f, "Custom"),
         }
     }
 }
 
 impl Network {
-    /// Get the default RPC URL for the network, if any.
-    pub fn default_rpc_url(&self) -> Option<&'static str> {
+    /// Get the default RPC URL for the network.
+    pub fn default_rpc_url(&self) -> &'static str {
         match self {
-            Network::Mainnet => Some(sui_rpc::client::Client::MAINNET_FULLNODE),
-            Network::Testnet => Some(sui_rpc::client::Client::TESTNET_FULLNODE),
-            Network::Custom => None,
+            Network::Mainnet => sui_rpc::client::Client::MAINNET_FULLNODE,
+            Network::Testnet => sui_rpc::client::Client::TESTNET_FULLNODE,
         }
     }
 }

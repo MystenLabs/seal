@@ -497,7 +497,7 @@ cargo run --bin seal-committee-cli -- init-state
 
 4. **Process messages and propose the rotation (Phase C: Finalization)**
 
-Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing all DKG messages (for example, `path/to/dkg-messages`).
+Wait for the coordinator to announce **Phase C (Finalization)** and provide a directory containing exactly the old committee threshold number of DKG messages from continuing members (for example, `path/to/dkg-messages`).
 
 Move the directory into `dkg-state` and process the messages:
 ```bash
