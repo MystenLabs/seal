@@ -186,3 +186,15 @@ cargo run --bin seal-cli fetch-keys --request <ENCODED_REQUEST> \
 Encoded seal responses:
 <ENCODED_SEAL_RESPONSES>
 ```
+
+## 8. Compute a package digest
+
+Compute the digest of a Seal policy package. By default, the CLI resolves the package using known networks (such as Testnet and Mainnet), but you can specify a custom RPC URL for other networks:
+
+```shell
+cargo run --bin seal-cli package-digest \
+    --package-id <PACKAGE_ID> \
+    --rpc-url <CUSTOM_RPC_URL>
+```
+
+The `--rpc-url` flag is optional and allows you to point to a custom Sui full node RPC endpoint. This is useful when working with custom or local networks that are not built into the CLI.
