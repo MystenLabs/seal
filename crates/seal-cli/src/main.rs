@@ -30,24 +30,6 @@ use sui_types::TypeTag;
 
 const KEY_LENGTH: usize = 32;
 
-/// Get RPC URL for a network with optional custom URL override.
-fn get_rpc_url(
-    network: &Network,
-    custom_rpc_url: Option<String>,
-) -> Result<String, FastCryptoError> {
-    match custom_rpc_url {
-        Some(url) => Ok(url),
-        None => network
-            .default_rpc_url()
-            .map(|s| s.to_string())
-            .ok_or_else(|| {
-                FastCryptoError::GeneralError(
-                    "Custom network requires explicit RPC URL".to_string(),
-                )
-            }),
-    }
-}
-
 /// Key server object layout containing object id, name, url, and public key.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyServerInfo {
@@ -64,7 +46,7 @@ pub async fn fetch_key_server_urls(
     key_server_ids: &[ObjectID],
     custom_rpc_url: Option<String>,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
-    let sui_rpc = get_rpc_url(network, custom_rpc_url)?;
+    let sui_rpc = custom_rpc_url.unwrap_or_else(|| network.default_rpc_url().to_string());
     let sui_client = SuiClientBuilder::default()
         .build(sui_rpc)
         .await
@@ -351,11 +333,11 @@ enum Command {
         #[arg(short = 't', long)]
         threshold: u8,
 
-        /// Network (mainnet, testnet or custom)
+        /// Network (mainnet or testnet)
         #[arg(short = 'n', long, default_value = "testnet")]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL
+        /// RPC URL override.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -373,11 +355,11 @@ enum Command {
         #[arg(short = 't', long)]
         threshold: u8,
 
-        /// Network (mainnet, testnet or custom)
+        /// Network (mainnet or testnet)
         #[arg(short = 'n', long, default_value = "testnet")]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL
+        /// RPC URL override.
         #[arg(long)]
         rpc_url: Option<String>,
     },

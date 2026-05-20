@@ -94,6 +94,8 @@ pub struct InitializedConfig {
     pub expected_old_pks: Option<HashMap<u16, G2Element>>,
     /// Old partial key share for key rotation, for continuing members for key rotation.
     pub my_old_share: Option<G2Scalar>,
+    /// Old partial public key for key rotation, for continuing members for key rotation.
+    pub my_old_pk: Option<G2Element>,
 }
 
 /// Local state for DKG protocol, used for storing messages and output.

@@ -49,9 +49,9 @@ fn process_field<'a>(config: &'a serde_yaml::Value, key: &str) -> &'a serde_yaml
         .unwrap_or_else(|| panic!("missing process-all-and-propose.{key}"))
 }
 
-/// Read one string field from any ordered list of config sections.
-fn config_str_field<'a>(config: &'a serde_yaml::Value, sections: &[&str], key: &str) -> &'a str {
-    get_config_field(config, sections, key)
+/// Read one string field from a config section.
+fn config_str_field<'a>(config: &'a serde_yaml::Value, section: &str, key: &str) -> &'a str {
+    get_config_field(config, section, key)
         .and_then(|value| value.as_str())
         .unwrap_or_else(|| panic!("missing string field {key}"))
 }
@@ -59,10 +59,10 @@ fn config_str_field<'a>(config: &'a serde_yaml::Value, sections: &[&str], key: &
 /// Decode a config hex field and parse it into the expected BCS type.
 fn config_bcs_hex_field<T: DeserializeOwned>(
     config: &serde_yaml::Value,
-    sections: &[&str],
+    section: &str,
     key: &str,
 ) -> T {
-    let bytes = Hex::decode(config_str_field(config, sections, key))
+    let bytes = Hex::decode(config_str_field(config, section, key))
         .unwrap_or_else(|_| panic!("{key} should be hex"));
     bcs::from_bytes(&bytes).unwrap_or_else(|_| panic!("{key} should be valid BCS"))
 }
@@ -225,27 +225,27 @@ fn test_config_step_updates_add_fields_without_overwriting_existing_sections() {
         ]
     );
     assert_eq!(
-        config_str_field(&config, &["publish-and-init"], "COMMITTEE_ID"),
+        config_str_field(&config, "publish-and-init", "COMMITTEE_ID"),
         COMMITTEE_ID
     );
     assert_eq!(
-        config_str_field(&config, &["publish-and-init"], "COMMITTEE_PKG"),
+        config_str_field(&config, "publish-and-init", "COMMITTEE_PKG"),
         COMMITTEE_PKG
     );
     assert_eq!(get_my_address(&config).unwrap().to_string(), MEMBER_0);
     assert_eq!(
-        config_str_field(&config, &["genkey-and-register"], "MY_SERVER_URL"),
+        config_str_field(&config, "genkey-and-register", "MY_SERVER_URL"),
         "http://localhost:4000"
     );
     assert_eq!(
-        config_str_field(&config, &["genkey-and-register"], "MY_SERVER_NAME"),
+        config_str_field(&config, "genkey-and-register", "MY_SERVER_NAME"),
         "server-mainnet-0"
     );
 
     let registered_enc_pk: PublicKey<G1Element> =
-        config_bcs_hex_field(&config, &["genkey-and-register"], "DKG_ENC_PK");
+        config_bcs_hex_field(&config, "genkey-and-register", "DKG_ENC_PK");
     let registered_signing_pk: BLS12381PublicKey =
-        config_bcs_hex_field(&config, &["genkey-and-register"], "DKG_SIGNING_PK");
+        config_bcs_hex_field(&config, "genkey-and-register", "DKG_SIGNING_PK");
     assert_eq!(bcs::to_bytes(&registered_enc_pk).unwrap(), enc_pk_bytes);
     assert_eq!(
         bcs::to_bytes(&registered_signing_pk).unwrap(),
@@ -286,9 +286,9 @@ genkey-and-register:
     );
     let keys = KeysFile::load(&keys_path).expect("dkg.key should load");
     let registered_enc_pk: PublicKey<G1Element> =
-        config_bcs_hex_field(&config, &["genkey-and-register"], "DKG_ENC_PK");
+        config_bcs_hex_field(&config, "genkey-and-register", "DKG_ENC_PK");
     let registered_signing_pk: BLS12381PublicKey =
-        config_bcs_hex_field(&config, &["genkey-and-register"], "DKG_SIGNING_PK");
+        config_bcs_hex_field(&config, "genkey-and-register", "DKG_SIGNING_PK");
     assert_eq!(
         bcs::to_bytes(&keys.enc_pk).unwrap(),
         bcs::to_bytes(&registered_enc_pk).unwrap()
@@ -316,16 +316,15 @@ fn test_persist_process_outputs_for_fresh_dkg_writes_v0_fields() {
 
     let config = load_config(&config_path).unwrap();
     assert_eq!(
-        config_str_field(&config, &["process-all-and-propose"], "KEY_SERVER_PK"),
+        config_str_field(&config, "process-all-and-propose", "KEY_SERVER_PK"),
         Hex::encode_with_format(&key_server_pk)
     );
     assert_eq!(
-        config_str_field(&config, &["process-all-and-propose"], "MASTER_SHARE_V0"),
+        config_str_field(&config, "process-all-and-propose", "MASTER_SHARE_V0"),
         Hex::encode_with_format(&master_share)
     );
-    let _: G2Element = config_bcs_hex_field(&config, &["process-all-and-propose"], "KEY_SERVER_PK");
-    let _: G2Scalar =
-        config_bcs_hex_field(&config, &["process-all-and-propose"], "MASTER_SHARE_V0");
+    let _: G2Element = config_bcs_hex_field(&config, "process-all-and-propose", "KEY_SERVER_PK");
+    let _: G2Scalar = config_bcs_hex_field(&config, "process-all-and-propose", "MASTER_SHARE_V0");
 
     let partial_pks = process_field(&config, "PARTIAL_PKS_V0")
         .as_sequence()
@@ -365,19 +364,18 @@ process-all-and-propose:
 
     let config = load_config(&config_path).unwrap();
     assert_eq!(
-        config_str_field(&config, &["process-all-and-propose"], "KEY_SERVER_PK"),
+        config_str_field(&config, "process-all-and-propose", "KEY_SERVER_PK"),
         existing_key_server_pk
     );
     assert_eq!(
-        config_str_field(&config, &["process-all-and-propose"], "MASTER_SHARE_V0"),
+        config_str_field(&config, "process-all-and-propose", "MASTER_SHARE_V0"),
         "0x8888"
     );
     assert_eq!(
-        config_str_field(&config, &["process-all-and-propose"], "MASTER_SHARE_V1"),
+        config_str_field(&config, "process-all-and-propose", "MASTER_SHARE_V1"),
         Hex::encode_with_format(&master_share)
     );
-    let _: G2Scalar =
-        config_bcs_hex_field(&config, &["process-all-and-propose"], "MASTER_SHARE_V1");
+    let _: G2Scalar = config_bcs_hex_field(&config, "process-all-and-propose", "MASTER_SHARE_V1");
 
     let partial_pks = process_field(&config, "PARTIAL_PKS_V1")
         .as_sequence()

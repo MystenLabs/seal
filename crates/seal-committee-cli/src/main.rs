@@ -18,7 +18,7 @@ use fastcrypto_tbls::random_oracle::RandomOracle;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{
-    build_new_to_old_map, create_grpc_client_with_url, fetch_committee_data,
+    build_new_to_old_map, create_grpc_client_from_config, fetch_committee_data,
     fetch_committee_from_key_server, fetch_key_server_by_committee, fetch_upgrade_manager,
     fetch_upgrade_proposal, get_committee_rotation_info, CommitteeState, KeyServerV2, Network,
     ServerType, UpgradeVote,
@@ -31,9 +31,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
-use sui_package_alt::{find_environment, mainnet_environment, testnet_environment};
+use sui_package_alt::{mainnet_environment, testnet_environment};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
-use sui_rpc::Client;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk_types::Address;
@@ -66,7 +65,6 @@ fn package_ops_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::PACKAGE_OPS_TESTNET,
         Network::Mainnet => gas_defaults::PACKAGE_OPS_MAINNET,
-        Network::Custom => gas_defaults::PACKAGE_OPS_TESTNET,
     })
 }
 
@@ -74,7 +72,6 @@ fn regular_gas_budget(gas_budget: Option<u64>, network: &Network) -> u64 {
     gas_budget.unwrap_or(match network {
         Network::Testnet => gas_defaults::REGULAR_TESTNET,
         Network::Mainnet => gas_defaults::REGULAR_MAINNET,
-        Network::Custom => gas_defaults::REGULAR_TESTNET,
     })
 }
 
@@ -177,10 +174,6 @@ enum Commands {
         /// Network to build for.
         #[arg(short, long)]
         network: Network,
-
-        /// Custom RPC URL to use for resolving the package environment. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
-        #[arg(long)]
-        rpc_url: Option<String>,
     },
 
     /// Approve package upgrade (as committee member).
@@ -197,7 +190,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -212,7 +205,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -231,7 +224,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -246,7 +239,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -261,7 +254,7 @@ enum Commands {
         #[arg(short, long)]
         network: Network,
 
-        /// Custom RPC URL to use instead of the default network URL. For custom networks, it must match an existing wallet environment RPC; add one with `sui client new-env --alias <name> --rpc <url>`.
+        /// RPC URL override.
         #[arg(long)]
         rpc_url: Option<String>,
     },
@@ -286,9 +279,8 @@ async fn main() -> Result<()> {
             let config_content = load_config(&config)?;
 
             // Check if already initialized.
-            if get_config_field(&config_content, &["publish-and-init"], "COMMITTEE_PKG").is_some()
-                || get_config_field(&config_content, &["publish-and-init"], "COMMITTEE_ID")
-                    .is_some()
+            if get_config_field(&config_content, "publish-and-init", "COMMITTEE_PKG").is_some()
+                || get_config_field(&config_content, "publish-and-init", "COMMITTEE_ID").is_some()
             {
                 println!("Committee already initialized. Skipping publish and init. Remove these fields from config to reinitialize.");
                 return Ok(());
@@ -317,9 +309,7 @@ async fn main() -> Result<()> {
             println!("Threshold: {}", threshold);
 
             // Get committee package path.
-            let committee_path = std::env::current_dir()
-                .context("Failed to get current directory")?
-                .join("move/committee");
+            let committee_path = std::env::current_dir()?.join("move/committee");
             if !committee_path.exists() {
                 bail!(
                     "Committee package not found at: {}",
@@ -334,16 +324,11 @@ async fn main() -> Result<()> {
                     "Removing {} to enable fresh publish...",
                     published_toml.display()
                 );
-                fs::remove_file(&published_toml)
-                    .with_context(|| format!("Failed to remove {}", published_toml.display()))?;
+                fs::remove_file(&published_toml)?;
             }
 
             // Build and publish package.
-            let build_config =
-                create_build_config(&committee_path, &network, Some(&wallet), true).await?;
-            let compiled_package = build_config
-                .build(&committee_path)
-                .with_context(|| format!("Failed to build {}", committee_path.display()))?;
+            let compiled_package = create_build_config(&network).build(&committee_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
@@ -395,20 +380,11 @@ async fn main() -> Result<()> {
             let mut init_builder = ProgrammableTransactionBuilder::new();
 
             // Get object arg for UpgradeCap.
-            let upgrade_cap_ref = wallet
-                .get_object_ref(upgrade_cap_id)
-                .await
-                .with_context(|| format!("Failed to fetch UpgradeCap {}", upgrade_cap_id))?;
-            let upgrade_cap_arg = init_builder
-                .obj(ObjectArg::ImmOrOwnedObject(upgrade_cap_ref))
-                .context("Failed to add UpgradeCap object argument")?;
+            let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap_id).await?;
+            let upgrade_cap_arg = init_builder.obj(ObjectArg::ImmOrOwnedObject(upgrade_cap_ref))?;
 
-            let threshold_arg = init_builder
-                .pure(threshold)
-                .context("Failed to encode threshold")?;
-            let members_arg = init_builder
-                .pure(members)
-                .context("Failed to encode members")?;
+            let threshold_arg = init_builder.pure(threshold)?;
+            let members_arg = init_builder.pure(members)?;
 
             init_builder.programmable_move_call(
                 package_id,
@@ -420,13 +396,7 @@ async fn main() -> Result<()> {
 
             let init_gas_coin_ref = wallet
                 .gas_for_owner_budget(coordinator_address, gas_budget, Default::default())
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to select gas coin for {} with budget {}",
-                        coordinator_address, gas_budget
-                    )
-                })?
+                .await?
                 .1
                 .compute_object_reference();
 
@@ -466,7 +436,7 @@ async fn main() -> Result<()> {
             let (config, _) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
 
-            if get_config_field(&config_content, &["init-rotation"], "COMMITTEE_ID").is_some() {
+            if get_config_field(&config_content, "init-rotation", "COMMITTEE_ID").is_some() {
                 println!("Committee rotation already initialized. Skipping init-rotation. Remove COMMITTEE_ID from config to re-initialize.");
                 return Ok(());
             }
@@ -573,8 +543,8 @@ async fn main() -> Result<()> {
             let config_content = load_config(&config)?;
 
             // Check if already generated keys.
-            if get_config_field(&config_content, &["genkey-and-register"], "DKG_ENC_PK").is_some()
-                || get_config_field(&config_content, &["genkey-and-register"], "DKG_SIGNING_PK")
+            if get_config_field(&config_content, "genkey-and-register", "DKG_ENC_PK").is_some()
+                || get_config_field(&config_content, "genkey-and-register", "DKG_SIGNING_PK")
                     .is_some()
             {
                 println!("Keys already generated. Skipping key generation and registration. Remove the genkey-and-register section from the config file to re-run this operation.");
@@ -641,9 +611,8 @@ async fn main() -> Result<()> {
             let signing_sk = signing_kp.private();
 
             // Serialize keys to BCS bytes.
-            let enc_pk_bytes = bcs::to_bytes(&enc_pk).context("Failed to serialize DKG_ENC_PK")?;
-            let signing_pk_bytes =
-                bcs::to_bytes(&signing_pk).context("Failed to serialize DKG_SIGNING_PK")?;
+            let enc_pk_bytes = bcs::to_bytes(&enc_pk)?;
+            let signing_pk_bytes = bcs::to_bytes(&signing_pk)?;
 
             let created_keys_file = KeysFile {
                 enc_sk,
@@ -653,12 +622,9 @@ async fn main() -> Result<()> {
             };
 
             // Write keys to file.
-            let json_content = serde_json::to_string_pretty(&created_keys_file)
-                .context("Failed to serialize dkg.key")?;
+            let json_content = serde_json::to_string_pretty(&created_keys_file)?;
             if let Some(parent) = keys_file.parent() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("Failed to create keys directory {}", parent.display())
-                })?;
+                fs::create_dir_all(parent)?;
             }
             write_secret_file(&keys_file, &json_content)?;
 
@@ -747,14 +713,14 @@ async fn main() -> Result<()> {
 
             let committee_pkg = get_committee_pkg(&config_content)?;
             let committee_id = get_committee_id(&config_content)?;
-            let my_address = SuiAddress::from_bytes(get_my_address(&config_content)?.into_inner())?;
+            let my_address = SuiAddress::from_bytes(get_my_address(&config_content)?.inner())?;
             let network = get_network(&config_content)?;
             let node_url = get_node_url(&config_content);
             print_network_info(&network, node_url.as_deref());
 
             // Check if this is a rotation.
             let current_committee_id =
-                get_config_field(&config_content, &["init-rotation"], "CURRENT_COMMITTEE_ID")
+                get_config_field(&config_content, "init-rotation", "CURRENT_COMMITTEE_ID")
                     .and_then(|v| v.as_str())
                     .map(|id| {
                         Address::from_str(id).with_context(|| {
@@ -773,24 +739,11 @@ async fn main() -> Result<()> {
             let mut state = DkgState::load(&state_dir)?;
             let local_keys = KeysFile::load(&keys_file)?;
 
-            // Determine version before processing so stale config fails before expensive DKG work.
+            // Determine version and fetch old key server PK (for rotation).
             let mut grpc_client = create_grpc_client_from_config(&network, node_url.as_deref())?;
             let (next_version, old_key_server_pk) =
                 get_committee_rotation_info(&mut grpc_client, &state.config.committee_id).await?;
-            let existing_output_fields =
-                existing_process_output_fields(&config_content, next_version);
-            if !existing_output_fields.is_empty() {
-                println!(
-                    "[WARNING] Skipping processing and onchain proposal because process-all-and-propose already contains {:?}. Remove these field(s) from the config file to reprocess messages and propose onchain.",
-                    existing_output_fields
-                );
-                return Ok(());
-            }
-            validate_process_output_version(
-                &config_content,
-                next_version,
-                old_key_server_pk.as_deref(),
-            )?;
+            validate_process_section(&config_content, next_version, old_key_server_pk.as_deref())?;
 
             // Load and process all messages.
             let messages = load_messages_from_dir(&full_messages_dir)?;
@@ -1055,26 +1008,9 @@ async fn main() -> Result<()> {
         Commands::PackageDigest {
             package_path,
             network,
-            rpc_url,
         } => {
-            let wallet = if matches!(network, Network::Custom) {
-                let wallet = load_wallet_for_network(
-                    cli.wallet.as_deref(),
-                    cli.active_address,
-                    &network,
-                    rpc_url.as_deref(),
-                )?;
-                let wallet_env = wallet.get_active_env()?;
-                println!("Network: custom");
-                println!(
-                    "Wallet environment: {} ({})",
-                    wallet_env.alias, wallet_env.rpc
-                );
-                Some(wallet)
-            } else {
-                None
-            };
-            compute_package_digest(&package_path, &network, wallet.as_ref()).await?;
+            println!("Network: {}", network);
+            compute_package_digest(&package_path, &network).await?;
         }
 
         Commands::ApproveUpgrade {
@@ -1143,17 +1079,15 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
 
             // Build package and compute digest.
-            let digest = get_package_digest(&package_path, &network, Some(&wallet)).await?;
+            let digest = get_package_digest(&package_path, &network).await?;
             println!("\nPackage digest: {}", digest);
 
             // Build the package to get compiled modules and dependencies.
-            let build_config =
-                create_build_config(&package_path, &network, Some(&wallet), true).await?;
-            let compiled_package = build_config.build(&package_path)?;
+            let compiled_package = create_build_config(&network).build(&package_path)?;
             let compiled_modules_bytes = compiled_package.get_package_bytes(false);
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1254,7 +1188,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
 
             // Fetch key server to get committee ID.
-            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
             let (committee_id, _) =
                 fetch_committee_from_key_server(&mut grpc_client, &key_server_id).await?;
 
@@ -1344,7 +1278,7 @@ async fn main() -> Result<()> {
             print_network_info(&network, rpc_url.as_deref());
             println!("Key Server ID: {}", key_server_id);
 
-            let mut grpc_client = create_grpc_client_with_url(&network, rpc_url.as_deref())?;
+            let mut grpc_client = create_grpc_client_from_config(&network, rpc_url.as_deref())?;
 
             // Fetch committee information.
             let (committee_id, _committee_pkg) =
@@ -1734,8 +1668,7 @@ async fn create_dkg_state_and_message(
         });
         let message_json = serde_json::to_string_pretty(&message_json)
             .context("Failed to serialize DKG message JSON")?;
-        fs::write(&message_file, message_json)
-            .with_context(|| format!("Failed to write DKG message {}", message_file.display()))?;
+        fs::write(&message_file, message_json)?;
 
         println!(
             "DKG message written to: {}. Share this file with the coordinator.",
@@ -1758,6 +1691,7 @@ async fn create_dkg_state_and_message(
             new_to_old_mapping,
             expected_old_pks,
             my_old_share,
+            my_old_pk: derived_old_pk,
         },
         my_message,
         received_messages: HashMap::new(),
@@ -1782,21 +1716,15 @@ async fn get_gas_params(
     address: SuiAddress,
     gas_budget: u64,
 ) -> Result<(u64, u64, sui_types::base_types::ObjectRef)> {
-    let gas_price = grpc_client
-        .get_reference_gas_price()
-        .await
-        .context("Failed to fetch reference gas price")?;
+    let gas_price = grpc_client.get_reference_gas_price().await?;
     let gas_coin = wallet
         .gas_for_owner_budget(address, gas_budget, Default::default())
-        .await
-        .with_context(|| {
-            format!("Failed to select gas coin for {address} with budget {gas_budget}")
-        })?
+        .await?
         .1;
     Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
 }
 
-/// Load wallet context from path and optionally set active environment.
+/// Load wallet context from path.
 fn load_wallet(
     wallet_path: Option<&Path>,
     active_address: Option<SuiAddress>,
@@ -1809,8 +1737,7 @@ fn load_wallet(
         default
     };
 
-    let mut wallet = WalletContext::new(&config_path)
-        .with_context(|| format!("Failed to load wallet context {}", config_path.display()))?;
+    let mut wallet = WalletContext::new(&config_path).context("Failed to load wallet context")?;
 
     // Override active address if specified.
     if let Some(addr) = active_address {
@@ -1829,33 +1756,25 @@ fn load_wallet_for_network(
 ) -> Result<WalletContext> {
     let wallet = load_wallet(wallet_path, active_address)?;
 
-    // Determine the environment alias to use
+    if let Some(url) = rpc_url {
+        let target_env = wallet
+            .config
+            .envs
+            .iter()
+            .find(|env| env.rpc == url)
+            .map(|env| env.alias.clone())
+            .ok_or_else(|| {
+                anyhow!(
+                    "RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-testnet-rpc --rpc https://my-rpc.example.com:443'",
+                    url
+                )
+            })?;
+        return Ok(wallet.with_env_override(target_env));
+    }
+
     let target_env = match network {
         Network::Testnet => "testnet".to_string(),
         Network::Mainnet => "mainnet".to_string(),
-        Network::Custom => {
-            // For custom network, find or create an env with matching RPC URL
-            if let Some(url) = rpc_url {
-                let matching_env = wallet
-                    .config
-                    .envs
-                    .iter()
-                    .find(|env| env.rpc == url)
-                    .map(|env| env.alias.clone());
-
-                if let Some(alias) = matching_env {
-                    alias
-                } else {
-                    // No alias found for the provided URL, create a new one with sui cli.
-                    bail!(
-                        "Custom RPC URL {} not found in wallet config, add it first. e.g. 'sui client new-env --alias my-custom-devnet --rpc https://my-custom-rpc.example.com:443'",
-                        url
-                    );
-                }
-            } else {
-                bail!("Custom network specified but no RPC URL provided");
-            }
-        }
     };
 
     Ok(wallet.with_env_override(target_env))
@@ -1870,16 +1789,12 @@ fn derive_paths(state_dir: &Path) -> (PathBuf, PathBuf) {
 
 /// Helper function to write a file with restricted permissions (owner only) in Unix systems.
 fn write_secret_file(path: &Path, content: &str) -> Result<()> {
-    fs::write(path, content)
-        .with_context(|| format!("Failed to write secret file {}", path.display()))?;
+    fs::write(path, content)?;
     #[cfg(unix)]
     {
-        let mut perms = fs::metadata(path)
-            .with_context(|| format!("Failed to stat secret file {}", path.display()))?
-            .permissions();
+        let mut perms = fs::metadata(path)?.permissions();
         perms.set_mode(0o600);
-        fs::set_permissions(path, perms)
-            .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
+        fs::set_permissions(path, perms)?;
     }
     Ok(())
 }
@@ -1930,31 +1845,23 @@ fn validate_continuing_member_old_share(
 
 /// Load YAML configuration file.
 fn load_config(path: &Path) -> Result<serde_yaml::Value> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+    let content = fs::read_to_string(path)?;
     serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse YAML config: {}", path.display()))
 }
 
-/// Get a field from config, checking nested sections first, then flat structure.
+/// Get a field from a named config section.
 fn get_config_field<'a>(
     config: &'a serde_yaml::Value,
-    sections: &[&str],
+    section: &str,
     field: &str,
 ) -> Option<&'a serde_yaml::Value> {
-    for section in sections {
-        if let Some(section_val) = config.get(section)
-            && let Some(field_val) = section_val.get(field)
-        {
-            return Some(field_val);
-        }
-    }
-    None
+    config.get(section)?.get(field)
 }
 
 /// Get network from config.
 fn get_network(config: &serde_yaml::Value) -> Result<Network> {
-    let network_str = get_config_field(config, &["init-params"], "NETWORK")
+    let network_str = get_config_field(config, "init-params", "NETWORK")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("NETWORK not found in config or invalid"))?;
 
@@ -1963,32 +1870,20 @@ fn get_network(config: &serde_yaml::Value) -> Result<Network> {
 
 /// Get optional NODE_URL from config.
 fn get_node_url(config: &serde_yaml::Value) -> Option<String> {
-    get_config_field(config, &["init-params"], "NODE_URL")
+    get_config_field(config, "init-params", "NODE_URL")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
 }
 
-/// Create gRPC client with rpc url or network default.
-fn create_grpc_client_from_config(
-    network: &Network,
-    config_node_url: Option<&str>,
-) -> Result<Client> {
-    let rpc_url = config_node_url.or_else(|| network.default_rpc_url());
-    create_grpc_client_with_url(network, rpc_url)
-}
-
 /// Print network with rpc url.
 fn print_network_info(network: &Network, rpc_url: Option<&str>) {
-    let rpc_url = rpc_url.or_else(|| network.default_rpc_url());
-    match rpc_url {
-        Some(url) => println!("Network: {} ({})", network, url),
-        None => println!("Network: {}", network),
-    }
+    let rpc_url = rpc_url.unwrap_or_else(|| network.default_rpc_url());
+    println!("Network: {} ({})", network, rpc_url);
 }
 
 /// Get members list from config.
 fn get_members(config: &serde_yaml::Value) -> Result<Vec<Address>> {
-    let members = get_config_field(config, &["init-params"], "MEMBERS")
+    let members = get_config_field(config, "init-params", "MEMBERS")
         .and_then(|v| v.as_sequence())
         .ok_or_else(|| anyhow!("MEMBERS list not found or invalid in config"))?;
 
@@ -2011,7 +1906,7 @@ fn get_members(config: &serde_yaml::Value) -> Result<Vec<Address>> {
 
 /// Get threshold from config.
 fn get_threshold(config: &serde_yaml::Value) -> Result<u16> {
-    let threshold = get_config_field(config, &["init-params"], "THRESHOLD")
+    let threshold = get_config_field(config, "init-params", "THRESHOLD")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| anyhow!("THRESHOLD not found or invalid in config"))?;
 
@@ -2024,7 +1919,7 @@ fn get_threshold(config: &serde_yaml::Value) -> Result<u16> {
 
 /// Get key server object ID from config.
 fn get_key_server_obj_id(config: &serde_yaml::Value) -> Result<Address> {
-    let id_str = get_config_field(config, &["init-rotation-params"], "KEY_SERVER_OBJ_ID")
+    let id_str = get_config_field(config, "init-rotation-params", "KEY_SERVER_OBJ_ID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("KEY_SERVER_OBJ_ID not found in config"))?;
     Address::from_str(id_str).with_context(|| format!("Invalid KEY_SERVER_OBJ_ID {id_str}"))
@@ -2032,44 +1927,34 @@ fn get_key_server_obj_id(config: &serde_yaml::Value) -> Result<Address> {
 
 /// Get COMMITTEE_PKG from config.
 fn get_committee_pkg(config: &serde_yaml::Value) -> Result<Address> {
-    let sections = committee_id_sections(config);
-    let pkg_str = get_config_field(config, &sections, "COMMITTEE_PKG")
+    let section = committee_id_section(config);
+    let pkg_str = get_config_field(config, section, "COMMITTEE_PKG")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("COMMITTEE_PKG not found in config"))?;
-    Address::from_str(pkg_str).with_context(|| {
-        format!(
-            "Invalid {}.COMMITTEE_PKG {pkg_str}",
-            sections.first().copied().unwrap_or("config")
-        )
-    })
+    Address::from_str(pkg_str).with_context(|| format!("Invalid {section}.COMMITTEE_PKG {pkg_str}"))
 }
 
 /// Get COMMITTEE_ID from config.
 fn get_committee_id(config: &serde_yaml::Value) -> Result<Address> {
-    let sections = committee_id_sections(config);
-    let id_str = get_config_field(config, &sections, "COMMITTEE_ID")
+    let section = committee_id_section(config);
+    let id_str = get_config_field(config, section, "COMMITTEE_ID")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("COMMITTEE_ID not found in config"))?;
-    Address::from_str(id_str).with_context(|| {
-        format!(
-            "Invalid {}.COMMITTEE_ID {id_str}",
-            sections.first().copied().unwrap_or("config")
-        )
-    })
+    Address::from_str(id_str).with_context(|| format!("Invalid {section}.COMMITTEE_ID {id_str}"))
 }
 
 /// Select the generated config section that owns COMMITTEE_PKG and COMMITTEE_ID.
-fn committee_id_sections(config: &serde_yaml::Value) -> [&'static str; 1] {
-    if get_config_field(config, &["init-rotation-params"], "KEY_SERVER_OBJ_ID").is_some() {
-        ["init-rotation"]
+fn committee_id_section(config: &serde_yaml::Value) -> &'static str {
+    if get_config_field(config, "init-rotation-params", "KEY_SERVER_OBJ_ID").is_some() {
+        "init-rotation"
     } else {
-        ["publish-and-init"]
+        "publish-and-init"
     }
 }
 
 /// Get MY_ADDRESS from config.
 fn get_my_address(config: &serde_yaml::Value) -> Result<Address> {
-    let addr_str = get_config_field(config, &["genkey-and-register"], "MY_ADDRESS")
+    let addr_str = get_config_field(config, "genkey-and-register", "MY_ADDRESS")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("MY_ADDRESS not found in config"))?;
     Address::from_str(addr_str).with_context(|| format!("Invalid MY_ADDRESS {addr_str}"))
@@ -2077,8 +1962,7 @@ fn get_my_address(config: &serde_yaml::Value) -> Result<Address> {
 
 /// Update fields within a specific section of the YAML config with hex-encoded byte values.
 fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8])>) -> Result<()> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let content = fs::read_to_string(path)?;
     let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse YAML config {}", path.display()))?;
 
@@ -2095,14 +1979,13 @@ fn update_config_bytes_val(path: &Path, section: &str, updates: Vec<(&str, &[u8]
 
     let updated = serde_yaml::to_string(&config)
         .with_context(|| format!("Failed to serialize YAML config {}", path.display()))?;
-    fs::write(path, updated).with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, updated)?;
     Ok(())
 }
 
 /// Update fields within a specific section of the YAML config with string values.
 fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str)>) -> Result<()> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let content = fs::read_to_string(path)?;
     let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse YAML config {}", path.display()))?;
 
@@ -2120,7 +2003,7 @@ fn update_config_string_val(path: &Path, section: &str, updates: Vec<(&str, &str
 
     let updated = serde_yaml::to_string(&config)
         .with_context(|| format!("Failed to serialize YAML config {}", path.display()))?;
-    fs::write(path, updated).with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, updated)?;
     Ok(())
 }
 
@@ -2136,7 +2019,7 @@ fn persist_process_outputs(
     let master_share_key = format!("MASTER_SHARE_V{}", next_version);
     let partial_pks_key = format!("PARTIAL_PKS_V{}", next_version);
     let config_content = load_config(config)?;
-    validate_process_output_version(&config_content, next_version, old_key_server_pk)?;
+    validate_process_section(&config_content, next_version, old_key_server_pk)?;
 
     bcs::from_bytes::<G2Element>(key_server_pk_bytes)
         .context("KEY_SERVER_PK must be a valid BCS G2Element")?;
@@ -2253,8 +2136,8 @@ fn validate_rotation_message_senders(
     Ok(())
 }
 
-/// Validate process output version fields before writing new DKG output into config.
-fn validate_process_output_version(
+/// Validate process-all-and-propose fields before writing new DKG output into config.
+fn validate_process_section(
     config: &serde_yaml::Value,
     next_version: u32,
     old_key_server_pk: Option<&[u8]>,
@@ -2269,7 +2152,7 @@ fn validate_process_output_version(
     }
 
     let existing_key_server_pk =
-        get_config_field(config, &["process-all-and-propose"], "KEY_SERVER_PK")
+        get_config_field(config, "process-all-and-propose", "KEY_SERVER_PK")
             .and_then(|value| value.as_str());
     if next_version == 0 {
         if existing_key_server_pk.is_some() {
@@ -2315,17 +2198,12 @@ fn existing_process_output_fields(config: &serde_yaml::Value, next_version: u32)
 
     fields
         .into_iter()
-        .filter(|field| get_config_field(config, &["process-all-and-propose"], field).is_some())
+        .filter(|field| get_config_field(config, "process-all-and-propose", field).is_some())
         .collect()
 }
 
 /// Create a BuildConfig for package compilation.
-async fn create_build_config(
-    package_path: &Path,
-    network: &Network,
-    wallet: Option<&WalletContext>,
-    for_publication: bool,
-) -> Result<BuildConfig> {
+fn create_build_config(network: &Network) -> BuildConfig {
     let move_build_config = MoveBuildConfig {
         root_as_zero: true,
         ..Default::default()
@@ -2334,24 +2212,14 @@ async fn create_build_config(
     let environment = match network {
         Network::Testnet => testnet_environment(),
         Network::Mainnet => mainnet_environment(),
-        Network::Custom => {
-            let wallet = wallet.ok_or_else(|| {
-                anyhow!(
-                    "Custom network package builds require a wallet environment; pass --rpc-url"
-                )
-            })?;
-            find_environment(package_path, None, wallet, for_publication)
-                .await
-                .context("Failed to resolve package environment for custom network")?
-        }
     };
 
-    Ok(BuildConfig {
+    BuildConfig {
         config: move_build_config,
         run_bytecode_verifier: true,
         print_diags_to_stderr: true,
         environment,
-    })
+    }
 }
 
 /// Load DKG messages from a directory.
@@ -2366,9 +2234,7 @@ fn load_messages_from_dir(messages_dir: &Path) -> Result<Vec<SignedMessage>> {
     })?;
 
     for entry in entries {
-        let path = entry
-            .with_context(|| format!("Failed to read entry in {}", messages_dir.display()))?
-            .path();
+        let path = entry?.path();
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
             continue;
         }
@@ -2589,15 +2455,11 @@ fn create_dkg_random_oracle(committee_id: &Address) -> RandomOracle {
 }
 
 /// Compute and display the package digest.
-async fn compute_package_digest(
-    package_path: &Path,
-    network: &Network,
-    wallet: Option<&WalletContext>,
-) -> Result<()> {
+async fn compute_package_digest(package_path: &Path, network: &Network) -> Result<()> {
     println!("Building package at: {}", package_path.display());
     println!();
 
-    let digest = get_package_digest(package_path, network, wallet).await?;
+    let digest = get_package_digest(package_path, network).await?;
     println!(
         "Digest for package '{}': {}",
         package_path
@@ -2611,13 +2473,9 @@ async fn compute_package_digest(
 }
 
 /// Compute package digest as hex string.
-async fn get_package_digest(
-    package_path: &Path,
-    network: &Network,
-    wallet: Option<&WalletContext>,
-) -> Result<String> {
+async fn get_package_digest(package_path: &Path, network: &Network) -> Result<String> {
     let package_path = package_path.canonicalize()?;
-    let build_config = create_build_config(&package_path, network, wallet, true).await?;
+    let build_config = create_build_config(network);
     let compiled_package = build_config
         .build(&package_path)
         .context("Failed to build package")?;
@@ -2656,16 +2514,16 @@ async fn vote_for_upgrade(
     wallet: &mut WalletContext,
     gas_budget: u64,
     approve: bool,
-    custom_rpc_url: Option<&str>,
+    rpc_url: Option<&str>,
 ) -> Result<()> {
     let voter_address = wallet.active_address()?;
 
     println!("Voter address: {}", voter_address);
-    print_network_info(network, custom_rpc_url);
+    print_network_info(network, rpc_url);
 
     // Build package and compute digest (only for approve).
     let digest = if let Some(path) = package_path {
-        let d = get_package_digest(path, network, Some(wallet)).await?;
+        let d = get_package_digest(path, network).await?;
         println!("\nPackage digest: {}", d);
         Some(d)
     } else {
@@ -2673,7 +2531,7 @@ async fn vote_for_upgrade(
     };
 
     // Fetch key server to get committee ID.
-    let mut grpc_client = create_grpc_client_with_url(network, custom_rpc_url)?;
+    let mut grpc_client = create_grpc_client_from_config(network, rpc_url)?;
     let (committee_id, _) =
         fetch_committee_from_key_server(&mut grpc_client, key_server_id).await?;
 
