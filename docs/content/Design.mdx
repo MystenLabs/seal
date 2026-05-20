@@ -107,6 +107,10 @@ The server exposes only two APIs:
 
 See [crates/key-server](https://github.com/MystenLabs/seal/tree/main/crates/key-server/src/server.rs) for the implementation of the key server.
 
+### Decentralized key server and DKG
+
+When running in committee mode, the key server uses a Distributed Key Generation (DKG) protocol to split the master secret key across multiple participants. During the DKG process, each participant signs their DKG messages with a payload that includes a domain separator and the `committee_id`. The domain separator prevents cross-protocol attacks by ensuring that DKG messages cannot be replayed in a different context, and the `committee_id` binds each message to a specific committee instance. Together, these measures ensure that DKG messages are authenticated and scoped to the intended committee, strengthening the security of the key generation process.
+
 ## User confirmation and sessions
 
 Decryption keys returned from the key server are returned directly to the caller, which is typically the dApp's web page. To ensure that dApps can access only keys explicitly approved by the user, the user must approve the key access request in their wallet. This approval is granted once per package and authorizes a `session key`. The session key allows the dApp to retrieve associated decryption keys for a limited time without requiring repeated user confirmations.
