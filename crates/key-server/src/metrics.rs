@@ -14,7 +14,16 @@ use std::time::Instant;
 /// Known valid routes for metrics labeling.
 /// Any route not in this list will be normalized to "unknown" to prevent
 /// high-cardinality label explosion from malicious requests.
-const KNOWN_ROUTES: &[&str] = &["/v1/fetch_key", "/v1/service", "/health"];
+///
+/// When adding a new route to the key-server or aggregator router, also add it
+/// here so its requests are tracked under their own label instead of being
+/// lumped into "unknown" alongside scanner/bot traffic.
+const KNOWN_ROUTES: &[&str] = &[
+    "/v1/fetch_key",
+    "/v1/service",
+    "/v1/debug/committee_partial_pk",
+    "/health",
+];
 
 /// Normalize a route path to a known route or "unknown".
 /// This prevents high-cardinality metrics from malicious/invalid request paths.
@@ -484,6 +493,10 @@ mod tests {
     fn test_normalize_route_known_routes() {
         assert_eq!(normalize_route("/v1/fetch_key"), "/v1/fetch_key");
         assert_eq!(normalize_route("/v1/service"), "/v1/service");
+        assert_eq!(
+            normalize_route("/v1/debug/committee_partial_pk"),
+            "/v1/debug/committee_partial_pk"
+        );
         assert_eq!(normalize_route("/health"), "/health");
     }
 
