@@ -224,7 +224,7 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -254,7 +254,7 @@ mv path/to/dkg-messages dkg-state/
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -455,7 +455,7 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -496,7 +496,7 @@ mv path/to/dkg-messages dkg-state/
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -647,7 +647,7 @@ cargo run --bin seal-committee-cli -- approve-upgrade \
   -n <NETWORK>
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 ```bash
 cargo run --bin seal-committee-cli -- approve-upgrade \
@@ -674,7 +674,7 @@ cargo run --bin seal-committee-cli -- reject-upgrade \
   -n <NETWORK>
 ```
 
-`reject-upgrade` also accepts `--unsigned`; then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+`reject-upgrade` also accepts `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 3. If needed, can run `approve-upgrade` or `reject-upgrade` again to change your vote option. 
 
@@ -696,7 +696,7 @@ cargo run --bin seal-committee-cli -- authorize-and-upgrade \
   -n <NETWORK>
 ```
 
-To sign and execute separately, add `--unsigned`, then run `seal-committee-cli sign-and-execute --tx-bytes <TX_BYTES>` to sign and execute the printed transaction bytes.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 - Authorizes the upgrade (gets an UpgradeTicket).

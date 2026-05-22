@@ -9,7 +9,7 @@
 <script key="docusaurus-plugin-plausible-custom-events">window.plausible=window.plausible||function(){(window.plausible.q=window.plausible.q||[]).push(arguments)}</script>
 <meta name="algolia-site-verification" content="BCA21DA2879818D2">
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="91d6cd50-0276-4125-b8c1-3fe897e8fe47" data-project-name="Seal Knowledge" data-project-color="#92a4ff" data-button-hide="true" data-modal-title="Ask Seal AI" data-modal-ask-ai-input-placeholder="Ask me anything about Seal!" data-modal-example-questions="How do I encrypt data with Seal?,What is threshold encryption?,How do I create an access policy?,What are key servers?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#92a4ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" data-mcp-enabled="true" data-mcp-server-url="https://sui.mcp.kapa.ai" data-mcp-button-text="Use Seal MCP Server" async></script><link rel="stylesheet" href="/seal/pr-preview/pr-559/assets/css/styles.6c9995e0.css">
-<script src="/seal/pr-preview/pr-559/assets/js/runtime~main.1f4469a4.js" defer="defer"></script>
+<script src="/seal/pr-preview/pr-559/assets/js/runtime~main.01f38b70.js" defer="defer"></script>
 <script src="/seal/pr-preview/pr-559/assets/js/main.cd66248e.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -158,7 +158,7 @@
 <p>b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both <code>dkg.yaml</code> and the addresses shared in the trusted communication channel.</p>
 <p>c. Then run the command to generate your keys and register them onchain by providing your server URL and name:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- genkey-and-register \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -u &lt;YOUR_SERVER_URL&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;YOUR_SERVER_NAME&gt;</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <p>This command:</p>
 <ul>
 <li class="">Generates DKG key material and stores it in <code>dkg-state/</code>. Keep this directory secure.</li>
@@ -178,7 +178,7 @@
 <p>Wait for the coordinator to announce <strong>Phase C (Finalization)</strong> and provide a directory containing messages (for example, <code>path/to/dkg-messages</code>).</p>
 <p>Move the directory into <code>dkg-state</code> and process the messages:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/dkg-messages dkg-state/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain" style="display:inline-block"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- process-all-and-propose</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <p>This command:</p>
 <ul>
 <li class="">Processes all DKG messages from the directory.</li>
@@ -320,7 +320,7 @@
 <p>b. Look up the committee object ID on a Sui Explorer and verify that its member addresses and threshold match both <code>dkg.yaml</code> and the addresses shared in the trusted communication channel.</p>
 <p>c. Then run the command to generate your keys and register them onchain by providing your server URL and name:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- genkey-and-register \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -u &lt;YOUR_SERVER_URL&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;YOUR_SERVER_NAME&gt;</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <p>This command:</p>
 <ul>
 <li class="">Generates sensitive key material and stores it in <code>dkg-state/</code>. Keep this directory secure.</li>
@@ -345,7 +345,7 @@
 <p>Wait for the coordinator to announce <strong>Phase C (Finalization)</strong> and provide a directory containing exactly the old committee threshold number of DKG messages from continuing members (for example, <code>path/to/dkg-messages</code>).</p>
 <p>Move the directory into <code>dkg-state</code> and process the messages:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">mv path/to/dkg-messages dkg-state/</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain" style="display:inline-block"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- process-all-and-propose</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <p>This command:</p>
 <ul>
 <li class="">Processes all messages from the directory.</li>
@@ -424,7 +424,7 @@ b. Share the following with the coordinator:</p>
 <h4 class="anchor anchorTargetStickyNavbar_V57r" id="2-approve-the-upgrade">2. Approve the upgrade<a href="#2-approve-the-upgrade" class="hash-link" aria-label="Direct link to 2. Approve the upgrade" title="Direct link to 2. Approve the upgrade" translate="no">​</a></h4>
 <p>Each committee member approves for the upgrade using the locally built package, run:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- approve-upgrade \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -k &lt;KEY_SERVER_OBJ_ID&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;NETWORK&gt;</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- approve-upgrade \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -k &lt;KEY_SERVER_OBJ_ID&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;NETWORK&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  --unsigned</span><br></span></code></pre></div></div></div>
 <p><strong>Notes:</strong></p>
 <ol>
@@ -435,7 +435,7 @@ b. Share the following with the coordinator:</p>
 <li class="">If you do not want to approve the current onchain upgrade proposal, reject it:</li>
 </ol>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- reject-upgrade \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -k &lt;KEY_SERVER_OBJ_ID&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;NETWORK&gt;</span><br></span></code></pre></div></div></div>
-<p><code>reject-upgrade</code> also accepts <code>--unsigned</code>; then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p><code>reject-upgrade</code> also accepts <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <ol start="3">
 <li class="">
 <p>If needed, can run <code>approve-upgrade</code> or <code>reject-upgrade</code> again to change your vote option.</p>
@@ -448,7 +448,7 @@ b. Share the following with the coordinator:</p>
 <h4 class="anchor anchorTargetStickyNavbar_V57r" id="3-authorize-execute-and-commit-the-upgrade">3. Authorize, execute and commit the upgrade<a href="#3-authorize-execute-and-commit-the-upgrade" class="hash-link" aria-label="Direct link to 3. Authorize, execute and commit the upgrade" title="Direct link to 3. Authorize, execute and commit the upgrade" translate="no">​</a></h4>
 <p>Once the threshold number of committee members approves the digest, any member run this to execute the upgrade:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- authorize-and-upgrade \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -k &lt;KEY_SERVER_OBJ_ID&gt; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -n &lt;NETWORK&gt;</span><br></span></code></pre></div></div></div>
-<p>To sign and execute separately, add <code>--unsigned</code>, then run <code>seal-committee-cli sign-and-execute --tx-bytes &lt;TX_BYTES&gt;</code> to sign and execute the printed transaction bytes.</p>
+<p>Use <code>--unsigned</code> to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.</p>
 <p>This command:</p>
 <ul>
 <li class="">Authorizes the upgrade (gets an UpgradeTicket).</li>
