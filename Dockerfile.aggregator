@@ -11,7 +11,14 @@ COPY ./Cargo.toml ./Cargo.lock ./
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 
-RUN cargo build --bin aggregator-server --profile $PROFILE --config net.git-fetch-with-cli=true
+# BuildKit cargo cache mounts: registry/git/target persist on the mp3
+# stateful-pool PVC across commits. Cache-mount contents aren't committed to
+# the image layer, so copy the binary out to a stable path in the same RUN.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/work/target,sharing=locked \
+    cargo build --bin aggregator-server --profile $PROFILE --config net.git-fetch-with-cli=true \
+    && cp /work/target/release/aggregator-server /work/aggregator-server
 
 FROM debian:bullseye-slim AS runtime
 
@@ -19,7 +26,7 @@ EXPOSE 2024
 
 RUN apt-get update && apt-get install -y ca-certificates
 
-COPY --from=builder /work/target/release/aggregator-server /opt/aggregator-server/bin/
+COPY --from=builder /work/aggregator-server /opt/aggregator-server/bin/
 COPY ./crates/key-server/src/aggregator/aggregator-config.yaml /opt/aggregator-server/config/
 
 # Set default CONFIG_PATH
