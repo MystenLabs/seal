@@ -132,7 +132,7 @@ cargo run --bin seal-committee-cli -- publish-and-init
 This command:
 
 - Publishes the `seal_committee` package onchain with upgrade capability
-- Extracts the InitCap and UpgradeCap from the publish transaction
+- Extracts the UpgradeCap from the publish transaction
 - Initializes the committee state and attaches the UpgradeManager (which holds the UpgradeCap) to the committee
 - Appends the committee identifiers to `dkg.yaml`
 
@@ -240,6 +240,8 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+
 This command:
 
 - Generates DKG key material and stores it in `dkg-state/`. Keep this directory secure.
@@ -267,6 +269,8 @@ mv path/to/dkg-messages dkg-state/
 
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
+
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -467,6 +471,8 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+
 This command:
 
 - Generates sensitive key material and stores it in `dkg-state/`. Keep this directory secure.
@@ -505,6 +511,8 @@ mv path/to/dkg-messages dkg-state/
 
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
+
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -655,6 +663,15 @@ cargo run --bin seal-committee-cli -- approve-upgrade \
   -n <NETWORK>
 ```
 
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+
+```bash
+cargo run --bin seal-committee-cli -- approve-upgrade \
+  -k <KEY_SERVER_OBJ_ID> \
+  -n <NETWORK> \
+  --unsigned
+```
+
 **Notes:** 
 
 1. To check the current upgrade proposal status (digest, votes, threshold), run:
@@ -665,14 +682,15 @@ cargo run --bin seal-committee-cli -- check-key-server-status \
   -n <NETWORK>
 ```
 
-2. If needed, the local package is not what you want to approve, run this to reject it onchain.
+2. If you do not want to approve the current onchain upgrade proposal, reject it:
 
 ```bash
 cargo run --bin seal-committee-cli -- reject-upgrade \
-  -p <PACKAGE_PATH>
   -k <KEY_SERVER_OBJ_ID> \
   -n <NETWORK>
 ```
+
+`reject-upgrade` also accepts `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 3. If needed, can run `approve-upgrade` or `reject-upgrade` again to change your vote option. 
 
@@ -693,6 +711,8 @@ cargo run --bin seal-committee-cli -- authorize-and-upgrade \
   -k <KEY_SERVER_OBJ_ID> \
   -n <NETWORK>
 ```
+
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 - Authorizes the upgrade (gets an UpgradeTicket).

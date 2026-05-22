@@ -8283,6 +8283,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
+ "shared-crypto",
  "sui-keys",
  "sui-move-build",
  "sui-package-alt",

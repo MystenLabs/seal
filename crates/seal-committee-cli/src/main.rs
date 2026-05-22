@@ -24,6 +24,7 @@ use seal_committee::{
     ServerType, UpgradeVote,
 };
 use serde::Serialize;
+use shared_crypto::intent::Intent;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::num::NonZeroU16;
@@ -39,7 +40,9 @@ use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::effects::TransactionEffectsAPI;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{ObjectArg, SharedObjectMutability, TransactionData};
+use sui_types::transaction::{
+    ObjectArg, SharedObjectMutability, Transaction, TransactionData, TransactionDataAPI,
+};
 use types::{DkgState, InitializedConfig, KeysFile};
 
 #[cfg(unix)]
@@ -140,6 +143,10 @@ enum Commands {
         /// Server name to register.
         #[arg(short = 'n', long)]
         server_name: String,
+
+        /// Print base64 unsigned transaction bytes.
+        #[arg(long)]
+        unsigned: bool,
     },
 
     /// Initialize state for DKG party for new member joining in a rotation (member operation).
@@ -171,6 +178,10 @@ enum Commands {
         /// Directory containing message_*.json files (defaults to <state_dir>/dkg-messages).
         #[arg(short = 'm', long)]
         messages_dir: Option<PathBuf>,
+
+        /// Print base64 unsigned transaction bytes.
+        #[arg(long)]
+        unsigned: bool,
     },
 
     /// Check committee status and member registration.
@@ -208,6 +219,10 @@ enum Commands {
         /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
+
+        /// Print base64 unsigned transaction bytes.
+        #[arg(long)]
+        unsigned: bool,
     },
 
     /// Reject current upgrade proposal (as committee member).
@@ -223,6 +238,10 @@ enum Commands {
         /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
+
+        /// Print base64 unsigned transaction bytes.
+        #[arg(long)]
+        unsigned: bool,
     },
 
     /// Authorize and execute package upgrade (after threshold of approvals is reached).
@@ -242,6 +261,10 @@ enum Commands {
         /// RPC URL override. If set, this URL must exist as a Sui wallet env, to add, use `sui client new-env --alias <name> --rpc <url>`.
         #[arg(long)]
         rpc_url: Option<String>,
+
+        /// Print base64 unsigned transaction bytes.
+        #[arg(long)]
+        unsigned: bool,
     },
 
     /// Reset upgrade proposal (if threshold of rejections is reached).
@@ -279,6 +302,13 @@ enum Commands {
 
     /// Print the active Sui address from the wallet.
     ActiveAddress,
+
+    /// Sign and execute base64 unsigned transaction bytes with the transaction sender key from the wallet.
+    SignAndExecute {
+        /// Base64 BCS TransactionData bytes to sign and execute.
+        #[arg(long)]
+        tx_bytes: String,
+    },
 
     /// Show gas coins for the active address.
     Gas,
@@ -374,7 +404,7 @@ async fn main() -> Result<()> {
             );
 
             println!("\nExecuting publish transaction...");
-            let response = execute_tx_and_log_status(&wallet, tx_data).await?;
+            let response = sign_and_execute_txn_and_log(&wallet, tx_data).await?;
 
             // Extract published package ID and UpgradeCap.
             let package_ref = response
@@ -424,7 +454,7 @@ async fn main() -> Result<()> {
             );
 
             println!("\nExecuting init_committee transaction...");
-            let init_response = execute_tx_and_log_status(&wallet, init_tx_data).await?;
+            let init_response = sign_and_execute_txn_and_log(&wallet, init_tx_data).await?;
 
             // Extract committee ID.
             let committee_id = extract_created_committee_id(&init_response)?;
@@ -529,7 +559,7 @@ async fn main() -> Result<()> {
             );
 
             println!("\nExecuting init_rotation transaction...");
-            let rotation_response = execute_tx_and_log_status(&wallet, rotation_tx_data).await?;
+            let rotation_response = sign_and_execute_txn_and_log(&wallet, rotation_tx_data).await?;
 
             // Extract new committee ID.
             let new_committee_id = extract_created_committee_id(&rotation_response)?;
@@ -553,6 +583,7 @@ async fn main() -> Result<()> {
             state_dir,
             server_url,
             server_name,
+            unsigned,
         } => {
             let (config, keys_file) = derive_paths(&state_dir);
             let config_content = load_config(&config)?;
@@ -694,10 +725,18 @@ async fn main() -> Result<()> {
                 gas_price,
             );
 
-            println!("\nExecuting register transaction...");
-            let _register_response = execute_tx_and_log_status(&wallet, register_tx_data).await?;
+            if unsigned {
+                print_unsigned_tx_bytes(&register_tx_data)?;
+                println!(
+                    "\nKeys generated but not registered yet. Sign and execute the printed transaction bytes to complete registration."
+                );
+            } else {
+                println!("\nExecuting register transaction...");
+                let _register_response =
+                    sign_and_execute_txn_and_log(&wallet, register_tx_data).await?;
 
-            println!("\n Keys generated and registered onchain!");
+                println!("\n Keys generated and registered onchain!");
+            }
             println!(
                 "\nYour DKG private keys are stored in: {}",
                 keys_file.display()
@@ -721,6 +760,7 @@ async fn main() -> Result<()> {
         Commands::ProcessAllAndPropose {
             state_dir,
             messages_dir,
+            unsigned,
         } => {
             let (config, keys_file) = derive_paths(&state_dir);
             let full_messages_dir = messages_dir.unwrap_or_else(|| state_dir.join("dkg-messages"));
@@ -881,10 +921,18 @@ async fn main() -> Result<()> {
                 gas_price,
             );
 
-            println!("\nExecuting propose transaction...");
-            let _propose_response = execute_tx_and_log_status(&wallet, propose_tx_data).await?;
+            if unsigned {
+                print_unsigned_tx_bytes(&propose_tx_data)?;
+                println!(
+                    "\nMessages processed but committee not proposed yet. Sign and execute the printed transaction bytes to complete the onchain proposal."
+                );
+            } else {
+                println!("\nExecuting propose transaction...");
+                let _propose_response =
+                    sign_and_execute_txn_and_log(&wallet, propose_tx_data).await?;
 
-            println!("\n✓ Successfully processed messages and proposed committee onchain!");
+                println!("\n✓ Successfully processed messages and proposed committee onchain!");
+            }
             println!(
                 "  MASTER_SHARE_V{} can be found in {} that will be used later to start the key server. Back it up securely and do not share it with anyone.",
                 next_version,
@@ -1026,6 +1074,7 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
             rpc_url,
+            unsigned,
         } => {
             let mut wallet = load_wallet_for_network(
                 cli.wallet.as_deref(),
@@ -1034,13 +1083,15 @@ async fn main() -> Result<()> {
                 rpc_url.as_deref(),
             )?;
             vote_for_upgrade(
-                Some(&package_path),
+                UpgradeVoteChoice::Approve {
+                    package_path: &package_path,
+                },
                 &key_server_id,
                 &network,
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
-                true, // approve
                 rpc_url.as_deref(),
+                unsigned,
             )
             .await?;
         }
@@ -1049,6 +1100,7 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
             rpc_url,
+            unsigned,
         } => {
             let mut wallet = load_wallet_for_network(
                 cli.wallet.as_deref(),
@@ -1057,13 +1109,13 @@ async fn main() -> Result<()> {
                 rpc_url.as_deref(),
             )?;
             vote_for_upgrade(
-                None,
+                UpgradeVoteChoice::Reject,
                 &key_server_id,
                 &network,
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
-                false, // reject
                 rpc_url.as_deref(),
+                unsigned,
             )
             .await?;
         }
@@ -1073,6 +1125,7 @@ async fn main() -> Result<()> {
             key_server_id,
             network,
             rpc_url,
+            unsigned,
         } => {
             // Load wallet.
             let mut wallet = load_wallet_for_network(
@@ -1165,8 +1218,13 @@ async fn main() -> Result<()> {
                 gas_price,
             );
 
+            if unsigned {
+                print_unsigned_tx_bytes(&upgrade_tx_data)?;
+                return Ok(());
+            }
+
             println!("\nExecuting authorize, upgrade, and commit in one ptb...");
-            let upgrade_response = execute_tx_and_log_status(&wallet, upgrade_tx_data).await?;
+            let upgrade_response = sign_and_execute_txn_and_log(&wallet, upgrade_tx_data).await?;
 
             // Extract new package ID.
             let new_package_ref = upgrade_response
@@ -1237,7 +1295,7 @@ async fn main() -> Result<()> {
             );
 
             println!("\nExecuting reset-proposal transaction...");
-            let _reset_response = execute_tx_and_log_status(&wallet, reset_tx_data).await?;
+            let _reset_response = sign_and_execute_txn_and_log(&wallet, reset_tx_data).await?;
 
             println!("\n✓ Successfully reset upgrade proposal!");
         }
@@ -1258,6 +1316,20 @@ async fn main() -> Result<()> {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
             let address = wallet.active_address()?;
             println!("{}", address);
+        }
+
+        Commands::SignAndExecute { tx_bytes } => {
+            let wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
+            let tx_data = decode_unsigned_tx_bytes(&tx_bytes)?;
+            let tx_sender = tx_data.sender();
+
+            let signature = wallet
+                .config
+                .keystore
+                .sign_secure(&tx_sender, &tx_data, Intent::sui_transaction())
+                .await?;
+            let transaction = Transaction::from_data(tx_data, vec![signature]);
+            let _response = execute_signed_txn_and_log(&wallet, transaction).await?;
         }
 
         Commands::Gas => {
@@ -1364,11 +1436,19 @@ async fn main() -> Result<()> {
 }
 
 /// Execute transaction and log status.
-async fn execute_tx_and_log_status(
+async fn sign_and_execute_txn_and_log(
     wallet: &WalletContext,
     tx_data: TransactionData,
 ) -> Result<ExecutedTransaction> {
     let transaction = wallet.sign_transaction(&tx_data).await;
+    execute_signed_txn_and_log(wallet, transaction).await
+}
+
+/// Execute a signed transaction and log status.
+async fn execute_signed_txn_and_log(
+    wallet: &WalletContext,
+    transaction: Transaction,
+) -> Result<ExecutedTransaction> {
     let response = wallet.execute_transaction_may_fail(transaction).await?;
 
     let digest = response.transaction.digest();
@@ -1381,6 +1461,21 @@ async fn execute_tx_and_log_status(
     println!("Transaction SUCCESS!");
     println!("Digest: {}", digest);
     Ok(response)
+}
+
+/// Print unsigned transaction bytes in Base64.
+fn print_unsigned_tx_bytes(tx_data: &TransactionData) -> Result<()> {
+    let tx_bytes = Base64::encode(bcs::to_bytes(tx_data)?);
+    println!("\nUnsigned transaction bytes (base64 BCS TransactionData):");
+    println!("{tx_bytes}");
+    Ok(())
+}
+
+/// Decode base64 BCS TransactionData bytes.
+fn decode_unsigned_tx_bytes(tx_bytes: &str) -> Result<TransactionData> {
+    let bytes =
+        Base64::decode(tx_bytes).map_err(|e| anyhow!("Invalid base64 transaction bytes: {e}"))?;
+    bcs::from_bytes(&bytes).context("Failed to parse tx bytes as BCS TransactionData")
 }
 
 /// Extract a created object ID by type name from a transaction response.
@@ -2382,15 +2477,20 @@ async fn display_partial_key_servers(key_server: &KeyServerV2, members: &[Addres
     Ok(())
 }
 
+enum UpgradeVoteChoice<'a> {
+    Approve { package_path: &'a Path },
+    Reject,
+}
+
 /// Helper function to vote (approve or reject) for package upgrade.
 async fn vote_for_upgrade(
-    package_path: Option<&Path>,
+    vote: UpgradeVoteChoice<'_>,
     key_server_id: &Address,
     network: &Network,
     wallet: &mut WalletContext,
     gas_budget: u64,
-    approve: bool,
     rpc_url: Option<&str>,
+    unsigned: bool,
 ) -> Result<()> {
     let voter_address = wallet.active_address()?;
 
@@ -2398,12 +2498,13 @@ async fn vote_for_upgrade(
     print_network_info(network, rpc_url);
 
     // Build package and compute digest (only for approve).
-    let digest = if let Some(path) = package_path {
-        let d = get_package_digest(path, network)?;
-        println!("\nPackage digest: {}", d);
-        Some(d)
-    } else {
-        None
+    let (digest, function_name) = match vote {
+        UpgradeVoteChoice::Approve { package_path } => {
+            let digest = get_package_digest(package_path, network)?;
+            println!("\nPackage digest: {}", digest);
+            (Some(digest), "approve_digest_for_upgrade")
+        }
+        UpgradeVoteChoice::Reject => (None, "reject_digest_for_upgrade"),
     };
 
     // Fetch key server to get committee ID.
@@ -2422,12 +2523,6 @@ async fn vote_for_upgrade(
     let mut vote_builder = ProgrammableTransactionBuilder::new();
     let committee_arg =
         vote_builder.obj(get_shared_committee_arg(&mut grpc_client, committee_id, true).await?)?;
-
-    let function_name = if approve {
-        "approve_digest_for_upgrade"
-    } else {
-        "reject_digest_for_upgrade"
-    };
 
     // Build function call args based on whether we have a digest.
     let args = if let Some(ref digest_str) = digest {
@@ -2457,8 +2552,13 @@ async fn vote_for_upgrade(
         gas_price,
     );
 
+    if unsigned {
+        print_unsigned_tx_bytes(&vote_tx_data)?;
+        return Ok(());
+    }
+
     println!("\nExecuting {} vote transaction...", function_name);
-    let _vote_response = execute_tx_and_log_status(wallet, vote_tx_data).await?;
+    let _vote_response = sign_and_execute_txn_and_log(wallet, vote_tx_data).await?;
 
     println!("\n✓ Successfully voted to {}!", function_name);
     Ok(())
