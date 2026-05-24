@@ -2289,7 +2289,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab67060fc6b8ef687992d439ca0fa36e7ed17e9a0b16b25b601e8757df720de"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4367,6 +4367,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonrpsee"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3f48dc3e6b8bd21e15436c1ddd0bc22a6a54e8ec46fedd6adf3425f396ec6a"
+
+[[package]]
 name = "jsonrpsee-client-transport"
 version = "0.24.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4556,7 +4562,7 @@ dependencies = [
  "hostname",
  "http-body-util",
  "hyper-util",
- "jsonrpsee",
+ "jsonrpsee 0.26.0",
  "moka",
  "move-core-types",
  "move-package-alt",
@@ -7190,7 +7196,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -9641,7 +9647,7 @@ dependencies = [
  "im",
  "indexmap 2.13.0",
  "itertools 0.13.0",
- "jsonrpsee",
+ "jsonrpsee 0.24.10",
  "move-binary-format",
  "move-bytecode-utils",
  "move-core-types",
@@ -9682,7 +9688,7 @@ source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c
 dependencies = [
  "anyhow",
  "fastcrypto",
- "jsonrpsee",
+ "jsonrpsee 0.24.10",
  "mysten-metrics",
  "once_cell",
  "prometheus",
@@ -10238,7 +10244,7 @@ dependencies = [
  "fastcrypto",
  "futures",
  "futures-core",
- "jsonrpsee",
+ "jsonrpsee 0.24.10",
  "move-core-types",
  "mysten-common",
  "reqwest",
@@ -10896,7 +10902,7 @@ dependencies = [
  "bcs",
  "fastcrypto-zkp",
  "futures",
- "jsonrpsee",
+ "jsonrpsee 0.24.10",
  "move-binary-format",
  "move-core-types",
  "mysten-common",
