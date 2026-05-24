@@ -727,9 +727,9 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
+checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core 0.5.6",
  "axum-macros",
@@ -807,7 +807,7 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9963ff19f40c6102c76756ef0a46004c0d58957d87259fc9208ff8441c12ab96"
 dependencies = [
- "axum 0.8.8",
+ "axum 0.8.9",
  "axum-core 0.5.6",
  "bytes",
  "futures-util",
@@ -826,9 +826,9 @@ dependencies = [
 
 [[package]]
 name = "axum-macros"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
+checksum = "7aa268c23bfbbd2c4363b9cd302a4f504fb2a9dfe7e3451d66f35dd392e20aca"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1573,9 +1573,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b193af5b67834b676abd72466a96c1024e6a6ad978a1f484bd90b85c94041351"
+checksum = "1ddb117e43bbf7dacf0a4190fef4d345b9bad68dfc649cb349e7d17d28428e51"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1596,9 +1596,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1110bd8a634a1ab8cb04345d8d878267d57c3cf1b38d91b71af6686408bbca6a"
+checksum = "f2ce8604710f6733aa641a2b3731eaa1e8b3d9973d5e3565da11800813f997a9"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1768,7 +1768,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util 0.7.18",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-build",
  "tonic-prost",
  "tonic-rustls",
@@ -2289,7 +2289,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab67060fc6b8ef687992d439ca0fa36e7ed17e9a0b16b25b601e8757df720de"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4544,7 +4544,7 @@ name = "key-server"
 version = "0.6.7"
 dependencies = [
  "anyhow",
- "axum 0.8.8",
+ "axum 0.8.9",
  "bcs",
  "crypto",
  "duration-str",
@@ -4587,8 +4587,8 @@ dependencies = [
  "temp-env",
  "test-cluster",
  "tokio",
- "tonic 0.14.5",
- "tower-http 0.6.8",
+ "tonic 0.14.6",
+ "tower-http 0.6.11",
  "tracing",
  "tracing-test",
  "wiremock",
@@ -5113,9 +5113,9 @@ dependencies = [
 
 [[package]]
 name = "moka"
-version = "0.12.14"
+version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85f8024e1c8e71c778968af91d43700ce1d11b219d127d79fb2934153b82b42b"
+checksum = "957228ad12042ee839f93c8f257b62b4c0ab5eaae1d4fa60de53b27c9d7c5046"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-epoch",
@@ -5956,7 +5956,7 @@ version = "0.7.0"
 source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c1bff48780e5f#a3cc4467c9de48410a01fc2b6f3c1bff48780e5f"
 dependencies = [
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "dashmap 5.5.3",
  "futures",
  "once_cell",
@@ -6001,7 +6001,7 @@ dependencies = [
  "sui-http",
  "tokio",
  "tokio-rustls",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tower 0.5.3",
  "tower-http 0.5.2",
  "tracing",
@@ -6013,7 +6013,7 @@ version = "0.0.1"
 source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c1bff48780e5f#a3cc4467c9de48410a01fc2b6f3c1bff48780e5f"
 dependencies = [
  "anyhow",
- "axum 0.8.8",
+ "axum 0.8.9",
  "mysten-metrics",
  "prometheus",
  "serde",
@@ -7190,7 +7190,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7831,7 +7831,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util 0.7.18",
  "tower 0.5.3",
- "tower-http 0.6.8",
+ "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -8287,7 +8287,7 @@ dependencies = [
  "sui-sdk-types 0.3.0",
  "sui-types",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
 ]
 
 [[package]]
@@ -8323,7 +8323,7 @@ name = "seal-proxy"
 version = "0.6.7"
 dependencies = [
  "anyhow",
- "axum 0.8.8",
+ "axum 0.8.9",
  "axum-extra",
  "bytes",
  "clap",
@@ -8343,7 +8343,7 @@ dependencies = [
  "snap",
  "tokio",
  "tower 0.5.3",
- "tower-http 0.6.8",
+ "tower-http 0.6.11",
  "tracing",
  "tracing-subscriber",
 ]
@@ -8436,9 +8436,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.27"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 dependencies = [
  "serde",
  "serde_core",
@@ -8530,9 +8530,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
  "indexmap 2.13.0",
  "itoa",
@@ -8598,11 +8598,12 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.18.0"
+version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd5414fad8e6907dbdd5bc441a50ae8d6e26151a03b1de04d89a5576de61d01f"
+checksum = "e72c1c2cb7b223fafb600a619537a871c2818583d619401b785e7c0b746ccde2"
 dependencies = [
  "base64 0.22.1",
+ "bs58 0.5.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -8617,9 +8618,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.18.0"
+version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3db8978e608f1fe7357e211969fd9abdcae80bac1ba7a3369bb7eb6b404eb65"
+checksum = "b90c488738ecb4fb0262f41f43bc40efc5868d9fb744319ddf5f5317f417bfac"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -9329,7 +9330,7 @@ dependencies = [
  "arc-swap",
  "async-stream",
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "bcs",
  "bincode",
  "bytes",
@@ -9628,7 +9629,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "backoff",
  "base64 0.21.7",
  "bcs",
@@ -9973,7 +9974,7 @@ dependencies = [
  "tap",
  "tokio",
  "tokio-rustls",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-build",
  "tonic-health",
  "tonic-prost",
@@ -9994,7 +9995,7 @@ dependencies = [
  "antithesis_sdk",
  "anyhow",
  "arc-swap",
- "axum 0.8.8",
+ "axum 0.8.9",
  "base64 0.21.7",
  "bcs",
  "bin-version",
@@ -10170,7 +10171,7 @@ dependencies = [
  "sui-sdk-types 0.3.0",
  "tap",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-prost",
  "tower 0.5.3",
 ]
@@ -10183,7 +10184,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "bcs",
  "bytes",
  "fastcrypto",
@@ -10215,7 +10216,7 @@ dependencies = [
  "sui-types",
  "tap",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-health",
  "tonic-prost",
  "tonic-prost-build",
@@ -10487,7 +10488,7 @@ source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c
 dependencies = [
  "anyhow",
  "arc-swap",
- "axum 0.8.8",
+ "axum 0.8.9",
  "axum-server",
  "ed25519",
  "fastcrypto",
@@ -10601,7 +10602,7 @@ dependencies = [
  "sui-sdk-types 0.3.0",
  "tap",
  "thiserror 1.0.69",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tracing",
  "typed-store-error",
  "x509-parser",
@@ -10917,7 +10918,7 @@ dependencies = [
  "sui-test-transaction-builder",
  "sui-types",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tracing",
 ]
 
@@ -11165,9 +11166,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
 dependencies = [
  "futures-util",
  "log",
@@ -11332,12 +11333,12 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
+checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "base64 0.22.1",
  "bytes",
  "h2 0.4.13",
@@ -11383,7 +11384,7 @@ dependencies = [
  "prost 0.14.3",
  "tokio",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-prost",
 ]
 
@@ -11395,7 +11396,7 @@ checksum = "a55376a0bbaa4975a3f10d009ad763d8f4108f067c7c2e74f3001fb49778d309"
 dependencies = [
  "bytes",
  "prost 0.14.3",
- "tonic 0.14.5",
+ "tonic 0.14.6",
 ]
 
 [[package]]
@@ -11424,7 +11425,7 @@ dependencies = [
  "prost-types 0.14.3",
  "tokio",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-prost",
 ]
 
@@ -11448,7 +11449,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
@@ -11467,7 +11468,7 @@ dependencies = [
  "http-body 1.0.1",
  "pin-project",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -11547,9 +11548,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.8"
+version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
+checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
@@ -11557,13 +11558,13 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "iri-string",
  "pin-project-lite",
  "tokio",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -11734,9 +11735,9 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tungstenite"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
 dependencies = [
  "bytes",
  "data-encoding",
@@ -11746,7 +11747,6 @@ dependencies = [
  "rand 0.9.4",
  "sha1",
  "thiserror 2.0.18",
- "utf-8",
 ]
 
 [[package]]
@@ -11817,9 +11817,9 @@ checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
-version = "1.19.0"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
 
 [[package]]
 name = "typeshare"
@@ -11958,12 +11958,6 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
-
-[[package]]
-name = "utf-8"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8_iter"
