@@ -2044,7 +2044,7 @@ dependencies = [
  "fastcrypto-tbls",
  "hex",
  "itertools 0.14.0",
- "rand 0.8.6",
+ "rand 0.10.1",
  "serde",
  "serde_with",
  "sui-sdk-types 0.3.0",
@@ -4566,7 +4566,7 @@ dependencies = [
  "prometheus",
  "prometheus-closure-metric",
  "prost-types 0.14.3",
- "rand 0.8.6",
+ "rand 0.10.1",
  "reqwest",
  "seal-committee",
  "seal-sdk",
@@ -8261,7 +8261,7 @@ dependencies = [
  "clap",
  "crypto",
  "fastcrypto",
- "rand 0.8.6",
+ "rand 0.10.1",
  "reqwest",
  "seal-committee",
  "seal-sdk",
@@ -8302,7 +8302,7 @@ dependencies = [
  "fastcrypto-tbls",
  "move-package-alt-compilation",
  "prost-types 0.14.3",
- "rand 0.8.6",
+ "rand 0.10.1",
  "seal-committee",
  "serde",
  "serde_json",
@@ -8356,7 +8356,7 @@ dependencies = [
  "chrono",
  "crypto",
  "fastcrypto",
- "rand 0.8.6",
+ "rand 0.10.1",
  "serde",
  "serde_json",
  "sui-sdk-types 0.3.0",
@@ -11756,7 +11756,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
- "rand 0.8.6",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
