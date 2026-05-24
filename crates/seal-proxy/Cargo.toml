@@ -34,4 +34,4 @@ bytes = "1.10.1"
 prost = "0.12"
 protobuf = {version = "3.7", features = ["with-bytes"]}
 reqwest = {version = "0.12", features = ["json", "native-tls"]}
-tower-http = { version = "0.6.6", features = ["trace", "timeout"]}
+tower-http = { version = "0.6.11", features = ["trace", "timeout"]}
