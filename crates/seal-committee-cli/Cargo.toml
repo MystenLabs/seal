@@ -21,6 +21,7 @@ tokio.workspace = true
 serde_yaml.workspace = true
 sui_sdk.workspace = true
 sui_types.workspace = true
+shared_crypto.workspace = true
 sui-move-build.workspace = true
 move-package-alt-compilation.workspace = true
 sui-package-alt.workspace = true
