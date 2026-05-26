@@ -108,6 +108,13 @@ struct Cli {
     #[arg(long, global = true)]
     active_address: Option<SuiAddress>,
 
+    /// Sender address for unsigned transaction construction.
+    /// Required with --unsigned. The CLI uses the fullnode to pick an owned gas
+    /// object for this address and does not require the address in the local
+    /// keystore.
+    #[arg(long, global = true)]
+    sender_address: Option<SuiAddress>,
+
     /// Gas budget for transactions in MIST. Defaults vary per command:
     /// publish/authorize-and-upgrade = 0.1 SUI; all others = 0.01 SUI.
     #[arg(long, global = true)]
@@ -310,7 +317,7 @@ enum Commands {
         tx_bytes: String,
     },
 
-    /// Show gas coins for the active address.
+    /// Show gas coins for the active address, or --sender-address if provided.
     Gas,
 }
 
@@ -615,10 +622,15 @@ async fn main() -> Result<()> {
                 &network,
                 node_url.as_deref(),
             )?;
-            let my_address = wallet.active_address()?;
+            let my_address = transaction_sender_address(&mut wallet, cli.sender_address, unsigned)?;
 
-            println!("\n=== Getting active address from wallet ===");
-            println!("Active address: {}", my_address);
+            if unsigned {
+                println!("\n=== Using unsigned transaction sender address ===");
+                println!("Sender address: {}", my_address);
+            } else {
+                println!("\n=== Getting active address from wallet ===");
+                println!("Active address: {}", my_address);
+            }
             println!("Server URL: {}", server_url);
             println!("Server Name: {}", server_name);
 
@@ -801,11 +813,12 @@ async fn main() -> Result<()> {
                 &network,
                 node_url.as_deref(),
             )?;
-            let active_address = wallet.active_address()?;
-            if my_address != active_address {
+            let sender_address =
+                transaction_sender_address(&mut wallet, cli.sender_address, unsigned)?;
+            if my_address != sender_address {
                 bail!(
-                    "Active wallet address {} does not match genkey-and-register.MY_ADDRESS {}",
-                    active_address,
+                    "Transaction sender address {} does not match genkey-and-register.MY_ADDRESS {}",
+                    sender_address,
                     my_address,
                 );
             }
@@ -1091,6 +1104,7 @@ async fn main() -> Result<()> {
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
                 rpc_url.as_deref(),
+                cli.sender_address,
                 unsigned,
             )
             .await?;
@@ -1115,6 +1129,7 @@ async fn main() -> Result<()> {
                 &mut wallet,
                 regular_gas_budget(cli.gas_budget, &network),
                 rpc_url.as_deref(),
+                cli.sender_address,
                 unsigned,
             )
             .await?;
@@ -1134,7 +1149,8 @@ async fn main() -> Result<()> {
                 &network,
                 rpc_url.as_deref(),
             )?;
-            let executor_address = wallet.active_address()?;
+            let executor_address =
+                transaction_sender_address(&mut wallet, cli.sender_address, unsigned)?;
 
             println!("Executor address: {}", executor_address);
             print_network_info(&network, rpc_url.as_deref());
@@ -1334,8 +1350,12 @@ async fn main() -> Result<()> {
 
         Commands::Gas => {
             let mut wallet = load_wallet(cli.wallet.as_deref(), cli.active_address)?;
-            let address = wallet.active_address()?;
-            println!("Active address: {}", address);
+            let address = cli.sender_address.unwrap_or(wallet.active_address()?);
+            if cli.sender_address.is_some() {
+                println!("Sender address: {}", address);
+            } else {
+                println!("Active address: {}", address);
+            }
 
             let gas_objects = wallet.gas_objects(address).await?;
 
@@ -1795,6 +1815,20 @@ async fn get_gas_params(
         .await?
         .1;
     Ok((gas_price, gas_budget, gas_coin.compute_object_reference()))
+}
+
+fn transaction_sender_address(
+    wallet: &mut WalletContext,
+    sender_address: Option<SuiAddress>,
+    unsigned: bool,
+) -> Result<SuiAddress> {
+    if unsigned {
+        sender_address.context("--sender-address is required with --unsigned")
+    } else {
+        wallet
+            .active_address()
+            .context("Failed to get active address from wallet")
+    }
 }
 
 /// Load wallet context from path and optionally set active environment.
@@ -2490,9 +2524,10 @@ async fn vote_for_upgrade(
     wallet: &mut WalletContext,
     gas_budget: u64,
     rpc_url: Option<&str>,
+    sender_address: Option<SuiAddress>,
     unsigned: bool,
 ) -> Result<()> {
-    let voter_address = wallet.active_address()?;
+    let voter_address = transaction_sender_address(wallet, sender_address, unsigned)?;
 
     println!("Voter address: {}", voter_address);
     print_network_info(network, rpc_url);
