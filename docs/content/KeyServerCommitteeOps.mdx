@@ -129,6 +129,8 @@ Run the publish-and-init command:
 cargo run --bin seal-committee-cli -- publish-and-init
 ```
 
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this step.
+
 This command:
 
 - Publishes the `seal_committee` package onchain with upgrade capability
@@ -375,6 +377,8 @@ init-rotation-params:
 ```bash
 cargo run --bin seal-committee-cli -- init-rotation
 ```
+
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this step.
 
 This command:
 
@@ -712,7 +716,7 @@ cargo run --bin seal-committee-cli -- authorize-and-upgrade \
   -n <NETWORK>
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this step.
 
 This command:
 - Authorizes the upgrade (gets an UpgradeTicket).
