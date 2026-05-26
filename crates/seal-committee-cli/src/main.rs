@@ -1099,13 +1099,15 @@ async fn main() -> Result<()> {
                 UpgradeVoteChoice::Approve {
                     package_path: &package_path,
                 },
-                &key_server_id,
-                &network,
                 &mut wallet,
-                regular_gas_budget(cli.gas_budget, &network),
-                rpc_url.as_deref(),
-                cli.sender_address,
-                unsigned,
+                UpgradeVoteContext {
+                    key_server_id: &key_server_id,
+                    network: &network,
+                    gas_budget: regular_gas_budget(cli.gas_budget, &network),
+                    rpc_url: rpc_url.as_deref(),
+                    sender_address: cli.sender_address,
+                    unsigned,
+                },
             )
             .await?;
         }
@@ -1124,13 +1126,15 @@ async fn main() -> Result<()> {
             )?;
             vote_for_upgrade(
                 UpgradeVoteChoice::Reject,
-                &key_server_id,
-                &network,
                 &mut wallet,
-                regular_gas_budget(cli.gas_budget, &network),
-                rpc_url.as_deref(),
-                cli.sender_address,
-                unsigned,
+                UpgradeVoteContext {
+                    key_server_id: &key_server_id,
+                    network: &network,
+                    gas_budget: regular_gas_budget(cli.gas_budget, &network),
+                    rpc_url: rpc_url.as_deref(),
+                    sender_address: cli.sender_address,
+                    unsigned,
+                },
             )
             .await?;
         }
@@ -2516,17 +2520,30 @@ enum UpgradeVoteChoice<'a> {
     Reject,
 }
 
+struct UpgradeVoteContext<'a> {
+    key_server_id: &'a Address,
+    network: &'a Network,
+    gas_budget: u64,
+    rpc_url: Option<&'a str>,
+    sender_address: Option<SuiAddress>,
+    unsigned: bool,
+}
+
 /// Helper function to vote (approve or reject) for package upgrade.
 async fn vote_for_upgrade(
     vote: UpgradeVoteChoice<'_>,
-    key_server_id: &Address,
-    network: &Network,
     wallet: &mut WalletContext,
-    gas_budget: u64,
-    rpc_url: Option<&str>,
-    sender_address: Option<SuiAddress>,
-    unsigned: bool,
+    context: UpgradeVoteContext<'_>,
 ) -> Result<()> {
+    let UpgradeVoteContext {
+        key_server_id,
+        network,
+        gas_budget,
+        rpc_url,
+        sender_address,
+        unsigned,
+    } = context;
+
     let voter_address = transaction_sender_address(wallet, sender_address, unsigned)?;
 
     println!("Voter address: {}", voter_address);
