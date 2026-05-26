@@ -186,3 +186,67 @@ cargo run --bin seal-cli fetch-keys --request <ENCODED_REQUEST> \
 Encoded seal responses:
 <ENCODED_SEAL_RESPONSES>
 ```
+
+## 8. On-chain operations
+
+The Seal CLI provides several commands that submit transactions to the Sui network. These commands handle key server administration tasks such as generating and registering keys, processing pending requests, proposing configuration changes, and managing upgrades.
+
+### Generate key and register
+
+The `genkey` command generates a new key pair. When used with on-chain registration options, it also registers the generated public key with a key server object on the Sui network.
+
+```shell
+cargo run --bin seal-cli genkey
+```
+
+### Process all pending requests
+
+The `process-all` command processes all pending key requests for a key server. This is an administrative operation that a key server operator runs to handle queued requests.
+
+```shell
+cargo run --bin seal-cli process-all
+```
+
+### Propose configuration changes
+
+The `propose` command creates a proposal for configuration changes to a key server. Proposals require approval from the appropriate parties before they take effect.
+
+```shell
+cargo run --bin seal-cli propose
+```
+
+### Approve an upgrade
+
+The `approve-upgrade` command approves a pending upgrade proposal for a key server.
+
+```shell
+cargo run --bin seal-cli approve-upgrade
+```
+
+### Reject an upgrade
+
+The `reject-upgrade` command rejects a pending upgrade proposal for a key server.
+
+```shell
+cargo run --bin seal-cli reject-upgrade
+```
+
+### Authorize an upgrade
+
+The `authorize-upgrade` command authorizes an approved upgrade to proceed for a key server.
+
+```shell
+cargo run --bin seal-cli authorize-upgrade
+```
+
+### Using `--unsigned` for external signing
+
+All on-chain CLI operations support the `--unsigned` flag. When you provide this flag, the CLI outputs the unsigned transaction bytes (base64-encoded) instead of signing and submitting the transaction through the local Sui keystore. This allows you to sign the transaction with your own wallet or external signing infrastructure.
+
+For example, to generate a key and output the unsigned registration transaction:
+
+```shell
+cargo run --bin seal-cli genkey --unsigned
+```
+
+You can then take the output transaction bytes and sign them using your preferred wallet or signing tool before submitting the signed transaction to the network.
