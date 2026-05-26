@@ -35,6 +35,12 @@ Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on t
 | Testnet | `0x8d90881fc48eb30d4422db68083b49e7d0f879658444e3a0ed85ce47feaa54b2` |
 | Mainnet | `0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d` |
 
+## Using an external wallet for signing
+
+All onchain CLI operations, including key server registration, updates, transfers, and upgrades, support an `--unsigned` flag. When you provide this flag, the CLI outputs an unsigned transaction as a base64-encoded `TransactionKind` instead of signing and submitting it. This allows you to sign the transaction with your own wallet or custody solution rather than relying on the Sui CLI keystore.
+
+For example, you can append `--unsigned` to any `seal-cli` onchain command or `sui client call` command shown in this guide. The output is a serialized unsigned transaction that you can then sign and submit through your preferred signing workflow.
+
 ## Independent server type modes
 
 When running an independent server, you can choose between Open or Permissioned mode:
@@ -65,6 +71,12 @@ sui client call --function <FUNCTION_NAME> --module key_server --package <SEAL_P
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID> (may output additional objects)
 ```
+
+:::tip
+
+You can append `--unsigned` to the preceding command to produce an unsigned transaction for signing with an external wallet. See [Using an external wallet for signing](#using-an-external-wallet-for-signing) for details.
+
+:::
 
 To start the key server in Open mode, run the command `cargo run --bin key-server`, but before running the server, set the following environment variables:
 
@@ -146,6 +158,12 @@ sui client call --function <FUNCTION_NAME> --module key_server --package <SEAL_P
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>> (may output additional objects)
 ```
+
+:::tip
+
+You can append `--unsigned` to the preceding command to produce an unsigned transaction for signing with an external wallet. See [Using an external wallet for signing](#using-an-external-wallet-for-signing) for details.
+
+:::
 
 - Add an entry in config file:
     - Set `client_master_key` to type `Derived`.
@@ -229,6 +247,12 @@ The owner of `<NEW_OWNER_ADDRESS>` can now run:
 ```shell
 sui client call --function update --module key_server --package <SEAL_PACKAGE_ID> --args <KEY_SERVER_OBJECT_ID_0> https://<NEW_URL>
 ```
+
+:::tip
+
+Both the `sui transfer` and `sui client call` commands above support the `--unsigned` flag to produce an unsigned transaction for signing with an external wallet. See [Using an external wallet for signing](#using-an-external-wallet-for-signing) for details.
+
+:::
 
 - The new key server owner can now add it to their config file:
     - `client_master_key` set to type `Imported`.
