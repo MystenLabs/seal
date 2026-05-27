@@ -363,7 +363,8 @@ public fun commit_upgrade(committee: &mut Committee, receipt: UpgradeReceipt, ct
     assert!(committee.is_finalized(), EInvalidState);
 
     let upgrade_manager = committee.borrow_upgrade_manager_mut();
-    upgrade_manager.cap.commit(receipt)
+    upgrade_manager.cap.commit(receipt);
+    upgrade_manager.upgrade_proposal = option::none();
 }
 
 /// Resets the current proposal as committee member if rejections count has reached threshold, so
