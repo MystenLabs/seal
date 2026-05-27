@@ -23,6 +23,7 @@ use sui_rpc::proto::sui::rpc::v2::{
     Bcs, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
     SimulateTransactionResponse, Transaction,
 };
+use sui_rpc::proto::sui::rpc::v2alpha::{ListEventsRequest, ListEventsResponse};
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
 use sui_types::object::Data;
@@ -424,6 +425,25 @@ impl SuiRpcClient {
                 .await
                 .map(|r| r.into_inner().epoch().reference_gas_price())
                 .map_err(RpcError::from_grpc)
+        })
+        .await
+    }
+
+    /// Lists events via the v2alpha gRPC ledger API.
+    pub async fn list_events(
+        &self,
+        request: ListEventsRequest,
+    ) -> RpcResult<tonic::codec::Streaming<ListEventsResponse>> {
+        self.run_grpc_with_retries("list_events", move |mut grpc_client| {
+            let request = request.clone();
+            async move {
+                grpc_client
+                    .ledger_client_alpha()
+                    .list_events(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(RpcError::from_grpc)
+            }
         })
         .await
     }

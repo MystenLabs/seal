@@ -26,9 +26,10 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sui_move_build::BuildConfig;
-use sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::json::SuiJsonValue;
+use sui_sdk::sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest;
 use sui_sdk_types::Address;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::get_key_pair_from_rng;
@@ -197,7 +198,8 @@ impl SealTestCluster {
                     sui_rpc_client: SuiRpcClient::new(
                         #[allow(deprecated)]
                         self.cluster.sui_client().clone(),
-                        self.cluster.grpc_client().into_inner(),
+                        SuiGrpcClient::new(self.cluster.rpc_url())
+                            .expect("Failed to create SuiGrpcClient"),
                         RetryConfig::default(),
                         None,
                     ),
@@ -453,7 +455,8 @@ impl SealTestCluster {
     pub async fn get_public_keys(&self, object_ids: &[ObjectID]) -> Vec<ibe::PublicKey> {
         let mut pks = Vec::new();
         for id in object_ids {
-            let mut grpc_client = self.cluster.grpc_client().into_inner();
+            let mut grpc_client =
+                SuiGrpcClient::new(self.cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
             let address = Address::new(id.into_bytes());
             let key_server_v2 = fetch_key_server_by_id(&mut grpc_client, &address)
                 .await

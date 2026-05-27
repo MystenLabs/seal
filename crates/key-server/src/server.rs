@@ -54,14 +54,17 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
-use sui_sdk::rpc_types::EventFilter;
+use sui_rpc::proto::sui::rpc::v2alpha::{
+    event_literal, event_predicate, list_events_response, EventFilter as SuiGrpcEventFilter,
+    EventItem as SuiGrpcEventItem, EventLiteral, EventPredicate, EventTerm, EventTypeFilter,
+    ListEventsRequest, Ordering as EventQueryOrdering, QueryEndReason, QueryOptions, Watermark,
+};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
 use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
-use sui_types::event::EventID;
 use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -362,11 +365,25 @@ impl Server {
             }
         }
 
+        let signature_verification_client = self
+            .options
+            .node_url
+            .as_deref()
+            .or_else(|| match &self.options.network {
+                #[cfg(test)]
+                Network::TestCluster { .. } => None,
+                network => Some(network.default_node_url()),
+            })
+            .map(|node_url| {
+                sui_sdk::sui_rpc::Client::new(node_url)
+                    .expect("SuiClientBuilder should not have accepted an invalid node url")
+            });
+
         verify_personal_message_signature(
             cert.signature.clone(),
             msg.as_bytes(),
             cert.user,
-            Some(self.sui_rpc_client.sui_grpc_client()),
+            signature_verification_client,
         )
         .await
         .tap_err(|e| {
@@ -773,17 +790,16 @@ impl Server {
             key_server_obj_id
         );
 
-        let sui_client = self.sui_rpc_client.sui_client().clone();
         let sui_rpc_client = self.sui_rpc_client.clone();
 
-        // Spawn the background task to poll for events.
+        // Spawn the background task to poll the filtered gRPC event stream.
         tokio::spawn(async move {
             info!("Committee rotation event monitor task started");
-            let mut last_event_seq: Option<EventID> = None;
-            let mut initialized = false;
+            let mut active_event_type = None;
+            let mut event_cursor = None;
 
             loop {
-                // Fetch current committee ID and package ID from key server object
+                // Fetch current committee ID and package ID from key server object.
                 let (committee_id, committee_pkg_id) = match sui_rpc_client
                     .fetch_committee_from_key_server(&key_server_obj_id)
                     .await
@@ -802,28 +818,19 @@ impl Server {
                     }
                 };
 
-                let event_filter = EventFilter::MoveEventType(
-                    format!(
-                        "{}::seal_committee::CommitteeRotationInitiated",
-                        committee_pkg_id
-                    )
-                    .parse()
-                    .expect("Parsing should not fail"),
-                );
-
-                if !initialized {
-                    match sui_client
-                        .event_api()
-                        .query_events(event_filter.clone(), None, Some(1), true)
+                let event_type = committee_rotation_event_type(committee_pkg_id);
+                if active_event_type.as_deref() != Some(event_type.as_str()) {
+                    match initialize_committee_rotation_event_cursor(&sui_rpc_client, &event_type)
                         .await
                     {
-                        Ok(page) => {
-                            last_event_seq = page.data.first().map(|event| event.id);
-                            initialized = true;
+                        Ok(cursor) => {
                             debug!(
-                                "Committee rotation event monitor initialized at cursor: {:?}",
-                                last_event_seq
+                                "Committee rotation event monitor initialized for type {} at cursor present={}",
+                                event_type,
+                                cursor.is_some()
                             );
+                            active_event_type = Some(event_type);
+                            event_cursor = cursor;
                         }
                         Err(e) => {
                             warn!(
@@ -837,44 +844,19 @@ impl Server {
                     continue;
                 }
 
-                let events_result = sui_client
-                    .event_api()
-                    .query_events(
-                        event_filter,
-                        last_event_seq,
-                        Some(1), // Fetch the next unseen event.
-                        false,   // ascending order
-                    )
-                    .await;
-
-                match events_result {
-                    Ok(page) => {
-                        for event in &page.data {
-                            let event_data = bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
-                                event.bcs.bytes(),
-                            )
-                            .expect("BCS should not fail");
-
-                            if event_data.old_committee_id != committee_id {
-                                // This means a different committee is initialized with this committee package ID and being rotated, should never happen.
-                                error!(
-                                    "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
-                                    event_data.committee_id, event_data.old_committee_id, committee_id
-                                );
-                            }
-
-                            warn!(
-                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
-                                event_data.committee_id, event_data.old_committee_id
-                            );
-
-                            metrics.committee_mode_rotation_initiated_total.inc();
-
-                            last_event_seq = Some(event.id);
-                        }
-                    }
+                match process_committee_rotation_event_page(
+                    &sui_rpc_client,
+                    &event_type,
+                    &mut event_cursor,
+                    committee_id,
+                    &metrics,
+                )
+                .await
+                {
+                    Ok(reached_item_limit) if reached_item_limit => continue,
+                    Ok(_) => {}
                     Err(e) => {
-                        warn!("Failed to query committee rotation events: {}", e);
+                        warn!("Failed to list committee rotation events over gRPC: {}", e);
                     }
                 }
 
@@ -954,6 +936,195 @@ impl Server {
             }
         });
     }
+}
+
+fn committee_rotation_event_type(committee_pkg_id: Address) -> String {
+    format!("{committee_pkg_id}::seal_committee::CommitteeRotationInitiated")
+}
+
+fn committee_rotation_event_filter(event_type: &str) -> SuiGrpcEventFilter {
+    let mut event_type_filter = EventTypeFilter::default();
+    event_type_filter.r#type = Some(event_type.to_owned());
+
+    let mut event_predicate = EventPredicate::default();
+    event_predicate.predicate = Some(event_predicate::Predicate::EventType(event_type_filter));
+
+    let mut event_literal = EventLiteral::default();
+    event_literal.polarity = Some(event_literal::Polarity::Include(event_predicate));
+
+    let mut event_term = EventTerm::default();
+    event_term.literals = vec![event_literal];
+
+    let mut filter = SuiGrpcEventFilter::default();
+    filter.terms = vec![event_term];
+    filter
+}
+
+fn committee_rotation_events_request(
+    event_type: &str,
+    after_cursor: Option<Vec<u8>>,
+    ordering: EventQueryOrdering,
+    limit_items: u32,
+) -> ListEventsRequest {
+    let mut options = QueryOptions::default();
+    options.limit_items = Some(limit_items);
+    options.after = after_cursor.map(Into::into);
+    options.ordering = ordering as i32;
+
+    let mut request = ListEventsRequest::default();
+    request.filter = Some(committee_rotation_event_filter(event_type));
+    request.options = Some(options);
+    request
+}
+
+async fn initialize_committee_rotation_event_cursor(
+    sui_rpc_client: &SuiRpcClient,
+    event_type: &str,
+) -> Result<Option<Vec<u8>>> {
+    let request =
+        committee_rotation_events_request(event_type, None, EventQueryOrdering::Descending, 1);
+    let mut stream = sui_rpc_client
+        .list_events(request)
+        .await
+        .context("Failed to start committee rotation event cursor query")?;
+    let mut cursor = None;
+
+    while let Some(response) = stream
+        .message()
+        .await
+        .context("Committee rotation event cursor query failed")?
+    {
+        match response.response {
+            Some(list_events_response::Response::Item(item)) => {
+                let Some(watermark) = item.watermark.as_ref() else {
+                    anyhow::bail!(
+                        "Committee rotation event cursor query returned an item without a watermark"
+                    );
+                };
+                update_committee_rotation_event_cursor(&mut cursor, Some(watermark));
+            }
+            Some(list_events_response::Response::Watermark(watermark)) => {
+                update_committee_rotation_event_cursor(&mut cursor, Some(&watermark));
+            }
+            Some(list_events_response::Response::End(_)) | None => break,
+            Some(_) => break,
+        }
+    }
+
+    Ok(cursor)
+}
+
+async fn process_committee_rotation_event_page(
+    sui_rpc_client: &SuiRpcClient,
+    event_type: &str,
+    event_cursor: &mut Option<Vec<u8>>,
+    committee_id: Address,
+    metrics: &KeyServerMetrics,
+) -> Result<bool> {
+    let request = committee_rotation_events_request(
+        event_type,
+        event_cursor.clone(),
+        EventQueryOrdering::Ascending,
+        100,
+    );
+    let mut stream = sui_rpc_client
+        .list_events(request)
+        .await
+        .context("Failed to start committee rotation event query")?;
+    let mut reached_item_limit = false;
+
+    while let Some(response) = stream
+        .message()
+        .await
+        .context("Committee rotation event query failed")?
+    {
+        match response.response {
+            Some(list_events_response::Response::Item(item)) => {
+                let Some(watermark) = item.watermark.as_ref() else {
+                    anyhow::bail!(
+                        "Committee rotation event query returned an item without a watermark"
+                    );
+                };
+                update_committee_rotation_event_cursor(event_cursor, Some(watermark));
+                handle_committee_rotation_event_item(&item, event_type, committee_id, metrics);
+            }
+            Some(list_events_response::Response::Watermark(watermark)) => {
+                update_committee_rotation_event_cursor(event_cursor, Some(&watermark));
+            }
+            Some(list_events_response::Response::End(end)) => {
+                reached_item_limit = matches!(
+                    QueryEndReason::try_from(end.reason).ok(),
+                    Some(QueryEndReason::ItemLimit | QueryEndReason::ScanLimit)
+                );
+                break;
+            }
+            None => break,
+            Some(_) => break,
+        }
+    }
+
+    Ok(reached_item_limit)
+}
+
+fn update_committee_rotation_event_cursor(
+    event_cursor: &mut Option<Vec<u8>>,
+    watermark: Option<&Watermark>,
+) {
+    if let Some(cursor) = watermark.and_then(|watermark| watermark.cursor.as_ref()) {
+        *event_cursor = Some(cursor.to_vec());
+    }
+}
+
+fn handle_committee_rotation_event_item(
+    item: &SuiGrpcEventItem,
+    event_type: &str,
+    committee_id: Address,
+    metrics: &KeyServerMetrics,
+) {
+    let event_location = format!(
+        "checkpoint {:?}, transaction {:?}, event {:?}",
+        item.checkpoint, item.transaction_digest, item.event_index
+    );
+    let Some(event) = item.event.as_ref() else {
+        warn!("Committee rotation event item was missing event data at {event_location}");
+        return;
+    };
+    if event.event_type.as_deref() != Some(event_type) {
+        warn!(
+            "Committee rotation event query returned unexpected event type {:?} at {}",
+            event.event_type, event_location
+        );
+        return;
+    }
+
+    let Some(contents) = event.contents.as_ref().and_then(|bcs| bcs.value.as_deref()) else {
+        warn!("Committee rotation event was missing BCS contents at {event_location}");
+        return;
+    };
+
+    let event_data = match bcs::from_bytes::<CommitteeRotationInitiatedEvent>(contents) {
+        Ok(event_data) => event_data,
+        Err(e) => {
+            warn!("Failed to deserialize committee rotation event at {event_location}: {e}");
+            return;
+        }
+    };
+
+    if event_data.old_committee_id != committee_id {
+        // This means a different committee is initialized with this committee package ID
+        // and being rotated, which should never happen.
+        error!(
+            "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
+            event_data.committee_id, event_data.old_committee_id, committee_id
+        );
+    }
+
+    warn!(
+        "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+        event_data.committee_id, event_data.old_committee_id
+    );
+
+    metrics.committee_mode_rotation_initiated_total.inc();
 }
 
 #[allow(clippy::single_match)]

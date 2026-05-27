@@ -53,8 +53,8 @@ sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9
 sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9de48410a01fc2b6f3c1bff48780e5f", package = "sui-rpc-api" }
 sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9de48410a01fc2b6f3c1bff48780e5f", package = "sui-keys" }
 
-sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09", package = "sui-sdk-types", features = ["serde"] }
-sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09", package = "sui-rpc" }
+sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "f383e14deec809886aa5e67ce734105a3883f1d4", package = "sui-sdk-types", features = ["serde"] }
+sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "f383e14deec809886aa5e67ce734105a3883f1d4", package = "sui-rpc", features = ["unstable"] }
 
 [profile.release]
 panic = 'abort'
