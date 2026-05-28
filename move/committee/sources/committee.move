@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Committee-based key server operations. A coordinator can deploy a dedicated package for a
-/// committee without being a committee member. Once initialized, the committee owns the key server
-/// object and UpgradeManager. Members approve DKG/rotation outputs, each member can update their
-/// own URL, and threshold member approval authorizes package upgrades.
+/// committee without being a committee member. Once initialized, the committee owns the
+/// UpgradeManager and, after DKG/rotation finalizes, the key server object. Members approve
+/// DKG/rotation outputs, each member can update their own URL, and threshold member approval
+/// authorizes package upgrades.
 
 module seal_committee::seal_committee;
 
@@ -170,8 +171,9 @@ public fun init_committee(
     transfer::share_object(committee);
 }
 
-/// Create a committee for rotation from an existing finalized old committee. The new committee must
-/// contain an old threshold of the old committee members.
+/// Create a committee for rotation from an existing finalized old committee. Only an old committee
+/// member can initiate the rotation, and the new committee must contain an old threshold of the old
+/// committee members.
 public fun init_rotation(
     old_committee: &Committee,
     threshold: u16,
@@ -180,6 +182,9 @@ public fun init_rotation(
 ) {
     // Verify the old committee is finalized for rotation.
     assert!(old_committee.is_finalized(), EInvalidState);
+
+    // Only an old committee member can initiate a rotation.
+    assert!(old_committee.members.contains(&ctx.sender()), ENotMember);
 
     // Check that new committee has at least the threshold of old committee members.
     let mut continuing_members = 0;
@@ -537,11 +542,12 @@ fun try_finalize_for_rotation(
             let committee_id = object::id(committee);
             dof::add(&mut committee.id, committee_id, key_server);
 
-            // Transfer upgrade manager from old to new committee.
-            let upgrade_manager: UpgradeManager = dof::remove(
+            // Transfer upgrade manager from old to new committee. Drop any pending upgrade.
+            let mut upgrade_manager: UpgradeManager = dof::remove(
                 &mut old_committee.id,
                 UpgradeManagerKey(),
             );
+            upgrade_manager.upgrade_proposal = option::none();
             dof::add(&mut committee.id, UpgradeManagerKey(), upgrade_manager);
 
             committee.state = State::Finalized;
