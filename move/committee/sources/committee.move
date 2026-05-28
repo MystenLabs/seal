@@ -1,9 +1,10 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Implementation of committee based key server operations. The admin that initializes the
-/// committee should deploy this package itself, so that the committee can manage its own upgrade
-/// and the key rotation. The key server object is owned by the committee.
+/// Committee-based key server operations. A coordinator can deploy a dedicated package for a
+/// committee without being a committee member. Once initialized, the committee owns the key server
+/// object and UpgradeManager. Members approve DKG/rotation outputs, each member can update their
+/// own URL, and threshold member approval authorizes package upgrades.
 
 module seal_committee::seal_committee;
 
@@ -621,7 +622,7 @@ fun count_votes(proposal: &UpgradeProposal, vote_type: Vote): u16 {
     count
 }
 
-/// Test-only function to create a committee without InitCap for testing.
+/// Test-only function to create a committee without an UpgradeManager for testing.
 #[test_only]
 public(package) fun test_init_committee(
     threshold: u16,
