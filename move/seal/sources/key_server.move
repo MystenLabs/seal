@@ -6,8 +6,8 @@
 // Key server is a top level object that contains dynamic field objects for versioned key server.
 //
 // V1: Supports only independent key servers. A V1 server can upgrade to a V2 independent server.
-// V2: Supports both independent and committee key servers. A committee based V2 key server holds a
-// map of partial key servers that contains the member's partial public key, party ID and URL. The
+// V2: Supports both independent and committee key servers. A committee-based V2 key server holds a
+// vector of partial key server entries with each member's partial public key, party ID, and URL. The
 // partial public keys and party IDs can be updated while the key server public key is unchanged.
 //
 // A key server can be registered permissionlessly onchain. The server allows users to request a
@@ -76,7 +76,7 @@ public enum ServerType has drop, store {
 public struct PartialKeyServer has copy, drop, store {
     /// Unique name of the partial key server. Information only.
     name: String,
-    /// Server URL, can be updated by the owning member.
+    /// Server URL. The committee wrapper controls which member can update it.
     url: String,
     /// Partial public key (G2 element).
     partial_pk: vector<u8>,

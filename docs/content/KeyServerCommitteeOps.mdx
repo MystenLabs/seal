@@ -240,7 +240,7 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MY_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -270,7 +270,7 @@ mv path/to/dkg-messages dkg-state/
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MY_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -289,6 +289,7 @@ b. Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and t
 
 Example config file:
 ```yaml
+network: Testnet
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -404,7 +405,7 @@ The output shows which members have registered and which are still pending. Wait
 Once all members are registered:
 
 - Notify members to begin **Phase B (Message creation)**.
-- Monitor the off-chain storage (e.g. group chat) until all members upload their DKG message files.
+- Monitor the offchain storage (for example, group chat) until continuing members have uploaded exactly the old committee threshold number of DKG message files. New members run `init-state` and do not upload message files.
 
 6. **Collect and share DKG messages and notify Phase C (Finalization)**
 
@@ -471,7 +472,7 @@ cargo run --bin seal-committee-cli -- genkey-and-register \
   -n <YOUR_SERVER_NAME>
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MY_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -512,7 +513,7 @@ mv path/to/dkg-messages dkg-state/
 cargo run --bin seal-committee-cli -- process-all-and-propose
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MY_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 
@@ -533,6 +534,7 @@ a. Update `key-server-config.yaml`
 
 Example config file:
 ```yaml
+network: Testnet
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -552,6 +554,7 @@ c. Wait for the coordinator to confirm that rotation is complete. Then update th
 
 Example config file:
 ```yaml
+network: Testnet
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -570,6 +573,7 @@ a. Create `key-server-config.yaml`. Since `X+1` is your first committee version,
 
 Example config file:
 ```yaml
+network: Testnet
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -663,10 +667,12 @@ cargo run --bin seal-committee-cli -- approve-upgrade \
   -n <NETWORK>
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MEMBER_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 ```bash
-cargo run --bin seal-committee-cli -- approve-upgrade \
+cargo run --bin seal-committee-cli -- \
+  --sender-address <MEMBER_ADDRESS> \
+  approve-upgrade \
   -k <KEY_SERVER_OBJ_ID> \
   -n <NETWORK> \
   --unsigned
@@ -690,7 +696,7 @@ cargo run --bin seal-committee-cli -- reject-upgrade \
   -n <NETWORK>
 ```
 
-`reject-upgrade` also accepts `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+`reject-upgrade` also accepts `--sender-address <MEMBER_ADDRESS> --unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
 
 3. If needed, can run `approve-upgrade` or `reject-upgrade` again to change your vote option. 
 
@@ -712,7 +718,7 @@ cargo run --bin seal-committee-cli -- authorize-and-upgrade \
   -n <NETWORK>
 ```
 
-Use `--unsigned` to print the unsigned transaction data. Sign and execute the transaction elsewhere to complete this phase.
+To print the unsigned transaction data, add `--sender-address <MEMBER_ADDRESS> --unsigned`. Sign and execute the transaction elsewhere to complete this phase.
 
 This command:
 - Authorizes the upgrade (gets an UpgradeTicket).

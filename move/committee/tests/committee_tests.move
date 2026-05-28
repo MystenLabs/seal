@@ -434,6 +434,31 @@ fun test_init_rotation_fails_with_non_finalized_old_committee() {
 }
 
 #[test, expected_failure(abort_code = seal_committee::ENotMember)]
+fun test_init_rotation_fails_for_non_old_member() {
+    test_tx!(|scenario| {
+        // Init and finalize committee with BOB and CHARLIE.
+        let g1_bytes = *g1_generator().bytes();
+        let g2_bytes = *g2_generator().bytes();
+        test_init_committee(2, vector[BOB, CHARLIE], scenario.ctx());
+        register_member!(scenario, BOB, g1_bytes, g2_bytes, b"url1");
+        register_member!(scenario, CHARLIE, g1_bytes, g2_bytes, b"url2");
+        propose_member!(scenario, BOB, vector[g2_bytes, g2_bytes], g2_bytes);
+        propose_member!(scenario, CHARLIE, vector[g2_bytes, g2_bytes], g2_bytes);
+
+        // DAVE is not an old committee member - fails.
+        scenario.next_tx(DAVE);
+        let committee = scenario.take_shared<Committee>();
+        committee.init_rotation(
+            2,
+            vector[BOB, CHARLIE],
+            scenario.ctx(),
+        );
+
+        test_scenario::return_shared(committee);
+    });
+}
+
+#[test, expected_failure(abort_code = seal_committee::ENotMember)]
 fun test_register_fails_for_non_member() {
     test_tx!(|scenario| {
         let g1_bytes = *g1_generator().bytes();
