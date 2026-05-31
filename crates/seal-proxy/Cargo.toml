@@ -21,7 +21,7 @@ serde_yaml.workspace = true
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-const-str = "0.6.2"
+const-str = "1.1.0"
 headers = "0.4"
 prometheus.workspace = true
 serde = { workspace = true, features = ["derive"]}
