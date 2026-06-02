@@ -154,6 +154,12 @@ public fun decrypt(
     // Interpolate polynomials from the decrypted shares.
     let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
 
+    // A correctly formed ciphertext uses Shamir polynomials of degree threshold - 1. Reject
+    // ciphertexts whose recovered polynomials have a higher degree.
+    if (polynomials.any!(|p| p.degree() + 1 > *threshold as u64)) {
+        return none()
+    };
+
     // Compute base key and derive keys for the randomness and DEM.
     let base_key = polynomials.map_ref!(|p| p.get_constant_term());
     let randomness_key = derive_key(KeyPurpose::EncryptedRandomness, &base_key, encrypted_object);
