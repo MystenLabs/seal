@@ -35,6 +35,13 @@ public(package) fun get_constant_term(p: &Polynomial): u8 {
     else p.coefficients[0]
 }
 
+/// Returns the degree of this polynomial, ignoring trailing (highest-order) zero
+/// coefficients. Returns 0 for the zero polynomial.
+public(package) fun degree(p: &Polynomial): u64 {
+    let mut nonzero = p.coefficients.find_indices!(|c| *c != 0);
+    if (nonzero.is_empty()) 0 else nonzero.pop_back()
+}
+
 // Divide a polynomial by the monic linear polynomial x + c.
 fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
