@@ -57,11 +57,11 @@ Master key: <MASTER_KEY>
 Public key: <MASTER_PUBKEY>
 ```
 
-To make the key server discoverable by Seal clients, register it onchain. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet:
+To make the key server discoverable by Seal clients, register it onchain using `create_and_transfer_v2_independent_server`:
 ```shell
 sui client switch --env <NETWORK>
 sui client active-address # fund this if necessary
-sui client call --function <FUNCTION_NAME> --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
+sui client call --function create_and_transfer_v2_independent_server --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <MASTER_PUBKEY>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID> (may output additional objects)
 ```
@@ -132,7 +132,7 @@ Each supported client must have a registered onchain key server object to enable
 Follow these steps to add every new client to a Permissioned key server:
 
 - The client sends the key server provider a list of Seal policy package IDs to allow on the key server (for example, `<POLICY_PACKAGE_ID_0>`, `<POLICY_PACKAGE_ID_1>`).
-- The key server provider registers a new key server onchain with an **unassigned derived public key**. Use `<FUNCTION_NAME>` as `create_and_transfer_v2_independent_server` for Testnet or `create_and_transfer_v1` for Mainnet.
+- The key server provider registers a new key server onchain with an **unassigned derived public key** using `create_and_transfer_v2_independent_server`.
     - Copy an unassigned derived public key from the server logs (see preceding section). Use the next available derivation index (for the first client, `0`; for the nth client, `n-1`).
 
 |  Index  |  Derived Public Key  | 
@@ -142,7 +142,7 @@ Follow these steps to add every new client to a Permissioned key server:
 |  `<INDEX>`  |  `<PUBKEY_<INDEX>>`  | 
 ```shell
 # The 0 between the key server URL and public key arguments is a fixed or static value for all client registrations
-sui client call --function <FUNCTION_NAME> --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_<INDEX>>
+sui client call --function create_and_transfer_v2_independent_server --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> https://<YOUR_URL> 0 <PUBKEY_<INDEX>>
 
 # outputs object of type key_server::KeyServer <KEY_SERVER_OBJECT_ID_<INDEX>> (may output additional objects)
 ```
