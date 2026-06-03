@@ -99,7 +99,7 @@ const config = {
     //require.resolve('./src/plugins/framework'),
     "docusaurus-plugin-copy-page-button",
     [
-    "docusaurus-plugin-plausible",
+      require.resolve("./src/shared/plugins/plausible"),
       {
         domain: 'seal-docs.wal.app',
       },
