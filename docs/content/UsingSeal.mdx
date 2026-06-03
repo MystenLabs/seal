@@ -14,6 +14,8 @@ keywords:
   - envelope encryption
 ---
 
+import SealPackageIds from './_SealPackageIds.mdx';
+
 # Using Seal
 
 Use this guide to learn how to protect your app and user data with Seal.
@@ -290,6 +292,9 @@ const decryptedBytes = await client.decrypt({
 
 Seal evaluates the transaction as if the user sent it. In Move, `TxContext::sender()` returns the account that signed with the session key.
 
+
+The Seal policy is always checked against the current onchain state of the objects: the key server ignores the version and digest of object inputs in the PTB and resolves each to its latest onchain version. 
+
 :::tip
 
 To debug a transaction, call `dryRunTransactionBlock` directly with the transaction block.
@@ -318,14 +323,11 @@ If a key server request fails with an `InvalidParameter` error, the cause can be
 
 ### Onchain decryption
 
-Seal supports onchain HMAC-CTR decryption in Move through the [`seal::bf_mac_encryption`](https://github.com/MystenLabs/seal/tree/main/move/seal/sources/bf_hmac_encryption.move) package. This enables Move packages to decrypt Seal-encrypted objects and use the results in onchain logic such as auctions, secure voting (see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move)), or other verifiable workflows.
+Seal supports onchain HMAC-CTR decryption in Move through the [`seal::bf_hmac_encryption`](https://github.com/MystenLabs/seal/tree/main/move/seal/sources/bf_hmac_encryption.move) package. This enables Move packages to decrypt Seal-encrypted objects and use the results in onchain logic such as auctions, secure voting (see [voting.move](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/voting.move)), or other verifiable workflows.
 
 Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
-| Network | Package ID |
-| -------- | ------- |
-| Testnet | `0x4016869413374eaa71df2a043d1660ed7bc927ab7962831f8b07efbc7efdb2c3` |
-| Mainnet | `0xcb83a248bda5f7a0a431e6bf9e96d184e604130ec5218696e3f1211113b447b7` | 
+<SealPackageIds />
 
 To decrypt an encrypted object in a Move package, follow these steps:
 
