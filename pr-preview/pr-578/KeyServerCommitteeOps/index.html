@@ -7,7 +7,7 @@
 
 <meta name="algolia-site-verification" content="BCA21DA2879818D2">
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="91d6cd50-0276-4125-b8c1-3fe897e8fe47" data-project-name="Seal Knowledge" data-project-color="#92a4ff" data-button-hide="true" data-modal-title="Ask Seal AI" data-modal-ask-ai-input-placeholder="Ask me anything about Seal!" data-modal-example-questions="How do I encrypt data with Seal?,What is threshold encryption?,How do I create an access policy?,What are key servers?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#92a4ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" data-mcp-enabled="true" data-mcp-server-url="https://sui.mcp.kapa.ai" data-mcp-button-text="Use Seal MCP Server" async></script><link rel="stylesheet" href="/seal/pr-preview/pr-578/assets/css/styles.4c379d3c.css">
-<script src="/seal/pr-preview/pr-578/assets/js/runtime~main.458f9d8a.js" defer="defer"></script>
+<script src="/seal/pr-preview/pr-578/assets/js/runtime~main.3710abda.js" defer="defer"></script>
 <script src="/seal/pr-preview/pr-578/assets/js/main.6d713f11.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -127,10 +127,10 @@
 <li class=""><strong>Verify partial public keys and collect API keys for the <a class="" href="/seal/pr-preview/pr-578/Aggregator">aggregator server</a></strong></li>
 </ol>
 <p>After all committee members have their key servers running, ask each member to send you the full curl request and response from the <code>/v1/debug/committee_partial_pk</code> endpoint (this includes their API key name and key).</p>
-<p>Verify each member&#x27;s partial public key against the onchain value before trusting their key server. Fetch the onchain partial public keys for the committee:</p>
+<p>Confirm that the <code>partial_pk</code> returned in their curl response matches the onchain partial public key for their address. The onchain partial public keys for the committee can be fetched:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">cargo run --bin seal-committee-cli -- check-committee</span><br></span></code></pre></div></div></div>
-<p>For each member, confirm that the <code>partial_pk</code> returned in their curl response matches the onchain partial public key for their address. If any member&#x27;s value does not match, resolve it with that member before proceeding.</p>
-<p>Once all partial public keys are verified, collect and share the following with the aggregator operator:</p>
+<p>If they are mismatched, ask the member to double check the <code>MASTER_SHARE_V0</code> environment variable.</p>
+<p>Then collect and share the following with the aggregator operator:</p>
 <ul>
 <li class="">API credentials for each committee member, including:<!-- -->
 <ul>
@@ -208,13 +208,13 @@
 <ol start="6">
 <li class=""><strong>Generate API credentials for the <a class="" href="/seal/pr-preview/pr-578/Aggregator">aggregator</a></strong></li>
 </ol>
-<p>After your key server is running successfully, generate an <strong>API key name</strong> and <strong>API key</strong> for your key server. These authenticate requests to your key server.</p>
+<p>After your key server is running successfully, generate an <strong>API key name</strong> and <strong>API key</strong> for your key server. These credentials let the aggregator authenticate its requests to your key server.</p>
 <ol start="7">
-<li class=""><strong>Verify your partial public key and share credentials</strong></li>
+<li class=""><strong>Share your credentials and verify your partial public key</strong></li>
 </ol>
-<p>Query the committee debug endpoint using the API credentials you just generated:</p>
+<p>Query your server&#x27;s debug endpoint using the API credentials you just generated:</p>
 <div><div class="language-bash codeBlockContainer_vISq theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_AhnU"><pre tabindex="0" class="prism-code language-bash codeBlock_lwkX thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_pwDh"><span class="token-line" style="color:#393A34"><span class="token plain">curl -H &quot;&lt;YOUR_API_KEY_NAME&gt;:&lt;YOUR_API_KEY&gt;&quot; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -H &quot;Client-Sdk-Version: 0.6.0&quot; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  -H &quot;Content-Type: application/json&quot; \</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  https://&lt;YOUR_SERVER_URL&gt;/v1/debug/committee_partial_pk</span><br></span></code></pre></div></div></div>
-<p>Send the coordinator the full curl request and response (which include your API key name and key) to the coordinator.</p>
+<p>Send the coordinator the full curl request and response (which include your API key name and key). The coordinator uses these to verify your partial public key against the onchain value and to configure the aggregator.</p>
 <ol start="8">
 <li class=""><strong>Enable metrics push (Optional)</strong></li>
 </ol>
