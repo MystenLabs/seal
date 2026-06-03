@@ -3,12 +3,15 @@
 
 use crate::tests::externals::get_key;
 use crate::tests::{ExecutedTransactionTestExt, SealTestCluster};
+use fastcrypto::ed25519::Ed25519KeyPair;
+use shared_crypto::intent::{Intent, IntentMessage};
 use sui_sdk::json::SuiJsonValue;
 use sui_types::base_types::{ObjectDigest, SequenceNumber};
+use sui_types::crypto::Signature;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction},
+    transaction::{ObjectArg, ProgrammableTransaction, Transaction},
     Identifier,
 };
 use test_cluster::TestCluster;
@@ -51,7 +54,7 @@ async fn test_pd() {
         .is_err());
 
     // addr1 should not have access to a different nonce
-    let ptb = pd_create_ptb(
+    let wrong_nonce_ptb = pd_create_ptb(
         &tc.cluster,
         package_id,
         ObjectID::random(),
@@ -60,11 +63,78 @@ async fn test_pd() {
         digest,
     )
     .await;
+    assert!(get_key(
+        tc.server(),
+        &package_id,
+        wrong_nonce_ptb,
+        &tc.users[0].keypair
+    )
+    .await
+    .is_err());
+
+    // Test scenario: stale object after transfer fails dry run.
+    let stale_ptb = pd_create_ptb(
+        tc.test_cluster(),
+        package_id,
+        package_id,
+        pd,
+        version,
+        digest,
+    )
+    .await;
+    assert!(get_key(
+        tc.server(),
+        &package_id,
+        stale_ptb.clone(),
+        &tc.users[0].keypair
+    )
+    .await
+    .is_ok());
+
+    // Version updated to object when transferred object. The historical `(version, digest)` reference
+    // are now outdated.
+    transfer_object_as(
+        tc.test_cluster(),
+        &tc.users[0].keypair,
+        tc.users[0].address,
+        tc.users[1].address,
+        pd,
+    )
+    .await;
+
+    // Replaying the historical reference to object fails dry run.
     assert!(
-        get_key(tc.server(), &package_id, ptb.clone(), &tc.users[0].keypair)
+        get_key(tc.server(), &package_id, stale_ptb, &tc.users[0].keypair)
             .await
             .is_err()
     );
+}
+
+/// Fund `sender` wallet and transfers `object` from `sender` to `recipient`.
+async fn transfer_object_as(
+    cluster: &TestCluster,
+    keypair: &Ed25519KeyPair,
+    sender: SuiAddress,
+    recipient: SuiAddress,
+    object: ObjectID,
+) {
+    let rgp = cluster.get_reference_gas_price().await;
+    cluster
+        .fund_address_and_return_gas(rgp, Some(500_000_000), sender)
+        .await;
+
+    let builder = cluster.grpc_client().transaction_builder();
+    let tx_data = builder
+        .transfer_object(sender, object, None, 50_000_000, recipient)
+        .await
+        .unwrap();
+
+    let intent_msg = IntentMessage::new(Intent::sui_transaction(), tx_data.clone());
+    let signature = Signature::new_secure(&intent_msg, keypair);
+    let tx = Transaction::from_data(tx_data, vec![signature]);
+
+    let response = cluster.execute_transaction(tx).await;
+    assert!(response.status_ok().unwrap());
 }
 
 pub(crate) async fn create_private_data(

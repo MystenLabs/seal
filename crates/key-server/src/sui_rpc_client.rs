@@ -19,9 +19,10 @@ pub use seal_committee::{RpcError, RpcResult};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
-    Bcs, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
-    SimulateTransactionResponse, Transaction,
+    GetEpochRequest, GetObjectRequest, SimulateTransactionRequest, SimulateTransactionResponse,
+    Transaction,
 };
 use sui_sdk::SuiClient;
 use sui_sdk_types::Address;
@@ -180,6 +181,19 @@ where
     }
 }
 
+/// Clears the bcs and strips the version and digest from every input object in txn.
+fn strip_transaction(transaction: &mut Transaction) {
+    transaction.bcs = None;
+    if let Some(TransactionKindData::ProgrammableTransaction(ptb)) =
+        transaction.kind.as_mut().and_then(|k| k.data.as_mut())
+    {
+        for input in &mut ptb.inputs {
+            input.version = None;
+            input.digest = None;
+        }
+    }
+}
+
 /// Client for interacting with the Sui RPC API.
 #[derive(Clone)]
 pub struct SuiRpcClient {
@@ -249,16 +263,15 @@ impl SuiRpcClient {
         &self,
         tx_data: TransactionData,
     ) -> RpcResult<SimulateTransactionResponse> {
-        self.run_grpc_with_retries("simulate_transaction", |mut grpc_client| {
-            let tx_data = tx_data.clone();
-            async move {
-                let tx_bcs = Bcs::from(
-                    bcs::to_bytes(&tx_data)
-                        .map_err(|e| RpcError::new(&format!("BCS encode failed: {e}")))?,
-                );
-                let mut transaction = Transaction::default();
-                transaction.bcs = Some(tx_bcs);
+        let mut transaction = Transaction::from(tx_data);
 
+        // Clear bcs and the version/digest of each input object so the fullnode
+        // resolves inputs against current chain state during simulation.
+        strip_transaction(&mut transaction);
+
+        self.run_grpc_with_retries("simulate_transaction", move |mut grpc_client| {
+            let transaction = transaction.clone();
+            async move {
                 let request =
                     SimulateTransactionRequest::new(transaction).with_read_mask(FieldMask {
                         paths: vec![
@@ -431,10 +444,15 @@ impl SuiRpcClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{sui_rpc_with_retries, RetriableError, RetryConfig};
+    use super::{strip_transaction, sui_rpc_with_retries, RetriableError, RetryConfig};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+    use sui_rpc::proto::sui::rpc::v2::input::InputKind;
+    use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
+    use sui_rpc::proto::sui::rpc::v2::{
+        Bcs, Input, ProgrammableTransaction, Transaction, TransactionKind,
+    };
 
     /// Mock error type for testing retry behavior
     #[derive(Debug, Clone)]
@@ -669,5 +687,44 @@ mod tests {
             elapsed >= expected_min_duration,
             "Expected at least {expected_min_duration:?} but got {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn test_strip_transaction() {
+        let input = |kind: InputKind| {
+            let mut input = Input::default();
+            input.kind = Some(kind as i32);
+            input.version = Some(42);
+            input.digest = Some("somedigest".to_string());
+            input
+        };
+        let mut ptb = ProgrammableTransaction::default();
+        ptb.inputs = vec![
+            input(InputKind::ImmutableOrOwned),
+            input(InputKind::Shared),
+            input(InputKind::Receiving),
+        ];
+        let mut kind = TransactionKind::default();
+        kind.data = Some(TransactionKindData::ProgrammableTransaction(ptb));
+        let mut transaction = Transaction::default();
+        transaction.kind = Some(kind);
+        transaction.bcs = Some(Bcs::default());
+
+        strip_transaction(&mut transaction);
+
+        assert_eq!(transaction.bcs, None);
+
+        let ptb = transaction
+            .kind
+            .and_then(|k| k.data)
+            .and_then(|data| match data {
+                TransactionKindData::ProgrammableTransaction(ptb) => Some(ptb),
+                _ => None,
+            })
+            .expect("expected a programmable transaction");
+        for input in &ptb.inputs {
+            assert_eq!(input.version, None);
+            assert_eq!(input.digest, None);
+        }
     }
 }
