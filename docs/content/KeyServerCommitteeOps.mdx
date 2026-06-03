@@ -189,14 +189,15 @@ When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share 
 
 After all committee members have their key servers running, ask each member to send you the full curl request and response from the `/v1/debug/committee_partial_pk` endpoint (this includes their API key name and key).
 
-Verify each member's partial public key against the onchain value before trusting their key server. Fetch the onchain partial public keys for the committee:
+Confirm that the `partial_pk` returned in their curl response matches the onchain partial public key for their address. The onchain partial public keys for the committee can be fetched:
+
 ```bash
 cargo run --bin seal-committee-cli -- check-committee
 ```
 
-For each member, confirm that the `partial_pk` returned in their curl response matches the onchain partial public key for their address. If any member's value does not match, resolve it with that member before proceeding.
+If they are mismatched, ask the member to double check the `MASTER_SHARE_V0` environment variable. 
 
-Once all partial public keys are verified, collect and share the following with the aggregator operator:
+Then collect and share the following with the aggregator operator:
 
 - API credentials for each committee member, including:
     - The onchain server name (the `PartialKeyServer.name` field)
@@ -312,11 +313,11 @@ For infrastructure and deployment recommendations, see [Infrastructure requireme
 
 6. **Generate API credentials for the [aggregator](/Aggregator)**
 
-After your key server is running successfully, generate an **API key name** and **API key** for your key server. These authenticate requests to your key server. 
+After your key server is running successfully, generate an **API key name** and **API key** for your key server. These credentials let the aggregator authenticate its requests to your key server.
 
-7. **Verify your partial public key and share credentials**
+7. **Share your credentials and verify your partial public key**
 
-Query the committee debug endpoint using the API credentials you just generated:
+Query your server's debug endpoint using the API credentials you just generated:
 ```bash
 curl -H "<YOUR_API_KEY_NAME>:<YOUR_API_KEY>" \
   -H "Client-Sdk-Version: 0.6.0" \
@@ -324,7 +325,7 @@ curl -H "<YOUR_API_KEY_NAME>:<YOUR_API_KEY>" \
   https://<YOUR_SERVER_URL>/v1/debug/committee_partial_pk
 ```
 
-Send the coordinator the full curl request and response (which include your API key name and key) to the coordinator. 
+Send the coordinator the full curl request and response (which include your API key name and key). The coordinator uses these to verify your partial public key against the onchain value and to configure the aggregator.
 
 8. **Enable metrics push (Optional)**
 
