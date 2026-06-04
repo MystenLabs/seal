@@ -75,6 +75,7 @@ In the config file, make sure to:
     - To use a custom RPC endpoint for any network, either specify `node_url` in the config or set the `NODE_URL` environment variable.
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to `<KEY_SERVER_OBJECT_ID>`, the ID of the key server object you registered onchain.
+- Optionally set `enable_event_monitoring` to control whether the key server monitors onchain events for committee rotation and package upgrades. This is enabled (`true`) by default. Set to `false` to disable event monitoring.
 ```shell
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 
@@ -106,6 +107,7 @@ Next, create a configuration file in `.yaml` format following the instructions i
 
 - Set the mode to `!Permissioned`.
 - Initialize with empty client configurations (clients can be added later).
+- Optionally set `enable_event_monitoring` to `false` to disable committee rotation and package upgrade event monitoring (enabled by default).
 ```yaml
   server_mode: !Permissioned
     client_configs:
