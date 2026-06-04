@@ -43,6 +43,7 @@ pub(crate) async fn create_test_server(
         session_key_ttl_max: from_mins(30),
         rpc_config: RpcConfig::default(),
         metrics_push_config: None,
+        enable_event_monitoring: true,
     };
 
     let sui_rpc_client = SuiRpcClient::new(

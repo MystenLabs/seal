@@ -1196,13 +1196,18 @@ async fn start_server_background_tasks(
     // rotation (current onchain version is target-1).
     let committee_version_updater_handle = server.spawn_committee_version_updater().await;
 
-    // Spawn committee rotation event monitor to detect CommitteeRotationInitiated events
-    server
-        .spawn_committee_rotation_event_monitor(metrics.clone())
-        .await;
+    // Spawn committee rotation and package upgrade monitors (committee mode only) if enabled.
+    if server.options.enable_event_monitoring {
+        // Spawn committee rotation event monitor to detect CommitteeRotationInitiated events
+        server
+            .spawn_committee_rotation_event_monitor(metrics.clone())
+            .await;
 
-    // Spawn package digest monitor to alert on package upgrades
-    server.spawn_package_digest_monitor(metrics.clone()).await;
+        // Spawn package digest monitor to alert on package upgrades
+        server.spawn_package_digest_monitor(metrics.clone()).await;
+    } else {
+        info!("Committee rotation and package upgrade monitoring is disabled via config");
+    }
 
     // Spawn metrics push task
     let metrics_push_handle = server.spawn_metrics_push_job(registry);
