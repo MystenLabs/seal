@@ -281,7 +281,8 @@ b. Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and t
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -539,7 +540,8 @@ a. Update `key-server-config.yaml`
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -559,7 +561,8 @@ c. Wait for the coordinator to confirm that rotation is complete. Then update th
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -578,7 +581,8 @@ a. Create `key-server-config.yaml`. Since `X+1` is your first committee version,
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
