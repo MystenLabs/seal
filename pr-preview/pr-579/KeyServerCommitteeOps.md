@@ -312,20 +312,22 @@ curl -H "<YOUR_API_KEY_NAME>:<YOUR_API_KEY>" \
 
 Send the coordinator the full curl request and response (which include your API key name and key). The coordinator uses these to verify your partial public key against the onchain value and to configure the aggregator.
 
-8. **Enable metrics push (Optional)**
+8. **Backup and clean up local DKG state**
+
+a. Back up the wallet you used, since it is needed for committee rotation in the future.
+
+b. Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
+```bash
+rm -rf dkg-state
+```
+
+9. **Enable metrics push (Optional)**
 
 If a metrics collector is configured, wait for the coordinator to share a `metrics_push_config` block containing a `bearer_token` and `push_url`. Add it to your `key-server-config.yaml` and restart your server to begin pushing metrics:
 ```yaml
 metrics_push_config:
   bearer_token: '<BEARER_TOKEN>'
   push_url: '<PUSH_URL>'
-```
-
-9. **Backup and clean up local DKG state**
-
-Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
-```bash
-rm -rf dkg-state
 ```
 
 ## Key rotation process
