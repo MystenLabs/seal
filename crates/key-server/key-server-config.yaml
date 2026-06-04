@@ -120,6 +120,10 @@ server_mode: !Open
 # rgp_update_interval: '60s'
 # allowed_staleness: '2m'
 # session_key_ttl_max: '30m'
+#
+# Monitoring of committee rotation and package upgrade events (committee mode only).
+# Enabled by default; set to false to disable.
+# enable_event_monitoring: false
 
 # Optional: Metrics push configuration to send metrics to seal-proxy
 # Uncomment and configure to enable pushing metrics to an external endpoint

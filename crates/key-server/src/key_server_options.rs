@@ -129,6 +129,11 @@ pub struct KeyServerOptions {
     /// Optional configuration for pushing metrics to an external endpoint (e.g., seal-proxy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics_push_config: Option<MetricsPushConfig>,
+
+    /// Whether to monitor for committee rotation and package upgrade events (committee mode only).
+    /// Enabled by default; set to false in the config to disable.
+    #[serde(default = "default_enable_event_monitoring")]
+    pub enable_event_monitoring: bool,
 }
 
 impl NetworkConfig for KeyServerOptions {
@@ -161,6 +166,7 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
+            enable_event_monitoring: default_enable_event_monitoring(),
         }
     }
 
@@ -181,6 +187,7 @@ impl KeyServerOptions {
             session_key_ttl_max: default_session_key_ttl_max(),
             rpc_config: RpcConfig::default(),
             metrics_push_config: None,
+            enable_event_monitoring: default_enable_event_monitoring(),
         }
     }
 
@@ -294,6 +301,10 @@ fn default_allowed_staleness() -> Duration {
 
 fn default_metrics_host_port() -> u16 {
     9184
+}
+
+fn default_enable_event_monitoring() -> bool {
+    true
 }
 
 fn default_ts_sdk_version_requirement() -> VersionReq {
