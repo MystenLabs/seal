@@ -302,7 +302,10 @@ server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Active
+enable_event_monitoring: true  # Set to false to disable monitoring of committee rotation and package upgrade events
 ```
+
+The `enable_event_monitoring` option controls whether the key server monitors onchain events for committee rotation and package upgrades. It is enabled (`true`) by default. Set it to `false` to disable this monitoring.
 
 c. Start the key server, setting the config path and your master key share from `dkg.yaml` (use `MASTER_SHARE_V0` for a fresh DKG):
 ```bash
@@ -561,6 +564,7 @@ server_mode: !Committee
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Rotation
     target_version: <X+1> # Increment this
+enable_event_monitoring: true  # Set to false to disable monitoring of committee rotation and package upgrade events
 ```
 
 b. Restart the key server with both the old and new master shares (`MASTER_SHARE_VX` corresponds to the current committee version `X` and `MASTER_SHARE_VX+1` corresponds to the next committee version `X+1`). The server monitors onchain state and selects the correct share automatically.
@@ -580,6 +584,7 @@ server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Active
+enable_event_monitoring: true  # Set to false to disable monitoring of committee rotation and package upgrade events
 ```
 
 ```bash
@@ -599,7 +604,10 @@ server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
   committee_state: !Active
+enable_event_monitoring: true  # Set to false to disable monitoring of committee rotation and package upgrade events
 ```
+
+The `enable_event_monitoring` option controls whether the key server monitors onchain events for committee rotation and package upgrades. It is enabled (`true`) by default. Set it to `false` to disable this monitoring.
 
 b. Start the key server with the new master share `MASTER_SHARE_VX+1` that corresponds to the new committee version `X+1`.
 ```bash
