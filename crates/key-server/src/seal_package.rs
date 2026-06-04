@@ -13,7 +13,7 @@ use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, Programmable
 use sui_types::SUI_CLOCK_OBJECT_ID;
 
 const TESTNET_PACKAGE_ID: &str =
-    "0x8d90881fc48eb30d4422db68083b49e7d0f879658444e3a0ed85ce47feaa54b2";
+    "0xdccbeb87767be2b2346af5575eb139807205e4c23ec53dc616f951fe1d814112";
 const MAINNET_PACKAGE_ID: &str =
     "0x931739224160073d8e391c9aa6e7ade9818e9814b4907066b7efa058636c4e45";
 

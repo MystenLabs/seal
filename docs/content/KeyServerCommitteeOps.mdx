@@ -185,11 +185,19 @@ cargo run --bin seal-committee-cli -- check-committee
 
 When finalization completes, the output includes the `KEY_SERVER_OBJ_ID`. Share this object ID with all members so they can configure their key servers.
 
-8. **Collect API keys for [aggregator server](/Aggregator)**
+8. **Verify partial public keys and collect API keys for the [aggregator server](/Aggregator)**
 
-After all committee members have their key servers running, ask each member to generate API credentials for the aggregator.
+After all committee members have their key servers running, ask each member to send you the full curl request and response from the `/v1/debug/committee_partial_pk` endpoint (this includes their API key name and key).
 
-Collect and share the following with the aggregator operator:
+Confirm that the `partial_pk` returned in their curl response matches the onchain partial public key for their address. The onchain partial public keys for the committee can be fetched:
+
+```bash
+cargo run --bin seal-committee-cli -- check-committee
+```
+
+If they are mismatched, ask the member to double check the `MASTER_SHARE_V0` environment variable. 
+
+Then collect and share the following with the aggregator operator:
 
 - API credentials for each committee member, including:
     - The onchain server name (the `PartialKeyServer.name` field)
@@ -197,7 +205,7 @@ Collect and share the following with the aggregator operator:
     - The API key
 - The committee's `KEY_SERVER_OBJ_ID` from the previous step.
 
-With this information, the aggregator operator can set up the configuration and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
+With this information, the aggregator operator can add each key server to the aggregator configuration and run the aggregator server. For configuration and startup instructions, see [Aggregator Server](/Aggregator).
 
 ### Fresh DKG member runbook
 
@@ -305,17 +313,30 @@ For infrastructure and deployment recommendations, see [Infrastructure requireme
 
 6. **Generate API credentials for the [aggregator](/Aggregator)**
 
-After your key server is running successfully, generate API credentials for aggregator access and share them with the coordinator.
+After your key server is running successfully, generate an **API key name** and **API key** for your key server. These credentials let the aggregator authenticate its requests to your key server.
 
-- Generate an **API key name** and **API key** for your key server.
-- Share the following details with the coordinator:
-   - Your server name (`MY_SERVER_NAME` from `dkg.yaml`, corresponding to the onchain `PartialKeyServer.name`)
-   - API key name
-   - API key
+7. **Share your credentials and verify your partial public key**
 
-The coordinator passes these credentials to the aggregator operator, who uses them to authenticate requests to your key server.
+Query your server's debug endpoint using the API credentials you just generated:
+```bash
+curl -H "<YOUR_API_KEY_NAME>:<YOUR_API_KEY>" \
+  -H "Client-Sdk-Version: 0.6.0" \
+  -H "Content-Type: application/json" \
+  https://<YOUR_SERVER_URL>/v1/debug/committee_partial_pk
+```
 
-7. **Backup and clean up local DKG state**
+Send the coordinator the full curl request and response (which include your API key name and key). The coordinator uses these to verify your partial public key against the onchain value and to configure the aggregator.
+
+8. **Enable metrics push (Optional)**
+
+If a metrics collector is configured, wait for the coordinator to share a `metrics_push_config` block containing a `bearer_token` and `push_url`. Add it to your `key-server-config.yaml` and restart your server to begin pushing metrics:
+```yaml
+metrics_push_config:
+  bearer_token: '<BEARER_TOKEN>'
+  push_url: '<PUSH_URL>'
+```
+
+9. **Backup and clean up local DKG state**
 
 Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
 ```bash

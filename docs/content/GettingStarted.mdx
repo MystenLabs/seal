@@ -57,8 +57,8 @@ Use the SDK to encrypt data before storing it:
 ```typescript
 const { encryptedObject: encryptedBytes, key: backupKey } = await client.encrypt({
     threshold: 2,
-    packageId: fromHEX(packageId),
-    id: fromHEX(id),
+    packageId,
+    id,
     data,
 });
 ```

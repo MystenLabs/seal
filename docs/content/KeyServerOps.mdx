@@ -16,6 +16,7 @@ keywords:
 ---
 
 import InfrastructureRequirements from './_InfrastructureRequirements.mdx';
+import SealPackageIds from './_SealPackageIds.mdx';
 
 # Key server operations for Independent server type
 
@@ -30,10 +31,7 @@ Use this guide to operate a Seal key server in either of the following scenarios
 
 Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on the Sui network `<NETWORK>`:
 
-| Network | Package ID |
-| -------- | ------- |
-| Testnet | `0x8d90881fc48eb30d4422db68083b49e7d0f879658444e3a0ed85ce47feaa54b2` |
-| Mainnet | `0xa212c4c6c7183b911d0be8768f4cb1df7a383025b5d0ba0c014009f0f30f5f8d` |
+<SealPackageIds />
 
 ## Independent server type modes
 
@@ -73,8 +71,8 @@ To start the key server in Open mode, run the command `cargo run --bin key-serve
 
 In the config file, make sure to:
 
-- Set the network, for example, `Testnet`, `Mainnet`, or `!Custom` for custom RPC endpoints.
-    - For `!Custom` network, you can either specify `node_url` in the config or set the `NODE_URL` environment variable.
+- Set the network to `Testnet`, `Mainnet`, or `!Devnet` (which requires a `seal_package` field).
+    - To use a custom RPC endpoint for any network, either specify `node_url` in the config or set the `NODE_URL` environment variable.
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to `<KEY_SERVER_OBJECT_ID>`, the ID of the key server object you registered onchain.
 ```shell
