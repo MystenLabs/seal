@@ -85,6 +85,36 @@ public(package) fun div(x: u8, y: u8): u8 {
     mul(x, exp(MULTIPLICATIVE_GROUP_SIZE - log(y)))
 }
 
+/// Return copies of the exp and log tables. Indexing a `const vector` materializes the entire
+/// constant on every access, so callers performing many field operations should fetch the tables
+/// once with this function and use the `*_t` operations below, which index the (borrowed) tables
+/// instead of re-materializing the constants.
+#[allow(implicit_const_copy)]
+public(package) fun tables(): (vector<u8>, vector<u8>) {
+    (EXP, LOG)
+}
+
+/// Multiply using preloaded tables. `exp` and `log` must be the vectors returned by `tables()`.
+public(package) fun mul_t(exp: &vector<u8>, log: &vector<u8>, x: u8, y: u8): u8 {
+    if (x == 0 || y == 0) {
+        return 0
+    };
+    let l = (log[(x - 1) as u64] as u16) + (log[(y - 1) as u64] as u16);
+    exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
+}
+
+/// Divide using preloaded tables. `exp` and `log` must be the vectors returned by `tables()`.
+public(package) fun div_t(exp: &vector<u8>, log: &vector<u8>, x: u8, y: u8): u8 {
+    assert!(y != 0, EDivideByZero);
+    if (x == 0) {
+        return 0
+    };
+    // x / y = g^(log(x) - log(y)). Add the group size before subtracting to stay non-negative.
+    let l =
+        (log[(x - 1) as u64] as u16) + MULTIPLICATIVE_GROUP_SIZE - (log[(y - 1) as u64] as u16);
+    exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
+}
+
 #[test]
 fun test_field_ops() {
     // Test vector, partly from https://en.wikipedia.org/wiki/Finite_field_arithmetic#Rijndael's_(AES)_finite_field
@@ -94,4 +124,22 @@ fun test_field_ops() {
     assert_eq!(sub(a, b), 0x99);
     assert_eq!(mul(a, b), 0x01);
     assert_eq!(div(a, b), 0xb5);
+}
+
+#[test]
+fun test_table_ops_match() {
+    // The table-based operations must agree with the constant-based ones. Sweep x over the whole
+    // field against a set of y values that includes the edge cases (0, 1) and a spread of others;
+    // a full 256x256 sweep exceeds the unit-test gas budget.
+    let (exp, log) = tables();
+    let ys = vector[0u8, 1, 2, 3, 0x53, 0xca, 0xfe, 0xff];
+    256u64.do!(|xi| {
+        let x = xi as u8;
+        ys.do!(|y| {
+            assert_eq!(mul_t(&exp, &log, x, y), mul(x, y));
+            if (y != 0) {
+                assert_eq!(div_t(&exp, &log, x, y), div(x, y));
+            };
+        });
+    });
 }
