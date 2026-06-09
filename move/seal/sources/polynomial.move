@@ -65,9 +65,7 @@ fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
 /// Compute the barycentric weights w_j = 1 / prod_{i != j} (x[j] - x[i]).
 fun compute_weights(g: &GF256, x: vector<u8>): vector<u8> {
     // The interpolation nodes are distinct, so x[i] == x[j] iff i == j.
-    x.map!(|xj| {
-        x.fold!(1u8, |acc, xi| if (xi == xj) acc else g.div(acc, gf256::sub(xj, xi)))
-    })
+    x.map!(|xj| x.fold!(1u8, |acc, xi| if (xi == xj) acc else g.div(acc, gf256::sub(xj, xi))))
 }
 
 /// Same as interpolate, but the numerator products, \prod_i (x - x_i), and the barycentric weights,
@@ -80,10 +78,10 @@ fun interpolate_with_numerators(
     weights: &vector<u8>,
 ): Polynomial {
     let n = x.length();
-    assert!(y.length() == n, EIncompatibleInputLengths);
-    assert!(numerators.length() == n, EIncompatibleInputLengths);
-    assert!(weights.length() == n, EIncompatibleInputLengths);
-   
+    assert!(
+        y.length() == n && numerators.length() == n && weights.length() == n,
+        EIncompatibleInputLengths,
+    );
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
         sum = add(&sum, &scale(g, &numerators[j], g.mul(y[j], weights[j])));
