@@ -105,7 +105,7 @@ fun compute_numerators(g: &GF256, x: vector<u8>): vector<Polynomial> {
 /// The length of the input vectors must be the same.
 /// The length of each vector in y must be the same (equal to the l above).
 /// Aborts if the input lengths are not compatible or if the vectors are empty.
-public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
+public(package) fun interpolate_all(x: vector<u8>, y: &vector<vector<u8>>): vector<Polynomial> {
     assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncompatibleInputLengths);
@@ -113,12 +113,12 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     // Construct the field tables once
     let g = gf256::new();
 
-    let numerators = compute_numerators(&g, *x);
-    let weights = compute_weights(&g, x);
+    let weights = compute_weights(&g, &x);
+    let numerators = compute_numerators(&g, x);
 
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate_with_numerators(&g, x, &yi, &numerators, &weights)
+        interpolate_with_numerators(&g, &x, &yi, &numerators, &weights)
     })
 }
 
@@ -220,7 +220,7 @@ fun test_interpolate() {
 fun test_interpolate_all() {
     let x = vector[1, 2, 3];
     let y = vector[vector[7, 8], vector[11, 12], vector[17, 18]];
-    let ps = interpolate_all(&x, &y);
+    let ps = interpolate_all(x, &y);
     assert_eq!(ps.length(), 2);
     x.zip_do!(y, |x, y| {
         assert_eq!(ps[0].evaluate(x), y[0]);

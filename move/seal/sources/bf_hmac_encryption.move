@@ -152,7 +152,7 @@ public fun decrypt(
     );
 
     // Interpolate polynomials from the decrypted shares.
-    let polynomials = interpolate_all(&given_indices.map!(|i| indices[i]), &decrypted_shares);
+    let polynomials = interpolate_all(given_indices.map!(|i| indices[i]), &decrypted_shares);
 
     // A correctly formed ciphertext uses Shamir polynomials of degree threshold - 1. Reject
     // ciphertexts whose recovered polynomials have a higher degree.
