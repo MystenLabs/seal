@@ -167,10 +167,10 @@ fun monic_linear(c: &u8): Polynomial {
     Polynomial { coefficients: vector[*c, 1] }
 }
 
-// A non-`_g` wrapper for the unit tests below, so they can use method-call syntax (`a.mul(&b)`)
-// without threading a GF256 through. `mul_g` keeps its suffix to disambiguate from this.
 #[test_only]
 fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
+    // A non-`_g` wrapper so the unit tests can use method-call syntax (`a.mul(&b)`) without
+    // threading a GF256 through. `mul_g` keeps its suffix to disambiguate from this.
     mul_g(&gf256::new(), x, y)
 }
 
@@ -210,7 +210,13 @@ fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
     let g = gf256::new();
-    let p = interpolate_with_numerators(&g, &x, &y, &compute_numerators(&g, x), &compute_weights(&g, x));
+    let p = interpolate_with_numerators(
+        &g,
+        &x,
+        &y,
+        &compute_numerators(&g, x),
+        &compute_weights(&g, x),
+    );
     assert_eq!(p.coefficients, x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
