@@ -8,6 +8,7 @@ module seal::gf256;
 #[test_only]
 use std::unit_test::assert_eq;
 
+const ELogOfZero: u64 = 1;
 const EDivideByZero: u64 = 2;
 
 /// The size of the multiplicative group of GF(2^8).
@@ -58,14 +59,23 @@ const LOG: vector<u8> = vector[
 /// this once with `new` and reuse it: its `mul`/`div` index the (borrowed) tables held in the
 /// struct rather than re-materializing the constants on every operation.
 public struct GF256 has copy, drop {
-    exp: vector<u8>,
-    log: vector<u8>,
+    exp_table: vector<u8>,
+    log_table: vector<u8>,
 }
 
 /// Construct the GF(2^8) arithmetic tables. Materializes the EXP/LOG constants once.
 #[allow(implicit_const_copy)]
 public(package) fun new(): GF256 {
-    GF256 { exp: EXP, log: LOG }
+    GF256 { exp_table: EXP, log_table: LOG }
+}
+
+fun log(self: &GF256, x: u8): u16 {
+    assert!(x != 0, ELogOfZero);
+    self.log_table[(x - 1) as u64] as u16
+}
+
+fun exp(self: &GF256, x: u16): u8 {
+    self.exp_table[(x % MULTIPLICATIVE_GROUP_SIZE) as u64]
 }
 
 public(package) fun add(x: u8, y: u8): u8 {
@@ -80,20 +90,12 @@ public(package) fun mul(self: &GF256, x: u8, y: u8): u8 {
     if (x == 0 || y == 0) {
         return 0
     };
-    let l = (self.log[(x - 1) as u64] as u16) + (self.log[(y - 1) as u64] as u16);
-    self.exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
+    self.exp(self.log(x) + self.log(y))
 }
 
 public(package) fun div(self: &GF256, x: u8, y: u8): u8 {
     assert!(y != 0, EDivideByZero);
-    if (x == 0) {
-        return 0
-    };
-    // x / y = g^(log(x) - log(y)). Add the group size before subtracting to stay non-negative.
-    let l =
-        (self.log[(x - 1) as u64] as u16) + MULTIPLICATIVE_GROUP_SIZE -
-            (self.log[(y - 1) as u64] as u16);
-    self.exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
+    self.mul(x, self.exp(MULTIPLICATIVE_GROUP_SIZE - self.log(y)))
 }
 
 #[test]
