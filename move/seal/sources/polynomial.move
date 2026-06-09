@@ -67,8 +67,8 @@ fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
 /// output polynomials.
 fun compute_weights(g: &GF256, x: &vector<u8>): vector<u8> {
     // The interpolation nodes are distinct, so x[i] == x[j] iff i == j.
-    vector::tabulate!(x.length(), |j| {
-        let xj = x[j];
+    x.map_ref!(|xj| {
+        let xj = *xj;
         let denominator = (*x).fold!(1u8, |acc, xi| if (xi == xj) acc else g.mul(acc, gf256::sub(xj, xi)));
         g.div(1, denominator)
     })
