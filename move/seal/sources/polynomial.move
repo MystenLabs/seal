@@ -47,7 +47,7 @@ public(package) fun degree(p: &Polynomial): u64 {
 }
 
 // Divide a polynomial by the monic linear polynomial x + c.
-fun div_by_monic_linear_g(g: &GF256, x: &Polynomial, c: u8): Polynomial {
+fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
     let mut coefficients = vector[];
     if (n > 1) {
@@ -80,7 +80,7 @@ fun compute_weights(g: &GF256, x: &vector<u8>): vector<u8> {
 
 /// Same as interpolate, but the numerator products, \prod_i (x - x_i), and the barycentric weights,
 /// 1 / \prod_{i != j} (x[j] - x[i]), are precomputed (both depend only on x).
-fun interpolate_with_numerators_g(
+fun interpolate_with_numerators(
     g: &GF256,
     x: &vector<u8>,
     y: &vector<u8>,
@@ -91,18 +91,18 @@ fun interpolate_with_numerators_g(
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
-        sum = add(&sum, &scale_g(g, &numerators[j], g.mul(y[j], weights[j])));
+        sum = add(&sum, &scale(g, &numerators[j], g.mul(y[j], weights[j])));
     });
     sum
 }
 
 /// Compute the numerators of the Lagrange polynomials for the given x values.
-fun compute_numerators_g(g: &GF256, x: vector<u8>): vector<Polynomial> {
+fun compute_numerators(g: &GF256, x: vector<u8>): vector<Polynomial> {
     // The full numerator depends only on x, so we can compute it here
     let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
         mul_g(g, &product, &monic_linear(&x_j))
     });
-    x.map_ref!(|x_j| div_by_monic_linear_g(g, &full_numerator, *x_j))
+    x.map_ref!(|x_j| div_by_monic_linear(g, &full_numerator, *x_j))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -114,17 +114,15 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncompatibleInputLengths);
 
-    // Construct the field tables once instead of materializing the constants on every operation.
+    // Construct the field tables once
     let g = gf256::new();
 
-    // The numerators and the barycentric weights depend only on x, so compute them once and reuse
-    // them for every one of the l output polynomials.
-    let numerators = compute_numerators_g(&g, *x);
+    let numerators = compute_numerators(&g, *x);
     let weights = compute_weights(&g, x);
 
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate_with_numerators_g(&g, x, &yi, &numerators, &weights)
+        interpolate_with_numerators(&g, x, &yi, &numerators, &weights)
     })
 }
 
@@ -165,7 +163,7 @@ fun mul_g(g: &GF256, x: &Polynomial, y: &Polynomial): Polynomial {
     Polynomial { coefficients }
 }
 
-fun scale_g(g: &GF256, x: &Polynomial, s: u8): Polynomial {
+fun scale(g: &GF256, x: &Polynomial, s: u8): Polynomial {
     Polynomial { coefficients: x.coefficients.map_ref!(|c| g.mul(*c, s)) }
 }
 
@@ -174,34 +172,11 @@ fun monic_linear(c: &u8): Polynomial {
     Polynomial { coefficients: vector[*c, 1] }
 }
 
-// === Test-only wrappers ===
-// These keep the original call shapes available for the unit tests below, which exercise the
-// arithmetic at small sizes.
-
+// A non-`_g` wrapper for the unit tests below, so they can use method-call syntax (`a.mul(&b)`)
+// without threading a GF256 through. `mul_g` keeps its suffix to disambiguate from this.
 #[test_only]
 fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
     mul_g(&gf256::new(), x, y)
-}
-
-#[test_only]
-fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
-    div_by_monic_linear_g(&gf256::new(), x, c)
-}
-
-#[test_only]
-fun compute_numerators(x: vector<u8>): vector<Polynomial> {
-    compute_numerators_g(&gf256::new(), x)
-}
-
-#[test_only]
-fun interpolate_with_numerators(
-    x: &vector<u8>,
-    y: &vector<u8>,
-    numerators: &vector<Polynomial>,
-): Polynomial {
-    let g = gf256::new();
-    let weights = compute_weights(&g, x);
-    interpolate_with_numerators_g(&g, x, y, numerators, &weights)
 }
 
 #[test]
@@ -239,7 +214,8 @@ fun test_evaluate() {
 fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
-    let p = interpolate_with_numerators(&x, &y, &compute_numerators(x));
+    let g = gf256::new();
+    let p = interpolate_with_numerators(&g, &x, &y, &compute_numerators(&g, x), &compute_weights(&g, &x));
     assert_eq!(p.coefficients, x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
@@ -261,6 +237,6 @@ fun test_div_exact_by_monic_linear() {
     let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
     let monic_linear = monic_linear(&2);
     let y = mul(&x, &monic_linear);
-    let z = div_by_monic_linear(&y, 2);
+    let z = div_by_monic_linear(&gf256::new(), &y, 2);
     assert_eq!(z, x);
 }
