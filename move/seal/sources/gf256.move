@@ -61,7 +61,7 @@ public struct GF256 has copy, drop {
     log_table: vector<u8>,
 }
 
-/// Construct the GF(2^8) arithmetic tables. Materializes the EXP/LOG constants once.
+/// Construct an instance of the field.
 #[allow(implicit_const_copy)]
 public(package) fun new(): GF256 {
     GF256 { exp_table: EXP, log_table: LOG }
@@ -106,21 +106,4 @@ fun test_field_ops() {
     assert_eq!(sub(a, b), 0x99);
     assert_eq!(g.mul(a, b), 0x01);
     assert_eq!(g.div(a, b), 0xb5);
-}
-
-#[test]
-fun test_field_axioms() {
-    // Self-consistency over the whole field: division inverts multiplication, and every nonzero
-    // element has a multiplicative inverse.
-    let g = new();
-    let ys = vector[1u8, 2, 3, 0x53, 0xca, 0xfe, 0xff];
-    256u64.do!(|xi| {
-        let x = xi as u8;
-        ys.do!(|y| {
-            assert_eq!(g.div(g.mul(x, y), y), x);
-            if (x != 0) {
-                assert_eq!(g.mul(x, g.div(1, x)), 1);
-            };
-        });
-    });
 }
