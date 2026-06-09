@@ -63,12 +63,10 @@ fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
 }
 
 /// Compute the barycentric weights w_j = 1 / prod_{i != j} (x[j] - x[i]).
-/// These depend only on the x values, so the Lagrange interpolation can reuse them across all
-/// output polynomials.
 fun compute_weights(g: &GF256, x: vector<u8>): vector<u8> {
     // The interpolation nodes are distinct, so x[i] == x[j] iff i == j.
     x.map!(|xj| {
-        g.div(1, x.fold!(1u8, |acc, xi| if (xi == xj) acc else g.mul(acc, gf256::sub(xj, xi))))
+        x.fold!(1u8, |acc, xi| if (xi == xj) acc else g.div(acc, gf256::sub(xj, xi)))
     })
 }
 
@@ -81,8 +79,11 @@ fun interpolate_with_numerators(
     numerators: &vector<Polynomial>,
     weights: &vector<u8>,
 ): Polynomial {
-    assert!(x.length() == y.length(), EIncompatibleInputLengths);
     let n = x.length();
+    assert!(y.length() == n, EIncompatibleInputLengths);
+    assert!(numerators.length() == n, EIncompatibleInputLengths);
+    assert!(weights.length() == n, EIncompatibleInputLengths);
+   
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
         sum = add(&sum, &scale(g, &numerators[j], g.mul(y[j], weights[j])));
