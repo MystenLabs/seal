@@ -19,10 +19,10 @@ public struct Polynomial has copy, drop, store {
 
 /// Evaluate a polynomial at a given point.
 public fun evaluate(p: &Polynomial, x: u8): u8 {
-    evaluate_g(&gf256::new(), p, x)
+    evaluate_with_g(&gf256::new(), p, x)
 }
 
-fun evaluate_g(g: &GF256, p: &Polynomial, x: u8): u8 {
+fun evaluate_with_g(g: &GF256, p: &Polynomial, x: u8): u8 {
     if (p.coefficients.is_empty()) {
         return 0
     };
@@ -66,14 +66,10 @@ fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
 /// These depend only on the x values, so the Lagrange interpolation can reuse them across all
 /// output polynomials.
 fun compute_weights(g: &GF256, x: &vector<u8>): vector<u8> {
-    let n = x.length();
-    vector::tabulate!(n, |j| {
-        let mut denominator = 1;
-        n.do!(|i| {
-            if (i != j) {
-                denominator = g.mul(denominator, gf256::sub(x[j], x[i]));
-            };
-        });
+    // The interpolation nodes are distinct, so x[i] == x[j] iff i == j.
+    vector::tabulate!(x.length(), |j| {
+        let xj = x[j];
+        let denominator = (*x).fold!(1u8, |acc, xi| if (xi == xj) acc else g.mul(acc, gf256::sub(xj, xi)));
         g.div(1, denominator)
     })
 }
