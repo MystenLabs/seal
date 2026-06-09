@@ -93,7 +93,7 @@ fun interpolate_with_numerators(
 fun compute_numerators(g: &GF256, x: vector<u8>): vector<Polynomial> {
     // The full numerator depends only on x, so we can compute it here
     let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
-        mul_g(g, &product, &monic_linear(&x_j))
+        mul(g, &product, &monic_linear(&x_j))
     });
     x.map_ref!(|x_j| div_by_monic_linear(g, &full_numerator, *x_j))
 }
@@ -137,7 +137,7 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
     Polynomial { coefficients }
 }
 
-fun mul_g(g: &GF256, x: &Polynomial, y: &Polynomial): Polynomial {
+fun mul(g: &GF256, x: &Polynomial, y: &Polynomial): Polynomial {
     if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
         return Polynomial { coefficients: vector[] }
     };
@@ -165,21 +165,15 @@ fun monic_linear(c: &u8): Polynomial {
     Polynomial { coefficients: vector[*c, 1] }
 }
 
-#[test_only]
-fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
-    // A non-`_g` wrapper so the unit tests can use method-call syntax (`a.mul(&b)`) without
-    // threading a GF256 through. `mul_g` keeps its suffix to disambiguate from this.
-    mul_g(&gf256::new(), x, y)
-}
-
 #[test]
 fun test_arithmetic() {
+    let g = gf256::new();
     let x = Polynomial { coefficients: vector[1, 2, 3] };
     let y = Polynomial { coefficients: vector[4, 5] };
     let z = Polynomial { coefficients: vector[2] };
     assert_eq!(x.add(&y).coefficients, vector[5, 7, 3]);
-    assert_eq!(x.mul(&z).coefficients, vector[2, 4, 6]);
-    assert_eq!(x.mul(&y).coefficients, x"040d060f");
+    assert_eq!(mul(&g, &x, &z).coefficients, vector[2, 4, 6]);
+    assert_eq!(mul(&g, &x, &y).coefficients, x"040d060f");
 }
 
 #[test]
@@ -233,9 +227,10 @@ fun test_interpolate_all() {
 
 #[test]
 fun test_div_exact_by_monic_linear() {
+    let g = gf256::new();
     let x = Polynomial { coefficients: vector[1, 2, 3, 4, 5, 6, 7] };
     let monic_linear = monic_linear(&2);
-    let y = mul(&x, &monic_linear);
-    let z = div_by_monic_linear(&gf256::new(), &y, 2);
+    let y = mul(&g, &x, &monic_linear);
+    let z = div_by_monic_linear(&g, &y, 2);
     assert_eq!(z, x);
 }
