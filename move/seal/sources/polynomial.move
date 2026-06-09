@@ -65,12 +65,11 @@ fun div_by_monic_linear(g: &GF256, x: &Polynomial, c: u8): Polynomial {
 /// Compute the barycentric weights w_j = 1 / prod_{i != j} (x[j] - x[i]).
 /// These depend only on the x values, so the Lagrange interpolation can reuse them across all
 /// output polynomials.
-fun compute_weights(g: &GF256, x: &vector<u8>): vector<u8> {
+fun compute_weights(g: &GF256, x: vector<u8>): vector<u8> {
     // The interpolation nodes are distinct, so x[i] == x[j] iff i == j.
     x.map_ref!(|xj| {
         let xj = *xj;
-        let denominator = (*x).fold!(1u8, |acc, xi| if (xi == xj) acc else g.mul(acc, gf256::sub(xj, xi)));
-        g.div(1, denominator)
+        g.div(1, x.fold!(1u8, |acc, xi| if (xi == xj) acc else g.mul(acc, gf256::sub(xj, xi))))
     })
 }
 
@@ -113,7 +112,7 @@ public(package) fun interpolate_all(x: vector<u8>, y: &vector<vector<u8>>): vect
     // Construct the field tables once
     let g = gf256::new();
 
-    let weights = compute_weights(&g, &x);
+    let weights = compute_weights(&g, x);
     let numerators = compute_numerators(&g, x);
 
     vector::tabulate!(l, |i| {
@@ -211,7 +210,7 @@ fun test_interpolate() {
     let x = vector[1, 2, 3];
     let y = vector[7, 11, 17];
     let g = gf256::new();
-    let p = interpolate_with_numerators(&g, &x, &y, &compute_numerators(&g, x), &compute_weights(&g, &x));
+    let p = interpolate_with_numerators(&g, &x, &y, &compute_numerators(&g, x), &compute_weights(&g, x));
     assert_eq!(p.coefficients, x"1d150f");
     x.zip_do!(y, |x, y| assert!(p.evaluate(x) == y));
 }
