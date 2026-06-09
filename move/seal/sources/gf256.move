@@ -54,10 +54,8 @@ const LOG: vector<u8> = vector[
     0x4a, 0xed, 0xde, 0xc5, 0x31, 0xfe, 0x18, 0x0d, 0x63, 0x8c, 0x80, 0xc0, 0xf7, 0x70, 0x07,
 ];
 
-/// Holds the exp and log tables for GF(2^8) arithmetic. Indexing a `const vector` materializes the
-/// entire constant on every access, so callers performing many field operations should construct
-/// this once with `new` and reuse it: its `mul`/`div` index the (borrowed) tables held in the
-/// struct rather than re-materializing the constants on every operation.
+/// The Galois field GF(2^8). Constructing an instance (with `new`) has a cost, so reuse a single
+/// one across many field operations rather than creating one per call.
 public struct GF256 has copy, drop {
     exp_table: vector<u8>,
     log_table: vector<u8>,
