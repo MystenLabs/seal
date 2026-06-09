@@ -3,7 +3,7 @@
 
 module seal::polynomial;
 
-use seal::gf256;
+use seal::gf256::{Self, GF256};
 use std::u64::range_do_eq;
 
 #[test_only]
@@ -19,18 +19,17 @@ public struct Polynomial has copy, drop, store {
 
 /// Evaluate a polynomial at a given point.
 public fun evaluate(p: &Polynomial, x: u8): u8 {
-    let (exp, log) = gf256::tables();
-    evaluate_t(&exp, &log, p, x)
+    evaluate_g(&gf256::new(), p, x)
 }
 
-fun evaluate_t(exp: &vector<u8>, log: &vector<u8>, p: &Polynomial, x: u8): u8 {
+fun evaluate_g(g: &GF256, p: &Polynomial, x: u8): u8 {
     if (p.coefficients.is_empty()) {
         return 0
     };
     let n = p.coefficients.length();
     let mut result = p.coefficients[n - 1];
     (n - 1).do!(|i| {
-        result = gf256::add(gf256::mul_t(exp, log, result, x), p.coefficients[n - i - 2]);
+        result = gf256::add(g.mul(result, x), p.coefficients[n - i - 2]);
     });
     result
 }
@@ -48,14 +47,14 @@ public(package) fun degree(p: &Polynomial): u64 {
 }
 
 // Divide a polynomial by the monic linear polynomial x + c.
-fun div_by_monic_linear_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, c: u8): Polynomial {
+fun div_by_monic_linear_g(g: &GF256, x: &Polynomial, c: u8): Polynomial {
     let n = x.coefficients.length();
     let mut coefficients = vector[];
     if (n > 1) {
         let mut previous = x.coefficients[n - 1];
         coefficients.push_back(previous);
         range_do_eq!(1, n - 2, |i| {
-            previous = gf256::sub(x.coefficients[n - i - 1], gf256::mul_t(exp, log, previous, c));
+            previous = gf256::sub(x.coefficients[n - i - 1], g.mul(previous, c));
             coefficients.push_back(previous);
         });
         coefficients.reverse();
@@ -66,24 +65,23 @@ fun div_by_monic_linear_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, c:
 /// Compute the barycentric weights w_j = 1 / prod_{i != j} (x[j] - x[i]).
 /// These depend only on the x values, so the Lagrange interpolation can reuse them across all
 /// output polynomials.
-fun compute_weights(exp: &vector<u8>, log: &vector<u8>, x: &vector<u8>): vector<u8> {
+fun compute_weights(g: &GF256, x: &vector<u8>): vector<u8> {
     let n = x.length();
     vector::tabulate!(n, |j| {
         let mut denominator = 1;
         n.do!(|i| {
             if (i != j) {
-                denominator = gf256::mul_t(exp, log, denominator, gf256::sub(x[j], x[i]));
+                denominator = g.mul(denominator, gf256::sub(x[j], x[i]));
             };
         });
-        gf256::div_t(exp, log, 1, denominator)
+        g.div(1, denominator)
     })
 }
 
 /// Same as interpolate, but the numerator products, \prod_i (x - x_i), and the barycentric weights,
 /// 1 / \prod_{i != j} (x[j] - x[i]), are precomputed (both depend only on x).
-fun interpolate_with_numerators_t(
-    exp: &vector<u8>,
-    log: &vector<u8>,
+fun interpolate_with_numerators_g(
+    g: &GF256,
     x: &vector<u8>,
     y: &vector<u8>,
     numerators: &vector<Polynomial>,
@@ -93,22 +91,18 @@ fun interpolate_with_numerators_t(
     let n = x.length();
     let mut sum = Polynomial { coefficients: vector[] };
     n.do!(|j| {
-        sum =
-            add(
-                &sum,
-                &scale_t(exp, log, &numerators[j], gf256::mul_t(exp, log, y[j], weights[j])),
-            );
+        sum = add(&sum, &scale_g(g, &numerators[j], g.mul(y[j], weights[j])));
     });
     sum
 }
 
 /// Compute the numerators of the Lagrange polynomials for the given x values.
-fun compute_numerators_t(exp: &vector<u8>, log: &vector<u8>, x: vector<u8>): vector<Polynomial> {
+fun compute_numerators_g(g: &GF256, x: vector<u8>): vector<Polynomial> {
     // The full numerator depends only on x, so we can compute it here
     let full_numerator = x.fold!(Polynomial { coefficients: vector[1] }, |product, x_j| {
-        mul_t(exp, log, &product, &monic_linear(&x_j))
+        mul_g(g, &product, &monic_linear(&x_j))
     });
-    x.map_ref!(|x_j| div_by_monic_linear_t(exp, log, &full_numerator, *x_j))
+    x.map_ref!(|x_j| div_by_monic_linear_g(g, &full_numerator, *x_j))
 }
 
 /// Interpolate l polynomials p_1, ..., p_l such that p_i(x_j) = y[j][i] for all i, j.
@@ -120,17 +114,17 @@ public(package) fun interpolate_all(x: &vector<u8>, y: &vector<vector<u8>>): vec
     let l = y[0].length();
     assert!(y.all!(|yi| yi.length() == l), EIncompatibleInputLengths);
 
-    // Load the field tables once instead of materializing the constants on every field operation.
-    let (exp, log) = gf256::tables();
+    // Construct the field tables once instead of materializing the constants on every operation.
+    let g = gf256::new();
 
     // The numerators and the barycentric weights depend only on x, so compute them once and reuse
     // them for every one of the l output polynomials.
-    let numerators = compute_numerators_t(&exp, &log, *x);
-    let weights = compute_weights(&exp, &log, x);
+    let numerators = compute_numerators_g(&g, *x);
+    let weights = compute_weights(&g, x);
 
     vector::tabulate!(l, |i| {
         let yi = y.map_ref!(|yj| yj[i]);
-        interpolate_with_numerators_t(&exp, &log, x, &yi, &numerators, &weights)
+        interpolate_with_numerators_g(&g, x, &yi, &numerators, &weights)
     })
 }
 
@@ -152,7 +146,7 @@ fun add(x: &Polynomial, y: &Polynomial): Polynomial {
     Polynomial { coefficients }
 }
 
-fun mul_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, y: &Polynomial): Polynomial {
+fun mul_g(g: &GF256, x: &Polynomial, y: &Polynomial): Polynomial {
     if (x.coefficients.is_empty() || y.coefficients.is_empty()) {
         return Polynomial { coefficients: vector[] }
     };
@@ -162,11 +156,7 @@ fun mul_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, y: &Polynomial): P
             let mut sum = 0;
             i.do_eq!(|j| {
                 if (j < x.coefficients.length() && i - j < y.coefficients.length()) {
-                    sum =
-                        gf256::add(
-                            sum,
-                            gf256::mul_t(exp, log, x.coefficients[j], y.coefficients[i - j]),
-                        );
+                    sum = gf256::add(sum, g.mul(x.coefficients[j], y.coefficients[i - j]));
                 }
             });
             sum
@@ -175,8 +165,8 @@ fun mul_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, y: &Polynomial): P
     Polynomial { coefficients }
 }
 
-fun scale_t(exp: &vector<u8>, log: &vector<u8>, x: &Polynomial, s: u8): Polynomial {
-    Polynomial { coefficients: x.coefficients.map_ref!(|c| gf256::mul_t(exp, log, *c, s)) }
+fun scale_g(g: &GF256, x: &Polynomial, s: u8): Polynomial {
+    Polynomial { coefficients: x.coefficients.map_ref!(|c| g.mul(*c, s)) }
 }
 
 /// Return x - c (same as x + c since GF256 is a binary field)
@@ -185,25 +175,22 @@ fun monic_linear(c: &u8): Polynomial {
 }
 
 // === Test-only wrappers ===
-// These keep the original (constant-copying) call shapes available for the unit tests below, which
-// exercise the arithmetic at small sizes where the table-copy cost is irrelevant.
+// These keep the original call shapes available for the unit tests below, which exercise the
+// arithmetic at small sizes.
 
 #[test_only]
 fun mul(x: &Polynomial, y: &Polynomial): Polynomial {
-    let (exp, log) = gf256::tables();
-    mul_t(&exp, &log, x, y)
+    mul_g(&gf256::new(), x, y)
 }
 
 #[test_only]
 fun div_by_monic_linear(x: &Polynomial, c: u8): Polynomial {
-    let (exp, log) = gf256::tables();
-    div_by_monic_linear_t(&exp, &log, x, c)
+    div_by_monic_linear_g(&gf256::new(), x, c)
 }
 
 #[test_only]
 fun compute_numerators(x: vector<u8>): vector<Polynomial> {
-    let (exp, log) = gf256::tables();
-    compute_numerators_t(&exp, &log, x)
+    compute_numerators_g(&gf256::new(), x)
 }
 
 #[test_only]
@@ -212,9 +199,9 @@ fun interpolate_with_numerators(
     y: &vector<u8>,
     numerators: &vector<Polynomial>,
 ): Polynomial {
-    let (exp, log) = gf256::tables();
-    let weights = compute_weights(&exp, &log, x);
-    interpolate_with_numerators_t(&exp, &log, x, y, numerators, &weights)
+    let g = gf256::new();
+    let weights = compute_weights(&g, x);
+    interpolate_with_numerators_g(&g, x, y, numerators, &weights)
 }
 
 #[test]

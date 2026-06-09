@@ -8,7 +8,6 @@ module seal::gf256;
 #[test_only]
 use std::unit_test::assert_eq;
 
-const ELogOfZero: u64 = 1;
 const EDivideByZero: u64 = 2;
 
 /// The size of the multiplicative group of GF(2^8).
@@ -54,15 +53,19 @@ const LOG: vector<u8> = vector[
     0x4a, 0xed, 0xde, 0xc5, 0x31, 0xfe, 0x18, 0x0d, 0x63, 0x8c, 0x80, 0xc0, 0xf7, 0x70, 0x07,
 ];
 
-#[allow(implicit_const_copy)]
-fun log(x: u8): u16 {
-    assert!(x != 0, ELogOfZero);
-    LOG[(x - 1) as u64] as u16
+/// Holds the exp and log tables for GF(2^8) arithmetic. Indexing a `const vector` materializes the
+/// entire constant on every access, so callers performing many field operations should construct
+/// this once with `new` and reuse it: its `mul`/`div` index the (borrowed) tables held in the
+/// struct rather than re-materializing the constants on every operation.
+public struct GF256 has copy, drop {
+    exp: vector<u8>,
+    log: vector<u8>,
 }
 
+/// Construct the GF(2^8) arithmetic tables. Materializes the EXP/LOG constants once.
 #[allow(implicit_const_copy)]
-fun exp(x: u16): u8 {
-    EXP[(x % MULTIPLICATIVE_GROUP_SIZE) as u64]
+public(package) fun new(): GF256 {
+    GF256 { exp: EXP, log: LOG }
 }
 
 public(package) fun add(x: u8, y: u8): u8 {
@@ -73,72 +76,50 @@ public(package) fun sub(x: u8, y: u8): u8 {
     add(x, y)
 }
 
-public(package) fun mul(x: u8, y: u8): u8 {
+public(package) fun mul(self: &GF256, x: u8, y: u8): u8 {
     if (x == 0 || y == 0) {
         return 0
     };
-    exp(log(x) + log(y))
+    let l = (self.log[(x - 1) as u64] as u16) + (self.log[(y - 1) as u64] as u16);
+    self.exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
 }
 
-public(package) fun div(x: u8, y: u8): u8 {
-    assert!(y != 0, EDivideByZero);
-    mul(x, exp(MULTIPLICATIVE_GROUP_SIZE - log(y)))
-}
-
-/// Return copies of the exp and log tables. Indexing a `const vector` materializes the entire
-/// constant on every access, so callers performing many field operations should fetch the tables
-/// once with this function and use the `*_t` operations below, which index the (borrowed) tables
-/// instead of re-materializing the constants.
-#[allow(implicit_const_copy)]
-public(package) fun tables(): (vector<u8>, vector<u8>) {
-    (EXP, LOG)
-}
-
-/// Multiply using preloaded tables. `exp` and `log` must be the vectors returned by `tables()`.
-public(package) fun mul_t(exp: &vector<u8>, log: &vector<u8>, x: u8, y: u8): u8 {
-    if (x == 0 || y == 0) {
-        return 0
-    };
-    let l = (log[(x - 1) as u64] as u16) + (log[(y - 1) as u64] as u16);
-    exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
-}
-
-/// Divide using preloaded tables. `exp` and `log` must be the vectors returned by `tables()`.
-public(package) fun div_t(exp: &vector<u8>, log: &vector<u8>, x: u8, y: u8): u8 {
+public(package) fun div(self: &GF256, x: u8, y: u8): u8 {
     assert!(y != 0, EDivideByZero);
     if (x == 0) {
         return 0
     };
     // x / y = g^(log(x) - log(y)). Add the group size before subtracting to stay non-negative.
     let l =
-        (log[(x - 1) as u64] as u16) + MULTIPLICATIVE_GROUP_SIZE - (log[(y - 1) as u64] as u16);
-    exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
+        (self.log[(x - 1) as u64] as u16) + MULTIPLICATIVE_GROUP_SIZE -
+            (self.log[(y - 1) as u64] as u16);
+    self.exp[(l % MULTIPLICATIVE_GROUP_SIZE) as u64]
 }
 
 #[test]
 fun test_field_ops() {
     // Test vector, partly from https://en.wikipedia.org/wiki/Finite_field_arithmetic#Rijndael's_(AES)_finite_field
+    let g = new();
     let a = 0x53;
     let b = 0xca;
     assert_eq!(add(a, b), 0x99);
     assert_eq!(sub(a, b), 0x99);
-    assert_eq!(mul(a, b), 0x01);
-    assert_eq!(div(a, b), 0xb5);
+    assert_eq!(g.mul(a, b), 0x01);
+    assert_eq!(g.div(a, b), 0xb5);
 }
 
 #[test]
-fun test_table_ops_match() {
-    // The table-based operations must agree with the constant-based ones. Sweep x over the whole
-    // field against a set of y values that includes the edge cases (0, 1) and a spread of others;
-    // a full 256x256 sweep exceeds the unit-test gas budget.
-    let (exp, log) = tables();
-    let ys = vector[0u8, 1, 2, 3, 0x53, 0xca, 0xfe, 0xff];
+fun test_field_axioms() {
+    // Self-consistency over the whole field: division inverts multiplication, and every nonzero
+    // element has a multiplicative inverse.
+    let g = new();
+    let ys = vector[1u8, 2, 3, 0x53, 0xca, 0xfe, 0xff];
     256u64.do!(|xi| {
         let x = xi as u8;
         ys.do!(|y| {
-            assert_eq!(mul_t(&exp, &log, x, y), mul(x, y));
-            if (y != 0) {
-                assert_eq!(div_t(&exp, &log, x, y), div(x, y));
+            assert_eq!(g.div(g.mul(x, y), y), x);
+            if (x != 0) {
+                assert_eq!(g.mul(x, g.div(1, x)), 1);
             };
         });
     });
