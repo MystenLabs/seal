@@ -3,7 +3,7 @@
 
 var KAPA_ATTRS = {
   src: "https://widget.kapa.ai/kapa-widget.bundle.js",
-  "data-website-id": "91d6cd50-0276-4125-b8c1-3fe897e8fe47",
+  "data-website-id": "7438bf10-b3e3-4208-9f2e-4b87cda6e3ca",
   "data-project-name": "Seal Knowledge",
   "data-project-color": "#92a4ff",
   "data-button-hide": "true",
