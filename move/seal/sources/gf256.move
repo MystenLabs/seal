@@ -56,7 +56,7 @@ const LOG: vector<u8> = vector[
 
 /// The Galois field GF(2^8). Constructing an instance (with `new`) has a cost, so reuse a single
 /// one across many field operations rather than creating one per call.
-public struct GF256 has copy, drop {
+public struct GF256 has drop {
     exp_table: vector<u8>,
     log_table: vector<u8>,
 }
@@ -96,7 +96,6 @@ public(package) fun div(self: &GF256, x: u8, y: u8): u8 {
     if (x == 0) {
         return 0
     };
-    // x / y = g^(log(x) - log(y)). Add the group size before subtracting to stay non-negative.
     self.exp(self.log(x) + MULTIPLICATIVE_GROUP_SIZE - self.log(y))
 }
 
