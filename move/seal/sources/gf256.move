@@ -93,7 +93,11 @@ public(package) fun mul(self: &GF256, x: u8, y: u8): u8 {
 
 public(package) fun div(self: &GF256, x: u8, y: u8): u8 {
     assert!(y != 0, EDivideByZero);
-    self.mul(x, self.exp(MULTIPLICATIVE_GROUP_SIZE - self.log(y)))
+    if (x == 0) {
+        return 0
+    };
+    // x / y = g^(log(x) - log(y)). Add the group size before subtracting to stay non-negative.
+    self.exp(self.log(x) + MULTIPLICATIVE_GROUP_SIZE - self.log(y))
 }
 
 #[test]
