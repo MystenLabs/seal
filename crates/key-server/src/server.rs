@@ -30,7 +30,7 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use key_server::sui_rpc_client::SuiRpcClient;
+use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use key_server_options::KeyServerOptions;
 use master_keys::{CommitteeKeyState, MasterKeys};
 use metrics::metrics_middleware;
@@ -52,7 +52,6 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_sdk::rpc_types::EventFilter;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
@@ -212,7 +211,7 @@ impl Server {
                 .expect(
                     "SuiClientBuilder should not failed unless provided with invalid network url",
                 ),
-            SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
+            build_grpc_client(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics
                 .as_ref()

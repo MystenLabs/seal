@@ -19,6 +19,7 @@ pub use seal_committee::{RpcError, RpcResult};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
+use sui_rpc::client::HeadersInterceptor;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
     GetEpochRequest, GetObjectRequest, SimulateTransactionRequest, SimulateTransactionResponse,
@@ -68,6 +69,34 @@ impl Default for RpcConfig {
             timeout: Duration::from_secs(60),
             retry_config: RetryConfig::default(),
         }
+    }
+}
+
+/// Environment variable holding the name of the RPC API key header.
+const ENV_RPC_API_NAME: &str = "RPC_API_NAME";
+/// Environment variable holding the value of the RPC API key.
+const ENV_RPC_API_KEY: &str = "RPC_API_KEY";
+
+/// Build a Sui gRPC client for the given node URL. If `RPC_API_NAME` and `RPC_API_KEY`
+/// are present as env var, use them for all grpc calls.
+pub fn build_grpc_client(node_url: &str) -> RpcResult<SuiGrpcClient> {
+    let client = SuiGrpcClient::new(node_url)
+        .map_err(|e| RpcError::new(&format!("Failed to create SuiGrpcClient: {e}")))?;
+    match (
+        std::env::var(ENV_RPC_API_NAME).ok(),
+        std::env::var(ENV_RPC_API_KEY).ok(),
+    ) {
+        (Some(name), Some(key)) if !name.is_empty() && !key.is_empty() => {
+            let mut interceptor = HeadersInterceptor::new();
+            let mut value = tonic::metadata::MetadataValue::try_from(key.as_str())
+                .map_err(|e| RpcError::new(&format!("Invalid RPC_API_KEY value: {e}")))?;
+            value.set_sensitive(true);
+            let metadata_key = tonic::metadata::MetadataKey::from_bytes(name.as_bytes())
+                .map_err(|e| RpcError::new(&format!("Invalid RPC_API_NAME header: {e}")))?;
+            interceptor.headers_mut().insert(metadata_key, value);
+            Ok(client.with_headers(interceptor))
+        }
+        _ => Ok(client),
     }
 }
 
