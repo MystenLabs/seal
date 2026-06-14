@@ -203,14 +203,26 @@ impl Server {
     }
 
     async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
-        let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .request_timeout(options.rpc_config.timeout)
-                .build(&options.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+        // The legacy JSON-RPC client is only used by the event monitors, only
+        // initialize it when event monitoring is enabled.
+        let sui_client = if options.enable_event_monitoring {
+            info!("Event monitoring enabled; initializing legacy Sui JSON-RPC client");
+            Some(
+                SuiClientBuilder::default()
+                    .request_timeout(options.rpc_config.timeout)
+                    .build(&options.node_url())
+                    .await
+                    .expect(
+                        "Failed to initialize legacy Sui JSON-RPC client required for event monitoring",
+                    ),
+            )
+        } else {
+            info!("Event monitoring disabled; skipping legacy Sui JSON-RPC client initialization");
+            None
+        };
+
+        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+            sui_client,
             build_grpc_client(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics
@@ -772,7 +784,7 @@ impl Server {
             key_server_obj_id
         );
 
-        let sui_client = self.sui_rpc_client.sui_client().clone();
+        let sui_client = self.sui_rpc_client.sui_client();
         let sui_rpc_client = self.sui_rpc_client.clone();
 
         // Spawn the background task to poll for events.

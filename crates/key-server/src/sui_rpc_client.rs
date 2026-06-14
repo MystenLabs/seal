@@ -73,26 +73,28 @@ impl Default for RpcConfig {
 }
 
 /// Environment variable holding the name of the RPC API key header.
-const ENV_RPC_API_NAME: &str = "RPC_API_NAME";
+const ENV_FULL_NODE_RPC_API_NAME: &str = "FULL_NODE_RPC_API_NAME";
 /// Environment variable holding the value of the RPC API key.
-const ENV_RPC_API_KEY: &str = "RPC_API_KEY";
+const ENV_FULL_NODE_RPC_API_KEY: &str = "FULL_NODE_RPC_API_KEY";
 
-/// Build a Sui gRPC client for the given node URL. If `RPC_API_NAME` and `RPC_API_KEY`
+/// Build a Sui gRPC client for the given node URL. If `FULL_NODE_RPC_API_NAME` and `FULL_NODE_RPC_API_KEY`
 /// are present as env var, use them for all grpc calls.
 pub fn build_grpc_client(node_url: &str) -> RpcResult<SuiGrpcClient> {
     let client = SuiGrpcClient::new(node_url)
         .map_err(|e| RpcError::new(&format!("Failed to create SuiGrpcClient: {e}")))?;
     match (
-        std::env::var(ENV_RPC_API_NAME).ok(),
-        std::env::var(ENV_RPC_API_KEY).ok(),
+        std::env::var(ENV_FULL_NODE_RPC_API_NAME).ok(),
+        std::env::var(ENV_FULL_NODE_RPC_API_KEY).ok(),
     ) {
         (Some(name), Some(key)) if !name.is_empty() && !key.is_empty() => {
             let mut interceptor = HeadersInterceptor::new();
             let mut value = tonic::metadata::MetadataValue::try_from(key.as_str())
-                .map_err(|e| RpcError::new(&format!("Invalid RPC_API_KEY value: {e}")))?;
+                .map_err(|e| RpcError::new(&format!("Invalid FULL_NODE_RPC_API_KEY value: {e}")))?;
             value.set_sensitive(true);
-            let metadata_key = tonic::metadata::MetadataKey::from_bytes(name.as_bytes())
-                .map_err(|e| RpcError::new(&format!("Invalid RPC_API_NAME header: {e}")))?;
+            let metadata_key =
+                tonic::metadata::MetadataKey::from_bytes(name.as_bytes()).map_err(|e| {
+                    RpcError::new(&format!("Invalid FULL_NODE_RPC_API_NAME header: {e}"))
+                })?;
             interceptor.headers_mut().insert(metadata_key, value);
             Ok(client.with_headers(interceptor))
         }
@@ -226,7 +228,8 @@ fn strip_transaction(transaction: &mut Transaction) {
 /// Client for interacting with the Sui RPC API.
 #[derive(Clone)]
 pub struct SuiRpcClient {
-    sui_client: SuiClient,
+    /// Legacy JSON-RPC client. Only constructed when event monitoring is enabled.
+    sui_client: Option<SuiClient>,
     sui_grpc_client: SuiGrpcClient,
     rpc_retry_config: RetryConfig,
     request_duration_millis: Option<HistogramVec>,
@@ -239,6 +242,20 @@ impl SuiRpcClient {
         rpc_retry_config: RetryConfig,
         request_duration_millis: Option<HistogramVec>,
     ) -> Self {
+        Self::new_with_optional_sui_client(
+            Some(sui_client),
+            sui_grpc_client,
+            rpc_retry_config,
+            request_duration_millis,
+        )
+    }
+
+    pub fn new_with_optional_sui_client(
+        sui_client: Option<SuiClient>,
+        sui_grpc_client: SuiGrpcClient,
+        rpc_retry_config: RetryConfig,
+        request_duration_millis: Option<HistogramVec>,
+    ) -> Self {
         Self {
             sui_client,
             sui_grpc_client,
@@ -247,9 +264,11 @@ impl SuiRpcClient {
         }
     }
 
-    /// Returns a clone of the underlying Sui client.
+    /// Returns a clone of the underlying legacy JSON-RPC client, must be present.
     pub fn sui_client(&self) -> SuiClient {
-        self.sui_client.clone()
+        self.sui_client.clone().expect(
+            "Legacy Sui JSON-RPC client must be initialized when event monitoring is enabled",
+        )
     }
 
     /// Returns a reference to the underlying gRPC client.
