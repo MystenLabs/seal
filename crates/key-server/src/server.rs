@@ -30,7 +30,7 @@ use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
-use key_server::sui_rpc_client::SuiRpcClient;
+use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use key_server_options::KeyServerOptions;
 use master_keys::{CommitteeKeyState, MasterKeys};
 use metrics::metrics_middleware;
@@ -52,7 +52,6 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_sdk::rpc_types::EventFilter;
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
@@ -204,15 +203,27 @@ impl Server {
     }
 
     async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
-        let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .request_timeout(options.rpc_config.timeout)
-                .build(&options.node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
-            SuiGrpcClient::new(options.node_url()).expect("Failed to create SuiGrpcClient"),
+        // The legacy JSON-RPC client is only used by the event monitors, only
+        // initialize it when event monitoring is enabled.
+        let sui_client = if options.enable_event_monitoring {
+            info!("Event monitoring enabled; initializing legacy Sui JSON-RPC client");
+            Some(
+                SuiClientBuilder::default()
+                    .request_timeout(options.rpc_config.timeout)
+                    .build(&options.node_url())
+                    .await
+                    .expect(
+                        "Failed to initialize legacy Sui JSON-RPC client required for event monitoring",
+                    ),
+            )
+        } else {
+            info!("Event monitoring disabled; skipping legacy Sui JSON-RPC client initialization");
+            None
+        };
+
+        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+            sui_client,
+            build_grpc_client(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics
                 .as_ref()
@@ -773,7 +784,7 @@ impl Server {
             key_server_obj_id
         );
 
-        let sui_client = self.sui_rpc_client.sui_client().clone();
+        let sui_client = self.sui_rpc_client.sui_client();
         let sui_rpc_client = self.sui_rpc_client.clone();
 
         // Spawn the background task to poll for events.
