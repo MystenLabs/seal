@@ -54,15 +54,26 @@ const LOG: vector<u8> = vector[
     0x4a, 0xed, 0xde, 0xc5, 0x31, 0xfe, 0x18, 0x0d, 0x63, 0x8c, 0x80, 0xc0, 0xf7, 0x70, 0x07,
 ];
 
-#[allow(implicit_const_copy)]
-fun log(x: u8): u16 {
-    assert!(x != 0, ELogOfZero);
-    LOG[(x - 1) as u64] as u16
+/// The Galois field GF(2^8). Constructing an instance (with `new`) has a cost, so reuse a single
+/// one across many field operations rather than creating one per call.
+public struct GF256 has drop {
+    exp_table: vector<u8>,
+    log_table: vector<u8>,
 }
 
+/// Construct an instance of the field.
 #[allow(implicit_const_copy)]
-fun exp(x: u16): u8 {
-    EXP[(x % MULTIPLICATIVE_GROUP_SIZE) as u64]
+public(package) fun new(): GF256 {
+    GF256 { exp_table: EXP, log_table: LOG }
+}
+
+fun log(self: &GF256, x: u8): u16 {
+    assert!(x != 0, ELogOfZero);
+    self.log_table[(x - 1) as u64] as u16
+}
+
+fun exp(self: &GF256, x: u16): u8 {
+    self.exp_table[(x % MULTIPLICATIVE_GROUP_SIZE) as u64]
 }
 
 public(package) fun add(x: u8, y: u8): u8 {
@@ -73,25 +84,29 @@ public(package) fun sub(x: u8, y: u8): u8 {
     add(x, y)
 }
 
-public(package) fun mul(x: u8, y: u8): u8 {
+public(package) fun mul(self: &GF256, x: u8, y: u8): u8 {
     if (x == 0 || y == 0) {
         return 0
     };
-    exp(log(x) + log(y))
+    self.exp(self.log(x) + self.log(y))
 }
 
-public(package) fun div(x: u8, y: u8): u8 {
+public(package) fun div(self: &GF256, x: u8, y: u8): u8 {
     assert!(y != 0, EDivideByZero);
-    mul(x, exp(MULTIPLICATIVE_GROUP_SIZE - log(y)))
+    if (x == 0) {
+        return 0
+    };
+    self.exp(self.log(x) + MULTIPLICATIVE_GROUP_SIZE - self.log(y))
 }
 
 #[test]
 fun test_field_ops() {
     // Test vector, partly from https://en.wikipedia.org/wiki/Finite_field_arithmetic#Rijndael's_(AES)_finite_field
+    let g = new();
     let a = 0x53;
     let b = 0xca;
     assert_eq!(add(a, b), 0x99);
     assert_eq!(sub(a, b), 0x99);
-    assert_eq!(mul(a, b), 0x01);
-    assert_eq!(div(a, b), 0xb5);
+    assert_eq!(g.mul(a, b), 0x01);
+    assert_eq!(g.div(a, b), 0xb5);
 }
