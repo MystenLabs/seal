@@ -5,8 +5,8 @@ use axum::{extract::State, middleware};
 use prometheus::{
     register_histogram_vec_with_registry, register_histogram_with_registry,
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
-    register_int_gauge_vec_with_registry, Histogram, HistogramVec, IntCounter, IntCounterVec,
-    IntGaugeVec, Registry,
+    register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Histogram,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Registry,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -76,6 +76,12 @@ pub struct KeyServerMetrics {
 
     /// Total number of requests failed due to stale FN
     pub requests_failed_due_to_staleness: IntCounter,
+
+    /// Total number of requests failed due to a stale key server
+    pub requests_failed_due_to_key_server_staleness: IntCounter,
+
+    /// Whether the key server's clock was last observed to be stale (1) or fresh (0) relative to the chain.
+    pub key_server_stale: IntGauge,
 
     /// The current key server version
     pub key_server_version: IntCounterVec,
@@ -182,6 +188,18 @@ impl KeyServerMetrics {
             requests_failed_due_to_staleness: register_int_counter_with_registry!(
                 "requests_failed_due_to_staleness",
                 "Total number of requests that failed due to a stale fullnode",
+                registry
+            )
+            .unwrap(),
+            requests_failed_due_to_key_server_staleness: register_int_counter_with_registry!(
+                "requests_failed_due_to_key_server_staleness",
+                "Total number of requests that failed due to a stale key server",
+                registry
+            )
+            .unwrap(),
+            key_server_stale: register_int_gauge_with_registry!(
+                "key_server_stale",
+                "Whether the key server's clock was last observed to be stale (1) or fresh (0) relative to the chain",
                 registry
             )
             .unwrap(),

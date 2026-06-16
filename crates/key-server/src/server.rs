@@ -93,6 +93,8 @@ mod seal_package;
 pub mod tests;
 mod time;
 
+use seal_package::Staleness;
+
 const GAS_BUDGET: u64 = 500_000_000;
 const GIT_VERSION: &str = crate::git_version!();
 const DEFAULT_PORT: u16 = 2024;
@@ -469,17 +471,35 @@ impl Server {
         }
 
         // Check if the staleness check failed
-        if self
+        if let Some(staleness) = self
             .options
             .network
             .seal_package()
-            .is_staleness_error(&simulate_res)
+            .staleness_error(&simulate_res)
         {
-            debug!("Fullnode is stale (req_id: {:?})", req_id);
+            let message = match staleness {
+                Staleness::Fullnode => "Fullnode is stale",
+                Staleness::KeyServer => "Key server is stale",
+            };
+            debug!("{} (req_id: {:?})", message, req_id);
             if let Some(m) = metrics {
-                m.requests_failed_due_to_staleness.inc()
+                match staleness {
+                    Staleness::Fullnode => {
+                        m.requests_failed_due_to_staleness.inc();
+                        // A stale fullnode means the key server's clock is ahead, i.e. not stale.
+                        m.key_server_stale.set(0);
+                    }
+                    Staleness::KeyServer => {
+                        m.requests_failed_due_to_key_server_staleness.inc();
+                        m.key_server_stale.set(1);
+                    }
+                }
             }
-            return Err(InternalError::Failure("Fullnode is stale".to_string()));
+            return Err(InternalError::Failure(message.to_string()));
+        }
+
+        if let Some(m) = metrics {
+            m.key_server_stale.set(0);
         }
 
         // Handle errors in the simulation
