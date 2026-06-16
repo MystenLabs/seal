@@ -77,6 +77,9 @@ pub struct KeyServerMetrics {
     /// Total number of requests failed due to stale FN
     pub requests_failed_due_to_staleness: IntCounter,
 
+    /// Total number of requests failed due to a stale key server
+    pub requests_failed_due_to_key_server_staleness: IntCounter,
+
     /// The current key server version
     pub key_server_version: IntCounterVec,
 
@@ -182,6 +185,12 @@ impl KeyServerMetrics {
             requests_failed_due_to_staleness: register_int_counter_with_registry!(
                 "requests_failed_due_to_staleness",
                 "Total number of requests that failed due to a stale fullnode",
+                registry
+            )
+            .unwrap(),
+            requests_failed_due_to_key_server_staleness: register_int_counter_with_registry!(
+                "requests_failed_due_to_key_server_staleness",
+                "Total number of requests that failed due to a stale key server",
                 registry
             )
             .unwrap(),

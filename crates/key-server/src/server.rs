@@ -92,6 +92,8 @@ mod seal_package;
 pub mod tests;
 mod time;
 
+use seal_package::Staleness;
+
 const MAX_COMPUTATION_UNITS: u64 = 55_000; // 50K tier + 10% extra buffer
 const EVENT_MONITOR_RETRY_DELAY: Duration = Duration::from_secs(30);
 const GIT_VERSION: &str = crate::git_version!();
@@ -531,17 +533,24 @@ impl Server {
         }
 
         // Check if the staleness check failed
-        if self
+        if let Some(staleness) = self
             .options
             .network
             .seal_package()
-            .is_staleness_error(&simulate_res)
+            .staleness_error(&simulate_res)
         {
-            debug!("Fullnode is stale (req_id: {:?})", req_id);
+            let message = match staleness {
+                Staleness::Fullnode => "Fullnode is stale",
+                Staleness::KeyServer => "Key server is stale",
+            };
+            debug!("{} (req_id: {:?})", message, req_id);
             if let Some(m) = metrics {
-                m.requests_failed_due_to_staleness.inc()
+                match staleness {
+                    Staleness::Fullnode => m.requests_failed_due_to_staleness.inc(),
+                    Staleness::KeyServer => m.requests_failed_due_to_key_server_staleness.inc(),
+                }
             }
-            return Err(InternalError::Failure("Fullnode is stale".to_string()));
+            return Err(InternalError::Failure(message.to_string()));
         }
 
         // Handle errors in the simulation
