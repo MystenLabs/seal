@@ -39,6 +39,11 @@ pnpm test --network mainnet \
 pnpm test --network testnet \
   --servers '[{"objectId":"0x8a0e2e09a4c5255336d234b11014642b350634f07d07df6fc4c17bf07430c872","aggregatorUrl":"https://aggregator.example.com"}]'
 
+# Mainnet decentralized committee (5 out of 8 threshold). Mainnet requires API credentials (request via Enoki).
+pnpm test --network mainnet \
+  --servers '[{"objectId":"0x686098f1439237fff9f36b99c7329683c22979d2005c2465cb891acb012a7595","aggregatorUrl":"https://seal-aggregator-mainnet.mystenlabs.com","apiKeyName":"apiKeyName","apiKey":"apiKeyValue"}]' \
+  --threshold 5
+
 # Committee and independent server.
 pnpm test --network mainnet \
   --servers '[{"objectId":"0xcommitteeId","aggregatorUrl":"https://aggregator.example.com","apiKeyName":"apiKeyName","apiKey":"apiKeyValue"}, {"objectId":"0xindependentServer"}]'

@@ -297,7 +297,8 @@ b. Create a `key-server-config.yaml` file with your address (`MY_ADDRESS`) and t
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -327,20 +328,22 @@ curl -H "<YOUR_API_KEY_NAME>:<YOUR_API_KEY>" \
 
 Send the coordinator the full curl request and response (which include your API key name and key). The coordinator uses these to verify your partial public key against the onchain value and to configure the aggregator.
 
-8. **Enable metrics push (Optional)**
+8. **Backup and clean up local DKG state**
+
+a. Back up the wallet you used, since it is needed for committee rotation in the future.
+
+b. Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
+```bash
+rm -rf dkg-state
+```
+
+9. **Enable metrics push (Optional)**
 
 If a metrics collector is configured, wait for the coordinator to share a `metrics_push_config` block containing a `bearer_token` and `push_url`. Add it to your `key-server-config.yaml` and restart your server to begin pushing metrics:
 ```yaml
 metrics_push_config:
   bearer_token: '<BEARER_TOKEN>'
   push_url: '<PUSH_URL>'
-```
-
-9. **Backup and clean up local DKG state**
-
-Once your key server is running successfully, back up the `MASTER_SHARE_V0` value. Then you can safely delete the local DKG state directory:
-```bash
-rm -rf dkg-state
 ```
 
 ## Key rotation process
@@ -555,7 +558,8 @@ a. Update `key-server-config.yaml`
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -575,7 +579,8 @@ c. Wait for the coordinator to confirm that rotation is complete. Then update th
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
@@ -594,7 +599,8 @@ a. Create `key-server-config.yaml`. Since `X+1` is your first committee version,
 
 Example config file:
 ```yaml
-network: Testnet
+network: Testnet # or Mainnet
+# node_url: https://your-custom-rpc.example.com # Uncomment to use your own full node; defaults to the public node for the network if omitted
 server_mode: !Committee
   member_address: '<MY_ADDRESS>'
   key_server_obj_id: '<KEY_SERVER_OBJ_ID>'
