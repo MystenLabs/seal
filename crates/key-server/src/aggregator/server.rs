@@ -817,11 +817,6 @@ async fn monitor_members_update(state: AppState) {
                 .collect()
         };
 
-        info!(
-            "Fetched updated committee: {} members, current: {} members",
-            member_count,
-            current_names.len()
-        );
         for member in &committee.members {
             if !current_names.contains(&member.name)
                 && !state.options.api_credentials.contains_key(&member.name)
