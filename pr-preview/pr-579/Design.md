@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://seal-docs.wal.app/llms.txt)
 
-> For a comprehensive technical analysis and formal security proofs, see the [Seal Whitepaper](./Seal_White_Paper_v1.pdf).
+> For a comprehensive technical analysis and formal security proofs, see the [Seal Whitepaper](./Seal_White_Paper_v2.pdf). The latest version (v2) incorporates the design and analysis of MPC committees for the decentralized mode key server. 
 
 ## Overview
 
