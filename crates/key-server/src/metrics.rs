@@ -167,7 +167,7 @@ impl KeyServerMetrics {
                 "sui_rpc_request_duration_millis",
                 "Sui RPC request duration and status in milliseconds",
                 &["method", "status"],
-                default_fast_call_duration_buckets(),
+                default_network_call_duration_buckets(),
                 registry
             )
             .unwrap(),
@@ -258,6 +258,13 @@ fn buckets(start: f64, end: f64, step: f64) -> Vec<f64> {
 
 fn default_fast_call_duration_buckets() -> Vec<f64> {
     buckets(10.0, 100.0, 10.0)
+}
+
+/// Buckets for network-bound calls (Sui RPC, upstream key server fetches).
+fn default_network_call_duration_buckets() -> Vec<f64> {
+    vec![
+        100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 8000.0,
+    ]
 }
 
 /// Collector that tracks the uptime of the server.
@@ -373,7 +380,7 @@ impl AggregatorMetrics {
                 "key_server_fetch_duration_millis",
                 "Upstream key server fetch latency in milliseconds by server name",
                 &["key_server_name"],
-                default_fast_call_duration_buckets(),
+                default_network_call_duration_buckets(),
                 registry
             )
             .unwrap(),
@@ -388,7 +395,7 @@ impl AggregatorMetrics {
                 "sui_rpc_request_duration_millis",
                 "Sui RPC request duration and status in milliseconds",
                 &["method", "status"],
-                default_fast_call_duration_buckets(),
+                default_network_call_duration_buckets(),
                 registry
             )
             .unwrap(),
