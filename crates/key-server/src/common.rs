@@ -93,8 +93,14 @@ pub const SDK_TYPE_PYTHON: &str = "python";
 
 /// Normalize a client SDK version string into a bounded metric label.
 pub fn normalize_sdk_version_label(version_str: &str) -> String {
+    const MAX_VERSION_COMPONENT: u64 = 20;
     match semver::Version::parse(version_str) {
-        Ok(v) => format!("{}.{}.{}", v.major, v.minor, v.patch),
+        Ok(v) => format!(
+            "{}.{}.{}",
+            v.major.min(MAX_VERSION_COMPONENT),
+            v.minor.min(MAX_VERSION_COMPONENT),
+            v.patch.min(MAX_VERSION_COMPONENT)
+        ),
         Err(_) => "other".to_string(),
     }
 }
