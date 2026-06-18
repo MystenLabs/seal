@@ -20,9 +20,9 @@ use key_server::aggregator::utils::{
     aggregate_verified_encrypted_responses, get_expected_full_ids, verify_decryption_keys,
 };
 use key_server::common::{
-    add_response_headers, ClientSdkType, Network, NetworkConfig, HEADER_CLIENT_SDK_TYPE,
-    HEADER_CLIENT_SDK_VERSION, HEADER_KEYSERVER_GIT_VERSION, HEADER_KEYSERVER_VERSION,
-    SDK_TYPE_AGGREGATOR,
+    add_response_headers, normalize_sdk_version_label, ClientSdkType, Network, NetworkConfig,
+    HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION, HEADER_KEYSERVER_GIT_VERSION,
+    HEADER_KEYSERVER_VERSION, SDK_TYPE_AGGREGATOR,
 };
 use key_server::errors::InternalError::{
     DeprecatedSDKVersion, InvalidSDKType, InvalidSDKVersion, MissingRequiredHeader,
@@ -69,6 +69,11 @@ fn default_rust_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.0.0").expect("Failed to parse default Rust SDK version requirement")
 }
 
+/// Default Python SDK version requirement.
+fn default_python_sdk_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.0.0").expect("Failed to parse default Python SDK version requirement")
+}
+
 /// Default key server version requirement.
 fn default_key_server_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.6.2").expect("Failed to parse default key server version requirement")
@@ -104,6 +109,10 @@ struct AggregatorOptions {
     /// The minimum version of the Rust SDK that is required to use this aggregator.
     #[serde(default = "default_rust_sdk_version_requirement")]
     rust_sdk_version_requirement: VersionReq,
+
+    /// The minimum version of the Python SDK that is required to use this aggregator.
+    #[serde(default = "default_python_sdk_version_requirement")]
+    python_sdk_version_requirement: VersionReq,
 
     /// The minimum version of the key server that is required by this aggregator.
     #[serde(default = "default_key_server_version_requirement")]
@@ -158,6 +167,7 @@ fn validate_client_sdk_version(
     sdk_type: ClientSdkType,
     ts_requirement: &VersionReq,
     rust_requirement: &VersionReq,
+    python_requirement: &VersionReq,
 ) -> Result<(), InternalError> {
     let version = Version::parse(version).map_err(|_| InvalidSDKVersion)?;
     match sdk_type {
@@ -168,6 +178,11 @@ fn validate_client_sdk_version(
         }
         ClientSdkType::Rust => {
             if !rust_requirement.matches(&version) {
+                return Err(DeprecatedSDKVersion);
+            }
+        }
+        ClientSdkType::Python => {
+            if !python_requirement.matches(&version) {
                 return Err(DeprecatedSDKVersion);
             }
         }
@@ -183,6 +198,7 @@ fn validate_client_sdk_headers<'a>(
     headers: &'a HeaderMap,
     ts_requirement: &VersionReq,
     rust_requirement: &VersionReq,
+    python_requirement: &VersionReq,
 ) -> Result<(ClientSdkType, &'a str), InternalError> {
     let sdk_type_header = headers.get(HEADER_CLIENT_SDK_TYPE).ok_or(InvalidSDKType)?;
     let sdk_type =
@@ -193,7 +209,13 @@ fn validate_client_sdk_headers<'a>(
         .to_str()
         .map_err(|_| InvalidSDKVersion)?;
 
-    validate_client_sdk_version(version_str, sdk_type, ts_requirement, rust_requirement)?;
+    validate_client_sdk_version(
+        version_str,
+        sdk_type,
+        ts_requirement,
+        rust_requirement,
+        python_requirement,
+    )?;
 
     Ok((sdk_type, version_str))
 }
@@ -321,6 +343,7 @@ async fn handle_fetch_key(
         &headers,
         &state.options.ts_sdk_version_requirement,
         &state.options.rust_sdk_version_requirement,
+        &state.options.python_sdk_version_requirement,
     )
     .map_err(|e| {
         debug!(
@@ -338,7 +361,7 @@ async fn handle_fetch_key(
     state
         .aggregator_metrics
         .client_sdk_version
-        .with_label_values(&[sdk_type.as_str(), version_str])
+        .with_label_values(&[sdk_type.as_str(), &normalize_sdk_version_label(version_str)])
         .inc();
 
     // Log incoming request with structured data
@@ -963,6 +986,7 @@ mod tests {
             key_server_object_id: Address::from([0u8; 32]),
             ts_sdk_version_requirement: VersionReq::parse(">=0.9.0").unwrap(),
             rust_sdk_version_requirement: VersionReq::parse(">=0.0.0").unwrap(),
+            python_sdk_version_requirement: VersionReq::parse(">=0.0.0").unwrap(),
             key_server_version_requirement: VersionReq::parse(">=0.5.14").unwrap(),
             key_server_timeout_secs: 8,
             api_credentials,
@@ -1002,6 +1026,7 @@ mod tests {
     fn test_client_sdk_version_validation_matrix() {
         let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
         let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+        let python_requirement = VersionReq::parse("=0.0.0").unwrap();
 
         assert_eq!(
             validate_client_sdk_version(
@@ -1009,6 +1034,7 @@ mod tests {
                 ClientSdkType::TypeScript,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Ok(())
         );
@@ -1018,6 +1044,7 @@ mod tests {
                 ClientSdkType::TypeScript,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Err(DeprecatedSDKVersion)
         );
@@ -1027,6 +1054,7 @@ mod tests {
                 ClientSdkType::Rust,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Ok(())
         );
@@ -1036,6 +1064,7 @@ mod tests {
                 ClientSdkType::Rust,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Err(DeprecatedSDKVersion)
         );
@@ -1045,6 +1074,7 @@ mod tests {
                 ClientSdkType::Aggregator,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Err(InvalidSDKType)
         );
@@ -1054,6 +1084,7 @@ mod tests {
                 ClientSdkType::Other,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Err(InvalidSDKType)
         );
@@ -1063,6 +1094,7 @@ mod tests {
                 ClientSdkType::TypeScript,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             ),
             Err(InvalidSDKVersion)
         );
@@ -1072,34 +1104,42 @@ mod tests {
     fn test_client_sdk_header_error_matrix() {
         let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
         let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+        let python_requirement = VersionReq::parse(">=0.0.0").unwrap();
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "aggregator".parse().unwrap());
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
         assert_eq!(
-            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
-            Err(InvalidSDKType)
-        );
-
-        let mut headers = HeaderMap::new();
-        headers.insert(HEADER_CLIENT_SDK_TYPE, "python".parse().unwrap());
-        headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
-        assert_eq!(
-            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            validate_client_sdk_headers(
+                &headers,
+                &ts_requirement,
+                &rust_requirement,
+                &python_requirement,
+            ),
             Err(InvalidSDKType)
         );
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_VERSION, "0.6.5".parse().unwrap());
         assert_eq!(
-            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            validate_client_sdk_headers(
+                &headers,
+                &ts_requirement,
+                &rust_requirement,
+                &python_requirement,
+            ),
             Err(InvalidSDKType)
         );
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_CLIENT_SDK_TYPE, "typescript".parse().unwrap());
         assert_eq!(
-            validate_client_sdk_headers(&headers, &ts_requirement, &rust_requirement),
+            validate_client_sdk_headers(
+                &headers,
+                &ts_requirement,
+                &rust_requirement,
+                &python_requirement,
+            ),
             Err(MissingRequiredHeader(HEADER_CLIENT_SDK_VERSION.to_string()))
         );
     }

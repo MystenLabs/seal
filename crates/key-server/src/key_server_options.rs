@@ -92,6 +92,10 @@ pub struct KeyServerOptions {
     #[serde(default = "default_rust_sdk_version_requirement")]
     pub rust_sdk_version_requirement: VersionReq,
 
+    /// The version of the Python SDK that is required to use this key server.
+    #[serde(default = "default_python_sdk_version_requirement")]
+    pub python_sdk_version_requirement: VersionReq,
+
     /// The minimum version of the aggregator that is required to use this key server.
     #[serde(default = "default_aggregator_version_requirement")]
     pub aggregator_version_requirement: VersionReq,
@@ -157,6 +161,7 @@ impl KeyServerOptions {
             ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             rust_sdk_version_requirement: default_rust_sdk_version_requirement(),
+            python_sdk_version_requirement: default_python_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id,
             },
@@ -178,6 +183,7 @@ impl KeyServerOptions {
             ts_sdk_version_requirement: default_ts_sdk_version_requirement(),
             aggregator_version_requirement: default_aggregator_version_requirement(),
             rust_sdk_version_requirement: default_rust_sdk_version_requirement(),
+            python_sdk_version_requirement: default_python_sdk_version_requirement(),
             server_mode: ServerMode::Open {
                 key_server_object_id: ObjectID::random(),
             },
@@ -317,6 +323,10 @@ fn default_aggregator_version_requirement() -> VersionReq {
 
 fn default_rust_sdk_version_requirement() -> VersionReq {
     VersionReq::parse(">=0.0.0").expect("Failed to parse default Rust SDK version requirement")
+}
+
+fn default_python_sdk_version_requirement() -> VersionReq {
+    VersionReq::parse(">=0.0.0").expect("Failed to parse default Python SDK version requirement")
 }
 #[test]
 fn test_parse_open_config() {

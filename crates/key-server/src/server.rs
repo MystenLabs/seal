@@ -19,7 +19,9 @@ use axum::middleware::{from_fn_with_state, map_response, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{extract::State, Json, Router};
-use common::{ClientSdkType, HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION};
+use common::{
+    normalize_sdk_version_label, ClientSdkType, HEADER_CLIENT_SDK_TYPE, HEADER_CLIENT_SDK_VERSION,
+};
 use core::time::Duration;
 use crypto::elgamal::encrypt;
 use crypto::ibe::create_proof_of_possession;
@@ -1114,6 +1116,7 @@ impl MyState {
             &self.server.options.aggregator_version_requirement,
             &self.server.options.ts_sdk_version_requirement,
             &self.server.options.rust_sdk_version_requirement,
+            &self.server.options.python_sdk_version_requirement,
         )
     }
 }
@@ -1124,6 +1127,7 @@ fn validate_sdk_version_for_type(
     aggregator_requirement: &VersionReq,
     ts_requirement: &VersionReq,
     rust_requirement: &VersionReq,
+    python_requirement: &VersionReq,
 ) -> Result<(), InternalError> {
     let version = Version::parse(version_string).map_err(|_| InvalidSDKVersion)?;
 
@@ -1131,6 +1135,7 @@ fn validate_sdk_version_for_type(
         ClientSdkType::Aggregator => aggregator_requirement,
         ClientSdkType::TypeScript => ts_requirement,
         ClientSdkType::Rust => rust_requirement,
+        ClientSdkType::Python => python_requirement,
         ClientSdkType::Other => return Ok(()), // Ignore if sdk type is unknown string or not provided
     };
 
@@ -1182,7 +1187,7 @@ async fn handle_request_headers(
     state
         .metrics
         .client_sdk_version
-        .with_label_values(&[sdk_type.as_str(), version_str])
+        .with_label_values(&[sdk_type.as_str(), &normalize_sdk_version_label(version_str)])
         .inc();
 
     Ok(next.run(request).await)
@@ -1429,6 +1434,7 @@ mod sdk_validation_tests {
         let aggregator_requirement = VersionReq::parse(">=3.0.0").unwrap();
         let ts_requirement = VersionReq::parse(">=1.2.3").unwrap();
         let rust_requirement = VersionReq::parse(">=2.0.0").unwrap();
+        let python_requirement = VersionReq::parse("=0.0.0").unwrap();
 
         let validate = |version, sdk_type| {
             validate_sdk_version_for_type(
@@ -1437,6 +1443,7 @@ mod sdk_validation_tests {
                 &aggregator_requirement,
                 &ts_requirement,
                 &rust_requirement,
+                &python_requirement,
             )
         };
 
