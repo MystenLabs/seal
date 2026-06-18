@@ -434,7 +434,6 @@ public fun parse_encrypted_object(object: vector<u8>): EncryptedObject {
     // MAC is 32 bytes.
     let mac = peel_tuple_u8(&mut bcs, 32);
 
-    // Ensure that the entire input was consumed, i.e. there are no trailing bytes.
     assert!(bcs.into_remainder_bytes().is_empty(), EInvalidEncryptedObject);
 
     EncryptedObject {
