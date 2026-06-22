@@ -93,7 +93,7 @@ mod seal_package;
 pub mod tests;
 mod time;
 
-const GAS_BUDGET: u64 = 500_000_000;
+const MAX_COMPUTATION_UNITS: u64 = 55_000; // 50K tier + 10% extra buffer
 const GIT_VERSION: &str = crate::git_version!();
 const DEFAULT_PORT: u16 = 2024;
 
@@ -423,11 +423,12 @@ impl Server {
             .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone())?;
 
         // Evaluate the `seal_approve*` function
+        let gas_budget = MAX_COMPUTATION_UNITS * gas_price;
         let tx_data = TransactionData::new_with_gas_coins(
             TransactionKind::ProgrammableTransaction(ptb),
             sender,
             vec![], // Empty gas payment for dry run
-            GAS_BUDGET,
+            gas_budget,
             gas_price,
         );
         let simulate_res = self
