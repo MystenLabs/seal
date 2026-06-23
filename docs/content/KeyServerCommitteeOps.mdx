@@ -309,9 +309,13 @@ c. Start the key server, setting the config path and your master key share from 
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
 
-If your Sui RPC endpoint requires API key authentication (common for gRPC connections to hosted Sui RPC providers), set the `SUI_RPC_API_KEY` environment variable when starting the key server:
+For any `cargo run --bin key-server` command in this runbook, include the `FULL_NODE_RPC_API_NAME` and `FULL_NODE_RPC_API_KEY` environment variables only if your Sui fullnode requires authentication:
 ```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... SUI_RPC_API_KEY=<YOUR_SUI_RPC_API_KEY> cargo run --bin key-server
+FULL_NODE_RPC_API_NAME=<fullnode-api-key-name> \
+  FULL_NODE_RPC_API_KEY=<fullnode-api-key> \
+  CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_SHARE_V0=0x... \
+  cargo run --bin key-server
 ```
 
 For infrastructure and deployment recommendations, see [Infrastructure requirements](#infrastructure-requirements).
@@ -576,15 +580,6 @@ CONFIG_PATH=crates/key-server/key-server-config.yaml \
   cargo run --bin key-server
 ```
 
-If your Sui RPC endpoint requires API key authentication, include the `SUI_RPC_API_KEY` environment variable:
-```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml \
-  MASTER_SHARE_VX=<MASTER_SHARE_VX> \
-  MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1> \
-  SUI_RPC_API_KEY=<YOUR_SUI_RPC_API_KEY> \
-  cargo run --bin key-server
-```
-
 c. Wait for the coordinator to confirm that rotation is complete. Then update the config to **Active** mode and restart the server with only the new master share.
 
 Example config file:
@@ -619,14 +614,6 @@ b. Start the key server with the new master share `MASTER_SHARE_VX+1` that corre
 ```bash
 CONFIG_PATH=crates/key-server/key-server-config.yaml \
   MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1> \
-  cargo run --bin key-server
-```
-
-If your Sui RPC endpoint requires API key authentication, include the `SUI_RPC_API_KEY` environment variable:
-```bash
-CONFIG_PATH=crates/key-server/key-server-config.yaml \
-  MASTER_SHARE_VX+1=<MASTER_SHARE_VX+1> \
-  SUI_RPC_API_KEY=<YOUR_SUI_RPC_API_KEY> \
   cargo run --bin key-server
 ```
 
