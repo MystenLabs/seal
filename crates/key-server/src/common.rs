@@ -88,6 +88,23 @@ pub const SDK_TYPE_TYPESCRIPT: &str = "typescript";
 /// SDK type value for Rust clients.
 pub const SDK_TYPE_RUST: &str = "rust";
 
+/// SDK type value for Python clients.
+pub const SDK_TYPE_PYTHON: &str = "python";
+
+/// Normalize a client SDK version string into a bounded metric label.
+pub fn normalize_sdk_version_label(version_str: &str) -> String {
+    const MAX_VERSION_COMPONENT: u64 = 20;
+    match semver::Version::parse(version_str) {
+        Ok(v) => format!(
+            "{}.{}.{}",
+            v.major.min(MAX_VERSION_COMPONENT),
+            v.minor.min(MAX_VERSION_COMPONENT),
+            v.patch.min(MAX_VERSION_COMPONENT)
+        ),
+        Err(_) => "other".to_string(),
+    }
+}
+
 /// Get the git version.
 /// Based on https://github.com/MystenLabs/walrus/blob/7e282a681e6530ae4073210b33cac915fab439fa/crates/walrus-service/src/common/utils.rs#L69
 #[macro_export]
@@ -119,6 +136,7 @@ pub enum ClientSdkType {
     Aggregator,
     TypeScript,
     Rust,
+    Python,
     Other,
 }
 
@@ -128,6 +146,7 @@ impl ClientSdkType {
             Some(SDK_TYPE_AGGREGATOR) => Ok(ClientSdkType::Aggregator),
             Some(SDK_TYPE_TYPESCRIPT) => Ok(ClientSdkType::TypeScript),
             Some(SDK_TYPE_RUST) => Ok(ClientSdkType::Rust),
+            Some(SDK_TYPE_PYTHON) => Ok(ClientSdkType::Python),
             _ => Ok(ClientSdkType::Other),
         }
     }
@@ -137,6 +156,7 @@ impl ClientSdkType {
             ClientSdkType::Aggregator => SDK_TYPE_AGGREGATOR,
             ClientSdkType::TypeScript => SDK_TYPE_TYPESCRIPT,
             ClientSdkType::Rust => SDK_TYPE_RUST,
+            ClientSdkType::Python => SDK_TYPE_PYTHON,
             ClientSdkType::Other => "other",
         }
     }

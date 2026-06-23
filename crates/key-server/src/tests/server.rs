@@ -247,7 +247,7 @@ async fn test_service() {
             .unwrap();
         assert_eq!(response.status(), 200);
 
-        // Unknown Client-Sdk-Type. Key server ignores unknown SDK types.
+        // Valid Python SDK request. Python is version-gated (default >=0.0.0).
         let response = client
             .request(
                 Request::builder()
