@@ -44,6 +44,12 @@ ignore = [
     # http-types is unmaintained; ASCII invariant issue in Authorization/WwwAuthenticate.
     # Only pulled in via wiremock (dev dependency). No safe upgrade available.
     { id = "RUSTSEC-2026-0174", reason = "unmaintained http-types pulled in via wiremock (dev-dep only); no safe upgrade" },
+    # rand 0.7.3 unsoundness only triggers with a custom logger calling rand::rng() during reseed.
+    # Pulled in transitively via fail -> move-vm-runtime -> Sui crates; not reachable in our usage, no safe upgrade.
+    { id = "RUSTSEC-2026-0097", reason = "unsound rand 0.7.3 pulled in transitively via Sui's move-vm-runtime; not reachable in our usage, no safe upgrade" },
+    # lru 0.13.0 IterMut unsoundness (Stacked Borrows violation).
+    # Pulled in transitively via Sui's move-vm-runtime; not reachable in our usage, no safe upgrade.
+    { id = "RUSTSEC-2026-0002", reason = "unsound lru 0.13.0 IterMut pulled in transitively via Sui's move-vm-runtime; not reachable in our usage, no safe upgrade" },
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
