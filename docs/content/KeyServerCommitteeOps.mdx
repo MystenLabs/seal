@@ -310,6 +310,15 @@ c. Start the key server, setting the config path and your master key share from 
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_SHARE_V0=0x... cargo run --bin key-server
 ```
 
+For any `cargo run --bin key-server` command in this runbook, include the `FULL_NODE_RPC_API_NAME` and `FULL_NODE_RPC_API_KEY` environment variables only if your Sui fullnode requires authentication:
+```bash
+FULL_NODE_RPC_API_NAME=<fullnode-api-key-name> \
+  FULL_NODE_RPC_API_KEY=<fullnode-api-key> \
+  CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_SHARE_V0=0x... \
+  cargo run --bin key-server
+```
+
 For infrastructure and deployment recommendations, see [Infrastructure requirements](#infrastructure-requirements).
 
 6. **Generate API credentials for the [aggregator](/Aggregator)**

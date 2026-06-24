@@ -33,6 +33,17 @@ Use the relevant package ID `<SEAL_PACKAGE_ID>` to register your key server on t
 
 <SealPackageIds />
 
+### Sui fullnode authentication (optional)
+
+Set `FULL_NODE_RPC_API_NAME` and `FULL_NODE_RPC_API_KEY` only if your Sui fullnode requires authentication. For example:
+```shell
+FULL_NODE_RPC_API_NAME=<fullnode-api-key-name> \
+  FULL_NODE_RPC_API_KEY=<fullnode-api-key> \
+  CONFIG_PATH=crates/key-server/key-server-config.yaml \
+  MASTER_KEY=<your-master-key> \
+  cargo run --bin key-server
+```
+
 ## Independent server type modes
 
 When running an independent server, you can choose between Open or Permissioned mode:
@@ -72,14 +83,14 @@ To start the key server in Open mode, run the command `cargo run --bin key-serve
 In the config file, make sure to:
 
 - Set the network to `Testnet`, `Mainnet`, or `!Devnet` (which requires a `seal_package` field).
-    - To use a custom RPC endpoint for any network, either specify `node_url` in the config or set the `NODE_URL` environment variable.
+    - To use a custom Sui fullnode for any network, either specify `node_url` in the config or set the `NODE_URL` environment variable.
 - Set the mode to `!Open`.
 - Set the `key_server_object_id` field to `<KEY_SERVER_OBJECT_ID>`, the ID of the key server object you registered onchain.
 ```shell
 CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 
-# Or with a custom RPC endpoint via environment variable:
-# NODE_URL=https://your-custom-rpc.example.com CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
+# Or with a custom Sui fullnode via environment variable:
+# NODE_URL=https://your-custom-fullnode.example.com CONFIG_PATH=crates/key-server/key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 ```
 
 Alternatively, run with Docker:
@@ -88,8 +99,8 @@ docker build -t seal-key-server . --build-arg GIT_REVISION="$(git describe --alw
 
 docker run -p 2024:2024 -v $(pwd)/crates/key-server/key-server-config.yaml:/config/key-server-config.yaml \
   -e CONFIG_PATH=/config/key-server-config.yaml \
-   -e MASTER_KEY=<MASTER_KEY> \
-   seal-key-server
+  -e MASTER_KEY=<MASTER_KEY> \
+  seal-key-server
 ```
 
 ## Permissioned mode
