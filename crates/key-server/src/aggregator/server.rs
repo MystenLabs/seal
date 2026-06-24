@@ -568,10 +568,14 @@ async fn fetch_from_member(
     // If response is not success, relay error response from key server.
     let status = response.status();
     if !status.is_success() {
-        if let Ok(error_response) = response.json::<ErrorResponse>().await {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(error_response) = serde_json::from_str::<ErrorResponse>(&body) {
             return Err(error_response);
         } else {
-            let msg = format!("HTTP {status} (req_id: {})", req_id);
+            let msg = format!(
+                "HTTP {status} from party {} ({}): {:?} (req_id: {})",
+                member.party_id, member.url, body, req_id
+            );
             warn!("{}", msg);
             return Err(InternalError::Failure(msg).into());
         }
