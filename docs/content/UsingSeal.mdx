@@ -110,11 +110,12 @@ const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const client = new SealClient({
   suiClient,
   serverConfigs: [
-    // Decentralized server from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
+    // Decentralized server object ID and aggregator URL from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
     {
       objectId: "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
       aggregatorUrl: "https://seal-aggregator-testnet.mystenlabs.com",
       weight: 1,
+      // Add apiKeyName and apiKey if the server requires authentication (see "API key authentication" below).
     },
   ],
   verifyKeyServers: false,
@@ -135,10 +136,12 @@ const client = new SealClient({
     {
       objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
       weight: 1,
+      // Add apiKeyName and apiKey if the server requires authentication (see "API key authentication" below).
     },
     {
       objectId: "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8",
       weight: 1,
+      // Add apiKeyName and apiKey if the server requires authentication (see "API key authentication" below).
     }
   ],
   verifyKeyServers: false,
@@ -155,16 +158,18 @@ const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
 const client = new SealClient({
   suiClient,
   serverConfigs: [
-    // Decentralized server from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
+    // Decentralized server object ID and aggregator URL from https://seal-docs.wal.app/Pricing#verified-decentralized-key-servers
     {
       objectId: "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
       aggregatorUrl: "https://seal-aggregator-testnet.mystenlabs.com",
       weight: 1,
+      // Add apiKeyName and apiKey if the server requires authentication (see "API key authentication" below).
     },
     // Independent server from https://seal-docs.wal.app/Pricing#verified-independent-server-type-key-servers
     {
       objectId: "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75",
       weight: 1,
+      // Add apiKeyName and apiKey if the server requires authentication (see "API key authentication" below).
     }
   ],
   verifyKeyServers: false,
@@ -191,18 +196,22 @@ Some servers require API keys for authentication:
 
 Include the fields `apiKeyName` and `apiKey` in the server configuration object when required. The SDK sends these as an HTTP header in the format `apiKeyName: apiKey`.
 
-For example, if a server expects the header `x-api-key: my123api456key`, configure the server object as follows:
+You can obtain an API key from [Enoki](https://enoki.mystenlabs.com/). The header name is always `X-API-Key`.
+
+For example, if a server expects the header `X-API-Key: my123api456key`, configure the server object as follows:
 ```typescript
 {
-  objectId: id,
+  objectId: id, // See the Pricing page for verified key server object IDs
   weight: 1,
-  apiKeyName: "x-api-key",
+  apiKeyName: "X-API-Key",
   apiKey: "my123api456key",
-  // aggregatorUrl: "...", // Include for decentralized servers
+  // aggregatorUrl: "...", // Include for decentralized servers; see the Pricing page for the aggregator URL
 }
 ```
 
-Different servers can use different header names. Confirm the header name and API key value with each provider before including it in your threshold configuration.
+See the [Pricing](/Pricing#verified-key-servers) page for the verified key server object IDs and aggregator URLs.
+
+Confirm the API key value with your provider before including it in your threshold configuration.
 
 :::
 
