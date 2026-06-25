@@ -27,14 +27,94 @@ const PACKAGE_IDS = {
   mainnet: "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029",
 };
 
+// The requested values a CORS allowlist header fails to permit. "*" permits
+// everything; otherwise the value is a comma-separated, case-insensitive list.
+function unpermitted(
+  headerValue: string | null,
+  requested: string[],
+): string[] {
+  const value = (headerValue ?? "").toLowerCase();
+  if (value === "*") return [];
+  const allowed = new Set(
+    value
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+  return requested.filter((v) => !allowed.has(v.toLowerCase()));
+}
+
+// Simulate the credential-less browser CORS preflight the Seal SDK triggers on
+// POST /v1/fetch_key. A browser blocks the real request unless the preflight is
+// answered (without requiring the api key) and permits the request's origin,
+// method, and every header the SDK sends.
+async function checkPreflight(url: string, name: string, apiKeyName?: string) {
+  const target = `${url}/v1/fetch_key`;
+  const origin = "https://seal-cors-test.example";
+  const requestedHeaders = [
+    "content-type",
+    "request-id",
+    "client-sdk-type",
+    "client-sdk-version",
+    ...(apiKeyName ? [apiKeyName.toLowerCase()] : []),
+  ];
+
+  const preflight = await fetch(target, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": requestedHeaders.join(", "),
+    },
+  });
+
+  if (!preflight.ok) {
+    throw new Error(
+      `preflight rejected for ${name}: OPTIONS ${target} returned ${preflight.status} ${preflight.statusText} ` +
+        `(browsers send preflights without credentials — the gateway must not require the api key).`,
+    );
+  }
+
+  const allowOrigin = preflight.headers.get("access-control-allow-origin");
+  if (allowOrigin !== "*" && allowOrigin !== origin) {
+    throw new Error(
+      `Allow-Origin for ${name} does not permit the request origin: got "${allowOrigin}".`,
+    );
+  }
+
+  const allowMethods = preflight.headers.get("access-control-allow-methods");
+  if (unpermitted(allowMethods, ["post"]).length) {
+    throw new Error(
+      `Allow-Methods for ${name} does not permit POST: got "${allowMethods}".`,
+    );
+  }
+
+  const allowHeaders = preflight.headers.get("access-control-allow-headers");
+  const missing = unpermitted(allowHeaders, requestedHeaders);
+  if (missing.length) {
+    throw new Error(
+      `Allow-Headers for ${name} omits header(s) the SDK sends: [${missing.join(", ")}] (got "${allowHeaders}").`,
+    );
+  }
+}
+
+// Verify the endpoint a browser actually talks to is CORS-usable. Two checks:
+//   1. GET /v1/service (with credentials) exposes x-keyserver-version, so the
+//      browser is allowed to READ it off the response.
+//   2. OPTIONS /v1/fetch_key preflight (WITHOUT credentials, as browsers send
+//      it) is answered and permits the request's origin, method, and every
+//      header the SDK sends. This catches gateways that enforce auth on the
+//      preflight (e.g. Kong key-auth) — a failure mode a GET alone cannot
+//      detect, since Node's fetch never preflights.
 async function testCorsHeaders(
   url: string,
   name: string,
   apiKeyName?: string,
   apiKey?: string,
 ) {
-  console.log(`Testing CORS headers for ${name} (${url}) ${sealSdkVersion}`);
+  console.log(`Testing CORS for ${name} (${url}) ${sealSdkVersion}`);
 
+  // 1. Response-header check via GET /v1/service.
   const response = await fetch(`${url}/v1/service`, {
     method: "GET",
     headers: {
@@ -57,6 +137,10 @@ async function testCorsHeaders(
       `Missing CORS headers for ${name}: keyServerVersion=${keyServerVersion}, exposedHeaders=${exposedHeaders}`,
     );
   }
+
+  // 2. Browser-equivalent preflight on POST /v1/fetch_key.
+  await checkPreflight(url, name, apiKeyName);
+
   return keyServerVersion;
 }
 
@@ -106,14 +190,19 @@ async function runTest(
     }
   }
   const keyServers = await client.getKeyServers();
-  for (const config of serverConfigs.filter((c) => !c.aggregatorUrl)) {
-    const keyServer = keyServers.get(config.objectId)!;
-    await testCorsHeaders(
-      keyServer.url,
-      keyServer.name,
-      config.apiKeyName,
-      config.apiKey,
-    );
+  for (const config of serverConfigs) {
+    // For committee servers the browser talks to the aggregator; for independent
+    // servers it talks to the key server's own URL. CORS-check whichever endpoint
+    // the browser actually contacts.
+    const isCommittee = !!config.aggregatorUrl;
+    const url = isCommittee
+      ? config.aggregatorUrl!
+      : keyServers.get(config.objectId)!.url;
+    const name = isCommittee
+      ? `committee:${config.objectId}`
+      : keyServers.get(config.objectId)!.name;
+
+    await testCorsHeaders(url, name, config.apiKeyName, config.apiKey);
   }
   console.log("✅ All servers have proper CORS configuration");
 
