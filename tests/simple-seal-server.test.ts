@@ -27,31 +27,11 @@ const PACKAGE_IDS = {
   mainnet: "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029",
 };
 
-// The requested values a CORS allowlist header fails to permit. "*" permits
-// everything; otherwise the value is a comma-separated, case-insensitive list.
-function unpermitted(
-  headerValue: string | null,
-  requested: string[],
-): string[] {
-  const value = (headerValue ?? "").toLowerCase();
-  if (value === "*") return [];
-  const allowed = new Set(
-    value
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean),
-  );
-  return requested.filter((v) => !allowed.has(v.toLowerCase()));
-}
-
-// Simulate the credential-less browser CORS preflight the Seal SDK triggers on
-// POST /v1/fetch_key. A browser blocks the real request unless the preflight is
-// answered (without requiring the api key) and permits the request's origin,
-// method, and every header the SDK sends.
+// Simulate the cross-origin request the Seal SDK makes from a browser — a POST
+// to /v1/fetch_key carrying its headers — and assert a browser would allow it.
 async function checkPreflight(url: string, name: string, apiKeyName?: string) {
-  const target = `${url}/v1/fetch_key`;
   const origin = "https://seal-cors-test.example";
-  const requestedHeaders = [
+  const headers = [
     "content-type",
     "request-id",
     "client-sdk-type",
@@ -59,41 +39,43 @@ async function checkPreflight(url: string, name: string, apiKeyName?: string) {
     ...(apiKeyName ? [apiKeyName.toLowerCase()] : []),
   ];
 
-  const preflight = await fetch(target, {
+  const preflight = await fetch(`${url}/v1/fetch_key`, {
     method: "OPTIONS",
     headers: {
       Origin: origin,
       "Access-Control-Request-Method": "POST",
-      "Access-Control-Request-Headers": requestedHeaders.join(", "),
+      "Access-Control-Request-Headers": headers.join(", "),
     },
   });
 
   if (!preflight.ok) {
     throw new Error(
-      `preflight rejected for ${name}: OPTIONS ${target} returned ${preflight.status} ${preflight.statusText} ` +
-        `(browsers send preflights without credentials — the gateway must not require the api key).`,
+      `browser would block ${name}: preflight returned ${preflight.status} ` +
+        `(gateway must answer the credential-less OPTIONS without requiring the api key).`,
     );
   }
+
+  // A browser grants a value when the allow header is "*" or lists it.
+  const grants = (header: string, value: string) => {
+    const allowed = (preflight.headers.get(header) ?? "").toLowerCase();
+    return (
+      allowed === "*" ||
+      allowed.split(",").some((v) => v.trim() === value.toLowerCase())
+    );
+  };
 
   const allowOrigin = preflight.headers.get("access-control-allow-origin");
-  if (allowOrigin !== "*" && allowOrigin !== origin) {
-    throw new Error(
-      `Allow-Origin for ${name} does not permit the request origin: got "${allowOrigin}".`,
-    );
-  }
+  const blocked = [
+    allowOrigin !== "*" && allowOrigin !== origin && `origin (${allowOrigin})`,
+    !grants("access-control-allow-methods", "post") && "method POST",
+    ...headers
+      .filter((h) => !grants("access-control-allow-headers", h))
+      .map((h) => `header ${h}`),
+  ].filter(Boolean);
 
-  const allowMethods = preflight.headers.get("access-control-allow-methods");
-  if (unpermitted(allowMethods, ["post"]).length) {
+  if (blocked.length) {
     throw new Error(
-      `Allow-Methods for ${name} does not permit POST: got "${allowMethods}".`,
-    );
-  }
-
-  const allowHeaders = preflight.headers.get("access-control-allow-headers");
-  const missing = unpermitted(allowHeaders, requestedHeaders);
-  if (missing.length) {
-    throw new Error(
-      `Allow-Headers for ${name} omits header(s) the SDK sends: [${missing.join(", ")}] (got "${allowHeaders}").`,
+      `browser would block ${name} — not permitted: ${blocked.join(", ")}.`,
     );
   }
 }
@@ -101,11 +83,9 @@ async function checkPreflight(url: string, name: string, apiKeyName?: string) {
 // Verify the endpoint a browser actually talks to is CORS-usable. Two checks:
 //   1. GET /v1/service (with credentials) exposes x-keyserver-version, so the
 //      browser is allowed to READ it off the response.
-//   2. OPTIONS /v1/fetch_key preflight (WITHOUT credentials, as browsers send
+//   2. OPTIONS /v1/fetch_key preflight (without credentials, as browsers send
 //      it) is answered and permits the request's origin, method, and every
-//      header the SDK sends. This catches gateways that enforce auth on the
-//      preflight (e.g. Kong key-auth) — a failure mode a GET alone cannot
-//      detect, since Node's fetch never preflights.
+//      header the SDK sends.
 async function testCorsHeaders(
   url: string,
   name: string,
