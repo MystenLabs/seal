@@ -145,7 +145,7 @@ impl KeyServerMetrics {
                 "http_request_duration_millis",
                 "HTTP request duration in milliseconds",
                 &["route", "status"],
-                default_fast_call_duration_buckets(),
+                default_network_call_duration_buckets(),
                 registry
             )
             .unwrap(),
@@ -262,7 +262,7 @@ fn default_fast_call_duration_buckets() -> Vec<f64> {
 
 /// Buckets for network-bound calls (Sui RPC, upstream key server fetches).
 fn default_network_call_duration_buckets() -> Vec<f64> {
-    vec![100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 8000.0]
+    vec![25.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 8000.0]
 }
 
 /// Collector that tracks the uptime of the server.
@@ -342,7 +342,7 @@ impl AggregatorMetrics {
                 "http_request_duration_millis",
                 "HTTP request duration in milliseconds",
                 &["route", "status"],
-                default_fast_call_duration_buckets(),
+                default_network_call_duration_buckets(),
                 registry
             )
             .unwrap(),
