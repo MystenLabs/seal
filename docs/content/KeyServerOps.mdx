@@ -275,3 +275,46 @@ docker run -p 2024:2024 \
 The server is initialized with a master key (or seed), which must be kept secure. You can store this key using a cloud-based Key Management System (KMS), or in a self-managed software or hardware vault. If you're importing keys, those should be protected using the same secure storage approach.
 
 <InfrastructureRequirements />
+
+## Running on localnet
+
+For local development you can run the full key server flow against a [localnet](https://docs.sui.io/guides/developer/getting-started/local-network). Localnet has no canonical fullnode or published Seal package, so you deploy the Seal package yourself and point the key server at your local node. The steps below set up an Open mode independent server.
+
+1. Start a localnet with a faucet, then point the Sui client at it and fund your address:
+```shell
+sui start --force-regenesis --with-faucet &
+sui client switch --env local # add it first if needed: sui client new-env --alias local --rpc http://127.0.0.1:9000
+sui client faucet --url http://127.0.0.1:9123/gas
+```
+2. Publish the Seal package. Because the Move tooling requires the target environment to be declared, add the localnet's chain identifier (from `sui client chain-identifier`) to `move/seal/Move.toml` under an `[environments]` entry whose name matches your client environment, then publish. Note `<SEAL_PACKAGE_ID>` from the output.
+```shell
+# move/seal/Move.toml
+# [environments]
+# local = "<chain-id from `sui client chain-identifier`>"
+sui client publish move/seal
+```
+3. Generate a master key pair and register the key server onchain, exactly as in [Open mode](#open-mode) above, using the localnet `<SEAL_PACKAGE_ID>`:
+```shell
+cargo run --bin seal-cli genkey # outputs <MASTER_KEY> and <MASTER_PUBKEY>
+sui client call --function create_and_transfer_v2_independent_server --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> http://127.0.0.1:2024 0 <MASTER_PUBKEY>
+# outputs <KEY_SERVER_OBJECT_ID>
+```
+4. Create a config file. Set `network: !Devnet` (which takes a `seal_package` field for your self-deployed package) and override `node_url` to point at your local fullnode:
+```yaml
+network: !Devnet
+  seal_package: '<SEAL_PACKAGE_ID>'
+node_url: http://127.0.0.1:9000
+server_mode: !Open
+  key_server_object_id: '<KEY_SERVER_OBJECT_ID>'
+```
+5. Start the server. Verify it is serving with `curl 'http://127.0.0.1:2024/v1/service?service_id=<KEY_SERVER_OBJECT_ID>' -H 'Client-Sdk-Type: typescript' -H 'Client-Sdk-Version: 0.4.5'`, which returns the service ID and a proof of possession.
+```shell
+CONFIG_PATH=key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
+```
+6. To use the SDK against your localnet, point a `SuiClient` at the local fullnode and list your localnet key server in `serverConfigs`. See [Using Seal](./UsingSeal.mdx) for the full client flow.
+```ts
+const sealClient = new SealClient({
+  suiClient: new SuiClient({ url: getFullnodeUrl('localnet') }), // http://127.0.0.1:9000
+  serverConfigs: [{ objectId: '<KEY_SERVER_OBJECT_ID>', weight: 1 }],
+});
+```

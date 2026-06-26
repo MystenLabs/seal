@@ -27,14 +27,74 @@ const PACKAGE_IDS = {
   mainnet: "0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029",
 };
 
+// Simulate the cross-origin request the Seal SDK makes from a browser — a POST
+// to /v1/fetch_key carrying its headers — and assert a browser would allow it.
+async function checkPreflight(url: string, name: string, apiKeyName?: string) {
+  const origin = "https://seal-cors-test.example";
+  const headers = [
+    "content-type",
+    "request-id",
+    "client-sdk-type",
+    "client-sdk-version",
+    ...(apiKeyName ? [apiKeyName.toLowerCase()] : []),
+  ];
+
+  const preflight = await fetch(`${url}/v1/fetch_key`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": headers.join(", "),
+    },
+  });
+
+  if (!preflight.ok) {
+    throw new Error(
+      `browser would block ${name}: preflight returned ${preflight.status} ` +
+        `(gateway must answer the credential-less OPTIONS without requiring the api key).`,
+    );
+  }
+
+  // A browser grants a value when the allow header is "*" or lists it.
+  const grants = (header: string, value: string) => {
+    const allowed = (preflight.headers.get(header) ?? "").toLowerCase();
+    return (
+      allowed === "*" ||
+      allowed.split(",").some((v) => v.trim() === value.toLowerCase())
+    );
+  };
+
+  const allowOrigin = preflight.headers.get("access-control-allow-origin");
+  const blocked = [
+    allowOrigin !== "*" && allowOrigin !== origin && `origin (${allowOrigin})`,
+    !grants("access-control-allow-methods", "post") && "method POST",
+    ...headers
+      .filter((h) => !grants("access-control-allow-headers", h))
+      .map((h) => `header ${h}`),
+  ].filter(Boolean);
+
+  if (blocked.length) {
+    throw new Error(
+      `browser would block ${name} — not permitted: ${blocked.join(", ")}.`,
+    );
+  }
+}
+
+// Verify the endpoint a browser actually talks to is CORS-usable. Two checks:
+//   1. GET /v1/service (with credentials) exposes x-keyserver-version, so the
+//      browser is allowed to READ it off the response.
+//   2. OPTIONS /v1/fetch_key preflight (without credentials, as browsers send
+//      it) is answered and permits the request's origin, method, and every
+//      header the SDK sends.
 async function testCorsHeaders(
   url: string,
   name: string,
   apiKeyName?: string,
   apiKey?: string,
 ) {
-  console.log(`Testing CORS headers for ${name} (${url}) ${sealSdkVersion}`);
+  console.log(`Testing CORS for ${name} (${url}) ${sealSdkVersion}`);
 
+  // 1. Response-header check via GET /v1/service.
   const response = await fetch(`${url}/v1/service`, {
     method: "GET",
     headers: {
@@ -57,6 +117,10 @@ async function testCorsHeaders(
       `Missing CORS headers for ${name}: keyServerVersion=${keyServerVersion}, exposedHeaders=${exposedHeaders}`,
     );
   }
+
+  // 2. Browser-equivalent preflight on POST /v1/fetch_key.
+  await checkPreflight(url, name, apiKeyName);
+
   return keyServerVersion;
 }
 
@@ -106,14 +170,19 @@ async function runTest(
     }
   }
   const keyServers = await client.getKeyServers();
-  for (const config of serverConfigs.filter((c) => !c.aggregatorUrl)) {
-    const keyServer = keyServers.get(config.objectId)!;
-    await testCorsHeaders(
-      keyServer.url,
-      keyServer.name,
-      config.apiKeyName,
-      config.apiKey,
-    );
+  for (const config of serverConfigs) {
+    // For committee servers the browser talks to the aggregator; for independent
+    // servers it talks to the key server's own URL. CORS-check whichever endpoint
+    // the browser actually contacts.
+    const isCommittee = !!config.aggregatorUrl;
+    const url = isCommittee
+      ? config.aggregatorUrl!
+      : keyServers.get(config.objectId)!.url;
+    const name = isCommittee
+      ? `committee:${config.objectId}`
+      : keyServers.get(config.objectId)!.name;
+
+    await testCorsHeaders(url, name, config.apiKeyName, config.apiKey);
   }
   console.log("✅ All servers have proper CORS configuration");
 
