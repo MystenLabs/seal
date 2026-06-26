@@ -277,9 +277,9 @@ cargo run --bin seal-cli genkey # outputs <MASTER_KEY> and <MASTER_PUBKEY>
 sui client call --function create_and_transfer_v2_independent_server --module key_server --package <SEAL_PACKAGE_ID> --args <YOUR_SERVER_NAME> http://127.0.0.1:2024 0 <MASTER_PUBKEY>
 # outputs <KEY_SERVER_OBJECT_ID>
 ```
-4. Create a config file with `network: !Localnet` (which requires a `seal_package` field) and `node_url` pointing at your local fullnode, since localnet has no default URL:
+4. Create a config file. Set `network: !Devnet` (which takes a `seal_package` field for your self-deployed package) and override `node_url` to point at your local fullnode:
 ```yaml
-network: !Localnet
+network: !Devnet
   seal_package: '<SEAL_PACKAGE_ID>'
 node_url: http://127.0.0.1:9000
 server_mode: !Open
