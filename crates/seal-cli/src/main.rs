@@ -784,6 +784,18 @@ impl Display for ParseOutput {
                     serializable_to_string(&encapsulation)
                 )?;
             }
+            IBEEncryptions::Falcon512 {
+                encrypted_shares: shares,
+                encrypted_randomness,
+            } => {
+                writeln!(f, "  Type: Falcon-512")?;
+                writeln!(f, "  Shares: {} encrypted ciphertexts", shares.len())?;
+                write!(
+                    f,
+                    "  Encrypted randomness: {}",
+                    DefaultEncoding::encode(encrypted_randomness)
+                )?;
+            }
         };
         Ok(())
     }
