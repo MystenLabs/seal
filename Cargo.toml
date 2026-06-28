@@ -11,7 +11,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f87e04bb21d295ef6b39375a06615d45cbb906c", features = ["aes"] }
 fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f87e04bb21d295ef6b39375a06615d45cbb906c" }
-bcs = "0.1.6"
+bcs = "0.2.1"
 serde = "1.0.210"
 serde_json = "1.0.150"
 itertools = "0.14.0"
