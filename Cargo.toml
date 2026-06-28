@@ -27,7 +27,7 @@ semver = { version = "1.0.28", features = ["serde"] }
 once_cell = "1.21.3"
 axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6.11", features = ["cors", "limit"] }
+tower-http = { version = "0.7.0", features = ["cors", "limit"] }
 tokio = { version = "1.49.0", features = ["full"] }
 futures = "0.3"
 reqwest = "0.12"
