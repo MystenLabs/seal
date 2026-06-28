@@ -313,9 +313,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "append-only-vec"
@@ -1364,9 +1364,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.11.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
 dependencies = [
  "serde",
 ]
@@ -2288,7 +2288,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab67060fc6b8ef687992d439ca0fa36e7ed17e9a0b16b25b601e8757df720de"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4564,7 +4564,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "prometheus-closure-metric",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "rand 0.8.6",
  "reqwest",
  "seal-committee",
@@ -7179,14 +7179,14 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph 0.8.3",
  "prettyplease",
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
  "regex",
@@ -7229,7 +7229,7 @@ dependencies = [
  "logos 0.15.1",
  "miette",
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
 ]
 
 [[package]]
@@ -7243,9 +7243,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost 0.14.4",
 ]
@@ -7281,7 +7281,7 @@ dependencies = [
  "miette",
  "prost 0.14.4",
  "prost-reflect",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "protox-parse",
  "thiserror 2.0.18",
 ]
@@ -7294,7 +7294,7 @@ checksum = "072eee358134396a4643dff81cfff1c255c9fbd3fb296be14bdb6a26f9156366"
 dependencies = [
  "logos 0.15.1",
  "miette",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "thiserror 2.0.18",
 ]
 
@@ -8257,7 +8257,7 @@ dependencies = [
  "bcs",
  "fastcrypto",
  "fastcrypto-tbls",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "serde",
  "sui-rpc",
  "sui-sdk-types 0.3.0",
@@ -8277,7 +8277,7 @@ dependencies = [
  "fastcrypto",
  "fastcrypto-tbls",
  "move-package-alt-compilation",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "rand 0.8.6",
  "seal-committee",
  "serde",
@@ -10142,7 +10142,7 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "serde",
  "serde_json",
  "sui-sdk-types 0.3.0",
@@ -10174,7 +10174,7 @@ dependencies = [
  "mysten-network",
  "prometheus",
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "protox",
  "rand 0.8.6",
  "serde",
@@ -10558,7 +10558,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "rand 0.8.6",
  "roaring 0.10.12",
  "rustls-pki-types",
@@ -11385,7 +11385,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "prost-build",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "quote",
  "syn 2.0.117",
  "tempfile",
@@ -11399,7 +11399,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaf0685a51e6d02b502ba0764002e766b7f3042aed13d9234925b6ffbfa3fca7"
 dependencies = [
  "prost 0.14.4",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "tokio",
  "tokio-stream",
  "tonic 0.14.6",
