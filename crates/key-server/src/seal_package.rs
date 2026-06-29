@@ -17,10 +17,20 @@ const TESTNET_PACKAGE_ID: &str =
 const MAINNET_PACKAGE_ID: &str =
     "0x931739224160073d8e391c9aa6e7ade9818e9814b4907066b7efa058636c4e45";
 
-/// This should be equal to the corresponding error code from the staleness Seal Move package.
-pub const STALENESS_ERROR_CODE: u64 = 93492;
+/// These should be equal to the corresponding error codes from the staleness Seal Move package.
+pub const STALE_FULLNODE_ERROR_CODE: u64 = 93492;
+pub const STALE_KEY_SERVER_ERROR_CODE: u64 = 93493;
 pub const STALENESS_MODULE: &str = "time";
 pub const STALENESS_FUNCTION: &str = "check_staleness";
+
+/// The kind of staleness detected by the on-chain `check_staleness` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Staleness {
+    /// The fullnode's on-chain time lags the key server's time by more than the allowed amount.
+    Fullnode,
+    /// The key server's time lags the fullnode's on-chain time by more than the allowed amount.
+    KeyServer,
+}
 
 #[derive(Debug)]
 pub enum SealPackage {
@@ -38,18 +48,26 @@ impl SealPackage {
         }
     }
 
-    pub fn is_staleness_error(&self, simulate_response: &SimulateTransactionResponse) -> bool {
+    /// Returns the kind of staleness if the simulation aborted in the staleness check of this
+    /// package, or `None` otherwise.
+    pub fn staleness_error(
+        &self,
+        simulate_response: &SimulateTransactionResponse,
+    ) -> Option<Staleness> {
         let status = simulate_response.transaction().effects().status();
         if let Some(error) = &status.error
             && let Some(ErrorDetails::Abort(abort)) = &error.error_details
-            && abort.abort_code() == STALENESS_ERROR_CODE
             && let Some(location) = &abort.location
             && location.package.as_deref() == Some(&self.package_id().to_string())
             && location.module.as_deref() == Some(STALENESS_MODULE)
         {
-            return true;
+            return match abort.abort_code() {
+                STALE_FULLNODE_ERROR_CODE => Some(Staleness::Fullnode),
+                STALE_KEY_SERVER_ERROR_CODE => Some(Staleness::KeyServer),
+                _ => None,
+            };
         }
-        false
+        None
     }
 
     pub fn add_staleness_check_to_ptb(
