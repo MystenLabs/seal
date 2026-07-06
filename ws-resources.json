@@ -2,55 +2,68 @@
   "headers": {
     "/markdown/Aggregator.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/Design.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/ExamplePatterns.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/GettingStarted.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/KeyServerCommitteeOps.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/KeyServerOps.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/Pricing.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/SealCLI.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/SecurityBestPractices.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/ServerOverview.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/TermsOfService.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/UsingSeal.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     },
     "/markdown/index.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     }
   },
   "routes": {
