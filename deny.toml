@@ -50,6 +50,12 @@ ignore = [
     # lru 0.13.0 IterMut unsoundness (Stacked Borrows violation).
     # Pulled in transitively via Sui's move-vm-runtime; not reachable in our usage, no safe upgrade.
     { id = "RUSTSEC-2026-0002", reason = "unsound lru 0.13.0 IterMut pulled in transitively via Sui's move-vm-runtime; not reachable in our usage, no safe upgrade" },
+    # quick-xml 0.38.4 quadratic attribute-duplicate check (CPU DoS on untrusted XML).
+    # Pulled in transitively via object_store <- Sui's sui-config; object_store 0.13.1 pins quick-xml ^0.38, so no safe upgrade. We do not parse untrusted XML.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 quadratic attribute check pulled in transitively via object_store <- Sui's sui-config; object_store pins ^0.38, no safe upgrade; we do not parse untrusted XML" },
+    # quick-xml 0.38.4 unbounded NsReader namespace allocation (memory-exhaustion DoS on untrusted XML).
+    # Pulled in transitively via object_store <- Sui's sui-config; object_store 0.13.1 pins quick-xml ^0.38, so no safe upgrade. We do not parse untrusted XML.
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4 unbounded NsReader namespace allocation pulled in transitively via object_store <- Sui's sui-config; object_store pins ^0.38, no safe upgrade; we do not parse untrusted XML" },
 ]
 
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
