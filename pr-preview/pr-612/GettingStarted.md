@@ -63,8 +63,6 @@ When a user requests access, Seal checks your onchain policy. If approved, decry
 ```typescript
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
-// The gRPC client resolves object inputs via simulation, so the sender must be
-// set if the transaction references owned objects.
 tx.setSender(sessionKey.getAddress());
 tx.moveCall({
     target: `${packageId}::${moduleName}::seal_approve`, 

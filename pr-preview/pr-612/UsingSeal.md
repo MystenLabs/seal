@@ -274,8 +274,6 @@ The simplest way to perform decryption is to call the client's `decrypt` functio
 ```typescript
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
-// The gRPC client resolves object inputs via simulation, so the sender must be
-// set if the transaction references owned objects.
 tx.setSender(sessionKey.getAddress());
 tx.moveCall({
     target: `${packageId}::${moduleName}::seal_approve`, 
