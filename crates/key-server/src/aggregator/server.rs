@@ -995,12 +995,8 @@ mod tests {
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
-        let sui_client = SuiClientBuilder::default()
-            .build(&options.node_url())
-            .await
-            .unwrap();
-        let sui_rpc_client = SuiRpcClient::new(
-            sui_client,
+        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+            None,
             grpc_client,
             options.rpc_config.retry_config.clone(),
             None,

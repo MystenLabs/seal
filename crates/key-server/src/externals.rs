@@ -90,7 +90,6 @@ mod tests {
     use sui_sdk::types::crypto::{get_key_pair, Signature};
     use sui_sdk::types::signature::GenericSignature;
     use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-    use sui_sdk::SuiClientBuilder;
     use sui_types::base_types::ObjectID;
     #[tokio::test]
     async fn test_fetch_first_pkg_id() {
@@ -98,13 +97,8 @@ mod tests {
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
         .unwrap();
-        let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .build(&Network::Testnet.default_node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+            None,
             SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
@@ -126,13 +120,8 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
-        let sui_rpc_client = SuiRpcClient::new(
-            SuiClientBuilder::default()
-                .build(&Network::Mainnet.default_node_url())
-                .await
-                .expect(
-                    "SuiClientBuilder should not failed unless provided with invalid network url",
-                ),
+        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+            None,
             SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
