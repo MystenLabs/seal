@@ -42,7 +42,6 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use sui_rpc::client::Client as SuiGrpcClient;
-use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -771,12 +770,8 @@ async fn load_committee_state(
 ) -> Result<AppState> {
     let grpc_client =
         SuiGrpcClient::new(options.node_url()).context("Failed to create SuiGrpcClient")?;
-    let sui_client = SuiClientBuilder::default()
-        .build(&options.node_url())
-        .await
-        .context("Failed to build SuiClient")?;
-    let sui_rpc_client = SuiRpcClient::new(
-        sui_client,
+    let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
+        None,
         grpc_client,
         options.rpc_config.retry_config.clone(),
         Some(metrics.sui_rpc_request_duration_millis.clone()),
