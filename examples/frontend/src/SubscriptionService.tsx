@@ -1,6 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { useCurrentAccount, useCurrentClient } from '@mysten/dapp-kit-react';
 import { Card, Flex } from '@radix-ui/themes';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -21,7 +21,7 @@ interface AllowlistProps {
 }
 
 export function Service({ setRecipientAllowlist, setCapId }: AllowlistProps) {
-  const suiClient = useSuiClient();
+  const suiClient = useCurrentClient();
   const packageId = useNetworkVariable('packageId');
   const currentAccount = useCurrentAccount();
   const [service, setService] = useState<Service>();
@@ -30,11 +30,11 @@ export function Service({ setRecipientAllowlist, setCapId }: AllowlistProps) {
   useEffect(() => {
     async function getService() {
       // load the service for the given id
-      const service = await suiClient.getObject({
-        id: id!,
-        options: { showContent: true },
+      const service = await suiClient.core.getObject({
+        objectId: id!,
+        include: { json: true },
       });
-      const fields = (service.data?.content as { fields: any })?.fields || {};
+      const fields = (service.object.json as Record<string, any>) || {};
       setService({
         id: id!,
         fee: fields.fee,
@@ -45,23 +45,18 @@ export function Service({ setRecipientAllowlist, setCapId }: AllowlistProps) {
       setRecipientAllowlist(id!);
 
       // load all caps
-      const res = await suiClient.getOwnedObjects({
+      const res = await suiClient.core.listOwnedObjects({
         owner: currentAccount?.address!,
-        options: {
-          showContent: true,
-          showType: true,
-        },
-        filter: {
-          StructType: `${packageId}::subscription::Cap`,
-        },
+        type: `${packageId}::subscription::Cap`,
+        include: { json: true },
       });
 
       // find the cap for the given service id
-      const capId = res.data
+      const capId = res.objects
         .map((obj) => {
-          const fields = (obj!.data!.content as { fields: any }).fields;
+          const fields = obj.json as { service_id?: string };
           return {
-            id: fields?.id.id,
+            id: obj.objectId,
             service_id: fields?.service_id,
           };
         })

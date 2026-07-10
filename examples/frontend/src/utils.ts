@@ -1,8 +1,13 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { SealClient, SessionKey, NoAccessError, EncryptedObject } from '@mysten/seal';
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import {
+  SealClient,
+  SessionKey,
+  NoAccessError,
+  EncryptedObject,
+  type SealCompatibleClient,
+} from '@mysten/seal';
 import { Transaction } from '@mysten/sui/transactions';
 import React from 'react';
 
@@ -16,7 +21,7 @@ export const DECENTRALIZED_KEY_SERVER_OBJ_ID =
 export const downloadAndDecrypt = async (
   blobIds: string[],
   sessionKey: SessionKey,
-  suiClient: SuiJsonRpcClient,
+  suiClient: SealCompatibleClient,
   sealClient: SealClient,
   moveCallConstructor: (tx: Transaction, id: string) => void,
   setError: (error: string | null) => void,

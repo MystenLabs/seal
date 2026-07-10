@@ -1,9 +1,9 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Transaction } from '@mysten/sui/transactions';
 import { useNetworkVariable } from './networkConfig';
-import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
+import { useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react';
 import { Button, Card, Flex, Spinner, Text } from '@radix-ui/themes';
 import { SealClient } from '@mysten/seal';
 import { fromHex, toHex } from '@mysten/sui/utils';
@@ -45,19 +45,24 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
 
   const NUM_EPOCH = 1;
   const packageId = useNetworkVariable('packageId');
-  const suiClient = useSuiClient();
-  const client = new SealClient({
-    suiClient,
-    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
-    serverConfigs: [
-      {
-        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
-        weight: 1,
-        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
-      },
-    ],
-    verifyKeyServers: false,
-  });
+  const suiClient = useCurrentClient();
+  const dAppKit = useDAppKit();
+  const client = useMemo(
+    () =>
+      new SealClient({
+        suiClient,
+        // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+        serverConfigs: [
+          {
+            objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+            weight: 1,
+            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+          },
+        ],
+        verifyKeyServers: false,
+      }),
+    [suiClient],
+  );
 
   const services: WalrusService[] = [
     {
@@ -109,18 +114,6 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
     const cleanPath = path.replace(/^\/+/, '').replace(/^v1\//, '');
     return `${service?.publisherUrl}/v1/${cleanPath}`;
   }
-
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) =>
-      await suiClient.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-        },
-      }),
-  });
 
   const handleFileChange = (event: any) => {
     const file = event.target.files[0];
@@ -226,18 +219,13 @@ export function WalrusUpload({ policyObject, cap_id, moduleName }: WalrusUploadP
       arguments: [tx.object(wl_id), tx.object(cap_id), tx.pure.string(info!.blobId)],
     });
 
-    tx.setGasBudget(10000000);
-    signAndExecute(
-      {
-        transaction: tx,
-      },
-      {
-        onSuccess: async (result) => {
-          console.log('res', result);
-          alert('Blob attached successfully, now share the link or upload more.');
-        },
-      },
-    );
+    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+    console.log('res', result);
+    if (result.$kind === 'Transaction') {
+      alert('Blob attached successfully, now share the link or upload more.');
+    } else {
+      alert('Failed to attach blob');
+    }
   }
 
   return (

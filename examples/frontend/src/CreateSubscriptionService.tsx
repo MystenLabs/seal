@@ -3,7 +3,7 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import { Button, Card, Flex } from '@radix-ui/themes';
-import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
+import { useDAppKit } from '@mysten/dapp-kit-react';
 import { useState } from 'react';
 import { useNetworkVariable } from './networkConfig';
 import { useNavigate } from 'react-router-dom';
@@ -13,21 +13,10 @@ export function CreateService() {
   const [ttl, setTtl] = useState('');
   const [name, setName] = useState('');
   const packageId = useNetworkVariable('packageId');
-  const suiClient = useSuiClient();
   const navigate = useNavigate();
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) =>
-      await suiClient.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-        },
-      }),
-  });
+  const dAppKit = useDAppKit();
 
-  function createService(price: number, ttl: number, name: string) {
+  async function createService(price: number, ttl: number, name: string) {
     if (price === 0 || ttl === 0 || name === '') {
       alert('Please fill in all fields');
       return;
@@ -38,27 +27,21 @@ export function CreateService() {
       target: `${packageId}::subscription::create_service_entry`,
       arguments: [tx.pure.u64(price), tx.pure.u64(ttlMs), tx.pure.string(name)],
     });
-    tx.setGasBudget(10000000);
-    signAndExecute(
-      {
-        transaction: tx,
-      },
-      {
-        onSuccess: async (result) => {
-          console.log('res', result);
-          const subscriptionObject = result.effects?.created?.find(
-            (item) => item.owner && typeof item.owner === 'object' && 'Shared' in item.owner,
-          );
-          const createdObjectId = subscriptionObject?.reference?.objectId;
-          if (createdObjectId) {
-            window.open(
-              `${window.location.origin}/subscription-example/admin/service/${createdObjectId}`,
-              '_blank',
-            );
-          }
-        },
-      },
-    );
+    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+    console.log('res', result);
+    if (result.$kind !== 'Transaction') {
+      alert('Failed to create service');
+      return;
+    }
+    const createdObjectId = result.Transaction.effects?.changedObjects.find(
+      (item) => item.idOperation === 'Created' && item.outputOwner?.$kind === 'Shared',
+    )?.objectId;
+    if (createdObjectId) {
+      window.open(
+        `${window.location.origin}/subscription-example/admin/service/${createdObjectId}`,
+        '_blank',
+      );
+    }
   }
   const handleViewAll = () => {
     navigate(`/subscription-example/admin/services`);

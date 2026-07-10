@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import React from 'react';
-import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+import { useCurrentAccount } from '@mysten/dapp-kit-react';
+import { ConnectButton } from '@mysten/dapp-kit-react/ui';
 import { Box, Button, Card, Container, Flex, Grid } from '@radix-ui/themes';
 import { CreateAllowlist } from './CreateAllowlist';
 import { Allowlist } from './Allowlist';

@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { useCurrentAccount, useCurrentClient } from '@mysten/dapp-kit-react';
 import { useEffect, useState } from 'react';
 import { useNetworkVariable } from './networkConfig';
 import { Button, Card } from '@radix-ui/themes';
@@ -23,28 +23,23 @@ export interface CardItem {
 export function AllServices() {
   const packageId = useNetworkVariable('packageId');
   const currentAccount = useCurrentAccount();
-  const suiClient = useSuiClient();
+  const suiClient = useCurrentClient();
 
   const [cardItems, setCardItems] = useState<CardItem[]>([]);
 
   useEffect(() => {
     async function getCapObj() {
       // get all owned cap objects
-      const res = await suiClient.getOwnedObjects({
+      const res = await suiClient.core.listOwnedObjects({
         owner: currentAccount?.address!,
-        options: {
-          showContent: true,
-          showType: true,
-        },
-        filter: {
-          StructType: `${packageId}::subscription::Cap`,
-        },
+        type: `${packageId}::subscription::Cap`,
+        include: { json: true },
       });
-      const caps = res.data
+      const caps = res.objects
         .map((obj) => {
-          const fields = (obj!.data!.content as { fields: any }).fields;
+          const fields = obj.json as { service_id?: string };
           return {
-            id: fields?.id.id,
+            id: obj.objectId,
             service_id: fields?.service_id,
           };
         })
@@ -53,11 +48,11 @@ export function AllServices() {
       // get all services of all the owned cap objects
       const cardItems: CardItem[] = await Promise.all(
         caps.map(async (cap) => {
-          const service = await suiClient.getObject({
-            id: cap.service_id,
-            options: { showContent: true },
+          const service = await suiClient.core.getObject({
+            objectId: cap.service_id,
+            include: { json: true },
           });
-          const fields = (service.data?.content as { fields: any })?.fields || {};
+          const fields = (service.object.json as Record<string, any>) || {};
           return {
             id: cap.service_id,
             fee: fields.fee,
