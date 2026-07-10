@@ -8263,9 +8263,7 @@ dependencies = [
  "seal-sdk",
  "serde",
  "serde_json",
- "sui-sdk",
  "sui-sdk-types 0.3.0",
- "sui-types",
  "tokio",
 ]
 

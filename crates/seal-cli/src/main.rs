@@ -16,17 +16,15 @@ use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use rand::thread_rng;
 use reqwest::Body;
-use seal_committee::Network;
+use seal_committee::grpc_helper::fetch_object;
+use seal_committee::move_types::Field;
+use seal_committee::{create_grpc_client_with_url, Network};
 use seal_sdk::types::{FetchKeyRequest, FetchKeyResponse};
 use seal_sdk::IBEPublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use sui_sdk::rpc_types::SuiParsedData;
-use sui_sdk::SuiClientBuilder;
-use sui_sdk_types::Address as NewObjectID;
-use sui_types::dynamic_field::DynamicFieldName;
-use sui_types::TypeTag;
+use sui_sdk_types::{Address as NewObjectID, TypeTag};
 
 const KEY_LENGTH: usize = 32;
 
@@ -39,118 +37,50 @@ pub struct KeyServerInfo {
     pub public_key: String,
 }
 
-/// Fetch and parse key server object from fullnode.
-/// TODO: rewrite with sui-rust-sdk
+/// Legacy (V1) key server object, stored as a `u64`-keyed (value `1`) dynamic
+/// field on the KeyServer object. Independent key servers expose their `url`
+/// here directly. Field order must match the `KeyServerV1` Move struct for BCS.
+#[derive(Deserialize)]
+struct KeyServerV1 {
+    name: String,
+    url: String,
+    #[allow(dead_code)]
+    key_type: u8,
+    pk: Vec<u8>,
+}
+
+/// Fetch and parse key server objects from a fullnode over gRPC.
+///
+/// Reads the legacy `KeyServerV1` value stored as a `u64`-keyed (value `1`)
+/// dynamic field on each KeyServer object, which carries the `url`/`name`/`pk`
+/// of an independent key server.
 pub async fn fetch_key_server_urls(
     network: &Network,
     key_server_ids: &[ObjectID],
     custom_rpc_url: Option<String>,
 ) -> Result<Vec<KeyServerInfo>, FastCryptoError> {
-    let sui_rpc = custom_rpc_url.unwrap_or_else(|| network.default_rpc_url().to_string());
-    let sui_client = SuiClientBuilder::default()
-        .build(sui_rpc)
-        .await
+    let mut grpc_client = create_grpc_client_with_url(network, custom_rpc_url.as_deref())
         .map_err(|e| FastCryptoError::GeneralError(format!("Failed to build Sui client: {e}")))?;
+    // Key type: u64, key value: 1 (V1). Regular dynamic field, not a dynamic object field.
+    let v1_field_name_bcs = bcs::to_bytes(&1u64).expect("BCS serialization failed");
     let mut key_servers = Vec::new();
     for object_id in key_server_ids {
-        // Get the dynamic field object for version 1
-        let dynamic_field_name = DynamicFieldName {
-            type_: TypeTag::U64,
-            value: serde_json::Value::String("1".to_string()),
-        };
-
-        match sui_client
-            .read_api()
-            .get_dynamic_field_object(
-                sui_types::base_types::ObjectID::new(object_id.into_inner()),
-                dynamic_field_name,
-            )
+        let ks_addr = NewObjectID::new(object_id.into_inner());
+        let field_id = ks_addr.derive_dynamic_child_id(&TypeTag::U64, &v1_field_name_bcs);
+        let field: Field<u64, KeyServerV1> = fetch_object(&mut grpc_client, &field_id)
             .await
-        {
-            Ok(response) => {
-                if let Some(object_data) = response.data {
-                    if let Some(content) = object_data.content {
-                        if let SuiParsedData::MoveObject(parsed_data) = content {
-                            let fields = &parsed_data.fields;
-
-                            // Convert fields to JSON value for access
-                            let fields_json = serde_json::to_value(fields).map_err(|e| {
-                                FastCryptoError::GeneralError(format!(
-                                    "Failed to serialize fields: {e}"
-                                ))
-                            })?;
-
-                            // Extract URL and name from the nested 'value' field
-                            let value_struct = fields_json.get("value").ok_or_else(|| {
-                                FastCryptoError::GeneralError(format!(
-                                    "Missing 'value' field for object {object_id}"
-                                ))
-                            })?;
-
-                            let value_fields = value_struct.get("fields").ok_or_else(|| {
-                                FastCryptoError::GeneralError(format!(
-                                    "Missing 'fields' in value struct for object {object_id}"
-                                ))
-                            })?;
-
-                            let url = value_fields.get("url")
-                                .and_then(|v| match v {
-                                    serde_json::Value::String(s) => Some(s.clone()),
-                                    _ => None,
-                                })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'url' field in value fields for object {object_id}")))?;
-
-                            let name = value_fields
-                                .get("name")
-                                .map(|v| match v {
-                                    serde_json::Value::String(s) => s.clone(),
-                                    _ => "Unknown".to_string(),
-                                })
-                                .unwrap_or_else(|| "Unknown".to_string());
-
-                            let public_key = value_fields.get("pk")
-                                .and_then(|v| match v {
-                                    serde_json::Value::Array(arr) => {
-                                        // Convert array of numbers to bytes then to hex string
-                                        let bytes: Result<Vec<u8>, _> = arr.iter()
-                                            .map(|n| n.as_u64().and_then(|n| u8::try_from(n).ok()))
-                                            .collect::<Option<Vec<_>>>()
-                                            .ok_or("Invalid byte values in pk array");
-                                        bytes.ok().map(|b| Hex::encode(&b))
-                                    },
-                                    serde_json::Value::String(s) => Some(s.clone()),
-                                    _ => None,
-                                })
-                                .ok_or_else(|| FastCryptoError::GeneralError(format!("Missing or invalid 'pk' field in value fields for object {object_id}")))?;
-
-                            key_servers.push(KeyServerInfo {
-                                object_id: *object_id,
-                                name,
-                                url,
-                                public_key,
-                            });
-                        } else {
-                            return Err(FastCryptoError::GeneralError(format!(
-                                "Unexpected content type for object {object_id}"
-                            )));
-                        }
-                    } else {
-                        return Err(FastCryptoError::GeneralError(format!(
-                            "No content found for object {object_id}"
-                        )));
-                    }
-                } else {
-                    return Err(FastCryptoError::GeneralError(format!(
-                        "Object {object_id} not found"
-                    )));
-                }
-            }
-            Err(e) => {
-                return Err(FastCryptoError::GeneralError(format!(
+            .map_err(|e| {
+                FastCryptoError::GeneralError(format!(
                     "Failed to fetch dynamic field for object {object_id}: {e}"
-                )));
-            }
-        }
+                ))
+            })?;
+
+        key_servers.push(KeyServerInfo {
+            object_id: *object_id,
+            name: field.value.name,
+            url: field.value.url,
+            public_key: Hex::encode(&field.value.pk),
+        });
     }
 
     Ok(key_servers)

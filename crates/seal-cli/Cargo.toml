@@ -19,6 +19,4 @@ bcs.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 
-sui_sdk.workspace = true
 sui-sdk-types.workspace = true
-sui_types.workspace = true
