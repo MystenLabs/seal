@@ -105,7 +105,9 @@ Each key server (whether independent or decentralized) counts as one server in y
 Use a single decentralized server to get built-in distributed trust and rotation support.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+import { useCurrentClient } from '@mysten/dapp-kit-react';
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -127,7 +129,9 @@ const client = new SealClient({
 Direct operator model with simpler infrastructure relationships.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+import { useCurrentClient } from '@mysten/dapp-kit-react';
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -153,7 +157,9 @@ const client = new SealClient({
 Flexible trust distribution and cost control.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+import { useCurrentClient } from '@mysten/dapp-kit-react';
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -258,11 +264,15 @@ Decryption involves a few additional steps:
 
 Once initialized, the session key can be used to retrieve multiple decryption keys for the specified package without requiring further user confirmation.
 ```typescript
+import { useCurrentClient } from '@mysten/dapp-kit-react';
+
+const suiClient = useCurrentClient();
+
 const sessionKey = await SessionKey.create({
     address: suiAddress,
     packageId,
     ttlMin: 10, // TTL of 10 minutes
-    suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+    suiClient,
 });
 const message = sessionKey.getPersonalMessage();
 const { signature } = await keypair.signPersonalMessage(message); // User confirms in wallet
