@@ -311,10 +311,12 @@ server_mode: !Open
 ```shell
 CONFIG_PATH=key-server-config.yaml MASTER_KEY=<MASTER_KEY> cargo run --bin key-server
 ```
-6. To use the SDK against your localnet, point a `SuiClient` at the local fullnode and list your localnet key server in `serverConfigs`. See [Using Seal](./UsingSeal.mdx) for the full client flow.
+6. To use the SDK against your localnet, configure dApp Kit's `createClient` with a localnet gRPC client (e.g. `new SuiGrpcClient({ network: 'localnet', baseUrl: 'http://127.0.0.1:9000' })`) and list your localnet key server in `serverConfigs`. See [Using Seal](./UsingSeal.mdx) for the full client flow.
 ```ts
+import { useCurrentClient } from '@mysten/dapp-kit-react';
+
 const sealClient = new SealClient({
-  suiClient: new SuiClient({ url: getFullnodeUrl('localnet') }), // http://127.0.0.1:9000
+  suiClient: useCurrentClient(),
   serverConfigs: [{ objectId: '<KEY_SERVER_OBJECT_ID>', weight: 1 }],
 });
 ```

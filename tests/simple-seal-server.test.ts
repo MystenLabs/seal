@@ -4,7 +4,7 @@
 import { fromHex } from "@mysten/bcs";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { SealClient, SessionKey } from "@mysten/seal";
 import assert from "assert";
 import { parseArgs } from "node:util";
@@ -147,9 +147,9 @@ async function runTest(
   // Setup
   const keypair = Ed25519Keypair.generate();
   const suiAddress = keypair.getPublicKey().toSuiAddress();
-  const suiClient = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(network),
+  const suiClient = new SuiGrpcClient({
     network,
+    baseUrl: `https://fullnode.${network}.sui.io:443`,
   });
   const testData = crypto.getRandomValues(new Uint8Array(1000));
   const packageId = PACKAGE_IDS[network];

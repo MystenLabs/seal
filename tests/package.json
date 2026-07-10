@@ -15,9 +15,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@mysten/bcs": "^1.7.0",
-    "@mysten/seal": "^1.1.0",
-    "@mysten/sui": "^2.5.0"
+    "@mysten/bcs": "^2.1.0",
+    "@mysten/seal": "^1.2.4",
+    "@mysten/sui": "^2.20.2"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
