@@ -1,16 +1,12 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useState } from 'react';
-import {
-  useCurrentAccount,
-  useSignAndExecuteTransaction,
-  useSignPersonalMessage,
-  useSuiClient,
-} from '@mysten/dapp-kit';
+import { useEffect, useMemo, useState } from 'react';
+import { useCurrentAccount, useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react';
 import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex } from '@radix-ui/themes';
 import { coinWithBalance, Transaction } from '@mysten/sui/transactions';
 import { fromHex, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
+import { bcs } from '@mysten/sui/bcs';
 import { SealClient, SessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import {
@@ -19,7 +15,6 @@ import {
   MoveCallConstructor,
   DECENTRALIZED_KEY_SERVER_OBJ_ID,
 } from './utils';
-import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 const TTL_MIN = 10;
 export interface FeedData {
@@ -33,21 +28,26 @@ export interface FeedData {
 }
 
 const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
-  const suiClient = useSuiClient();
+  const suiClient = useCurrentClient();
+  const dAppKit = useDAppKit();
   const { id } = useParams();
 
-  const client = new SealClient({
-    suiClient,
-    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
-    serverConfigs: [
-      {
-        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
-        weight: 1,
-        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
-      },
-    ],
-    verifyKeyServers: false,
-  });
+  const client = useMemo(
+    () =>
+      new SealClient({
+        suiClient,
+        // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+        serverConfigs: [
+          {
+            objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+            weight: 1,
+            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+          },
+        ],
+        verifyKeyServers: false,
+      }),
+    [suiClient],
+  );
   const [feed, setFeed] = useState<FeedData>();
   const [decryptedFileUrls, setDecryptedFileUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -56,20 +56,6 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const [currentSessionKey, setCurrentSessionKey] = useState<SessionKey | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-
-  const { mutate: signPersonalMessage } = useSignPersonalMessage();
-
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) =>
-      await suiClient.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-        },
-      }),
-  });
 
   useEffect(() => {
     // Call getFeed immediately
@@ -82,62 +68,59 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
 
     // Cleanup interval on component unmount
     return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, suiAddress, packageId, suiClient]);
 
   async function getFeed() {
     // get all encrypted objects for the given service id
-    const encryptedObjects = await suiClient
-      .getDynamicFields({
+    // (dynamic field names are Move Strings — the Walrus blob IDs — decode them from BCS)
+    const encryptedObjects = await suiClient.core
+      .listDynamicFields({
         parentId: id!,
       })
-      .then((res) => res.data.map((obj) => obj.name.value as string));
+      .then((res) => res.dynamicFields.map((df) => bcs.string().parse(df.name.bcs)));
 
     // get the current service object
-    const service = await suiClient.getObject({
-      id: id!,
-      options: { showContent: true },
+    const service = await suiClient.core.getObject({
+      objectId: id!,
+      include: { json: true },
     });
-    const service_fields = (service.data?.content as { fields: any })?.fields || {};
+    const service_fields =
+      (service.object.json as { fee?: string; ttl?: string; owner?: string; name?: string }) || {};
 
     // get all subscriptions for the given sui address
-    const res = await suiClient.getOwnedObjects({
+    const res = await suiClient.core.listOwnedObjects({
       owner: suiAddress,
-      options: {
-        showContent: true,
-        showType: true,
-      },
-      filter: {
-        StructType: `${packageId}::subscription::Subscription`,
-      },
+      type: `${packageId}::subscription::Subscription`,
+      include: { json: true },
     });
 
     // get the current timestamp
-    const clock = await suiClient.getObject({
-      id: '0x6',
-      options: { showContent: true },
+    const clock = await suiClient.core.getObject({
+      objectId: '0x6',
+      include: { json: true },
     });
-    const fields = (clock.data?.content as { fields: any })?.fields || {};
-    const current_ms = fields.timestamp_ms;
+    const clock_fields = (clock.object.json as { timestamp_ms?: string }) || {};
+    const current_ms = Number(clock_fields.timestamp_ms);
 
-    // find an expired subscription for the given service if exists.
-    const valid_subscription = res.data
+    // find a valid subscription for the given service if exists.
+    const valid_subscription = res.objects
       .map((obj) => {
-        const fields = (obj!.data!.content as { fields: any }).fields;
-        const x = {
-          id: fields?.id.id,
-          created_at: parseInt(fields?.created_at),
-          service_id: fields?.service_id,
+        const fields = obj.json as { created_at?: string; service_id?: string };
+        return {
+          id: obj.objectId,
+          created_at: parseInt(fields.created_at!),
+          service_id: fields.service_id,
         };
-        return x;
       })
-      .filter((item) => item.service_id === service_fields.id.id)
+      .filter((item) => item.service_id === service.object.objectId)
       .find((item) => {
-        return item.created_at + parseInt(service_fields.ttl) > current_ms;
+        return item.created_at + parseInt(service_fields.ttl!) > current_ms;
       });
 
     const feed = {
       ...service_fields,
-      id: service_fields.id.id,
+      id: service.object.objectId,
       blobIds: encryptedObjects,
       subscriptionId: valid_subscription?.id,
     } as FeedData;
@@ -163,9 +146,8 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   }
 
   async function handleSubscribe(serviceId: string, fee: number) {
-    const address = currentAccount?.address!;
+    const address = currentAccount!.address;
     const tx = new Transaction();
-    tx.setGasBudget(10000000);
     tx.setSender(address);
     const subscription = tx.moveCall({
       target: `${packageId}::subscription::subscribe`,
@@ -182,17 +164,13 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
       arguments: [tx.object(subscription), tx.pure.address(address)],
     });
 
-    signAndExecute(
-      {
-        transaction: tx,
-      },
-      {
-        onSuccess: async (result) => {
-          console.log('res', result);
-          getFeed();
-        },
-      },
-    );
+    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+    console.log('res', result);
+    if (result.$kind === 'Transaction') {
+      // wait for the fullnode to index the transaction before refetching
+      await suiClient.core.waitForTransaction({ digest: result.Transaction.digest });
+      getFeed();
+    }
   }
 
   const onView = async (
@@ -234,34 +212,24 @@ const FeedsToSubscribe: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     });
 
     try {
-      signPersonalMessage(
-        {
-          message: sessionKey.getPersonalMessage(),
-        },
-        {
-          onSuccess: async (result) => {
-            await sessionKey.setPersonalMessageSignature(result.signature);
-            const moveCallConstructor = await constructMoveCall(
-              packageId,
-              serviceId,
-              subscriptionId,
-            );
-            await downloadAndDecrypt(
-              blobIds,
-              sessionKey,
-              suiClient,
-              client,
-              moveCallConstructor,
-              setError,
-              setDecryptedFileUrls,
-              setIsDialogOpen,
-              setReloadKey,
-            );
-            setCurrentSessionKey(sessionKey);
-          },
-        },
+      const { signature } = await dAppKit.signPersonalMessage({
+        message: sessionKey.getPersonalMessage(),
+      });
+      await sessionKey.setPersonalMessageSignature(signature);
+      const moveCallConstructor = constructMoveCall(packageId, serviceId, subscriptionId);
+      await downloadAndDecrypt(
+        blobIds,
+        sessionKey,
+        suiClient,
+        client,
+        moveCallConstructor,
+        setError,
+        setDecryptedFileUrls,
+        setIsDialogOpen,
+        setReloadKey,
       );
-    } catch (error: any) {
+      setCurrentSessionKey(sessionKey);
+    } catch (error) {
       console.error('Error:', error);
     }
   };

@@ -1,18 +1,18 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
+import { useCurrentNetwork } from '@mysten/dapp-kit-react';
 import { TESTNET_PACKAGE_ID } from './constants';
-import { createNetworkConfig } from '@mysten/dapp-kit';
 
-const { networkConfig, useNetworkVariable, useNetworkVariables } = createNetworkConfig({
+const networkVariables = {
   testnet: {
-    url: getJsonRpcFullnodeUrl('testnet'),
-    network: 'testnet',
-    variables: {
-      packageId: TESTNET_PACKAGE_ID,
-      mvrName: '@pkg/seal-demo-1234',
-    },
+    packageId: TESTNET_PACKAGE_ID,
+    mvrName: '@pkg/seal-demo-1234',
   },
-});
+} as const;
 
-export { useNetworkVariable, useNetworkVariables, networkConfig };
+type NetworkVariables = (typeof networkVariables)['testnet'];
+
+export function useNetworkVariable<K extends keyof NetworkVariables>(name: K): NetworkVariables[K] {
+  const network = useCurrentNetwork();
+  return networkVariables[network as keyof typeof networkVariables][name];
+}

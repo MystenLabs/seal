@@ -1,12 +1,13 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useState } from 'react';
-import { useSignPersonalMessage, useSuiClient } from '@mysten/dapp-kit';
+import { useEffect, useMemo, useState } from 'react';
+import { useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react';
 import { useNetworkVariable } from './networkConfig';
 import { AlertDialog, Button, Card, Dialog, Flex, Grid } from '@radix-ui/themes';
 import { fromHex } from '@mysten/sui/utils';
+import { bcs } from '@mysten/sui/bcs';
 import { Transaction } from '@mysten/sui/transactions';
-import { KeyServerConfig, SealClient, SessionKey, type ExportedSessionKey } from '@mysten/seal';
+import { SealClient, SessionKey, type ExportedSessionKey } from '@mysten/seal';
 import { useParams } from 'react-router-dom';
 import {
   downloadAndDecrypt,
@@ -15,7 +16,6 @@ import {
   DECENTRALIZED_KEY_SERVER_OBJ_ID,
 } from './utils';
 import { set, get } from 'idb-keyval';
-import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 const TTL_MIN = 10;
 export interface FeedData {
@@ -34,19 +34,24 @@ function constructMoveCall(packageId: string, allowlistId: string): MoveCallCons
 }
 
 const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
-  const suiClient = useSuiClient();
-  const client = new SealClient({
-    suiClient,
-    // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
-    serverConfigs: [
-      {
-        objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
-        weight: 1,
-        aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
-      },
-    ],
-    verifyKeyServers: false,
-  });
+  const suiClient = useCurrentClient();
+  const dAppKit = useDAppKit();
+  const client = useMemo(
+    () =>
+      new SealClient({
+        suiClient,
+        // Refer to https://seal-docs.wal.app/UsingSeal#choosing-key-servers for other config options
+        serverConfigs: [
+          {
+            objectId: DECENTRALIZED_KEY_SERVER_OBJ_ID,
+            weight: 1,
+            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com', // aggregatorUrl is only needed for decentralized key server
+          },
+        ],
+        verifyKeyServers: false,
+      }),
+    [suiClient],
+  );
   const packageId = useNetworkVariable('packageId');
   const mvrName = useNetworkVariable('mvrName');
 
@@ -56,8 +61,6 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
   const { id } = useParams();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-
-  const { mutate: signPersonalMessage } = useSignPersonalMessage();
 
   useEffect(() => {
     // Call getFeed immediately
@@ -70,22 +73,24 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
 
     // Cleanup interval on component unmount
     return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, suiClient, packageId]); // Add all dependencies that getFeed uses
 
   async function getFeed() {
-    const allowlist = await suiClient.getObject({
-      id: id!,
-      options: { showContent: true },
+    const allowlist = await suiClient.core.getObject({
+      objectId: id!,
+      include: { json: true },
     });
-    const encryptedObjects = await suiClient
-      .getDynamicFields({
+    // Dynamic field names are Move Strings (the Walrus blob IDs) — decode them from BCS.
+    const encryptedObjects = await suiClient.core
+      .listDynamicFields({
         parentId: id!,
       })
-      .then((res: { data: any[] }) => res.data.map((obj) => obj.name.value as string));
-    const fields = (allowlist.data?.content as { fields: any })?.fields || {};
+      .then((res) => res.dynamicFields.map((df) => bcs.string().parse(df.name.bcs)));
+    const fields = (allowlist.object.json as { name?: string }) || {};
     const feedData = {
       allowlistId: id!,
-      allowlistName: fields?.name,
+      allowlistName: fields.name!,
       blobIds: encryptedObjects,
     };
     setFeed(feedData);
@@ -96,10 +101,7 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
 
     if (imported) {
       try {
-        const currentSessionKey = await SessionKey.import(
-          imported,
-          new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl('testnet'), network: 'testnet' }),
-        );
+        const currentSessionKey = await SessionKey.import(imported, suiClient);
         console.log('loaded currentSessionKey', currentSessionKey);
         if (
           currentSessionKey &&
@@ -136,30 +138,24 @@ const Feeds: React.FC<{ suiAddress: string }> = ({ suiAddress }) => {
     });
 
     try {
-      signPersonalMessage(
-        {
-          message: sessionKey.getPersonalMessage(),
-        },
-        {
-          onSuccess: async (result: { signature: string }) => {
-            await sessionKey.setPersonalMessageSignature(result.signature);
-            const moveCallConstructor = await constructMoveCall(packageId, allowlistId);
-            await downloadAndDecrypt(
-              blobIds,
-              sessionKey,
-              suiClient,
-              client,
-              moveCallConstructor,
-              setError,
-              setDecryptedFileUrls,
-              setIsDialogOpen,
-              setReloadKey,
-            );
-            set('sessionKey', sessionKey.export());
-          },
-        },
+      const { signature } = await dAppKit.signPersonalMessage({
+        message: sessionKey.getPersonalMessage(),
+      });
+      await sessionKey.setPersonalMessageSignature(signature);
+      const moveCallConstructor = constructMoveCall(packageId, allowlistId);
+      await downloadAndDecrypt(
+        blobIds,
+        sessionKey,
+        suiClient,
+        client,
+        moveCallConstructor,
+        setError,
+        setDecryptedFileUrls,
+        setIsDialogOpen,
+        setReloadKey,
       );
-    } catch (error: any) {
+      set('sessionKey', sessionKey.export());
+    } catch (error) {
       console.error('Error:', error);
     }
   };

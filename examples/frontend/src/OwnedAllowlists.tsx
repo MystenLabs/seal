@@ -1,7 +1,7 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { useCurrentAccount, useCurrentClient } from '@mysten/dapp-kit-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNetworkVariable } from './networkConfig';
 import { Button, Card } from '@radix-ui/themes';
@@ -22,48 +22,44 @@ export interface CardItem {
 export function AllAllowlist() {
   const packageId = useNetworkVariable('packageId');
   const currentAccount = useCurrentAccount();
-  const suiClient = useSuiClient();
+  const suiClient = useCurrentClient();
 
   const [cardItems, setCardItems] = useState<CardItem[]>([]);
 
   const getCapObj = useCallback(async () => {
     if (!currentAccount?.address) return;
 
-    const res = await suiClient.getOwnedObjects({
+    const res = await suiClient.core.listOwnedObjects({
       owner: currentAccount?.address,
-      options: {
-        showContent: true,
-        showType: true,
-      },
-      filter: {
-        StructType: `${packageId}::allowlist::Cap`,
-      },
+      type: `${packageId}::allowlist::Cap`,
+      include: { json: true },
     });
-    const caps = res.data
+    const caps = res.objects
       .map((obj) => {
-        const fields = (obj!.data!.content as { fields: any }).fields;
+        const fields = obj.json as { allowlist_id?: string };
         return {
-          id: fields?.id.id,
+          id: obj.objectId,
           allowlist_id: fields?.allowlist_id,
         };
       })
       .filter((item) => item !== null) as Cap[];
     const cardItems: CardItem[] = await Promise.all(
       caps.map(async (cap) => {
-        const allowlist = await suiClient.getObject({
-          id: cap.allowlist_id,
-          options: { showContent: true },
+        const allowlist = await suiClient.core.getObject({
+          objectId: cap.allowlist_id,
+          include: { json: true },
         });
-        const fields = (allowlist.data?.content as { fields: any })?.fields || {};
+        const fields = (allowlist.object.json as { name?: string; list?: string[] }) || {};
         return {
           cap_id: cap.id,
           allowlist_id: cap.allowlist_id,
-          list: fields.list,
-          name: fields.name,
+          list: fields.list!,
+          name: fields.name!,
         };
       }),
     );
     setCardItems(cardItems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAccount?.address]);
 
   useEffect(() => {

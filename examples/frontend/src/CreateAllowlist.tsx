@@ -3,7 +3,7 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import { Button, Card, Flex } from '@radix-ui/themes';
-import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
+import { useDAppKit } from '@mysten/dapp-kit-react';
 import { useState } from 'react';
 import { useNetworkVariable } from './networkConfig';
 import { useNavigate } from 'react-router-dom';
@@ -12,20 +12,9 @@ export function CreateAllowlist() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const packageId = useNetworkVariable('packageId');
-  const suiClient = useSuiClient();
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) =>
-      await suiClient.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-        },
-      }),
-  });
+  const dAppKit = useDAppKit();
 
-  function createAllowlist(name: string) {
+  async function createAllowlist(name: string) {
     if (name === '') {
       alert('Please enter a name for the allowlist');
       return;
@@ -35,28 +24,22 @@ export function CreateAllowlist() {
       target: `${packageId}::allowlist::create_allowlist_entry`,
       arguments: [tx.pure.string(name)],
     });
-    tx.setGasBudget(10000000);
-    signAndExecute(
-      {
-        transaction: tx,
-      },
-      {
-        onSuccess: async (result) => {
-          console.log('res', result);
-          // Extract the created allowlist object ID from the transaction result
-          const allowlistObject = result.effects?.created?.find(
-            (item) => item.owner && typeof item.owner === 'object' && 'Shared' in item.owner,
-          );
-          const createdObjectId = allowlistObject?.reference?.objectId;
-          if (createdObjectId) {
-            window.open(
-              `${window.location.origin}/allowlist-example/admin/allowlist/${createdObjectId}`,
-              '_blank',
-            );
-          }
-        },
-      },
-    );
+    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+    console.log('res', result);
+    if (result.$kind !== 'Transaction') {
+      alert('Failed to create allowlist');
+      return;
+    }
+    // Extract the created allowlist object ID from the transaction result
+    const createdObjectId = result.Transaction.effects?.changedObjects.find(
+      (item) => item.idOperation === 'Created' && item.outputOwner?.$kind === 'Shared',
+    )?.objectId;
+    if (createdObjectId) {
+      window.open(
+        `${window.location.origin}/allowlist-example/admin/allowlist/${createdObjectId}`,
+        '_blank',
+      );
+    }
   }
 
   const handleViewAll = () => {

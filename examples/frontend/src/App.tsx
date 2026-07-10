@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import React from 'react';
-import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+import { useCurrentAccount } from '@mysten/dapp-kit-react';
+import { ConnectButton } from '@mysten/dapp-kit-react/ui';
 import { Box, Button, Card, Container, Flex, Grid } from '@radix-ui/themes';
 import { CreateAllowlist } from './CreateAllowlist';
 import { Allowlist } from './Allowlist';
@@ -63,7 +64,8 @@ function App() {
   const [capId, setCapId] = useState<string>('');
   return (
     <Container>
-      <Flex position="sticky" px="4" py="2" justify="between">
+      {/* zIndex keeps the connect button's account dropdown above the cards below */}
+      <Flex position="sticky" px="4" py="2" justify="between" style={{ zIndex: 1 }}>
         <h1 className="text-4xl font-bold m-4 mb-8">Seal Example Apps</h1>
         {/* <p>TODO: add seal logo</p> */}
         <Box>

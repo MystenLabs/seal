@@ -1,6 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
+import { useCurrentAccount, useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react';
 import { Transaction } from '@mysten/sui/transactions';
 import { Button, Card, Flex } from '@radix-ui/themes';
 import { useNetworkVariable } from './networkConfig';
@@ -23,7 +23,8 @@ interface AllowlistProps {
 
 export function Allowlist({ setRecipientAllowlist, setCapId }: AllowlistProps) {
   const packageId = useNetworkVariable('packageId');
-  const suiClient = useSuiClient();
+  const suiClient = useCurrentClient();
+  const dAppKit = useDAppKit();
   const currentAccount = useCurrentAccount();
   const [allowlist, setAllowlist] = useState<Allowlist>();
   const { id } = useParams();
@@ -32,23 +33,18 @@ export function Allowlist({ setRecipientAllowlist, setCapId }: AllowlistProps) {
   useEffect(() => {
     async function getAllowlist() {
       // load all caps
-      const res = await suiClient.getOwnedObjects({
-        owner: currentAccount?.address!,
-        options: {
-          showContent: true,
-          showType: true,
-        },
-        filter: {
-          StructType: `${packageId}::allowlist::Cap`,
-        },
+      const res = await suiClient.core.listOwnedObjects({
+        owner: currentAccount!.address,
+        type: `${packageId}::allowlist::Cap`,
+        include: { json: true },
       });
 
       // find the cap for the given allowlist id
-      const capId = res.data
+      const capId = res.objects
         .map((obj) => {
-          const fields = (obj!.data!.content as { fields: any }).fields;
+          const fields = obj.json as { allowlist_id?: string };
           return {
-            id: fields?.id.id,
+            id: obj.objectId,
             allowlist_id: fields?.allowlist_id,
           };
         })
@@ -58,15 +54,15 @@ export function Allowlist({ setRecipientAllowlist, setCapId }: AllowlistProps) {
       setInnerCapId(capId[0]);
 
       // load the allowlist for the given id
-      const allowlist = await suiClient.getObject({
-        id: id!,
-        options: { showContent: true },
+      const allowlist = await suiClient.core.getObject({
+        objectId: id!,
+        include: { json: true },
       });
-      const fields = (allowlist.data?.content as { fields: any })?.fields || {};
+      const fields = (allowlist.object.json as { name?: string; list?: string[] }) || {};
       setAllowlist({
         id: id!,
-        name: fields.name,
-        list: fields.list,
+        name: fields.name!,
+        list: fields.list!,
       });
       setRecipientAllowlist(id!);
     }
@@ -81,21 +77,10 @@ export function Allowlist({ setRecipientAllowlist, setCapId }: AllowlistProps) {
 
     // Cleanup interval on component unmount
     return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, currentAccount?.address]); // Only depend on id
 
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) =>
-      await suiClient.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-        },
-      }),
-  });
-
-  const addItem = (newAddressToAdd: string, wl_id: string, cap_id: string) => {
+  const addItem = async (newAddressToAdd: string, wl_id: string, cap_id: string) => {
     if (newAddressToAdd.trim() !== '') {
       if (!isValidSuiAddress(newAddressToAdd.trim())) {
         alert('Invalid address');
@@ -106,40 +91,22 @@ export function Allowlist({ setRecipientAllowlist, setCapId }: AllowlistProps) {
         arguments: [tx.object(wl_id), tx.object(cap_id), tx.pure.address(newAddressToAdd.trim())],
         target: `${packageId}::allowlist::add`,
       });
-      tx.setGasBudget(10000000);
 
-      signAndExecute(
-        {
-          transaction: tx,
-        },
-        {
-          onSuccess: async (result) => {
-            console.log('res', result);
-          },
-        },
-      );
+      const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+      console.log('res', result);
     }
   };
 
-  const removeItem = (addressToRemove: string, wl_id: string, cap_id: string) => {
+  const removeItem = async (addressToRemove: string, wl_id: string, cap_id: string) => {
     if (addressToRemove.trim() !== '') {
       const tx = new Transaction();
       tx.moveCall({
         arguments: [tx.object(wl_id), tx.object(cap_id), tx.pure.address(addressToRemove.trim())],
         target: `${packageId}::allowlist::remove`,
       });
-      tx.setGasBudget(10000000);
 
-      signAndExecute(
-        {
-          transaction: tx,
-        },
-        {
-          onSuccess: async (result) => {
-            console.log('res', result);
-          },
-        },
-      );
+      const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+      console.log('res', result);
     }
   };
 

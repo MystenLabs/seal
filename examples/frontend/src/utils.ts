@@ -1,8 +1,13 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { SealClient, SessionKey, NoAccessError, EncryptedObject } from '@mysten/seal';
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import {
+  SealClient,
+  SessionKey,
+  NoAccessError,
+  EncryptedObject,
+  type SealCompatibleClient,
+} from '@mysten/seal';
 import { Transaction } from '@mysten/sui/transactions';
 import React from 'react';
 
@@ -16,7 +21,7 @@ export const DECENTRALIZED_KEY_SERVER_OBJ_ID =
 export const downloadAndDecrypt = async (
   blobIds: string[],
   sessionKey: SessionKey,
-  suiClient: SuiJsonRpcClient,
+  suiClient: SealCompatibleClient,
   sealClient: SealClient,
   moveCallConstructor: (tx: Transaction, id: string) => void,
   setError: (error: string | null) => void,
@@ -70,6 +75,9 @@ export const downloadAndDecrypt = async (
     const batch = validDownloads.slice(i, i + 10);
     const ids = batch.map((enc) => EncryptedObject.parse(new Uint8Array(enc)).id);
     const tx = new Transaction();
+    // The gRPC client resolves object inputs via simulation, which needs the
+    // correct sender when the PTB references owned objects (e.g. Subscription).
+    tx.setSender(sessionKey.getAddress());
     ids.forEach((id) => moveCallConstructor(tx, id));
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
@@ -91,6 +99,7 @@ export const downloadAndDecrypt = async (
   for (const encryptedData of validDownloads) {
     const fullId = EncryptedObject.parse(new Uint8Array(encryptedData)).id;
     const tx = new Transaction();
+    tx.setSender(sessionKey.getAddress());
     moveCallConstructor(tx, fullId);
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
