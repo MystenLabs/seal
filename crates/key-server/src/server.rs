@@ -205,9 +205,11 @@ impl Server {
     }
 
     async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
-        // The legacy JSON-RPC client is only used by the event monitors, only
-        // initialize it when event monitoring is enabled.
-        let sui_client = if options.enable_event_monitoring {
+        // The legacy JSON-RPC client is only used by the event monitors, which
+        // only run in committee mode. Only initialize it when event monitoring
+        // is enabled and the server is in committee mode.
+        let is_committee_mode = matches!(options.server_mode, ServerMode::Committee { .. });
+        let sui_client = if options.enable_event_monitoring && is_committee_mode {
             info!("Event monitoring enabled; initializing legacy Sui JSON-RPC client");
             Some(
                 SuiClientBuilder::default()
