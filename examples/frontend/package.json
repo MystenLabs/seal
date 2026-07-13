@@ -24,7 +24,7 @@
     "@mysten/bcs": "^2.1.0",
     "@mysten/dapp-kit-react": "^2.1.6",
     "@mysten/seal": "^1.2.4",
-    "@mysten/sui": "^2.20.2",
+    "@mysten/sui": "^2.20.3",
     "@radix-ui/colors": "^3.0.0",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/react-label": "^2.1.8",

@@ -75,9 +75,6 @@ export const downloadAndDecrypt = async (
     const batch = validDownloads.slice(i, i + 10);
     const ids = batch.map((enc) => EncryptedObject.parse(new Uint8Array(enc)).id);
     const tx = new Transaction();
-    // The gRPC client resolves object inputs via simulation, which needs the
-    // correct sender when the PTB references owned objects (e.g. Subscription).
-    tx.setSender(sessionKey.getAddress());
     ids.forEach((id) => moveCallConstructor(tx, id));
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {
@@ -99,7 +96,6 @@ export const downloadAndDecrypt = async (
   for (const encryptedData of validDownloads) {
     const fullId = EncryptedObject.parse(new Uint8Array(encryptedData)).id;
     const tx = new Transaction();
-    tx.setSender(sessionKey.getAddress());
     moveCallConstructor(tx, fullId);
     const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
     try {

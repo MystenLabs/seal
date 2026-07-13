@@ -17,7 +17,7 @@
   "dependencies": {
     "@mysten/bcs": "^2.1.0",
     "@mysten/seal": "^1.2.4",
-    "@mysten/sui": "^2.20.2"
+    "@mysten/sui": "^2.20.3"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
