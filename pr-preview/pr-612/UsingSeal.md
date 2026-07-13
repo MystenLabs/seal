@@ -274,7 +274,6 @@ The simplest way to perform decryption is to call the client's `decrypt` functio
 ```typescript
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
-tx.setSender(sessionKey.getAddress());
 tx.moveCall({
     target: `${packageId}::${moduleName}::seal_approve`, 
     arguments: [

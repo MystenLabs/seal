@@ -63,7 +63,6 @@ When a user requests access, Seal checks your onchain policy. If approved, decry
 ```typescript
 // Create the Transaction for evaluating the seal_approve function.
 const tx = new Transaction();
-tx.setSender(sessionKey.getAddress());
 tx.moveCall({
     target: `${packageId}::${moduleName}::seal_approve`, 
     arguments: [
