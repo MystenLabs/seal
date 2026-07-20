@@ -75,6 +75,8 @@ public fun add(wl: &mut Whitelist, cap: &Cap, account: address) {
     wl.addresses.add(account, true);
 }
 
+/// Removing an address only blocks future key derivations - keys it already fetched keep
+/// working, including for content encrypted later. See the note on `seal_approve`.
 public fun remove(wl: &mut Whitelist, cap: &Cap, account: address) {
     assert!(cap.wl_id == object::id(wl), EInvalidCap);
     assert!(wl.addresses.contains(account), ENotInWhitelist);
@@ -111,6 +113,18 @@ fun check_policy(caller: address, id: vector<u8>, wl: &Whitelist): bool {
     wl.addresses.contains(caller)
 }
 
+/// Note: this approves the whole key-id prefix of the whitelist, so an approved address can
+/// derive and cache keys for arbitrary ids under that prefix. Removing it from the whitelist
+/// does not revoke those keys - it can keep decrypting data encrypted after its removal.
+///
+/// If revocation must apply to future content, set the nonce to a revocation version:
+/// [pkg id][whitelist id][revocation version]. Store the revocation version on the
+/// Whitelist (a separate field from `version`, which guards package upgrades), bump it
+/// inside `remove`, and check here that the nonce after the whitelist-id prefix equals
+/// the current value. Pre-fetched keys all name the old version, so they stop working for
+/// newly encrypted content. Encryptors must then read the current version onchain before
+/// each encryption, and content under older versions becomes undecryptable for everyone
+/// unless re-encrypted.
 entry fun seal_approve(id: vector<u8>, wl: &Whitelist, ctx: &TxContext) {
     assert!(check_policy(ctx.sender(), id, wl), ENoAccess);
 }

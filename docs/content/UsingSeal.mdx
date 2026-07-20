@@ -31,7 +31,7 @@ Read the [Seal Design document](/Design) first to understand the underlying arch
 Packages should define `seal_approve*` functions in their modules to control access to the keys associated with their identity namespace. Guidelines for defining `seal_approve*` functions:
 
 - A package can include multiple `seal_approve*` functions, each implementing different access control logic and accepting different input parameters.
-- The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`.
+- The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`. See more security best practices at [Choosing key ids and nonces](/SecurityBestPractices#choosing-key-ids-and-nonces).
 - If access is not granted, the function should abort without returning a value.
 - To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a versioned shared global object with the latest version (see [allowlist](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/subscription.move) examples).
 
