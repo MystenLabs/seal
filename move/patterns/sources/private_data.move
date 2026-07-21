@@ -59,6 +59,9 @@ fun check_policy(id: vector<u8>, e: &PrivateData): bool {
     key_id == id
 }
 
+/// See the note on `seal_approve` in whitelist.move about previously fetched keys and
+/// future decryptions. Here the full key id is checked against a specific onchain object,
+/// so a fetched key only covers content encrypted to that object's id.
 entry fun seal_approve(id: vector<u8>, e: &PrivateData) {
     assert!(check_policy(id, e), ENoAccess);
 }

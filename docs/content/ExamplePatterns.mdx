@@ -27,7 +27,7 @@ Use this pattern when a single owner should control encrypted content. You store
 
 [Move source](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/whitelist.move)
 
-Use this pattern to share encrypted content with a defined group or list of approved users. You manage access by adding or removing members on the list, and those changes apply to future decryptions without touching the encrypted data. This pattern works well for subscriptions, partner-only data rooms, or early-access drops, and can optionally switch to public access after a set time.
+Use this pattern to share encrypted content with a defined group or list of approved users. You manage access by adding or removing members on the list, and those changes apply to future key requests without touching the encrypted data. Removing a member does not take back keys they already fetched; see [Fetched keys can be used for future decryptions](/SecurityBestPractices#fetched-keys-can-be-used-for-future-decryptions) and the notes in the Move source for ways to scope key ids, such as a revocation version in the nonce. This pattern works well for subscriptions, partner-only data rooms, or early-access drops, and can optionally switch to public access after a set time.
 
 ## Subscription
 

@@ -159,6 +159,8 @@ fun check_policy(
     true
 }
 
+/// See the note on `seal_approve` in whitelist.move about previously fetched keys and
+/// future decryptions - it applies to this pattern as well.
 entry fun seal_approve(
     id: vector<u8>,
     pkg_version: &PackageVersion,
