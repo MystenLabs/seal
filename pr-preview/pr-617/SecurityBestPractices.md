@@ -4,19 +4,9 @@
 
 When using Seal to manage encrypted data and access policies, it's important to understand and mitigate certain risks associated with key management, data availability, and operational trust. This section outlines recommendations for developers to follow when integrating Seal into production systems, especially for use cases involving sensitive or long-lived data.
 
-## Choosing key ids and nonces
+## Fetched keys can be used for future decryptions
 
-A key id is the identity you encrypt to. The key server derives one permanent key per id, and that key opens everything ever encrypted to the id - including content that does not exist yet. Revoking access onchain stops future key requests, but cannot take back keys a user already fetched.
-
-A common layout is `[pkg id][policy object id][nonce]`: `seal_approve*` checks the leading part, which decides who can get keys, while the nonce makes each id - and therefore each derived key - unique, domain-separating content under the same policy.
-
-Choose ids so that the keys a user can fetch stay bounded to what they should access:
-
-- **Use random nonces.** Under a prefix policy the nonce goes unchecked, so any id under the prefix is approvable - including ids that future content will use. Random nonces keep those ids unguessable. A predictable nonce - a counter or timestamp - hands a departing user the full list of future ids, letting them pre-fetch keys for content that does not exist yet.
-
-- **Check the full id** when each piece of content needs its own onchain grant, as in [private data](/ExamplePatterns#private-data) (`compute_key_id(e.creator, e.nonce) == id`). An id becomes approvable only once an object exists for it onchain, so there is nothing to pre-fetch at all.
-
-- **Set the nonce to a revocation version** when you need a prefix policy and revocation that reaches future content: `[pkg id][policy object id][revocation version]`. In the [allowlist](/ExamplePatterns#allowlist), store a revocation version on the `Whitelist`, bump it inside `remove`, and check in `seal_approve` that the id carries the current value. Pre-fetched keys all name the old version, so they stop working for content encrypted after the bump when encryptors encrypts to the current version onchain.
+A key id is the identity you encrypt to. The key server derives one fixed key per id, and that key opens everything anyone ever encrypts to the id, including content that does not exist yet. Revoking access onchain stops future key requests, but cannot take back keys a user already fetched. When designing your identity namespace, decide whether previously fetched keys can or must not decrypt future encryptions, and choose key ids accordingly. See the [example patterns](/ExamplePatterns) (in particular [allowlist](/ExamplePatterns#allowlist) and [private data](/ExamplePatterns#private-data)) for concrete approaches.
 
 ## Choose an appropriate threshold configuration
 
