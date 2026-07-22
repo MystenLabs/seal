@@ -20,7 +20,7 @@ use seal::bf_hmac_encryption::{
     decrypt,
     new_public_key,
     verify_derived_keys,
-    parse_encrypted_object
+    parse_encrypted_object,
 };
 use sui::bls12381::g1_from_bytes;
 

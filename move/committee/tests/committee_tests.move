@@ -16,7 +16,7 @@ use seal_committee::seal_committee::{
     reject_digest_for_upgrade,
     authorize_upgrade,
     commit_upgrade,
-    reset_proposal
+    reset_proposal,
 };
 use std::string;
 use sui::{bls12381::{g1_generator, g2_generator}, package, test_scenario::{Self, Scenario}};

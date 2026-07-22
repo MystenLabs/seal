@@ -21,7 +21,7 @@ use sui::{
         g2_generator,
         scalar_from_bytes,
         g1_mul,
-        g2_mul
+        g2_mul,
     },
     group_ops::Element
 };

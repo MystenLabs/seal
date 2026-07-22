@@ -11,7 +11,7 @@ use seal::key_server::{
     EInvalidPartyId,
     EInvalidServerType,
     EInvalidVersion,
-    pk
+    pk,
 };
 use std::unit_test::assert_eq;
 use sui::{bls12381::g2_generator, test_scenario::{Self, ctx}};
