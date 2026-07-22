@@ -5,9 +5,7 @@ use crate::return_err;
 use crypto::create_full_id;
 use fastcrypto::encoding::{Base64, Encoding};
 use seal_sdk::types::KeyId;
-use sui_types::base_types::ObjectID;
-use sui_types::transaction::ProgrammableMoveCall;
-use sui_types::transaction::{Argument, CallArg, Command, ProgrammableTransaction};
+use sui_sdk_types::{Address, Argument, Command, Input, MoveCall, ProgrammableTransaction};
 use tracing::debug;
 
 ///
@@ -81,7 +79,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
 
             // Restriction: The called function must start with the prefix seal_approve.
             // Restriction: All commands in the PTB must use the same package id.
-            if !cmd.function.starts_with("seal_approve") || cmd.package != pkg_id {
+            if !cmd.function.as_str().starts_with("seal_approve") || cmd.package != pkg_id {
                 return_err!(
                     InternalError::InvalidPTB("Invalid function or package id".to_string()),
                     "Invalid function or package id {:?}",
@@ -94,10 +92,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
     }
 }
 
-fn get_key_id(
-    ptb: &ProgrammableTransaction,
-    cmd: &ProgrammableMoveCall,
-) -> Result<KeyId, InternalError> {
+fn get_key_id(ptb: &ProgrammableTransaction, cmd: &MoveCall) -> Result<KeyId, InternalError> {
     if cmd.arguments.is_empty() {
         return_err!(
             InternalError::InvalidPTB("Empty args".to_string()),
@@ -112,7 +107,7 @@ fn get_key_id(
             cmd
         );
     };
-    let Some(CallArg::Pure(id)) = &ptb.inputs.get(arg_idx as usize) else {
+    let Some(Input::Pure(id)) = &ptb.inputs.get(arg_idx as usize) else {
         return_err!(
             InternalError::InvalidPTB("Invalid first parameter for seal_approve".to_string()),
             "Invalid PTB command {:?}",
@@ -149,17 +144,17 @@ impl ValidPtb {
             .collect()
     }
 
-    pub fn pkg_id(&self) -> ObjectID {
+    pub fn pkg_id(&self) -> Address {
         let Command::MoveCall(cmd) = &self.0.commands[0] else {
             unreachable!()
         };
         cmd.package
     }
 
-    pub fn full_ids(&self, first_pkg_id: &ObjectID) -> Vec<KeyId> {
+    pub fn full_ids(&self, first_pkg_id: &Address) -> Vec<KeyId> {
         self.inner_ids()
             .iter()
-            .map(|inner_id| create_full_id(&first_pkg_id.into_bytes(), inner_id))
+            .map(|inner_id| create_full_id(&first_pkg_id.into_inner(), inner_id))
             .collect()
     }
 
@@ -172,6 +167,18 @@ impl ValidPtb {
 mod tests {
     use super::*;
     use sui_types::base_types::ObjectID;
+
+    /// Converts a `sui_types::ObjectID` to the `sui_sdk_types::Address` used by
+    /// the key server APIs.
+    fn to_sdk_address(id: ObjectID) -> Address {
+        Address::new(id.into_bytes())
+    }
+
+    /// Converts a PTB built with the `sui_types` `ProgrammableTransactionBuilder`
+    /// into the BCS-compatible `sui_sdk_types` PTB accepted by the key server APIs.
+    fn to_sdk_ptb(ptb: sui_types::transaction::ProgrammableTransaction) -> ProgrammableTransaction {
+        bcs::from_bytes(&bcs::to_bytes(&ptb).unwrap()).unwrap()
+    }
     use sui_types::base_types::SuiAddress;
     use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
     use sui_types::Identifier;
@@ -197,10 +204,10 @@ mod tests {
             vec![id_caller],
         );
         let ptb = builder.finish();
-        let valid_ptb = ValidPtb::try_from(ptb).unwrap();
+        let valid_ptb = ValidPtb::try_from(to_sdk_ptb(ptb)).unwrap();
 
         assert_eq!(valid_ptb.inner_ids(), vec![id.clone(), id]);
-        assert_eq!(valid_ptb.pkg_id(), pkgid);
+        assert_eq!(valid_ptb.pkg_id(), to_sdk_address(pkgid));
     }
 
     #[test]
@@ -208,7 +215,7 @@ mod tests {
         let builder = ProgrammableTransactionBuilder::new();
         let ptb = builder.finish();
         assert_eq!(
-            ValidPtb::try_from(ptb).err(),
+            ValidPtb::try_from(to_sdk_ptb(ptb)).err(),
             Some(InternalError::InvalidPTB(
                 "Empty PTB input or command".to_string()
             ))
@@ -228,7 +235,7 @@ mod tests {
         );
         let ptb = builder.finish();
         assert_eq!(
-            ValidPtb::try_from(ptb).err(),
+            ValidPtb::try_from(to_sdk_ptb(ptb)).err(),
             Some(InternalError::InvalidPTB(
                 "Empty PTB input or command".to_string()
             ))
@@ -254,7 +261,7 @@ mod tests {
         builder.transfer_sui(sender, Some(1));
         let ptb = builder.finish();
         assert_eq!(
-            ValidPtb::try_from(ptb).err(),
+            ValidPtb::try_from(to_sdk_ptb(ptb)).err(),
             Some(InternalError::InvalidPTB(
                 "Non MoveCall command".to_string()
             ))
@@ -283,7 +290,7 @@ mod tests {
         );
         let ptb = builder.finish();
         assert_eq!(
-            ValidPtb::try_from(ptb).err(),
+            ValidPtb::try_from(to_sdk_ptb(ptb)).err(),
             Some(InternalError::InvalidPTB(
                 "Invalid function or package id".to_string()
             ))

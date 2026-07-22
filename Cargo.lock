@@ -4564,7 +4564,6 @@ dependencies = [
  "http-body-util",
  "hyper-util",
  "moka",
- "move-core-types",
  "move-package-alt",
  "mvr-types",
  "mysten-service",
@@ -4583,6 +4582,7 @@ dependencies = [
  "serde_yaml 0.9.34+deprecated",
  "shared-crypto",
  "snap",
+ "sui-crypto 0.3.1",
  "sui-move-build",
  "sui-rpc 0.3.2",
  "sui-rpc-api",
@@ -8272,7 +8272,6 @@ dependencies = [
  "serde",
  "sui-rpc 0.3.2",
  "sui-sdk-types 0.3.2",
- "sui-types",
  "tokio",
  "tonic 0.14.6",
 ]
@@ -9428,6 +9427,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-crypto"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7b8f54c4405002c9ece67cb848479f80837185a55a59d8c0a105240f737d0da"
+dependencies = [
+ "base64ct",
+ "ed25519-dalek",
+ "k256 0.13.4",
+ "p256",
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+ "signature 2.2.0",
+ "sui-sdk-types 0.3.2",
+]
+
+[[package]]
 name = "sui-display"
 version = "1.71.0"
 source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c1bff48780e5f#a3cc4467c9de48410a01fc2b6f3c1bff48780e5f"
@@ -10216,7 +10231,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sui-config",
- "sui-crypto",
+ "sui-crypto 0.3.0",
  "sui-display",
  "sui-macros",
  "sui-name-service",
@@ -10261,7 +10276,7 @@ dependencies = [
  "serde_with",
  "shared-crypto",
  "sui-config",
- "sui-crypto",
+ "sui-crypto 0.3.0",
  "sui-json",
  "sui-json-rpc-api",
  "sui-json-rpc-types",

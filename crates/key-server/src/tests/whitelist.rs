@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::externals::get_key;
-use crate::tests::{ExecutedTransactionTestExt, SealTestCluster};
+use crate::tests::{to_sdk_ptb, ExecutedTransactionTestExt, SealTestCluster};
 use serde_json::json;
 use std::path::PathBuf;
 use sui_sdk::json::SuiJsonValue;
+use sui_sdk_types::ProgrammableTransaction;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     effects::TransactionEffectsAPI,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability},
+    transaction::{ObjectArg, SharedObjectMutability},
     Identifier,
 };
 use test_cluster::TestCluster;
@@ -197,7 +198,7 @@ pub fn whitelist_create_ptb(
         vec![ids, list],
     );
 
-    builder.finish()
+    to_sdk_ptb(builder.finish())
 }
 
 pub(crate) async fn create_whitelist(

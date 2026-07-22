@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use serde::{Deserialize, Serialize};
-use sui_types::transaction::ProgrammableTransaction;
+use sui_sdk_types::ProgrammableTransaction;
 
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 #[derive(Serialize, Deserialize)]
 struct RequestFormat {
     ptb: Vec<u8>,
@@ -12,7 +11,6 @@ struct RequestFormat {
     enc_verification_key: Vec<u8>,
 }
 
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
 pub fn signed_request(
     ptb: &ProgrammableTransaction,
     enc_key: &ElGamalPublicKey,
@@ -29,6 +27,14 @@ pub fn signed_request(
 #[cfg(test)]
 mod tests {
     use crate::signed_message::signed_request;
+
+    /// Converts a PTB built with the `sui_types` `ProgrammableTransactionBuilder`
+    /// into the BCS-compatible `sui_sdk_types` PTB accepted by the key server APIs.
+    fn to_sdk_ptb(
+        ptb: sui_types::transaction::ProgrammableTransaction,
+    ) -> sui_sdk_types::ProgrammableTransaction {
+        bcs::from_bytes(&bcs::to_bytes(&ptb).unwrap()).unwrap()
+    }
     use crypto::elgamal::genkey;
     use fastcrypto::ed25519::Ed25519KeyPair;
     use fastcrypto::traits::KeyPair;
@@ -97,7 +103,7 @@ mod tests {
 
         let expected_output = "38000100d92bc457b42d48924087ea3f22d35fd2fe9afdf5bdfe38cc51c0f14f3282f6d503626c610e7365616c5f617070726f76655f7800003085946cd4134ecb8f7739bbd3522d1c8fab793c6c431a8b0b77b4f1885d4c096aafab755e7b8bce8688410cee9908fb29608faaf686c0dcbe3f65f1130e8be538d7ea009347d397f517188dfa14417618887a0412e404fff56efbafb63d1fc4970a1187b4ccb6e767a91822312e533fa53dee69f77ef5130be095e147ff3d40e96e8ddc4bf554dae3bcc34048fe9330cccf";
 
-        let result = signed_request(&ptb, &eg_keys.1, &eg_keys.2);
+        let result = signed_request(&to_sdk_ptb(ptb), &eg_keys.1, &eg_keys.2);
         assert_eq!(hex::encode(result), expected_output);
     }
 }

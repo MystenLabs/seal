@@ -20,21 +20,14 @@ use crate::key_server_options::KeyServerOptions;
 use crate::types::Network;
 use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use moka::sync::Cache;
-use move_core_types::account_address::AccountAddress;
-use move_core_types::identifier::Identifier;
-use move_core_types::language_storage::StructTag;
 use mvr_types::name::{Name, VersionedName};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_sdk_types::{Address, StructTag as SdkStructTag, TypeTag as SdkTypeTag};
-use sui_types::base_types::ObjectID;
-use sui_types::collection_types::Table;
-use sui_types::dynamic_field::{DynamicFieldName, Field};
-use sui_types::TypeTag;
+use sui_rpc::client::Client as SuiGrpcClient;
+use sui_sdk_types::{Address, StructTag, TypeTag};
 use tonic::Code;
 use tracing::debug;
 
@@ -44,7 +37,7 @@ const MVR_CORE: &str = "0x62c1f5b1cb9e3bfc3dd1f73c95066487b662048a6358eabdbf67f6
 /// Testnet records are stored on mainnet on the registry defined above, but under the 'networks' section using the following ID as key
 const TESTNET_ID: &str = "4c78adac";
 
-static MVR_CACHE: Lazy<Cache<String, ObjectID>> = Lazy::new(default_lru_cache);
+static MVR_CACHE: Lazy<Cache<String, Address>> = Lazy::new(default_lru_cache);
 
 /// Check that the package id that the MVR name points to matches `first_pkg_id`,
 /// if an MVR name is provided. Resolved names are cached.
@@ -52,7 +45,7 @@ pub(crate) async fn check_mvr_package_id(
     mvr_name: &Option<String>,
     sui_rpc_client: &SuiRpcClient,
     key_server_options: &KeyServerOptions,
-    first_pkg_id: ObjectID,
+    first_pkg_id: Address,
     req_id: Option<&str>,
 ) -> Result<(), InternalError> {
     // If an MVR name is provided, get it from cache or resolve it to the package
@@ -84,40 +77,65 @@ pub(crate) async fn check_mvr_package_id(
     Ok(())
 }
 
-pub(crate) fn insert_mvr_cache(mvr_name: &str, package_id: ObjectID) {
+pub(crate) fn insert_mvr_cache(mvr_name: &str, package_id: Address) {
     MVR_CACHE.insert(mvr_name.to_string(), package_id);
 }
 
-pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<ObjectID> {
+pub(crate) fn get_mvr_cache(mvr_name: &str) -> Option<Address> {
     MVR_CACHE.get(&mvr_name.to_string())
 }
 
+/// BCS-compatible mirror of the onchain `sui::dynamic_field::Field` object.
 #[derive(Deserialize, Clone, Debug)]
-pub struct VecMap<K, V>(sui_types::collection_types::VecMap<K, V>);
+pub struct Field<N, V> {
+    _id: Address,
+    _name: N,
+    pub value: V,
+}
+
+/// BCS-compatible mirror of the onchain `sui::table::Table`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Table {
+    _id: Address,
+    _size: u64,
+}
+
+/// BCS-compatible mirror of the onchain `sui::vec_map::Entry`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Entry<K, V> {
+    key: K,
+    value: V,
+}
+
+/// BCS-compatible mirror of the onchain `sui::vec_map::VecMap`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct VecMap<K, V> {
+    contents: Vec<Entry<K, V>>,
+}
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct AppRecord {
-    _app_cap_id: ObjectID,
-    _ns_nft_id: ObjectID,
+    _app_cap_id: Address,
+    _ns_nft_id: Address,
     app_info: Option<AppInfo>,
     networks: VecMap<String, AppInfo>,
     _metadata: VecMap<String, String>,
-    _storage: ObjectID,
+    _storage: Address,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct AppInfo {
-    package_info_id: Option<ObjectID>,
-    package_address: Option<ObjectID>,
-    _upgrade_cap_id: Option<ObjectID>,
+    package_info_id: Option<Address>,
+    package_address: Option<Address>,
+    _upgrade_cap_id: Option<Address>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct PackageInfo {
-    _id: ObjectID,
+    _id: Address,
     _display: PackageDisplay,
-    _upgrade_cap_id: ObjectID,
-    package_address: ObjectID,
+    _upgrade_cap_id: Address,
+    package_address: Address,
     metadata: VecMap<String, String>,
     _git_versioning: Table,
 }
@@ -134,7 +152,6 @@ pub struct PackageDisplay {
 impl<K: Eq + Hash, V> From<VecMap<K, V>> for HashMap<K, V> {
     fn from(value: VecMap<K, V>) -> Self {
         value
-            .0
             .contents
             .into_iter()
             .map(|entry| (entry.key, entry.value))
@@ -147,7 +164,7 @@ pub(crate) async fn mvr_forward_resolution(
     sui_rpc_client: &SuiRpcClient,
     mvr_name: &str,
     key_server_options: &KeyServerOptions,
-) -> Result<ObjectID, InternalError> {
+) -> Result<Address, InternalError> {
     let package_address = match key_server_options.network {
         Network::Mainnet => get_from_mvr_registry(mvr_name, sui_rpc_client)
             .await?
@@ -185,7 +202,7 @@ pub(crate) async fn mvr_forward_resolution(
                     "No package info ID for MVR name {mvr_name} on testnet"
                 )))?;
             let package_info: PackageInfo = sui_rpc_client
-                .get_object(Address::new(package_info_id.into_bytes()))
+                .get_object(package_info_id)
                 .await
                 .map_err(|e| match e.code {
                     // None = FN protocol violation (missing BCS / decode failure) — deterministic, not retryable.
@@ -214,13 +231,16 @@ async fn get_from_mvr_registry(
     mvr_name: &str,
     mainnet_sui_rpc_client: &SuiRpcClient,
 ) -> Result<Field<Name, AppRecord>, InternalError> {
-    let dynamic_field_name = dynamic_field_name(mvr_name)?;
-    let registry_address = Address::new(ObjectID::from_str(MVR_REGISTRY).unwrap().into_bytes());
+    let registry_address = Address::from_static(MVR_REGISTRY);
 
     let parsed_name = VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
+    // Versioned names cannot be registered as dynamic field keys in the MVR registry.
+    if parsed_name.version.is_some() {
+        return Err(InvalidMVRName);
+    }
     let name_bcs = bcs::to_bytes(&parsed_name.name).expect("BCS encoding of Name should not fail");
-    let name_type_tag = SdkTypeTag::Struct(Box::new(SdkStructTag::new(
-        Address::from_str(MVR_CORE).unwrap(),
+    let name_type_tag = TypeTag::Struct(Box::new(StructTag::new(
+        Address::from_static(MVR_CORE),
         "name".parse().unwrap(),
         "Name".parse().unwrap(),
         vec![],
@@ -236,27 +256,9 @@ async fn get_from_mvr_registry(
             // None = FN protocol violation (missing BCS / decode failure) — deterministic, not retryable.
             None => InvalidPackage,
             _ => Failure(format!(
-                "Failed to get dynamic field object '{dynamic_field_name}' from MVR registry"
+                "Failed to get dynamic field object '{mvr_name}' from MVR registry"
             )),
         })
-}
-
-/// Construct a `DynamicFieldName` from an MVR name for use in the MVR registry.
-fn dynamic_field_name(mvr_name: &str) -> Result<DynamicFieldName, InternalError> {
-    let parsed_name = VersionedName::from_str(mvr_name).map_err(|_| InvalidMVRName)?;
-    if parsed_name.version.is_some() {
-        return Err(InvalidMVRName);
-    }
-
-    Ok(DynamicFieldName {
-        type_: TypeTag::Struct(Box::new(StructTag {
-            address: AccountAddress::from_str(MVR_CORE).unwrap(),
-            module: Identifier::from_str("name").unwrap(),
-            name: Identifier::from_str("Name").unwrap(),
-            type_params: vec![],
-        })),
-        value: json!(parsed_name.name),
-    })
 }
 
 #[cfg(test)]
@@ -270,7 +272,7 @@ mod tests {
     use mvr_types::name::VersionedName;
     use std::str::FromStr;
     use sui_rpc::client::Client as SuiGrpcClient;
-    use sui_types::base_types::ObjectID;
+    use sui_sdk_types::Address;
     #[tokio::test]
     async fn test_forward_resolution() {
         assert!(check_mvr_package_id(
@@ -281,10 +283,9 @@ mod tests {
                 None,
             ),
             &KeyServerOptions::new_for_testing(Network::Mainnet),
-            ObjectID::from_str(
+            Address::from_static(
                 "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
-            )
-            .unwrap(),
+            ),
             None
         )
         .await
@@ -293,12 +294,9 @@ mod tests {
         // Verify the cache is added.
         assert_eq!(
             get_mvr_cache("@mysten/kiosk"),
-            Some(
-                ObjectID::from_str(
-                    "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
-                )
-                .unwrap()
-            )
+            Some(Address::from_static(
+                "0xdfb4f1d4e43e0c3ad834dcd369f0d39005c872e118c9dc1c5da9765bb93ee5f3"
+            ))
         );
         assert_eq!(
             mvr_forward_resolution(
@@ -312,10 +310,9 @@ mod tests {
             )
             .await
             .unwrap(),
-            ObjectID::from_str(
+            Address::from_static(
                 "0xe308bb3ed5367cd11a9c7f7e7aa95b2f3c9a8f10fa1d2b3cff38240f7898555d"
             )
-            .unwrap()
         );
 
         // This MVR name is not registered on mainnet.
@@ -350,10 +347,9 @@ mod tests {
             )
             .await
             .unwrap(),
-            ObjectID::from_str(
+            Address::from_static(
                 "0xc5ce2742cac46421b62028557f1d7aea8a4c50f651379a79afdf12cd88628807"
             )
-            .unwrap()
         );
     }
 

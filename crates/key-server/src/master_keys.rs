@@ -16,7 +16,7 @@ use fastcrypto::serde_helpers::ToFromByteArray;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use sui_types::base_types::ObjectID;
+use sui_sdk_types::Address;
 use tracing::info;
 
 const MASTER_KEY_ENV_VAR: &str = "MASTER_KEY";
@@ -33,8 +33,8 @@ pub enum MasterKeys {
     Open { master_key: IbeMasterKey },
     /// In permissioned mode, the key server has a mapping of package IDs to master keys.
     Permissioned {
-        pkg_id_to_key: HashMap<ObjectID, IbeMasterKey>,
-        key_server_oid_to_key: HashMap<ObjectID, IbeMasterKey>,
+        pkg_id_to_key: HashMap<Address, IbeMasterKey>,
+        key_server_oid_to_key: HashMap<Address, IbeMasterKey>,
     },
     /// In committee mode, contains key state and current onchain committee version.
     Committee {
@@ -219,13 +219,13 @@ impl MasterKeys {
         }
     }
 
-    pub(crate) fn has_key_for_package(&self, id: &ObjectID) -> anyhow::Result<(), InternalError> {
+    pub(crate) fn has_key_for_package(&self, id: &Address) -> anyhow::Result<(), InternalError> {
         self.get_key_for_package(id).map(|_| ())
     }
 
     pub(crate) fn get_key_for_package(
         &self,
-        package_id: &ObjectID,
+        package_id: &Address,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
             MasterKeys::Open { master_key } => Ok(master_key),
@@ -238,7 +238,7 @@ impl MasterKeys {
 
     pub(crate) fn get_key_for_key_server(
         &self,
-        key_server_object_id: &ObjectID,
+        key_server_object_id: &Address,
     ) -> anyhow::Result<&IbeMasterKey, InternalError> {
         match self {
             MasterKeys::Open { master_key } => Ok(master_key),
@@ -309,12 +309,11 @@ fn test_master_keys_open_mode() {
     use crate::DefaultEncoding;
     use fastcrypto::encoding::Encoding;
     use fastcrypto::groups::GroupElement;
-    use sui_types::base_types::ObjectID;
     use temp_env::with_vars;
 
     let options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x2").unwrap(),
+        Address::from_static("0x2"),
     );
 
     with_vars([("MASTER_KEY", None::<&str>)], || {
@@ -328,7 +327,7 @@ fn test_master_keys_open_mode() {
         let mk = MasterKeys::load(&options, None);
         assert_eq!(
             mk.unwrap()
-                .get_key_for_package(&ObjectID::from_hex_literal("0x1").unwrap())
+                .get_key_for_package(&Address::from_static("0x1"))
                 .unwrap(),
             &sk
         );
@@ -345,30 +344,30 @@ fn test_master_keys_permissioned_mode() {
 
     let mut options = KeyServerOptions::new_open_server_with_default_values(
         Network::Testnet,
-        ObjectID::from_hex_literal("0x2").unwrap(),
+        Address::from_static("0x2"),
     );
     options.server_mode = ServerMode::Permissioned {
         client_configs: vec![
             ClientConfig {
                 name: "alice".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x1").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x2").unwrap(),
+                package_ids: vec![Address::from_static("0x1")],
+                key_server_object_id: Address::from_static("0x2"),
                 client_master_key: ClientKeyType::Imported {
                     env_var: "ALICE_KEY".to_string(),
                 },
             },
             ClientConfig {
                 name: "bob".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x3").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x4").unwrap(),
+                package_ids: vec![Address::from_static("0x3")],
+                key_server_object_id: Address::from_static("0x4"),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 100,
                 },
             },
             ClientConfig {
                 name: "dan".to_string(),
-                package_ids: vec![ObjectID::from_hex_literal("0x5").unwrap()],
-                key_server_object_id: ObjectID::from_hex_literal("0x6").unwrap(),
+                package_ids: vec![Address::from_static("0x5")],
+                key_server_object_id: Address::from_static("0x6"),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 200,
                 },
@@ -386,8 +385,8 @@ fn test_master_keys_permissioned_mode() {
         ],
         || {
             let mk = MasterKeys::load(&options, None).unwrap();
-            let k1 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x4").unwrap());
-            let k2 = mk.get_key_for_key_server(&ObjectID::from_hex_literal("0x6").unwrap());
+            let k1 = mk.get_key_for_key_server(&Address::from_static("0x4"));
+            let k2 = mk.get_key_for_key_server(&Address::from_static("0x6"));
             assert!(k1.is_ok());
             assert_ne!(k1, k2);
         },
@@ -419,7 +418,6 @@ fn test_master_keys_committee_mode() {
     use crate::types::Network;
     use fastcrypto::encoding::Encoding;
     use std::sync::atomic::Ordering;
-    use sui_sdk_types::Address;
     use temp_env::with_vars;
 
     use fastcrypto::groups::bls12381::Scalar;
@@ -427,11 +425,11 @@ fn test_master_keys_committee_mode() {
     let master_share_v5 = Scalar::from(5u128);
     let master_share_v4_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v4).unwrap());
     let master_share_v5_encoded = DefaultEncoding::encode(bcs::to_bytes(&master_share_v5).unwrap());
-    let package_id = ObjectID::ZERO;
+    let package_id = Address::ZERO;
 
     // Test Rotation mode.
     let mut options =
-        KeyServerOptions::new_open_server_with_default_values(Network::Testnet, ObjectID::ZERO);
+        KeyServerOptions::new_open_server_with_default_values(Network::Testnet, Address::ZERO);
     options.server_mode = ServerMode::Committee {
         member_address: Address::ZERO,
         key_server_obj_id: Address::TWO,

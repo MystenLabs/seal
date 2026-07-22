@@ -10,10 +10,25 @@ use fastcrypto_tbls::ecies_v1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_sdk_types::Address;
-use sui_types::collection_types::VecSet;
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct VecMap<K, V>(pub sui_types::collection_types::VecMap<K, V>);
+/// BCS-compatible mirror of the onchain `sui::vec_map::Entry`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Entry<K, V> {
+    pub key: K,
+    pub value: V,
+}
+
+/// BCS-compatible mirror of the onchain `sui::vec_map::VecMap`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VecMap<K, V> {
+    pub contents: Vec<Entry<K, V>>,
+}
+
+/// BCS-compatible mirror of the onchain `sui::vec_set::VecSet`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VecSet<K> {
+    pub contents: Vec<K>,
+}
 
 #[derive(Deserialize, Debug)]
 pub struct KeyServerV2 {
@@ -230,7 +245,6 @@ impl SealCommittee {
         };
 
         let info_map: HashMap<_, _> = members_info
-            .0
             .contents
             .iter()
             .map(|entry| (&entry.key, &entry.value))

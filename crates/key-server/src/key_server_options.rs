@@ -11,7 +11,6 @@ use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_sdk_types::Address;
-use sui_types::base_types::ObjectID;
 use tracing::info;
 
 /// ClientKeyType for a permissioned client.
@@ -34,8 +33,8 @@ pub enum ClientKeyType {
 pub struct ClientConfig {
     pub name: String, // Internal name for tracking purposes
     pub client_master_key: ClientKeyType,
-    pub key_server_object_id: ObjectID, // Must be unique
-    pub package_ids: Vec<ObjectID>,     // first versions only
+    pub key_server_object_id: Address, // Must be unique
+    pub package_ids: Vec<Address>,     // first versions only
 }
 
 /// State of the committee key server.
@@ -54,7 +53,7 @@ pub enum ServerMode {
     Open {
         // Master key is expected to be a BLS key.
         /// The object ID of the key server object.
-        key_server_object_id: ObjectID,
+        key_server_object_id: Address,
     },
     Permissioned {
         // Master key is expected to by 32 byte HKDF seed
@@ -153,7 +152,7 @@ impl NetworkConfig for KeyServerOptions {
 impl KeyServerOptions {
     pub fn new_open_server_with_default_values(
         network: Network,
-        key_server_object_id: ObjectID,
+        key_server_object_id: Address,
     ) -> Self {
         Self {
             network,
@@ -185,7 +184,7 @@ impl KeyServerOptions {
             rust_sdk_version_requirement: default_rust_sdk_version_requirement(),
             python_sdk_version_requirement: default_python_sdk_version_requirement(),
             server_mode: ServerMode::Open {
-                key_server_object_id: ObjectID::random(),
+                key_server_object_id: Address::new(rand::random()),
             },
             metrics_host_port: default_metrics_host_port(),
             rgp_update_interval: default_rgp_update_interval(),
@@ -269,7 +268,7 @@ impl KeyServerOptions {
         }
         Ok(())
     }
-    pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<ObjectID> {
+    pub(crate) fn get_supported_key_server_object_ids(&self) -> Vec<Address> {
         match &self.server_mode {
             ServerMode::Open {
                 key_server_object_id,
@@ -288,7 +287,7 @@ impl KeyServerOptions {
                 .collect(),
             ServerMode::Committee {
                 key_server_obj_id, ..
-            } => vec![ObjectID::new(key_server_obj_id.into_inner())],
+            } => vec![*key_server_obj_id],
         }
     }
 }
@@ -349,7 +348,7 @@ session_key_ttl_max: '60s'
     assert_eq!(options.metrics_host_port, 1234);
 
     let expected_server_mode = ServerMode::Open {
-        key_server_object_id: ObjectID::from_str(
+        key_server_object_id: Address::from_str(
             "0x0000000000000000000000000000000000000000000000000000000000000002",
         )
         .unwrap(),
@@ -379,7 +378,7 @@ server_mode: !Open
     assert!(matches!(options.network, Network::Devnet { .. }));
     assert_eq!(
         options.network.seal_package().package_id(),
-        ObjectID::from_str("0x7").unwrap()
+        Address::from_str("0x7").unwrap()
     );
 
     let unknown_option = "a_complete_unknown: 'a rolling stone'\n";
@@ -425,14 +424,10 @@ session_key_ttl_max: '60s'
     assert_eq!(
         options.get_supported_key_server_object_ids(),
         vec![
-            ObjectID::from_str(
-                "0xaaaa000000000000000000000000000000000000000000000000000000000001"
-            )
-            .unwrap(),
-            ObjectID::from_str(
-                "0xbbbb000000000000000000000000000000000000000000000000000000000002"
-            )
-            .unwrap(),
+            Address::from_str("0xaaaa000000000000000000000000000000000000000000000000000000000001")
+                .unwrap(),
+            Address::from_str("0xbbbb000000000000000000000000000000000000000000000000000000000002")
+                .unwrap(),
         ]
     );
 }
@@ -671,7 +666,7 @@ server_mode: !Committee
     // Test get_supported_key_server_object_ids for committee mode
     assert_eq!(
         options.get_supported_key_server_object_ids(),
-        vec![ObjectID::from_str(
+        vec![Address::from_str(
             "0xfedcba0000000000000000000000000000000000000000000000000000000002"
         )
         .unwrap()]

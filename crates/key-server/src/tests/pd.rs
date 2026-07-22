@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::tests::externals::get_key;
-use crate::tests::{ExecutedTransactionTestExt, SealTestCluster};
+use crate::tests::{to_sdk_ptb, ExecutedTransactionTestExt, SealTestCluster};
 use fastcrypto::ed25519::Ed25519KeyPair;
 use shared_crypto::intent::{Intent, IntentMessage};
 use sui_sdk::json::SuiJsonValue;
+use sui_sdk_types::ProgrammableTransaction;
 use sui_types::base_types::{ObjectDigest, SequenceNumber};
 use sui_types::crypto::Signature;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction, Transaction},
+    transaction::{ObjectArg, Transaction},
     Identifier,
 };
 use test_cluster::TestCluster;
@@ -210,5 +211,5 @@ async fn pd_create_ptb(
         vec![],
         vec![id, pd],
     );
-    builder.finish()
+    to_sdk_ptb(builder.finish())
 }

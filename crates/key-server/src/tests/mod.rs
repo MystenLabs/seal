@@ -93,12 +93,12 @@ impl ExecutedTransactionTestExt for ExecutedTransaction {
 }
 
 /// Register a package as its own first version in the package id cache.
-pub(crate) fn add_package(pkg_id: ObjectID) {
+pub(crate) fn add_package(pkg_id: Address) {
     crate::common::PACKAGE_ID_CACHE.insert(pkg_id, pkg_id);
 }
 
 /// Register an upgraded package pointing to its first version in the package id cache.
-pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
+pub(crate) fn add_upgraded_package(pkg_id: Address, new_pkg_id: Address) {
     crate::common::PACKAGE_ID_CACHE.insert(new_pkg_id, pkg_id);
 }
 
@@ -110,6 +110,20 @@ pub(crate) mod whitelist;
 
 mod server;
 mod test_utils;
+
+/// Converts a `sui_types::ObjectID` to the `sui_sdk_types::Address` used by the
+/// key server APIs.
+pub(crate) fn to_sdk_address(id: ObjectID) -> Address {
+    Address::new(id.into_bytes())
+}
+
+/// Converts a PTB built with the `sui_types` `ProgrammableTransactionBuilder` into
+/// the BCS-compatible `sui_sdk_types` PTB accepted by the key server APIs.
+pub(crate) fn to_sdk_ptb(
+    ptb: sui_types::transaction::ProgrammableTransaction,
+) -> sui_sdk_types::ProgrammableTransaction {
+    bcs::from_bytes(&bcs::to_bytes(&ptb).unwrap()).unwrap()
+}
 
 /// Wrapper for Sui test cluster with some Seal specific functionality.
 pub(crate) struct SealTestCluster {
@@ -212,7 +226,7 @@ impl SealTestCluster {
                 let key_server_object_id = match &options.server_mode {
                     ServerMode::Open {
                         key_server_object_id,
-                    } => *key_server_object_id,
+                    } => ObjectID::new(key_server_object_id.into_inner()),
                     _ => panic!("Expected ServerMode::Open"),
                 };
                 let server = Server {
@@ -250,10 +264,12 @@ impl SealTestCluster {
                 self.add_server_with_options(
                     server,
                     KeyServerOptions {
-                        network: Network::TestCluster { seal_package },
+                        network: Network::TestCluster {
+                            seal_package: to_sdk_address(seal_package),
+                        },
                         node_url: None,
                         server_mode: ServerMode::Open {
-                            key_server_object_id,
+                            key_server_object_id: to_sdk_address(key_server_object_id),
                         },
                         metrics_host_port: 0,
                         rgp_update_interval: Duration::from_secs(60),
@@ -390,7 +406,7 @@ impl SealTestCluster {
             .expect("UpgradeCap should be created")
             .0;
 
-        add_package(package_id);
+        add_package(to_sdk_address(package_id));
 
         (package_id, upgrade_cap)
     }
@@ -430,7 +446,7 @@ impl SealTestCluster {
             .0;
 
         // Add new package id to internal registry
-        add_upgraded_package(package_id, new_package_id);
+        add_upgraded_package(to_sdk_address(package_id), to_sdk_address(new_package_id));
 
         new_package_id
     }

@@ -8,25 +8,24 @@ use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sui_sdk_types::Address;
-use sui_types::base_types::ObjectID;
 
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
 use key_server::sui_rpc_client::SuiRpcClient;
 
-pub static PACKAGE_ID_CACHE: Lazy<Cache<ObjectID, ObjectID>> = Lazy::new(default_lru_cache);
+pub static PACKAGE_ID_CACHE: Lazy<Cache<Address, Address>> = Lazy::new(default_lru_cache);
 
 /// Network configuration.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Network {
     Devnet {
-        seal_package: ObjectID,
+        seal_package: Address,
     },
     Testnet,
     Mainnet,
     #[cfg(test)]
     TestCluster {
-        seal_package: ObjectID,
+        seal_package: Address,
     },
 }
 
@@ -48,21 +47,24 @@ impl Network {
 /// transient gRPC errors and observes `sui_rpc_request_duration_millis`.
 pub async fn fetch_first_pkg_id(
     sui_rpc_client: &SuiRpcClient,
-    pkg_id: &ObjectID,
-) -> Result<ObjectID, InternalError> {
+    pkg_id: &Address,
+) -> Result<Address, InternalError> {
     if let Some(first) = PACKAGE_ID_CACHE.get(pkg_id) {
         return Ok(first);
     }
 
-    let first_addr = sui_rpc_client
-        .fetch_package_original_id(Address::new(pkg_id.into_bytes()))
+    let first = sui_rpc_client
+        .fetch_package_original_id(*pkg_id)
         .await
         .map_err(|e| match e.code {
-            Some(tonic::Code::NotFound) | None => InternalError::InvalidPackage, // rpc not found error or failed to extract the package object.
+            // NotFound: no object with this id. InvalidArgument: the object exists
+            // but is not a package. None: failed to extract the package object.
+            Some(tonic::Code::NotFound) | Some(tonic::Code::InvalidArgument) | None => {
+                InternalError::InvalidPackage
+            }
             _ => InternalError::Failure(format!("Failed to resolve package id: {e}")),
         })?;
 
-    let first = ObjectID::new(first_addr.into_inner());
     PACKAGE_ID_CACHE.insert(*pkg_id, first);
     Ok(first)
 }
@@ -206,16 +208,14 @@ mod tests {
     use crate::errors::InternalError;
     use key_server::sui_rpc_client::RetryConfig;
     use key_server::sui_rpc_client::SuiRpcClient;
-    use std::str::FromStr;
     use sui_rpc::client::Client as SuiGrpcClient;
-    use sui_types::base_types::ObjectID;
+    use sui_sdk_types::Address;
 
     #[tokio::test]
     async fn test_fetch_first_pkg_id() {
-        let address = ObjectID::from_str(
+        let address = Address::from_static(
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
-        )
-        .unwrap();
+        );
         let sui_rpc_client = SuiRpcClient::new(
             SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
@@ -225,9 +225,10 @@ mod tests {
         match fetch_first_pkg_id(&sui_rpc_client, &address).await {
             Ok(first) => {
                 assert_eq!(
-                    first.to_hex_literal(),
-                    "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16"
-                        .to_string()
+                    first,
+                    Address::from_static(
+                        "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16"
+                    )
                 );
                 println!("First address: {first:?}");
             }
@@ -237,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_first_pkg_id_with_invalid_id() {
-        let invalid_address = ObjectID::ZERO;
+        let invalid_address = Address::ZERO;
         let sui_rpc_client = SuiRpcClient::new(
             SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),

@@ -542,7 +542,7 @@ async fn main() -> Result<()> {
             let members_arg = rotation_builder.pure(members)?;
 
             rotation_builder.programmable_move_call(
-                package_id,
+                ObjectID::new(package_id.into_inner()),
                 "seal_committee".parse()?,
                 "init_rotation".parse()?,
                 vec![],
@@ -976,7 +976,6 @@ async fn main() -> Result<()> {
             match &committee.state {
                 CommitteeState::Init { members_info } => {
                     let registered_addrs: HashSet<_> = members_info
-                        .0
                         .contents
                         .iter()
                         .map(|entry| entry.key)
@@ -1439,7 +1438,7 @@ async fn main() -> Result<()> {
                     println!("  Version: {}", proposal.version);
                     println!("  Threshold: {}", committee.threshold);
 
-                    for entry in &proposal.votes.0.contents {
+                    for entry in &proposal.votes.contents {
                         let vote_str = match entry.value {
                             UpgradeVote::Approve => "Approve",
                             UpgradeVote::Reject => "Reject",

@@ -30,7 +30,9 @@ pub(crate) async fn create_test_server(
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     let options = KeyServerOptions {
-        network: Network::TestCluster { seal_package },
+        network: Network::TestCluster {
+            seal_package: crate::tests::to_sdk_address(seal_package),
+        },
         node_url: None,
         server_mode,
         metrics_host_port: 0,

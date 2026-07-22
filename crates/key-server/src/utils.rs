@@ -7,7 +7,7 @@ use crypto::ibe::MASTER_KEY_LENGTH;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::serde_helpers::ToFromByteArray;
 use std::env;
-use sui_types::base_types::{ObjectID, SUI_ADDRESS_LENGTH};
+use sui_sdk_types::Address;
 
 /// Read a byte array from an environment variable and decode it using the specified encoding.
 pub fn decode_byte_array<E: Encoding, const N: usize>(env_name: &str) -> anyhow::Result<[u8; N]> {
@@ -29,7 +29,7 @@ pub fn decode_master_key<E: Encoding>(env_name: &str) -> anyhow::Result<IbeMaste
         .map_err(|_| anyhow!("Invalid master key for environment variable {env_name}"))
 }
 
-/// Read an ObjectID from an environment variable.
-pub fn decode_object_id(env_name: &str) -> anyhow::Result<ObjectID> {
-    decode_byte_array::<Hex, SUI_ADDRESS_LENGTH>(env_name).map(ObjectID::new)
+/// Read an object id from an environment variable.
+pub fn decode_object_id(env_name: &str) -> anyhow::Result<Address> {
+    decode_byte_array::<Hex, { Address::LENGTH }>(env_name).map(Address::new)
 }

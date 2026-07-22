@@ -26,7 +26,7 @@ use crypto::ibe::create_proof_of_possession;
 use crypto::ibe::{self};
 use crypto::prefixed_hex::PrefixedHex;
 use errors::InternalError;
-use fastcrypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
+use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
 use futures::future::pending;
@@ -34,34 +34,32 @@ use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use key_server_options::KeyServerOptions;
 use master_keys::{CommitteeKeyState, MasterKeys};
 use metrics::metrics_middleware;
-use move_core_types::identifier::Identifier;
-use move_core_types::language_storage::{StructTag, TypeTag};
 use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
 use rand::thread_rng;
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
-use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
-use seal_sdk::{signed_message, FetchKeyResponse};
+use seal_sdk::types::{
+    Certificate, DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId,
+};
+use seal_sdk::{signed_message, FetchKeyRequest, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
 use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
+use sui_crypto::{UserSignatureVerifier, Verifier};
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_rpc::proto::sui::rpc::v2::{filter, Event, EventFilter};
-use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use sui_sdk::types::crypto::PublicKey;
-use sui_sdk::types::signature::{AuthenticatorTrait, GenericSignature, VerifyParams};
-use sui_sdk::types::signature_verification::VerifiedDigestCache;
-use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
-use sui_sdk_types::Address;
-use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
+use sui_sdk_types::{
+    Address, GasPayment, MultisigMemberPublicKey, PersonalMessage, ProgrammableTransaction,
+    SimpleSignature, StructTag, Transaction, TransactionExpiration, TransactionKind, TypeTag,
+    UserSignature,
+};
 use tap::tap::TapFallible;
 use tap::Tap;
 use tokio::sync::watch::Receiver;
@@ -105,62 +103,34 @@ const MAX_REQUEST_SIZE: usize = 180 * 1024;
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct Certificate {
-    pub user: SuiAddress,
-    pub session_vk: Ed25519PublicKey,
-    pub creation_time: u64,
-    pub ttl_min: u16,
-    pub signature: GenericSignature,
-    pub mvr_name: Option<String>,
-}
-
-// TODO: Remove legacy once key-server crate uses sui-sdk-types.
-#[derive(Serialize, Deserialize)]
-struct FetchKeyRequest {
-    // Next fields must be signed to prevent others from sending requests on behalf of the user and
-    // being able to fetch the key
-    ptb: String, // must adhere specific structure, see ValidPtb
-    // We don't want to rely on https only for restricting the response to this user, since in the
-    // case of multiple services, one service can do a replay attack to get the key from other
-    // services.
-    enc_key: ElGamalPublicKey,
-    enc_verification_key: ElgamalVerificationKey,
-    request_signature: Ed25519Signature,
-
-    certificate: Certificate,
-}
+/// Object id of the onchain address alias state object.
+const SUI_ADDRESS_ALIAS_STATE_OBJECT_ID: Address = Address::from_static("0xa");
 
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
     master_keys: Arc<MasterKeys>,
-    key_server_oid_to_pop: Arc<RwLock<HashMap<ObjectID, MasterKeyPOP>>>,
+    key_server_oid_to_pop: Arc<RwLock<HashMap<Address, MasterKeyPOP>>>,
     options: KeyServerOptions,
 }
 
 async fn has_address_aliases(
     sui_rpc_client: &SuiRpcClient,
-    address: SuiAddress,
+    address: Address,
 ) -> Result<bool, InternalError> {
-    let alias_key_type = TypeTag::Struct(Box::new(StructTag {
-        address: SUI_FRAMEWORK_ADDRESS,
-        module: Identifier::new("address_alias").unwrap(),
-        name: Identifier::new("AliasKey").unwrap(),
-        type_params: vec![],
-    }));
+    let alias_key_type = TypeTag::Struct(Box::new(StructTag::new(
+        Address::TWO,
+        "address_alias".parse().expect("valid identifier"),
+        "AliasKey".parse().expect("valid identifier"),
+        vec![],
+    )));
 
-    let key_bytes = bcs::to_bytes(&address).unwrap();
-    let address_aliases_id = derived_object::derive_object_id(
-        SuiAddress::from(SUI_ADDRESS_ALIAS_STATE_OBJECT_ID),
-        &alias_key_type,
-        &key_bytes,
-    )
-    .map_err(|_| InternalError::InvalidSignature)?;
+    let key_bytes = bcs::to_bytes(&address).expect("BCS serialization should not fail");
+    let address_aliases_id =
+        SUI_ADDRESS_ALIAS_STATE_OBJECT_ID.derive_object_id(&alias_key_type, &key_bytes);
 
     sui_rpc_client
-        .object_exists(Address::new(address_aliases_id.into_bytes()))
+        .object_exists(address_aliases_id)
         .await
         .map_err(|e| InternalError::Failure(format!("Failed to check address aliases: {}", e)))
 }
@@ -186,21 +156,45 @@ async fn fetch_and_validate_committee_partial_pk(
 
 /// Returns true if the signature is, or is a multisig containing, a zkLogin
 /// signature, which requires onchain state (epoch, JWKs) to verify.
-fn may_contain_zklogin(signature: &GenericSignature) -> bool {
+fn may_contain_zklogin(signature: &UserSignature) -> bool {
     match signature {
-        GenericSignature::ZkLoginAuthenticator(_) => true,
-        GenericSignature::MultiSig(multisig) => multisig
-            .get_pk()
-            .pubkeys()
+        UserSignature::ZkLogin(_) => true,
+        UserSignature::Multisig(multisig) => multisig
+            .committee()
+            .members()
             .iter()
-            .any(|(pk, _)| matches!(pk, PublicKey::ZkLogin(_))),
-        GenericSignature::MultiSigLegacy(multisig) => multisig
-            .get_pk()
-            .pubkeys()
-            .iter()
-            .any(|(pk, _)| matches!(pk, PublicKey::ZkLogin(_))),
+            .any(|member| matches!(member.public_key(), MultisigMemberPublicKey::ZkLogin(_))),
         _ => false,
     }
+}
+
+/// Locally verifies a non-zkLogin personal message signature and that it was
+/// produced by the given address.
+fn verify_personal_message_signature_locally(
+    signature: &UserSignature,
+    message: &[u8],
+    address: &Address,
+) -> Result<(), String> {
+    let derived_address = match signature {
+        UserSignature::Simple(simple) => match simple {
+            SimpleSignature::Ed25519 { public_key, .. } => public_key.derive_address(),
+            SimpleSignature::Secp256k1 { public_key, .. } => public_key.derive_address(),
+            SimpleSignature::Secp256r1 { public_key, .. } => public_key.derive_address(),
+            _ => return Err("unknown signature scheme".to_string()),
+        },
+        UserSignature::Multisig(multisig) => multisig.committee().derive_address(),
+        UserSignature::Passkey(passkey) => passkey.public_key().derive_address(),
+        _ => return Err("unsupported signature scheme".to_string()),
+    };
+    if derived_address != *address {
+        return Err(format!(
+            "signature does not match address {address}, derived address {derived_address}"
+        ));
+    }
+
+    UserSignatureVerifier::new()
+        .verify(&PersonalMessage(message.into()).signing_digest(), signature)
+        .map_err(|e| e.to_string())
 }
 
 /// Builds a gRPC event filter matching CommitteeRotationInitiated events from the
@@ -327,7 +321,7 @@ impl Server {
     pub(crate) async fn build_key_server_pop_map(
         options: &KeyServerOptions,
         master_keys: &MasterKeys,
-    ) -> HashMap<ObjectID, MasterKeyPOP> {
+    ) -> HashMap<Address, MasterKeyPOP> {
         match &options.server_mode {
             ServerMode::Open { .. } | ServerMode::Permissioned { .. } => options
                 .get_supported_key_server_object_ids()
@@ -336,7 +330,7 @@ impl Server {
                     let key = master_keys
                         .get_key_for_key_server(&ks_oid)
                         .expect("checked already");
-                    let pop = create_proof_of_possession(key, &ks_oid.into_bytes());
+                    let pop = create_proof_of_possession(key, &ks_oid.into_inner());
                     (ks_oid, pop)
                 })
                 .collect(),
@@ -421,26 +415,13 @@ impl Server {
             self.sui_rpc_client
                 .verify_personal_message_signature(
                     msg.as_bytes(),
-                    cert.signature.as_ref(),
+                    &cert.signature.to_bytes(),
                     cert.user.to_string(),
                 )
                 .await
                 .map_err(|e| e.to_string())
         } else {
-            let intent_msg = IntentMessage::new(
-                Intent::personal_message(),
-                PersonalMessage {
-                    message: msg.as_bytes().to_vec(),
-                },
-            );
-            cert.signature
-                .verify_claims::<PersonalMessage>(
-                    &intent_msg,
-                    cert.user,
-                    &VerifyParams::default(),
-                    Arc::new(VerifiedDigestCache::new_empty()),
-                )
-                .map_err(|e| e.to_string())
+            verify_personal_message_signature_locally(&cert.signature, msg.as_bytes(), &cert.user)
         };
         verification_result
             .tap_err(|e| {
@@ -466,7 +447,7 @@ impl Server {
 
     async fn check_policy(
         &self,
-        sender: SuiAddress,
+        sender: Address,
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
@@ -487,16 +468,20 @@ impl Server {
 
         // Evaluate the `seal_approve*` function
         let gas_budget = MAX_COMPUTATION_UNITS * gas_price;
-        let tx_data = TransactionData::new_with_gas_coins(
-            TransactionKind::ProgrammableTransaction(ptb),
+        let transaction = Transaction {
+            kind: TransactionKind::ProgrammableTransaction(ptb),
             sender,
-            vec![], // Empty gas payment for dry run
-            gas_budget,
-            gas_price,
-        );
+            gas_payment: GasPayment {
+                objects: vec![], // Empty gas payment for dry run
+                owner: sender,
+                price: gas_price,
+                budget: gas_budget,
+            },
+            expiration: TransactionExpiration::None,
+        };
         let simulate_res = self
             .sui_rpc_client
-            .simulate_transaction(tx_data)
+            .simulate_transaction(transaction)
             .await
             .map_err(|e| {
                 // `InvalidArgument` = malformed request; `NotFound` = an input
@@ -520,7 +505,7 @@ impl Server {
         if let Some(m) = metrics
             && matches!(self.options.server_mode, ServerMode::Permissioned { .. })
         {
-            let package = vptb.pkg_id().to_hex_uncompressed();
+            let package = vptb.pkg_id().to_hex();
             m.dry_run_gas_cost_per_package
                 .with_label_values(&[&package])
                 .observe(
@@ -591,7 +576,7 @@ impl Server {
         metrics: Option<&KeyServerMetrics>,
         req_id: Option<&str>,
         mvr_name: Option<String>,
-    ) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
+    ) -> Result<(Address, Vec<KeyId>), InternalError> {
         // Handle package upgrades: Use the first as the namespace
         let first_pkg_id =
             call_with_duration(metrics.map(|m| &m.fetch_pkg_ids_duration), || async {
@@ -619,7 +604,7 @@ impl Server {
             enc_verification_key,
             request_signature,
             certificate,
-            mvr_name.unwrap_or(first_pkg_id.to_hex_uncompressed()),
+            mvr_name.unwrap_or(first_pkg_id.to_hex()),
             req_id,
         )
         .await?;
@@ -636,7 +621,7 @@ impl Server {
 
     fn create_response(
         &self,
-        first_pkg_id: ObjectID,
+        first_pkg_id: Address,
         ids: Vec<KeyId>,
         enc_key: &ElGamalPublicKey,
     ) -> FetchKeyResponse {
@@ -839,8 +824,8 @@ impl Server {
 
     /// Spawns a background task that monitors for CommitteeRotationInitiated events
     /// via the fullnode's gRPC event subscription. Only spawns in Committee mode.
-    /// Alerts when a new committee rotation is initiated. Refreshes committee_id
-    /// and package_id from key server object.
+    /// Alerts when a new committee rotation is initiated. Periodically refreshes
+    /// committee_id and package_id from the key server object.
     async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
         // Only run in committee mode
         let ServerMode::Committee {
@@ -1004,7 +989,7 @@ async fn handle_fetch_key_internal(
     payload: &FetchKeyRequest,
     req_id: Option<&str>,
     sdk_version: &str,
-) -> Result<(ObjectID, Vec<KeyId>), InternalError> {
+) -> Result<(Address, Vec<KeyId>), InternalError> {
     let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
 
     // Report the number of id's in the request to the metrics.
@@ -1071,7 +1056,7 @@ async fn handle_fetch_key(
 
 #[derive(Serialize, Deserialize)]
 struct GetServiceResponse {
-    service_id: ObjectID,
+    service_id: Address,
     pop: MasterKeyPOP,
 }
 
@@ -1084,9 +1069,7 @@ async fn handle_get_service(
     let service_id = params
         .get("service_id")
         .ok_or(InternalError::InvalidServiceId)
-        .and_then(|id| {
-            ObjectID::from_hex_literal(id).map_err(|_| InternalError::InvalidServiceId)
-        })?;
+        .and_then(|id| Address::from_hex(id).map_err(|_| InternalError::InvalidServiceId))?;
 
     let pop = *app_state
         .server

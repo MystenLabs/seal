@@ -883,15 +883,14 @@ mod tests {
     };
 
     /// Build a valid PTB with a single `seal_approve` call.
-    fn test_valid_ptb() -> (String, ObjectID, Vec<u8>, ObjectID) {
+    fn test_valid_ptb() -> (String, Address, Vec<u8>, Address) {
         let pkg_id = ObjectID::from_str(
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
         .unwrap();
-        let first_pkg_id = ObjectID::from_str(
+        let first_pkg_id = Address::from_static(
             "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16",
-        )
-        .unwrap();
+        );
         let mut builder = ProgrammableTransactionBuilder::new();
         let inner_id = vec![1u8, 2, 3, 4];
         let id = builder.pure(inner_id.clone()).unwrap();
@@ -905,7 +904,7 @@ mod tests {
         let ptb = builder.finish();
         (
             Base64::encode(bcs::to_bytes(&ptb).unwrap()),
-            pkg_id,
+            Address::new(pkg_id.into_bytes()),
             inner_id,
             first_pkg_id,
         )

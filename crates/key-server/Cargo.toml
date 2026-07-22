@@ -25,11 +25,7 @@ serde_json.workspace = true
 hex.workspace = true
 bcs.workspace = true
 tracing.workspace = true
-sui_types.workspace = true
 mysten-service.workspace = true
-sui_sdk.workspace = true
-shared_crypto.workspace = true
-move-core-types.workspace = true
 semver.workspace = true
 tokio.workspace = true
 axum.workspace = true
@@ -56,11 +52,15 @@ http-body-util = "0.1.2"
 
 sui-sdk-types.workspace = true
 sui-rpc.workspace = true
-sui-rpc-api.workspace = true
+sui-crypto.workspace = true
 mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "b4771074967c733edd3a8e09611a40e1c181d84a", package = "mvr-types" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"
+sui_types.workspace = true
+sui_sdk.workspace = true
+shared_crypto.workspace = true
+sui-rpc-api.workspace = true
 test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
 move-package-alt = { workspace = true }

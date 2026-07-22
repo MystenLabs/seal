@@ -7,7 +7,7 @@ use crate::master_keys::MasterKeys;
 use crate::tests::externals::{get_key, sign};
 use crate::tests::test_utils::{create_committee_servers, create_server};
 use crate::tests::whitelist::{add_user_to_whitelist, create_whitelist, whitelist_create_ptb};
-use crate::tests::SealTestCluster;
+use crate::tests::{to_sdk_address, to_sdk_ptb, SealTestCluster};
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
 use crate::Server;
@@ -37,11 +37,11 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use sui_sdk_types::Address as NewObjectID;
+use sui_sdk_types::{Address as NewObjectID, ProgrammableTransaction};
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability};
+use sui_types::transaction::{ObjectArg, SharedObjectMutability};
 use sui_types::Identifier;
 use test_cluster::TestClusterBuilder;
 use tracing_test::traced_test;
@@ -200,7 +200,9 @@ async fn test_e2e_decrypt_all_objects() {
 
     for (service_id, server) in tc.servers.iter() {
         let master_keys = &server.master_keys;
-        let master_key = master_keys.get_key_for_key_server(service_id).unwrap();
+        let master_key = master_keys
+            .get_key_for_key_server(&to_sdk_address(*service_id))
+            .unwrap();
 
         let usk1 = extract(master_key, &full_id1);
         let usk2 = extract(master_key, &full_id2);
@@ -321,7 +323,9 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
 
     for (service_id, server) in tc.servers.iter() {
         let master_keys = &server.master_keys;
-        let master_key = master_keys.get_key_for_key_server(service_id).unwrap();
+        let master_key = master_keys
+            .get_key_for_key_server(&to_sdk_address(*service_id))
+            .unwrap();
 
         let usk1 = extract(master_key, &full_id1);
         let usk2 = extract(master_key, &full_id2);
@@ -423,16 +427,19 @@ async fn test_e2e_permissioned() {
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 0,
                 },
-                key_server_object_id,
-                package_ids: vec![ObjectID::random(), (*package_id).into()],
+                key_server_object_id: to_sdk_address(key_server_object_id),
+                package_ids: vec![
+                    to_sdk_address(ObjectID::random()),
+                    to_sdk_address(package_id),
+                ],
             },
             ClientConfig {
                 name: "Client 2 on server 1".to_string(),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 1,
                 },
-                key_server_object_id: ObjectID::random(),
-                package_ids: vec![ObjectID::random()],
+                key_server_object_id: to_sdk_address(ObjectID::random()),
+                package_ids: vec![to_sdk_address(ObjectID::random())],
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
@@ -448,8 +455,8 @@ async fn test_e2e_permissioned() {
             client_master_key: ClientKeyType::Derived {
                 derivation_index: 0,
             },
-            key_server_object_id: ObjectID::random(),
-            package_ids: vec![ObjectID::random()],
+            key_server_object_id: to_sdk_address(ObjectID::random()),
+            package_ids: vec![to_sdk_address(ObjectID::random())],
         }],
         [("MASTER_KEY", [0u8; 32].as_slice())],
     )
@@ -557,8 +564,8 @@ async fn test_e2e_imported_key() {
             client_master_key: ClientKeyType::Derived {
                 derivation_index: 0u64,
             },
-            key_server_object_id,
-            package_ids: vec![package_id],
+            key_server_object_id: to_sdk_address(key_server_object_id),
+            package_ids: vec![to_sdk_address(package_id)],
         }],
         [("MASTER_KEY", seed.as_slice())],
     )
@@ -628,8 +635,8 @@ async fn test_e2e_imported_key() {
             client_master_key: ClientKeyType::Imported {
                 env_var: "IMPORTED_MASTER_KEY".to_string(),
             },
-            key_server_object_id: ObjectID::random(),
-            package_ids: vec![package_id],
+            key_server_object_id: to_sdk_address(ObjectID::random()),
+            package_ids: vec![to_sdk_address(package_id)],
         }],
         [
             (
@@ -666,16 +673,16 @@ async fn test_e2e_imported_key() {
                 client_master_key: ClientKeyType::Exported {
                     deprecated_derivation_index: 0,
                 },
-                key_server_object_id,
-                package_ids: vec![package_id],
+                key_server_object_id: to_sdk_address(key_server_object_id),
+                package_ids: vec![to_sdk_address(package_id)],
             },
             ClientConfig {
                 name: "Key server client 3.1".to_string(),
                 client_master_key: ClientKeyType::Derived {
                     derivation_index: 1,
                 },
-                key_server_object_id: ObjectID::random(),
-                package_ids: vec![ObjectID::random()],
+                key_server_object_id: to_sdk_address(ObjectID::random()),
+                package_ids: vec![to_sdk_address(ObjectID::random())],
             },
         ],
         [("MASTER_KEY", seed.as_slice())],
@@ -992,7 +999,7 @@ fn whitelist_create_multi_key_ptb(
         );
     }
 
-    builder.finish()
+    to_sdk_ptb(builder.finish())
 }
 
 /// Simulate a client with generated ephemeral ElGamal key pair and user keypair requesting
@@ -1056,7 +1063,7 @@ async fn get_aggregated_key_from_committee(
     // Expected full ids derive from PTB.
     let expected_full_ids_owned: HashSet<Vec<u8>> = ValidPtb::try_from(ptb.clone())
         .unwrap()
-        .full_ids(package_id)
+        .full_ids(&to_sdk_address(*package_id))
         .into_iter()
         .collect();
     let expected_full_ids: HashSet<_> = expected_full_ids_owned

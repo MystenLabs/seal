@@ -39,7 +39,7 @@ use shared_crypto::intent::Intent;
 use shared_crypto::intent::IntentMessage;
 use std::str::FromStr;
 use std::time::Duration;
-use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::base_types::ObjectID;
 use sui_types::crypto::Signature;
 use sui_types::signature::GenericSignature;
 use tokio::net::TcpListener;
@@ -331,9 +331,9 @@ async fn test_fetch_key() {
     ])
     .unwrap();
     let keypair = Ed25519KeyPair::from(user_secret_key);
-    let user =
-        SuiAddress::from_str("0xb743cafeb5da4914cef0cf0a32400c9adfedc5cdb64209f9e740e56d23065100")
-            .unwrap();
+    let user = sui_sdk_types::Address::from_static(
+        "0xb743cafeb5da4914cef0cf0a32400c9adfedc5cdb64209f9e740e56d23065100",
+    );
 
     // Setup key server
     let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
@@ -372,7 +372,10 @@ async fn test_fetch_key() {
         ttl_min,
     );
     let msg_with_intent = IntentMessage::new(Intent::personal_message(), message.clone());
-    let signature = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, &keypair));
+    let signature = sui_sdk_types::UserSignature::from_bytes(
+        GenericSignature::Signature(Signature::new_secure(&msg_with_intent, &keypair)).as_ref(),
+    )
+    .expect("valid signature encoding");
     let certificate = Certificate {
         user,
         session_vk: session.public().clone(),
@@ -501,6 +504,7 @@ async fn test_staleness_check() {
 async fn test_verify_personal_message_signature() {
     use key_server::sui_rpc_client::{build_grpc_client, RetryConfig, SuiRpcClient};
     use shared_crypto::intent::PersonalMessage;
+    use sui_types::base_types::SuiAddress;
     use sui_types::crypto::get_key_pair;
     use sui_types::utils::sign_zklogin_personal_msg;
     use test_cluster::TestClusterBuilder;

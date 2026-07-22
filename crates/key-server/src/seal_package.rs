@@ -3,14 +3,17 @@
 
 use crate::errors::InternalError;
 use crate::time::current_epoch_time;
-use move_core_types::identifier::Identifier;
 use std::str::FromStr;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ErrorDetails;
 use sui_rpc::proto::sui::rpc::v2::SimulateTransactionResponse;
-use sui_types::base_types::ObjectID;
-use sui_types::transaction::Argument::Input;
-use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, ProgrammableTransaction};
-use sui_types::SUI_CLOCK_OBJECT_ID;
+use sui_sdk_types::{
+    Address, Argument, Command, Identifier, Input, MoveCall, ProgrammableTransaction, SharedInput,
+};
+
+/// Object id of the onchain Clock object.
+const SUI_CLOCK_OBJECT_ID: Address = Address::from_static("0x6");
+/// The Clock object's initial shared version.
+const SUI_CLOCK_INITIAL_SHARED_VERSION: u64 = 1;
 
 const TESTNET_PACKAGE_ID: &str =
     "0x8c1870cb43a490564f7e0df516098c74c5aa43c6c1b61b17dc99bc6a0bd9436d";
@@ -36,14 +39,14 @@ pub enum Staleness {
 pub enum SealPackage {
     Testnet,
     Mainnet,
-    Custom(ObjectID),
+    Custom(Address),
 }
 
 impl SealPackage {
-    pub fn package_id(&self) -> ObjectID {
+    pub fn package_id(&self) -> Address {
         match self {
-            SealPackage::Testnet => ObjectID::from_hex_literal(TESTNET_PACKAGE_ID).unwrap(),
-            SealPackage::Mainnet => ObjectID::from_hex_literal(MAINNET_PACKAGE_ID).unwrap(),
+            SealPackage::Testnet => Address::from_static(TESTNET_PACKAGE_ID),
+            SealPackage::Mainnet => Address::from_static(MAINNET_PACKAGE_ID),
             SealPackage::Custom(seal_package) => *seal_package,
         }
     }
@@ -75,37 +78,38 @@ impl SealPackage {
         allowed_staleness: std::time::Duration,
         mut ptb: ProgrammableTransaction,
     ) -> Result<ProgrammableTransaction, InternalError> {
-        let now = try_add_argument(&mut ptb, CallArg::from(current_epoch_time()))?;
+        let now = try_add_argument(&mut ptb, pure_input(&current_epoch_time())?)?;
         let allowed_staleness = try_add_argument(
             &mut ptb,
-            CallArg::from(allowed_staleness.as_millis() as u64),
+            pure_input(&(allowed_staleness.as_millis() as u64))?,
         )?;
 
         let clock = ptb
             .inputs
             .iter()
             .position(|arg| {
-                matches!(
-                    arg,
-                    CallArg::Object(ObjectArg::SharedObject {
-                        id: SUI_CLOCK_OBJECT_ID,
-                        ..
-                    })
-                )
+                matches!(arg, Input::Shared(shared) if shared.object_id() == SUI_CLOCK_OBJECT_ID)
             })
             .map(try_argument_from_input_index)
             .unwrap_or_else(|| {
                 // The clock is not yet part of the PTB, so we add it
-                try_add_argument(&mut ptb, CallArg::CLOCK_IMM)
+                try_add_argument(
+                    &mut ptb,
+                    Input::Shared(SharedInput::new(
+                        SUI_CLOCK_OBJECT_ID,
+                        SUI_CLOCK_INITIAL_SHARED_VERSION,
+                        false,
+                    )),
+                )
             })?;
 
-        let staleness_check = Command::move_call(
-            self.package_id(),
-            Identifier::from_str(STALENESS_MODULE).unwrap(),
-            Identifier::from_str(STALENESS_FUNCTION).unwrap(),
-            vec![],
-            vec![now, allowed_staleness, clock],
-        );
+        let staleness_check = Command::MoveCall(MoveCall {
+            package: self.package_id(),
+            module: Identifier::from_str(STALENESS_MODULE).unwrap(),
+            function: Identifier::from_str(STALENESS_FUNCTION).unwrap(),
+            type_arguments: vec![],
+            arguments: vec![now, allowed_staleness, clock],
+        });
 
         // This shifts all commands by 1 but that's okay since their results cannot be used as inputs
         ptb.commands.insert(0, staleness_check);
@@ -113,17 +117,23 @@ impl SealPackage {
     }
 }
 
+fn pure_input<T: serde::Serialize>(value: &T) -> Result<Input, InternalError> {
+    bcs::to_bytes(value)
+        .map(Input::Pure)
+        .map_err(|e| InternalError::InvalidPTB(format!("Failed to serialize input: {e}")))
+}
+
 fn try_argument_from_input_index(input_index: usize) -> Result<Argument, InternalError> {
     input_index
         .try_into()
-        .map(Input)
+        .map(Argument::Input)
         .map_err(|_| InternalError::InvalidPTB("Index out of bounds".to_string()))
 }
 
 fn try_add_argument(
     ptb: &mut ProgrammableTransaction,
-    argument: CallArg,
+    input: Input,
 ) -> Result<Argument, InternalError> {
-    ptb.inputs.push(argument);
+    ptb.inputs.push(input);
     try_argument_from_input_index(ptb.inputs.len() - 1)
 }

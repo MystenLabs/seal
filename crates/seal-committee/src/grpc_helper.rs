@@ -14,9 +14,7 @@ use anyhow::{anyhow, Result};
 use std::str::FromStr;
 use sui_rpc::client::Client;
 use sui_rpc::proto::sui::rpc::v2::{GetObjectRequest, GetObjectResponse};
-use sui_sdk_types::{Address, StructTag, TypeTag};
-use sui_types::base_types::ObjectID;
-use sui_types::object::{Data, Object};
+use sui_sdk_types::{Address, Object, ObjectData, StructTag, TypeTag};
 
 pub(crate) const EXPECTED_KEY_SERVER_VERSION: u64 = 2;
 
@@ -69,11 +67,11 @@ pub async fn fetch_object<T: serde::de::DeserializeOwned>(
         .map_err(RpcError::from_grpc)?;
 
     let obj = extract_object(response).map_err(|e| RpcError::new(&e.to_string()))?;
-    let move_object = match &obj.data {
-        Data::Move(m) => m,
+    let move_struct = match obj.data() {
+        ObjectData::Struct(move_struct) => move_struct,
         _ => return Err(RpcError::new("Object is not a Move struct")),
     };
-    bcs::from_bytes(move_object.contents())
+    bcs::from_bytes(move_struct.contents())
         .map_err(|e| RpcError::new(&format!("Failed to deserialize contents: {e}")))
 }
 
@@ -147,7 +145,7 @@ pub async fn fetch_key_server_by_committee(
 pub async fn fetch_committee_from_key_server(
     grpc_client: &mut Client,
     key_server_obj_id: &Address,
-) -> RpcResult<(Address, ObjectID)> {
+) -> RpcResult<(Address, Address)> {
     // Fetch key server object to get owner (field wrapper).
     let field_wrapper_id = {
         let mut ledger_client = grpc_client.ledger_client();
@@ -208,7 +206,7 @@ pub async fn fetch_committee_from_key_server(
 
     let committee_struct_tag =
         StructTag::from_str(&committee_type).map_err(|e| RpcError::new(&e.to_string()))?;
-    let package_id = ObjectID::new(committee_struct_tag.address().into_inner());
+    let package_id = *committee_struct_tag.address();
 
     Ok((committee_id, package_id))
 }

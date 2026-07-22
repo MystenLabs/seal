@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::tests::externals::sign;
+use crate::tests::to_sdk_ptb;
 use crate::tests::SealTestCluster;
 use crate::time::current_epoch_time;
 use crate::valid_ptb::ValidPtb;
@@ -10,10 +11,11 @@ use crypto::elgamal;
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::traits::KeyPair;
 use rand::thread_rng;
+use sui_sdk_types::ProgrammableTransaction;
 use sui_types::{
     base_types::ObjectID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ObjectArg, ProgrammableTransaction, SharedObjectMutability},
+    transaction::{ObjectArg, SharedObjectMutability},
     Identifier, SUI_CLOCK_OBJECT_ID,
 };
 use tracing_test::traced_test;
@@ -288,5 +290,5 @@ fn tle_create_ptb(package_id: ObjectID, time: u64) -> ProgrammableTransaction {
         vec![id_0, clock],
     );
 
-    builder.finish()
+    to_sdk_ptb(builder.finish())
 }

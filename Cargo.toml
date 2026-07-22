@@ -55,6 +55,7 @@ sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9de48410
 
 sui-sdk-types = { version = "0.3.2", features = ["serde"] }
 sui-rpc = "0.3.2"
+sui-crypto = { version = "0.3.1", features = ["ed25519", "secp256k1", "secp256r1", "passkey"] }
 
 [profile.release]
 panic = 'abort'

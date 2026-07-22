@@ -14,9 +14,11 @@ use rand::thread_rng;
 use seal_sdk::signed_message;
 use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey};
 use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
+use sui_sdk_types::{Address, ProgrammableTransaction, UserSignature};
 use sui_types::{
-    base_types::ObjectID, crypto::Signature, signature::GenericSignature,
-    transaction::ProgrammableTransaction,
+    base_types::{ObjectID, SuiAddress},
+    crypto::Signature,
+    signature::GenericSignature,
 };
 
 pub(super) fn sign(
@@ -43,11 +45,11 @@ pub(super) fn sign(
     let msg_with_intent = IntentMessage::new(Intent::personal_message(), personal_msg.clone());
     let cert_sig = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, kp));
     let cert = Certificate {
-        user: kp.public().into(),
+        user: Address::new(SuiAddress::from(kp.public()).to_inner()),
         session_vk: kp.public().clone(),
         creation_time,
         ttl_min,
-        signature: cert_sig,
+        signature: UserSignature::from_bytes(cert_sig.as_ref()).expect("valid signature encoding"),
         mvr_name: None,
     };
     // session sig
