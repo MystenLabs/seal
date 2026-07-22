@@ -770,8 +770,7 @@ async fn load_committee_state(
 ) -> Result<AppState> {
     let grpc_client =
         SuiGrpcClient::new(options.node_url()).context("Failed to create SuiGrpcClient")?;
-    let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
-        None,
+    let sui_rpc_client = SuiRpcClient::new(
         grpc_client,
         options.rpc_config.retry_config.clone(),
         Some(metrics.sui_rpc_request_duration_millis.clone()),
@@ -990,12 +989,8 @@ mod tests {
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
         let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
-        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
-            None,
-            grpc_client,
-            options.rpc_config.retry_config.clone(),
-            None,
-        );
+        let sui_rpc_client =
+            SuiRpcClient::new(grpc_client, options.rpc_config.retry_config.clone(), None);
         let http_client = reqwest::Client::new();
         let (_, pkg_id, _, first_pkg_id) = test_valid_ptb();
         PACKAGE_ID_CACHE.insert(pkg_id, first_pkg_id);

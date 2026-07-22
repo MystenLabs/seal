@@ -48,7 +48,6 @@ tonic.workspace = true
 prost-types.workspace = true
 
 tap = "1.0.1"
-jsonrpsee = "0.24.0"
 duration-str = "0.17.0"
 moka = { version = "0.12.15", features = ["sync"] }
 hostname = "0.4"

@@ -17,14 +17,13 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use sui_sdk::SuiClient;
+use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
 use sui_types::base_types::ObjectID;
 
 /// Helper function to create a test server with any ServerMode.
 pub(crate) async fn create_test_server(
-    sui_client: SuiClient,
-    grpc_client: sui_rpc_api::Client,
+    grpc_client: SuiGrpcClient,
     seal_package: ObjectID,
     server_mode: ServerMode,
     onchain_version: Option<u32>,
@@ -47,12 +46,7 @@ pub(crate) async fn create_test_server(
         enable_event_monitoring: true,
     };
 
-    let sui_rpc_client = SuiRpcClient::new(
-        sui_client,
-        grpc_client.into_inner(),
-        RetryConfig::default(),
-        None,
-    );
+    let sui_rpc_client = SuiRpcClient::new(grpc_client, RetryConfig::default(), None);
 
     // Use MasterKeys::load() for all modes.
     let vars_encoded = vars
@@ -74,14 +68,12 @@ pub(crate) async fn create_test_server(
 
 /// Helper function to create a permissioned server.
 pub(crate) async fn create_server(
-    sui_client: SuiClient,
-    grpc_client: sui_rpc_api::Client,
+    grpc_client: SuiGrpcClient,
     seal_package: ObjectID,
     client_configs: Vec<ClientConfig>,
     vars: impl AsRef<[(&str, &[u8])]>,
 ) -> Server {
     create_test_server(
-        sui_client,
         grpc_client,
         seal_package,
         ServerMode::Permissioned { client_configs },
@@ -94,8 +86,7 @@ pub(crate) async fn create_server(
 /// Helper function to create a list of committee mode servers.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_committee_servers(
-    sui_client: SuiClient,
-    grpc_client: sui_rpc_api::Client,
+    grpc_client: SuiGrpcClient,
     seal_package: ObjectID,
     key_server_obj_id: Address,
     member_addresses: Vec<Address>,
@@ -108,7 +99,6 @@ pub(crate) async fn create_committee_servers(
     for (member_address, vars) in member_addresses.into_iter().zip(vars_list.into_iter()) {
         let vars_refs: Vec<(&str, &[u8])> = vars.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let server = create_test_server(
-            sui_client.clone(),
             grpc_client.clone(),
             seal_package,
             ServerMode::Committee {

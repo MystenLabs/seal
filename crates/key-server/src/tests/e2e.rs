@@ -26,6 +26,7 @@ use futures::future::join_all;
 use key_server::aggregator::utils::{
     aggregate_verified_encrypted_responses, verify_decryption_keys,
 };
+use key_server::sui_rpc_client::build_grpc_client;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use seal_sdk::types::{DecryptionKey, FetchKeyResponse};
@@ -387,15 +388,20 @@ async fn test_e2e_permissioned() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = cluster.grpc_client();
+    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
     // Publish the seal package first, then patterns
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
-        .await
-        .0;
-    let package_id =
-        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+    let seal_package =
+        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
             .await
             .0;
+    let package_id = SealTestCluster::publish_internal(
+        &cluster,
+        grpc_client.clone(),
+        "patterns",
+        vec![("seal", seal_package)],
+    )
+    .await
+    .0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -406,8 +412,6 @@ async fn test_e2e_permissioned() {
 
     // The client handles two package ids, one per client
     let server1 = create_server(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
         vec![
@@ -434,9 +438,7 @@ async fn test_e2e_permissioned() {
 
     // The client on the second server has a single (random) package id
     let server2 = create_server(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
-        grpc_client,
+        grpc_client.clone(),
         seal_package,
         vec![ClientConfig {
             name: "Client on server 2".to_string(),
@@ -522,15 +524,20 @@ async fn test_e2e_imported_key() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = cluster.grpc_client();
+    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
     // Publish seal first, then patterns
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
-        .await
-        .0;
-    let package_id =
-        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+    let seal_package =
+        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
             .await
             .0;
+    let package_id = SealTestCluster::publish_internal(
+        &cluster,
+        grpc_client.clone(),
+        "patterns",
+        vec![("seal", seal_package)],
+    )
+    .await
+    .0;
 
     // Generate a key pair for the key server
     let mut rng = thread_rng();
@@ -541,8 +548,6 @@ async fn test_e2e_imported_key() {
 
     // Server has a single client with a single package id (the one published above)
     let server1 = create_server(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
         vec![ClientConfig {
@@ -614,8 +619,6 @@ async fn test_e2e_imported_key() {
 
     // Import the master key for a client into a second server
     let server2 = create_server(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
         vec![ClientConfig {
@@ -653,9 +656,7 @@ async fn test_e2e_imported_key() {
 
     // Create a new key server where the derived key is marked as exported
     let server3 = create_server(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
-        grpc_client,
+        grpc_client.clone(),
         seal_package,
         vec![
             ClientConfig {
@@ -692,16 +693,21 @@ async fn test_e2e_committee_mode_with_rotation() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = cluster.grpc_client();
+    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
 
     // Publish the seal package first, then patterns
-    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
-        .await
-        .0;
-    let package_id =
-        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
+    let seal_package =
+        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
             .await
             .0;
+    let package_id = SealTestCluster::publish_internal(
+        &cluster,
+        grpc_client.clone(),
+        "patterns",
+        vec![("seal", seal_package)],
+    )
+    .await
+    .0;
 
     // Fresh DKG shares from parties 0, 1, 2 (t=2).
     let master_shares = [
@@ -767,8 +773,6 @@ async fn test_e2e_committee_mode_with_rotation() {
     // Parties 0, 1: rotation in progress (current=0, target=1), both have two shares.
     servers.extend(
         create_committee_servers(
-            #[allow(deprecated)]
-            cluster.sui_client().clone(),
             grpc_client.clone(),
             seal_package,
             key_server_object_id,
@@ -798,8 +802,6 @@ async fn test_e2e_committee_mode_with_rotation() {
     // Party 2: Active mode at version 0 (leaving committee, just v0 share).
     servers.extend(
         create_committee_servers(
-            #[allow(deprecated)]
-            cluster.sui_client().clone(),
             grpc_client.clone(),
             seal_package,
             key_server_object_id,
@@ -891,8 +893,6 @@ async fn test_e2e_committee_mode_with_rotation() {
 
     // Add party 3 and 4 with only MASTER_SHARE_V1 from the dkg rotation.
     let new_servers = create_committee_servers(
-        #[allow(deprecated)]
-        cluster.sui_client().clone(),
         grpc_client.clone(),
         seal_package,
         key_server_object_id,

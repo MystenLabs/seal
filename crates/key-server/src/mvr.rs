@@ -110,8 +110,7 @@ pub(crate) async fn mvr_forward_resolution(
         Network::Testnet => {
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     key_server_options.rpc_config.retry_config.clone(),
@@ -222,8 +221,7 @@ mod tests {
     async fn test_forward_resolution() {
         assert!(crate::externals::check_mvr_package_id(
             &Some("@mysten/kiosk".to_string()),
-            &SuiRpcClient::new_with_optional_sui_client(
-                None,
+            &SuiRpcClient::new(
                 SuiGrpcClient::new(Network::Mainnet.default_node_url()).unwrap(),
                 RetryConfig::default(),
                 None,
@@ -250,8 +248,7 @@ mod tests {
         );
         assert_eq!(
             mvr_forward_resolution(
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Testnet.default_node_url()).unwrap(),
                     RetryConfig::default(),
                     None,
@@ -270,8 +267,7 @@ mod tests {
         // This MVR name is not registered on mainnet.
         assert_eq!(
             mvr_forward_resolution(
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
@@ -289,8 +285,7 @@ mod tests {
         // ..but it is on testnet.
         assert_eq!(
             mvr_forward_resolution(
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Testnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
@@ -312,8 +307,7 @@ mod tests {
     async fn test_invalid_name() {
         assert_eq!(
             mvr_forward_resolution(
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),
@@ -330,8 +324,7 @@ mod tests {
 
         assert_eq!(
             mvr_forward_resolution(
-                &SuiRpcClient::new_with_optional_sui_client(
-                    None,
+                &SuiRpcClient::new(
                     SuiGrpcClient::new(Network::Mainnet.default_node_url())
                         .expect("Failed to create SuiGrpcClient"),
                     RetryConfig::default(),

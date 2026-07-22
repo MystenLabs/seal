@@ -740,7 +740,7 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "itoa",
  "matchit 0.8.4",
@@ -846,7 +846,7 @@ dependencies = [
  "fs-err",
  "http 1.4.0",
  "http-body 1.0.1",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "pin-project-lite",
  "rustls",
@@ -2055,7 +2055,7 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_with",
- "sui-sdk-types 0.3.0",
+ "sui-sdk-types 0.3.2",
  "sui-types",
  "typenum",
 ]
@@ -3510,9 +3510,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.13"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f44da3a8150a6703ed5d34e164b875fd14c2cdab9af1252a9a1020bde2bdc54"
+checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -3835,22 +3835,21 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.8.1"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ab2d4f250c3d7b1c9fcdff1cece94ea4e2dfbec68614f7b87cb205f24ca9d11"
+checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72"
 dependencies = [
  "atomic-waker",
  "bytes",
  "futures-channel",
  "futures-core",
- "h2 0.4.13",
+ "h2 0.4.15",
  "http 1.4.0",
  "http-body 1.0.1",
  "httparse",
  "httpdate",
  "itoa",
  "pin-project-lite",
- "pin-utils",
  "smallvec",
  "tokio",
  "want",
@@ -3863,7 +3862,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c93eb611681b207e1fe55d5a71ecf91572ec8a6705cdb6857f7d8d5242cf58"
 dependencies = [
  "http 1.4.0",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "log",
  "rustls",
@@ -3881,7 +3880,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b90d566bffbce6a75bd8b09a05aa8c2cb1fabb6cb348f8840c9e4c90a0d83b0"
 dependencies = [
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -3896,7 +3895,7 @@ checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
 dependencies = [
  "bytes",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "native-tls",
  "tokio",
@@ -3916,7 +3915,7 @@ dependencies = [
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "ipnet",
  "libc",
  "percent-encoding",
@@ -4432,7 +4431,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "http-body 1.0.1",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-rustls",
  "hyper-util",
  "jsonrpsee-core",
@@ -4471,7 +4470,7 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "jsonrpsee-core",
  "jsonrpsee-types",
@@ -4564,7 +4563,6 @@ dependencies = [
  "hostname",
  "http-body-util",
  "hyper-util",
- "jsonrpsee",
  "moka",
  "move-core-types",
  "move-package-alt",
@@ -4586,10 +4584,10 @@ dependencies = [
  "shared-crypto",
  "snap",
  "sui-move-build",
- "sui-rpc",
+ "sui-rpc 0.3.2",
  "sui-rpc-api",
  "sui-sdk",
- "sui-sdk-types 0.3.0",
+ "sui-sdk-types 0.3.2",
  "sui-types",
  "tap",
  "temp-env",
@@ -6376,7 +6374,7 @@ dependencies = [
  "http-body-util",
  "httparse",
  "humantime",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "itertools 0.14.0",
  "md-5",
  "parking_lot 0.12.5",
@@ -6893,12 +6891,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "pin-utils"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkcs1"
@@ -7800,11 +7792,11 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.13",
+ "h2 0.4.15",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-rustls",
  "hyper-tls",
  "hyper-util",
@@ -8263,7 +8255,7 @@ dependencies = [
  "seal-sdk",
  "serde",
  "serde_json",
- "sui-sdk-types 0.3.0",
+ "sui-sdk-types 0.3.2",
  "tokio",
 ]
 
@@ -8277,8 +8269,8 @@ dependencies = [
  "fastcrypto-tbls",
  "prost-types 0.14.4",
  "serde",
- "sui-rpc",
- "sui-sdk-types 0.3.0",
+ "sui-rpc 0.3.2",
+ "sui-sdk-types 0.3.2",
  "sui-types",
  "tokio",
  "tonic 0.14.6",
@@ -8305,10 +8297,10 @@ dependencies = [
  "sui-keys",
  "sui-move-build",
  "sui-package-alt",
- "sui-rpc",
+ "sui-rpc 0.3.2",
  "sui-rpc-api",
  "sui-sdk",
- "sui-sdk-types 0.3.0",
+ "sui-sdk-types 0.3.2",
  "sui-types",
  "tokio",
 ]
@@ -8354,7 +8346,7 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
- "sui-sdk-types 0.3.0",
+ "sui-sdk-types 0.3.2",
  "sui-types",
  "tracing",
 ]
@@ -9388,7 +9380,7 @@ dependencies = [
  "sui-macros",
  "sui-network",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
@@ -9588,7 +9580,7 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-util",
  "pin-project-lite",
  "socket2 0.5.10",
@@ -9633,7 +9625,7 @@ dependencies = [
  "fastcrypto",
  "fastcrypto-zkp",
  "futures",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "im",
  "indexmap 2.13.0",
  "itertools 0.13.0",
@@ -9960,7 +9952,7 @@ dependencies = [
  "sui-http",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
@@ -10172,6 +10164,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-rpc"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617504d5c6b748af0494b73db80fb893840522329788c48c826d8298e7edb0aa"
+dependencies = [
+ "base64 0.22.1",
+ "bcs 0.1.6",
+ "bytes",
+ "futures",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "hyper 1.11.0",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
+ "serde",
+ "serde_json",
+ "sui-sdk-types 0.3.2",
+ "tap",
+ "tokio",
+ "tonic 0.14.6",
+ "tonic-prost",
+ "tower 0.5.3",
+]
+
+[[package]]
 name = "sui-rpc-api"
 version = "0.1.0"
 source = "git+https://github.com/mystenlabs/sui?rev=a3cc4467c9de48410a01fc2b6f3c1bff48780e5f#a3cc4467c9de48410a01fc2b6f3c1bff48780e5f"
@@ -10204,7 +10221,7 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-sdk-types 0.3.0",
  "sui-transaction-builder",
  "sui-transaction-checks",
@@ -10248,7 +10265,7 @@ dependencies = [
  "sui-json-rpc-api",
  "sui-json-rpc-types",
  "sui-keys",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-rpc-api",
  "sui-sdk-types 0.3.0",
  "sui-transaction-builder",
@@ -10275,6 +10292,28 @@ dependencies = [
 name = "sui-sdk-types"
 version = "0.3.0"
 source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=e494a36a76a0aab8c5d66d5557995faee5c1fb09#e494a36a76a0aab8c5d66d5557995faee5c1fb09"
+dependencies = [
+ "base64ct",
+ "bcs 0.1.6",
+ "blake2",
+ "bnum 0.13.0",
+ "bs58 0.5.1",
+ "bytes",
+ "bytestring",
+ "itertools 0.14.0",
+ "roaring 0.11.3",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "sui-sdk-types"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a22266119e43d3da1a8bc9945c8b569a513e7682f561265d70ef8b6e198dd664"
 dependencies = [
  "base64ct",
  "bcs 0.1.6",
@@ -10362,7 +10401,7 @@ dependencies = [
  "eyre",
  "fastcrypto",
  "futures",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-rustls",
  "indicatif",
  "integer-encoding",
@@ -10386,7 +10425,7 @@ dependencies = [
  "sui-config",
  "sui-json-rpc-types",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-types",
  "tap",
  "telemetry-subscribers",
@@ -10593,7 +10632,7 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc",
+ "sui-rpc 0.3.0",
  "sui-sdk-types 0.3.0",
  "tap",
  "thiserror 1.0.69",
@@ -11307,11 +11346,11 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
- "h2 0.4.13",
+ "h2 0.4.15",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
@@ -11336,11 +11375,11 @@ dependencies = [
  "axum 0.8.9",
  "base64 0.22.1",
  "bytes",
- "h2 0.4.13",
+ "h2 0.4.15",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
@@ -11432,11 +11471,11 @@ checksum = "9b2874b26095e47313b6126f9e8144580a916af2151f778a4fec01a0120fed85"
 dependencies = [
  "async-stream",
  "bytes",
- "h2 0.4.13",
+ "h2 0.4.15",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
+ "hyper 1.11.0",
  "hyper-timeout",
  "hyper-util",
  "pin-project",

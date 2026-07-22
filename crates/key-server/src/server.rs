@@ -42,6 +42,7 @@ use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
+use prost_types::FieldMask;
 use rand::thread_rng;
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
@@ -54,15 +55,15 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
+use sui_rpc::proto::sui::rpc::v2::event_literal::Predicate as EventPredicate;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
-use sui_sdk::rpc_types::EventFilter;
+use sui_rpc::proto::sui::rpc::v2::{
+    Event, EventFilter, EventLiteral, EventTerm, EventTypeFilter, SubscribeEventsRequest,
+};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
-use sui_sdk::verify_personal_message_signature::verify_personal_message_signature;
-use sui_sdk::SuiClientBuilder;
 use sui_sdk_types::Address;
-use sui_types::event::EventID;
 use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -96,6 +97,7 @@ pub mod tests;
 mod time;
 
 const MAX_COMPUTATION_UNITS: u64 = 55_000; // 50K tier + 10% extra buffer
+const EVENT_MONITOR_RETRY_DELAY: Duration = Duration::from_secs(30);
 const GIT_VERSION: &str = crate::git_version!();
 const DEFAULT_PORT: u16 = 2024;
 
@@ -184,6 +186,53 @@ async fn fetch_and_validate_committee_partial_pk(
     Ok(())
 }
 
+/// Builds a gRPC event filter matching CommitteeRotationInitiated events from the
+/// given committee package.
+fn rotation_event_filter(committee_pkg_id: &Address) -> EventFilter {
+    let mut event_type_filter = EventTypeFilter::default();
+    event_type_filter.event_type = Some(format!(
+        "{}::seal_committee::CommitteeRotationInitiated",
+        committee_pkg_id
+    ));
+    let mut literal = EventLiteral::default();
+    literal.predicate = Some(EventPredicate::EventType(event_type_filter));
+    let mut term = EventTerm::default();
+    term.literals = vec![literal];
+    let mut filter = EventFilter::default();
+    filter.terms = vec![term];
+    filter
+}
+
+/// Parse a CommitteeRotationInitiated event. Alerts and bumps the rotation metric.
+fn handle_rotation_event(event: &Event, committee_id: &Address, metrics: &KeyServerMetrics) {
+    let Some(contents) = event.contents.as_ref() else {
+        error!("Committee rotation event is missing contents");
+        return;
+    };
+    let event_data = match bcs::from_bytes::<CommitteeRotationInitiatedEvent>(contents.value()) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to deserialize committee rotation event: {}", e);
+            return;
+        }
+    };
+
+    if event_data.old_committee_id != *committee_id {
+        // This means a different committee is initialized with this committee package ID and being rotated, should never happen.
+        error!(
+            "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
+            event_data.committee_id, event_data.old_committee_id, committee_id
+        );
+    }
+
+    warn!(
+        "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
+        event_data.committee_id, event_data.old_committee_id
+    );
+
+    metrics.committee_mode_rotation_initiated_total.inc();
+}
+
 impl Server {
     /// Check if the server is in committee mode.
     fn is_committee_mode(&self) -> bool {
@@ -205,28 +254,7 @@ impl Server {
     }
 
     async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
-        // The legacy JSON-RPC client is only used by the event monitors, which
-        // only run in committee mode. Only initialize it when event monitoring
-        // is enabled and the server is in committee mode.
-        let is_committee_mode = matches!(options.server_mode, ServerMode::Committee { .. });
-        let sui_client = if options.enable_event_monitoring && is_committee_mode {
-            info!("Event monitoring enabled; initializing legacy Sui JSON-RPC client");
-            Some(
-                SuiClientBuilder::default()
-                    .request_timeout(options.rpc_config.timeout)
-                    .build(&options.node_url())
-                    .await
-                    .expect(
-                        "Failed to initialize legacy Sui JSON-RPC client required for event monitoring",
-                    ),
-            )
-        } else {
-            info!("Event monitoring disabled; skipping legacy Sui JSON-RPC client initialization");
-            None
-        };
-
-        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
-            sui_client,
+        let sui_rpc_client = SuiRpcClient::new(
             build_grpc_client(options.node_url()).expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics
@@ -377,20 +405,20 @@ impl Server {
             }
         }
 
-        verify_personal_message_signature(
-            cert.signature.clone(),
-            msg.as_bytes(),
-            cert.user,
-            Some(self.sui_rpc_client.sui_grpc_client()),
-        )
-        .await
-        .tap_err(|e| {
-            debug!(
-                "Signature verification failed: {:?} (req_id: {:?})",
-                e, req_id
-            );
-        })
-        .map_err(|_| InternalError::InvalidSignature)?;
+        self.sui_rpc_client
+            .verify_personal_message_signature(
+                msg.as_bytes(),
+                cert.signature.as_ref(),
+                &cert.user.to_string(),
+            )
+            .await
+            .tap_err(|e| {
+                debug!(
+                    "Signature verification failed: {:?} (req_id: {:?})",
+                    e, req_id
+                );
+            })
+            .map_err(|_| InternalError::InvalidSignature)?;
 
         // Check session signature
         let signed_msg = signed_request(ptb, enc_key, enc_verification_key);
@@ -771,9 +799,10 @@ impl Server {
         }
     }
 
-    /// Spawns a background task that monitors for CommitteeRotationInitiated events.
-    /// Only spawns in Committee mode. Alerts when a new committee rotation is initiated.
-    /// Refreshes committee_id and package_id from key server object.
+    /// Spawns a background task that monitors for CommitteeRotationInitiated events
+    /// via the fullnode's gRPC event subscription. Only spawns in Committee mode.
+    /// Alerts when a new committee rotation is initiated. Refreshes committee_id
+    /// and package_id from key server object.
     async fn spawn_committee_rotation_event_monitor(&self, metrics: Arc<KeyServerMetrics>) {
         // Only run in committee mode
         let ServerMode::Committee {
@@ -789,17 +818,14 @@ impl Server {
             key_server_obj_id
         );
 
-        let sui_client = self.sui_rpc_client.sui_client();
         let sui_rpc_client = self.sui_rpc_client.clone();
 
-        // Spawn the background task to poll for events.
+        // Spawn the background task that subscribes to rotation events.
         tokio::spawn(async move {
             info!("Committee rotation event monitor task started");
-            let mut last_event_seq: Option<EventID> = None;
-            let mut initialized = false;
 
             loop {
-                // Fetch current committee ID and package ID from key server object
+                // Fetch current committee ID and package ID from key server object.
                 let (committee_id, committee_pkg_id) = match sui_rpc_client
                     .fetch_committee_from_key_server(&key_server_obj_id)
                     .await
@@ -813,88 +839,53 @@ impl Server {
                             "Failed to fetch committee ID and package ID from key server: {}",
                             e
                         );
-                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        tokio::time::sleep(EVENT_MONITOR_RETRY_DELAY).await;
                         continue;
                     }
                 };
 
-                let event_filter = EventFilter::MoveEventType(
-                    format!(
-                        "{}::seal_committee::CommitteeRotationInitiated",
-                        committee_pkg_id
-                    )
-                    .parse()
-                    .expect("Parsing should not fail"),
-                );
+                let event_filter = rotation_event_filter(&committee_pkg_id);
 
-                if !initialized {
-                    match sui_client
-                        .event_api()
-                        .query_events(event_filter.clone(), None, Some(1), true)
-                        .await
-                    {
-                        Ok(page) => {
-                            last_event_seq = page.data.first().map(|event| event.id);
-                            initialized = true;
-                            debug!(
-                                "Committee rotation event monitor initialized at cursor: {:?}",
-                                last_event_seq
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to initialize committee rotation event cursor: {}",
-                                e
-                            );
-                        }
-                    }
+                // Subscribe to new rotation events from the current chain tip.
+                let mut request = SubscribeEventsRequest::default();
+                request.read_mask = Some(FieldMask {
+                    paths: vec!["contents".to_string()],
+                });
+                request.filter = Some(event_filter);
 
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                    continue;
-                }
-
-                let events_result = sui_client
-                    .event_api()
-                    .query_events(
-                        event_filter,
-                        last_event_seq,
-                        Some(1), // Fetch the next unseen event.
-                        false,   // ascending order
-                    )
-                    .await;
-
-                match events_result {
-                    Ok(page) => {
-                        for event in &page.data {
-                            let event_data = bcs::from_bytes::<CommitteeRotationInitiatedEvent>(
-                                event.bcs.bytes(),
-                            )
-                            .expect("BCS should not fail");
-
-                            if event_data.old_committee_id != committee_id {
-                                // This means a different committee is initialized with this committee package ID and being rotated, should never happen.
-                                error!(
-                                    "Committee ID mismatch detected! Event committee_id: {}, old_committee_id: {}, Current committee_id: {}",
-                                    event_data.committee_id, event_data.old_committee_id, committee_id
-                                );
+                match sui_rpc_client
+                    .sui_grpc_client()
+                    .subscription_client()
+                    .subscribe_events(request)
+                    .await
+                {
+                    Ok(response) => {
+                        debug!("Committee rotation event subscription established");
+                        let mut stream = response.into_inner();
+                        loop {
+                            match stream.message().await {
+                                Ok(Some(frame)) => {
+                                    if let Some(event) = &frame.event {
+                                        handle_rotation_event(event, &committee_id, &metrics);
+                                    }
+                                }
+                                Ok(None) => {
+                                    warn!("Committee rotation event subscription ended");
+                                    break;
+                                }
+                                Err(e) => {
+                                    warn!("Committee rotation event subscription error: {}", e);
+                                    break;
+                                }
                             }
-
-                            warn!(
-                                "Committee rotation initiation detected! New committee_id: {}, Old committee_id: {}",
-                                event_data.committee_id, event_data.old_committee_id
-                            );
-
-                            metrics.committee_mode_rotation_initiated_total.inc();
-
-                            last_event_seq = Some(event.id);
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to query committee rotation events: {}", e);
+                        warn!("Failed to subscribe to committee rotation events: {}", e);
                     }
                 }
 
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(EVENT_MONITOR_RETRY_DELAY).await;
             }
         });
     }

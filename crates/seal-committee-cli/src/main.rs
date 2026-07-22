@@ -714,7 +714,7 @@ async fn main() -> Result<()> {
             let name_arg = register_builder.pure(server_name.as_str())?;
 
             register_builder.programmable_move_call(
-                committee_pkg.into(),
+                ObjectID::new(committee_pkg.into_inner()),
                 "seal_committee".parse()?,
                 "register".parse()?,
                 vec![],
@@ -889,7 +889,7 @@ async fn main() -> Result<()> {
                 )?;
 
                 propose_builder.programmable_move_call(
-                    committee_pkg.into(),
+                    ObjectID::new(committee_pkg.into_inner()),
                     "seal_committee".parse()?,
                     "propose_for_rotation".parse()?,
                     vec![],
@@ -905,7 +905,7 @@ async fn main() -> Result<()> {
                 let key_server_pk_arg = propose_builder.pure(key_server_pk_bytes)?;
 
                 propose_builder.programmable_move_call(
-                    committee_pkg.into(),
+                    ObjectID::new(committee_pkg.into_inner()),
                     "seal_committee".parse()?,
                     "propose".parse()?,
                     vec![],
@@ -1559,7 +1559,7 @@ async fn get_shared_committee_arg(
         .ok_or_else(|| anyhow!("Shared committee object {} has no version", committee_id))?;
 
     Ok(ObjectArg::SharedObject {
-        id: committee_id.into(),
+        id: ObjectID::new(committee_id.into_inner()),
         initial_shared_version: initial_shared_version.into(),
         mutability: if mutable {
             SharedObjectMutability::Mutable

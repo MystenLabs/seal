@@ -97,8 +97,7 @@ mod tests {
             "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
         )
         .unwrap();
-        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
-            None,
+        let sui_rpc_client = SuiRpcClient::new(
             SuiGrpcClient::new(Network::Testnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
@@ -120,8 +119,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_first_pkg_id_with_invalid_id() {
         let invalid_address = ObjectID::ZERO;
-        let sui_rpc_client = SuiRpcClient::new_with_optional_sui_client(
-            None,
+        let sui_rpc_client = SuiRpcClient::new(
             SuiGrpcClient::new(Network::Mainnet.default_node_url())
                 .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),

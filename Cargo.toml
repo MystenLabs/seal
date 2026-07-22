@@ -53,8 +53,8 @@ sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9
 sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9de48410a01fc2b6f3c1bff48780e5f", package = "sui-rpc-api" }
 sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "a3cc4467c9de48410a01fc2b6f3c1bff48780e5f", package = "sui-keys" }
 
-sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09", package = "sui-sdk-types", features = ["serde"] }
-sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09", package = "sui-rpc" }
+sui-sdk-types = { version = "0.3.2", features = ["serde"] }
+sui-rpc = "0.3.2"
 
 [profile.release]
 panic = 'abort'
