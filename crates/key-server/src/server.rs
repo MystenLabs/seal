@@ -867,7 +867,22 @@ impl Server {
                     }
                 };
 
-                let event_filter = rotation_event_filter(&committee_pkg_id);
+                // Events added in a package upgrade carry the upgraded package's
+                // address in their type, so filter on the latest package version.
+                let event_pkg_id = match sui_rpc_client
+                    .fetch_latest_package_id(committee_pkg_id)
+                    .await
+                {
+                    Ok(id) => id,
+                    Err(e) => {
+                        warn!(
+                            "Failed to resolve latest committee package id, falling back to {}: {}",
+                            committee_pkg_id, e
+                        );
+                        committee_pkg_id
+                    }
+                };
+                let event_filter = rotation_event_filter(&event_pkg_id);
 
                 // Subscribe to new rotation events from the current chain tip.
                 let mut stream = match sui_rpc_client

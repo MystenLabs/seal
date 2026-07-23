@@ -24,8 +24,9 @@ use sui_rpc::field::FieldMaskUtil;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
     Bcs, EventFilter, GetEpochRequest, GetObjectRequest, GetPackageRequest,
-    SimulateTransactionRequest, SimulateTransactionResponse, SubscribeEventsRequest,
-    SubscribeEventsResponse, Transaction, UserSignature, VerifySignatureRequest,
+    ListPackageVersionsRequest, SimulateTransactionRequest, SimulateTransactionResponse,
+    SubscribeEventsRequest, SubscribeEventsResponse, Transaction, UserSignature,
+    VerifySignatureRequest,
 };
 use sui_sdk_types::Address;
 
@@ -465,6 +466,33 @@ impl SuiRpcClient {
         .await
     }
 
+    /// Resolves the latest version's package id for the package identified by
+    /// `package_id`. Useful to determine event type.
+    pub async fn fetch_latest_package_id(&self, package_id: Address) -> RpcResult<Address> {
+        self.run_grpc_with_retries("list_package_versions", move |mut grpc_client| async move {
+            let mut request = ListPackageVersionsRequest::default();
+            request.package_id = Some(package_id.to_string());
+
+            let response = grpc_client
+                .package_client()
+                .list_package_versions(request)
+                .await
+                .map(|r| r.into_inner())
+                .map_err(RpcError::from_grpc)?;
+
+            response
+                .versions
+                .iter()
+                .max_by_key(|v| v.version)
+                .and_then(|v| v.package_id.as_deref())
+                .ok_or_else(|| RpcError::new("No package versions found"))
+                .and_then(|id| {
+                    Address::from_hex(id).map_err(|_| RpcError::new("Invalid package id"))
+                })
+        })
+        .await
+    }
+
     /// Subscribes to events matching `filter` via the fullnode's gRPC event
     /// subscription and returns the response stream. `read_mask_paths` selects
     /// the `Event` fields present on each frame.
@@ -847,5 +875,40 @@ mod tests {
             elapsed >= timeout && elapsed < Duration::from_secs(10),
             "expected the call to fail after ~{timeout:?}, took {elapsed:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_latest_package_id() {
+        use super::{build_grpc_client, RetryConfig, SuiRpcClient};
+        use sui_sdk_types::Address;
+
+        let sui_rpc_client = SuiRpcClient::new(
+            build_grpc_client("https://fullnode.testnet.sui.io:443", Duration::from_secs(30))
+                .expect("Failed to create SuiGrpcClient"),
+            RetryConfig::default(),
+            None,
+        );
+
+        // Original (version 1) id of the testnet seal committee package.
+        let original = Address::from_static(
+            "0x126586d3e92768327831077f315e160728115d469a8c7b89493218be911e7908",
+        );
+        // Upgraded (version 2) id, where CommitteeRotationInitiated was added.
+        let upgraded = Address::from_static(
+            "0xb0a65ffc4d4a460a78a347f494b6be72f76e7286fb59ad52ca03c799df259611",
+        );
+
+        let latest = sui_rpc_client
+            .fetch_latest_package_id(original)
+            .await
+            .unwrap();
+        assert_eq!(latest, upgraded);
+
+        // Resolving from the upgraded id yields the same result.
+        let latest = sui_rpc_client
+            .fetch_latest_package_id(upgraded)
+            .await
+            .unwrap();
+        assert_eq!(latest, upgraded);
     }
 }
