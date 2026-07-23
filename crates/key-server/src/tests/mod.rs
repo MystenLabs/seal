@@ -1,7 +1,6 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::externals::{add_package, add_upgraded_package};
 use crate::key_server_options::{KeyServerOptions, RpcConfig, ServerMode};
 use crate::master_keys::MasterKeys;
 use crate::tests::KeyServerType::Open;
@@ -91,6 +90,16 @@ impl ExecutedTransactionTestExt for ExecutedTransaction {
             })
         })
     }
+}
+
+/// Register a package as its own first version in the package id cache.
+pub(crate) fn add_package(pkg_id: ObjectID) {
+    crate::common::PACKAGE_ID_CACHE.insert(pkg_id, pkg_id);
+}
+
+/// Register an upgraded package pointing to its first version in the package id cache.
+pub(crate) fn add_upgraded_package(pkg_id: ObjectID, new_pkg_id: ObjectID) {
+    crate::common::PACKAGE_ID_CACHE.insert(new_pkg_id, pkg_id);
 }
 
 mod e2e;

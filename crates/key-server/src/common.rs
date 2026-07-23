@@ -199,3 +199,52 @@ pub async fn add_response_headers(
     );
     response
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{fetch_first_pkg_id, Network};
+    use crate::errors::InternalError;
+    use key_server::sui_rpc_client::RetryConfig;
+    use key_server::sui_rpc_client::SuiRpcClient;
+    use std::str::FromStr;
+    use sui_rpc::client::Client as SuiGrpcClient;
+    use sui_types::base_types::ObjectID;
+
+    #[tokio::test]
+    async fn test_fetch_first_pkg_id() {
+        let address = ObjectID::from_str(
+            "0xac7890f847ac6973ca615af9d7bbb642541f175e35e340e5d1241d0ffda9ed04",
+        )
+        .unwrap();
+        let sui_rpc_client = SuiRpcClient::new(
+            SuiGrpcClient::new(Network::Testnet.default_node_url())
+                .expect("Failed to create SuiGrpcClient"),
+            RetryConfig::default(),
+            None,
+        );
+        match fetch_first_pkg_id(&sui_rpc_client, &address).await {
+            Ok(first) => {
+                assert_eq!(
+                    first.to_hex_literal(),
+                    "0x717d42d8205adeb14b440d6b46c8524d7479952099435261defa1b57f151bf16"
+                        .to_string()
+                );
+                println!("First address: {first:?}");
+            }
+            Err(e) => panic!("Test failed with error: {e:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_first_pkg_id_with_invalid_id() {
+        let invalid_address = ObjectID::ZERO;
+        let sui_rpc_client = SuiRpcClient::new(
+            SuiGrpcClient::new(Network::Mainnet.default_node_url())
+                .expect("Failed to create SuiGrpcClient"),
+            RetryConfig::default(),
+            None,
+        );
+        let result = fetch_first_pkg_id(&sui_rpc_client, &invalid_address).await;
+        assert!(matches!(result, Err(InternalError::InvalidPackage)));
+    }
+}

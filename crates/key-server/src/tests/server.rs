@@ -492,3 +492,81 @@ async fn test_staleness_check() {
         Err(Failure("Fullnode is stale".to_string()))
     );
 }
+
+/// Verifies personal message signatures via the fullnode's gRPC
+/// `SignatureVerificationService` for ed25519 and a fixed zkLogin signature.
+#[traced_test]
+#[tokio::test]
+async fn test_verify_personal_message_signature() {
+    use key_server::sui_rpc_client::{build_grpc_client, RetryConfig, SuiRpcClient};
+    use shared_crypto::intent::PersonalMessage;
+    use sui_types::crypto::get_key_pair;
+    use sui_types::utils::sign_zklogin_personal_msg;
+    use test_cluster::TestClusterBuilder;
+
+    /// The signature verifies against the signer's address, and is rejected for
+    /// a different address or a different message.
+    async fn check_good_and_bad(
+        client: &SuiRpcClient,
+        message: &[u8],
+        sig: &GenericSignature,
+        addr: SuiAddress,
+        wrong_addr: SuiAddress,
+    ) {
+        client
+            .verify_personal_message_signature(message, sig.as_ref(), &addr.to_string())
+            .await
+            .unwrap();
+
+        assert!(client
+            .verify_personal_message_signature(message, sig.as_ref(), &wrong_addr.to_string())
+            .await
+            .is_err());
+
+        assert!(client
+            .verify_personal_message_signature(b"wrong", sig.as_ref(), &addr.to_string())
+            .await
+            .is_err());
+    }
+
+    let test_cluster = TestClusterBuilder::new()
+        .with_num_validators(1)
+        .with_epoch_duration_ms(10000)
+        .with_default_jwks()
+        .build()
+        .await;
+    test_cluster.wait_for_epoch(Some(1)).await;
+    test_cluster.wait_for_authenticator_state_update().await;
+
+    let sui_rpc_client = SuiRpcClient::new(
+        build_grpc_client(test_cluster.rpc_url()).expect("Failed to create SuiGrpcClient"),
+        RetryConfig::default(),
+        None,
+    );
+
+    let message = b"hello".to_vec();
+
+    // Ed25519 signature.
+    let intent_msg = IntentMessage::new(
+        Intent::personal_message(),
+        PersonalMessage {
+            message: message.clone(),
+        },
+    );
+    let (addr, sk): (SuiAddress, Ed25519KeyPair) = get_key_pair();
+    let (wrong_addr, _): (SuiAddress, Ed25519KeyPair) = get_key_pair();
+    let sig = GenericSignature::Signature(Signature::new_secure(&intent_msg, &sk));
+    check_good_and_bad(&sui_rpc_client, &message, &sig, addr, wrong_addr).await;
+
+    // zkLogin signature with the pinned test proof.
+    let (zk_addr, zk_sig) = sign_zklogin_personal_msg(PersonalMessage {
+        message: message.clone(),
+    });
+    check_good_and_bad(&sui_rpc_client, &message, &zk_sig, zk_addr, wrong_addr).await;
+
+    // Malformed signature bytes are rejected.
+    assert!(sui_rpc_client
+        .verify_personal_message_signature(&message, &[0u8; 16], &SuiAddress::ZERO.to_string())
+        .await
+        .is_err());
+}

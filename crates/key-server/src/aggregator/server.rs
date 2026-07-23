@@ -30,7 +30,7 @@ use key_server::errors::InternalError::{
 use key_server::errors::{ErrorResponse, InternalError};
 use key_server::metrics::{aggregator_metrics_middleware, uptime_metric, AggregatorMetrics};
 use key_server::metrics_push::{create_push_client, push_metrics, MetricsPushConfig};
-use key_server::sui_rpc_client::{RpcConfig, RpcError, SuiRpcClient};
+use key_server::sui_rpc_client::{build_grpc_client, RpcConfig, RpcError, SuiRpcClient};
 use mysten_service::metrics::start_basic_prometheus_server;
 use mysten_service::{get_mysten_service, package_name, package_version};
 use prometheus::Registry;
@@ -41,7 +41,6 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::Address;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -769,7 +768,7 @@ async fn load_committee_state(
     metrics: Arc<AggregatorMetrics>,
 ) -> Result<AppState> {
     let grpc_client =
-        SuiGrpcClient::new(options.node_url()).context("Failed to create SuiGrpcClient")?;
+        build_grpc_client(options.node_url()).context("Failed to create SuiGrpcClient")?;
     let sui_rpc_client = SuiRpcClient::new(
         grpc_client,
         options.rpc_config.retry_config.clone(),
@@ -988,7 +987,7 @@ mod tests {
         };
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
-        let grpc_client = SuiGrpcClient::new(options.node_url()).unwrap();
+        let grpc_client = build_grpc_client(options.node_url()).unwrap();
         let sui_rpc_client =
             SuiRpcClient::new(grpc_client, options.rpc_config.retry_config.clone(), None);
         let http_client = reqwest::Client::new();

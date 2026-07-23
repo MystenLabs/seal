@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::common::add_response_headers;
 use crate::errors::InternalError::{InvalidSDKVersion, MissingRequiredHeader};
-use crate::externals::get_reference_gas_price;
 use crate::key_server_options::ServerMode;
 use crate::metrics::{call_with_duration, status_callback, uptime_metric, KeyServerMetrics};
 use crate::metrics_push::create_push_client;
-use crate::mvr::mvr_forward_resolution;
 use crate::periodic_updater::spawn_periodic_updater;
 use crate::signed_message::signed_request;
 use crate::time::{checked_duration_since, from_mins};
@@ -57,9 +55,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_rpc::proto::sui::rpc::v2::event_literal::Predicate as EventPredicate;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
-use sui_rpc::proto::sui::rpc::v2::{
-    Event, EventFilter, EventLiteral, EventTerm, EventTypeFilter, SubscribeEventsRequest,
-};
+use sui_rpc::proto::sui::rpc::v2::{Event, EventFilter, EventLiteral, EventTerm, EventTypeFilter};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
 use sui_sdk::types::signature::GenericSignature;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
@@ -77,7 +73,6 @@ use valid_ptb::ValidPtb;
 mod cache;
 mod common;
 mod errors;
-mod externals;
 mod signed_message;
 mod types;
 mod utils;
@@ -565,7 +560,7 @@ impl Server {
         self.master_keys.has_key_for_package(&first_pkg_id)?;
 
         // Check if the package id that MVR name points matches the first package ID, if provided.
-        externals::check_mvr_package_id(
+        mvr::check_mvr_package_id(
             &mvr_name,
             &self.sui_rpc_client,
             &self.options,
@@ -632,7 +627,7 @@ impl Server {
         spawn_periodic_updater(
             &self.sui_rpc_client,
             self.options.rgp_update_interval,
-            get_reference_gas_price,
+            |client| async move { client.get_reference_gas_price().await },
             "RGP",
             metrics.map(|m| status_callback(&m.get_reference_gas_price_status)),
         )
@@ -847,21 +842,17 @@ impl Server {
                 let event_filter = rotation_event_filter(&committee_pkg_id);
 
                 // Subscribe to new rotation events from the current chain tip.
-                let mut request = SubscribeEventsRequest::default();
-                request.read_mask = Some(FieldMask {
-                    paths: vec!["contents".to_string()],
-                });
-                request.filter = Some(event_filter);
-
                 match sui_rpc_client
-                    .sui_grpc_client()
-                    .subscription_client()
-                    .subscribe_events(request)
+                    .subscribe_events(
+                        event_filter,
+                        FieldMask {
+                            paths: vec!["contents".to_string()],
+                        },
+                    )
                     .await
                 {
-                    Ok(response) => {
+                    Ok(mut stream) => {
                         debug!("Committee rotation event subscription established");
-                        let mut stream = response.into_inner();
                         loop {
                             match stream.message().await {
                                 Ok(Some(frame)) => {

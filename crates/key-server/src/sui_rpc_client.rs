@@ -22,8 +22,9 @@ use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::client::HeadersInterceptor;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
-    Bcs, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
-    SimulateTransactionResponse, Transaction, UserSignature, VerifySignatureRequest,
+    Bcs, EventFilter, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
+    SimulateTransactionResponse, SubscribeEventsRequest, SubscribeEventsResponse, Transaction,
+    UserSignature, VerifySignatureRequest,
 };
 use sui_sdk_types::Address;
 use sui_types::object::Data;
@@ -479,6 +480,26 @@ impl SuiRpcClient {
             },
         )
         .await
+    }
+
+    /// Subscribes to events matching `filter` via the fullnode's gRPC event
+    /// subscription and returns the response stream.
+    pub async fn subscribe_events(
+        &self,
+        filter: EventFilter,
+        read_mask: FieldMask,
+    ) -> RpcResult<tonic::Streaming<SubscribeEventsResponse>> {
+        let mut request = SubscribeEventsRequest::default();
+        request.read_mask = Some(read_mask);
+        request.filter = Some(filter);
+
+        self.sui_grpc_client
+            .clone()
+            .subscription_client()
+            .subscribe_events(request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(RpcError::from_grpc)
     }
 
     /// Returns the current reference gas price via gRPC.
