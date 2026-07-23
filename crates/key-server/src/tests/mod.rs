@@ -146,7 +146,7 @@ impl SealTestCluster {
             .await;
         let grpc_client =
             build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
-        let registry = Self::publish_internal(&cluster, grpc_client.clone(), module, vec![]).await;
+        let registry = Self::publish_internal(&cluster, module, vec![]).await;
         Self {
             cluster,
             grpc_client,
@@ -280,7 +280,7 @@ impl SealTestCluster {
 
     /// Publish the Move module in /move/<module> and return the package id and upgrade cap.
     pub async fn publish(&self, module: &str) -> (ObjectID, ObjectID) {
-        Self::publish_internal(&self.cluster, self.grpc_client(), module, vec![]).await
+        Self::publish_internal(&self.cluster, module, vec![]).await
     }
 
     /// Publish with explicit dependency addresses (for packages that depend on other packages)
@@ -289,30 +289,30 @@ impl SealTestCluster {
         module: &str,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
-        Self::publish_internal(&self.cluster, self.grpc_client(), module, deps).await
+        Self::publish_internal(&self.cluster, module, deps).await
     }
 
     pub async fn publish_internal(
         cluster: &TestCluster,
-        grpc_client: SuiGrpcClient,
         module: &str,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.extend(["..", "..", "move", module]);
-        Self::publish_path_internal(cluster, grpc_client, path, deps).await
+        Self::publish_path_internal(cluster, path, deps).await
     }
 
     pub async fn publish_path(&self, path: PathBuf) -> (ObjectID, ObjectID) {
-        Self::publish_path_internal(&self.cluster, self.grpc_client(), path, vec![]).await
+        Self::publish_path_internal(&self.cluster, path, vec![]).await
     }
 
     async fn publish_path_internal(
         cluster: &TestCluster,
-        mut grpc_client: SuiGrpcClient,
         path: PathBuf,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
+        let mut grpc_client =
+            build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
         // Use ephemeral package loader. This skips Published.toml and uses an ephemeral publication
         // file instead.
         let chain_id = {

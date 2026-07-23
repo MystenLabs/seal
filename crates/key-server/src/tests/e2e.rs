@@ -390,18 +390,13 @@ async fn test_e2e_permissioned() {
         .await;
     let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
     // Publish the seal package first, then patterns
-    let seal_package =
-        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
+        .await
+        .0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
             .await
             .0;
-    let package_id = SealTestCluster::publish_internal(
-        &cluster,
-        grpc_client.clone(),
-        "patterns",
-        vec![("seal", seal_package)],
-    )
-    .await
-    .0;
 
     // Generate a master seed for the first key server
     let mut rng = thread_rng();
@@ -526,18 +521,13 @@ async fn test_e2e_imported_key() {
         .await;
     let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
     // Publish seal first, then patterns
-    let seal_package =
-        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
+        .await
+        .0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
             .await
             .0;
-    let package_id = SealTestCluster::publish_internal(
-        &cluster,
-        grpc_client.clone(),
-        "patterns",
-        vec![("seal", seal_package)],
-    )
-    .await
-    .0;
 
     // Generate a key pair for the key server
     let mut rng = thread_rng();
@@ -696,18 +686,13 @@ async fn test_e2e_committee_mode_with_rotation() {
     let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
 
     // Publish the seal package first, then patterns
-    let seal_package =
-        SealTestCluster::publish_internal(&cluster, grpc_client.clone(), "seal", vec![])
+    let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
+        .await
+        .0;
+    let package_id =
+        SealTestCluster::publish_internal(&cluster, "patterns", vec![("seal", seal_package)])
             .await
             .0;
-    let package_id = SealTestCluster::publish_internal(
-        &cluster,
-        grpc_client.clone(),
-        "patterns",
-        vec![("seal", seal_package)],
-    )
-    .await
-    .0;
 
     // Fresh DKG shares from parties 0, 1, 2 (t=2).
     let master_shares = [

@@ -504,9 +504,7 @@ async fn test_verify_personal_message_signature() {
     use sui_types::utils::sign_zklogin_personal_msg;
     use test_cluster::TestClusterBuilder;
 
-    /// The signature verifies against the signer's address, and is rejected for
-    /// a different address or a different message.
-    async fn check_good_and_bad(
+    async fn assert_signatures(
         client: &SuiRpcClient,
         message: &[u8],
         sig: &GenericSignature,
@@ -514,17 +512,17 @@ async fn test_verify_personal_message_signature() {
         wrong_addr: SuiAddress,
     ) {
         client
-            .verify_personal_message_signature(message, sig.as_ref(), &addr.to_string())
+            .verify_personal_message_signature(message, sig.as_ref(), addr.to_string())
             .await
             .unwrap();
 
         assert!(client
-            .verify_personal_message_signature(message, sig.as_ref(), &wrong_addr.to_string())
+            .verify_personal_message_signature(message, sig.as_ref(), wrong_addr.to_string())
             .await
             .is_err());
 
         assert!(client
-            .verify_personal_message_signature(b"wrong", sig.as_ref(), &addr.to_string())
+            .verify_personal_message_signature(b"wrong", sig.as_ref(), addr.to_string())
             .await
             .is_err());
     }
@@ -556,17 +554,17 @@ async fn test_verify_personal_message_signature() {
     let (addr, sk): (SuiAddress, Ed25519KeyPair) = get_key_pair();
     let (wrong_addr, _): (SuiAddress, Ed25519KeyPair) = get_key_pair();
     let sig = GenericSignature::Signature(Signature::new_secure(&intent_msg, &sk));
-    check_good_and_bad(&sui_rpc_client, &message, &sig, addr, wrong_addr).await;
+    assert_signatures(&sui_rpc_client, &message, &sig, addr, wrong_addr).await;
 
     // zkLogin signature with the pinned test proof.
     let (zk_addr, zk_sig) = sign_zklogin_personal_msg(PersonalMessage {
         message: message.clone(),
     });
-    check_good_and_bad(&sui_rpc_client, &message, &zk_sig, zk_addr, wrong_addr).await;
+    assert_signatures(&sui_rpc_client, &message, &zk_sig, zk_addr, wrong_addr).await;
 
     // Malformed signature bytes are rejected.
     assert!(sui_rpc_client
-        .verify_personal_message_signature(&message, &[0u8; 16], &SuiAddress::ZERO.to_string())
+        .verify_personal_message_signature(&message, &[0u8; 16], SuiAddress::ZERO.to_string())
         .await
         .is_err());
 }

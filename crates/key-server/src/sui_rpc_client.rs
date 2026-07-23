@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::client::HeadersInterceptor;
+use sui_rpc::field::FieldMaskUtil;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
     Bcs, EventFilter, GetEpochRequest, GetObjectRequest, SimulateTransactionRequest,
@@ -229,11 +230,6 @@ impl SuiRpcClient {
         }
     }
 
-    /// Returns a reference to the underlying gRPC client.
-    pub fn sui_grpc_client(&self) -> SuiGrpcClient {
-        self.sui_grpc_client.clone()
-    }
-
     /// Returns a clone of the request-duration histogram (if any).
     pub fn request_duration_millis(&self) -> Option<HistogramVec> {
         self.request_duration_millis.clone()
@@ -305,25 +301,21 @@ impl SuiRpcClient {
     }
 
     /// Verifies a personal message signature via the fullnode's gRPC
-    /// `SignatureVerificationService` for all signature schemes,
-    /// For zkLogin, fullnode resolves the current epoch and JWKs onchain.
+    /// `SignatureVerificationService`.
     pub async fn verify_personal_message_signature(
         &self,
         message: &[u8],
         signature: &[u8],
-        address: &str,
+        address: String,
     ) -> RpcResult<()> {
-        let mut message_bcs = Bcs::serialize(&message)
-            .map_err(|e| RpcError::new(&format!("Failed to serialize message: {e}")))?;
-        message_bcs.name = Some("PersonalMessage".to_string());
+        let message_bcs = Bcs::serialize(&message)
+            .map_err(|e| RpcError::new(&format!("Failed to serialize message: {e}")))?
+            .with_name("PersonalMessage");
 
-        let mut user_signature = UserSignature::default();
-        user_signature.bcs = Some(Bcs::from(signature.to_vec()));
-
-        let mut request = VerifySignatureRequest::default();
-        request.message = Some(message_bcs);
-        request.signature = Some(user_signature);
-        request.address = Some(address.to_string());
+        let request = VerifySignatureRequest::default()
+            .with_message(message_bcs)
+            .with_signature(UserSignature::default().with_bcs(signature.to_vec()))
+            .with_address(address);
 
         let response = self
             .run_grpc_with_retries("verify_signature", move |mut grpc_client| {
@@ -483,23 +475,29 @@ impl SuiRpcClient {
     }
 
     /// Subscribes to events matching `filter` via the fullnode's gRPC event
-    /// subscription and returns the response stream.
+    /// subscription and returns the response stream. `read_mask_paths` selects
+    /// the `Event` fields present on each frame.
     pub async fn subscribe_events(
         &self,
         filter: EventFilter,
-        read_mask: FieldMask,
+        read_mask_paths: &[&str],
     ) -> RpcResult<tonic::Streaming<SubscribeEventsResponse>> {
-        let mut request = SubscribeEventsRequest::default();
-        request.read_mask = Some(read_mask);
-        request.filter = Some(filter);
+        let request = SubscribeEventsRequest::default()
+            .with_read_mask(FieldMask::from_paths(read_mask_paths))
+            .with_filter(filter);
 
-        self.sui_grpc_client
-            .clone()
-            .subscription_client()
-            .subscribe_events(request)
-            .await
-            .map(|r| r.into_inner())
-            .map_err(RpcError::from_grpc)
+        self.run_grpc_with_retries("subscribe_events", move |mut grpc_client| {
+            let request = request.clone();
+            async move {
+                grpc_client
+                    .subscription_client()
+                    .subscribe_events(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(RpcError::from_grpc)
+            }
+        })
+        .await
     }
 
     /// Returns the current reference gas price via gRPC.

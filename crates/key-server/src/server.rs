@@ -40,7 +40,6 @@ use mysten_service::get_mysten_service;
 use mysten_service::metrics::start_prometheus_server;
 use mysten_service::package_name;
 use mysten_service::package_version;
-use prost_types::FieldMask;
 use rand::thread_rng;
 use seal_committee::move_types::CommitteeRotationInitiatedEvent;
 use seal_sdk::types::{DecryptionKey, ElGamalPublicKey, ElgamalVerificationKey, KeyId};
@@ -48,16 +47,18 @@ use seal_sdk::{signed_message, FetchKeyResponse};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
 use std::collections::HashMap;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
-use sui_rpc::proto::sui::rpc::v2::event_literal::Predicate as EventPredicate;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
-use sui_rpc::proto::sui::rpc::v2::{Event, EventFilter, EventLiteral, EventTerm, EventTypeFilter};
+use sui_rpc::proto::sui::rpc::v2::{filter, Event, EventFilter};
 use sui_sdk::types::base_types::{ObjectID, SuiAddress};
-use sui_sdk::types::signature::GenericSignature;
+use sui_sdk::types::crypto::PublicKey;
+use sui_sdk::types::signature::{AuthenticatorTrait, GenericSignature, VerifyParams};
+use sui_sdk::types::signature_verification::VerifiedDigestCache;
 use sui_sdk::types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
 use sui_sdk_types::Address;
 use sui_types::{derived_object, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_ADDRESS};
@@ -181,21 +182,31 @@ async fn fetch_and_validate_committee_partial_pk(
     Ok(())
 }
 
+/// Returns true if the signature is, or is a multisig containing, a zkLogin
+/// signature, which requires onchain state (epoch, JWKs) to verify.
+fn may_contain_zklogin(signature: &GenericSignature) -> bool {
+    match signature {
+        GenericSignature::ZkLoginAuthenticator(_) => true,
+        GenericSignature::MultiSig(multisig) => multisig
+            .get_pk()
+            .pubkeys()
+            .iter()
+            .any(|(pk, _)| matches!(pk, PublicKey::ZkLogin(_))),
+        GenericSignature::MultiSigLegacy(multisig) => multisig
+            .get_pk()
+            .pubkeys()
+            .iter()
+            .any(|(pk, _)| matches!(pk, PublicKey::ZkLogin(_))),
+        _ => false,
+    }
+}
+
 /// Builds a gRPC event filter matching CommitteeRotationInitiated events from the
 /// given committee package.
 fn rotation_event_filter(committee_pkg_id: &Address) -> EventFilter {
-    let mut event_type_filter = EventTypeFilter::default();
-    event_type_filter.event_type = Some(format!(
-        "{}::seal_committee::CommitteeRotationInitiated",
-        committee_pkg_id
-    ));
-    let mut literal = EventLiteral::default();
-    literal.predicate = Some(EventPredicate::EventType(event_type_filter));
-    let mut term = EventTerm::default();
-    term.literals = vec![literal];
-    let mut filter = EventFilter::default();
-    filter.terms = vec![term];
-    filter
+    EventFilter::matching(filter::event::event_type(format!(
+        "{committee_pkg_id}::seal_committee::CommitteeRotationInitiated"
+    )))
 }
 
 /// Parse a CommitteeRotationInitiated event. Alerts and bumps the rotation metric.
@@ -400,13 +411,35 @@ impl Server {
             }
         }
 
-        self.sui_rpc_client
-            .verify_personal_message_signature(
-                msg.as_bytes(),
-                cert.signature.as_ref(),
-                &cert.user.to_string(),
-            )
-            .await
+        // Signatures that are or contain a zkLogin signature need onchain state
+        // (epoch, JWKs) so they are verified via the fullnode; all other schemes
+        // are verified locally.
+        let verification_result = if may_contain_zklogin(&cert.signature) {
+            self.sui_rpc_client
+                .verify_personal_message_signature(
+                    msg.as_bytes(),
+                    cert.signature.as_ref(),
+                    cert.user.to_string(),
+                )
+                .await
+                .map_err(|e| e.to_string())
+        } else {
+            let intent_msg = IntentMessage::new(
+                Intent::personal_message(),
+                PersonalMessage {
+                    message: msg.as_bytes().to_vec(),
+                },
+            );
+            cert.signature
+                .verify_claims::<PersonalMessage>(
+                    &intent_msg,
+                    cert.user,
+                    &VerifyParams::default(),
+                    Arc::new(VerifiedDigestCache::new_empty()),
+                )
+                .map_err(|e| e.to_string())
+        };
+        verification_result
             .tap_err(|e| {
                 debug!(
                     "Signature verification failed: {:?} (req_id: {:?})",
@@ -842,37 +875,38 @@ impl Server {
                 let event_filter = rotation_event_filter(&committee_pkg_id);
 
                 // Subscribe to new rotation events from the current chain tip.
-                match sui_rpc_client
-                    .subscribe_events(
-                        event_filter,
-                        FieldMask {
-                            paths: vec!["contents".to_string()],
-                        },
-                    )
+                let mut stream = match sui_rpc_client
+                    .subscribe_events(event_filter, &["contents"])
                     .await
                 {
-                    Ok(mut stream) => {
-                        debug!("Committee rotation event subscription established");
-                        loop {
-                            match stream.message().await {
-                                Ok(Some(frame)) => {
-                                    if let Some(event) = &frame.event {
-                                        handle_rotation_event(event, &committee_id, &metrics);
-                                    }
-                                }
-                                Ok(None) => {
-                                    warn!("Committee rotation event subscription ended");
-                                    break;
-                                }
-                                Err(e) => {
-                                    warn!("Committee rotation event subscription error: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    Ok(stream) => stream,
                     Err(e) => {
                         warn!("Failed to subscribe to committee rotation events: {}", e);
+                        tokio::time::sleep(EVENT_MONITOR_RETRY_DELAY).await;
+                        continue;
+                    }
+                };
+
+                debug!("Committee rotation event subscription established");
+                loop {
+                    match stream.message().await {
+                        Ok(Some(frame)) => {
+                            if let Some(event) = &frame.event {
+                                handle_rotation_event(event, &committee_id, &metrics);
+                                // The rotation changes the committee id (and possibly
+                                // the package id on upgrade), so resubscribe with
+                                // fresh state from the key server object.
+                                break;
+                            }
+                        }
+                        Ok(None) => {
+                            warn!("Committee rotation event subscription ended");
+                            break;
+                        }
+                        Err(e) => {
+                            warn!("Committee rotation event subscription error: {}", e);
+                            break;
+                        }
                     }
                 }
 
