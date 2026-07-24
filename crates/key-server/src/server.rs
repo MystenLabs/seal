@@ -261,7 +261,8 @@ impl Server {
 
     async fn new(mut options: KeyServerOptions, metrics: Option<Arc<KeyServerMetrics>>) -> Self {
         let sui_rpc_client = SuiRpcClient::new(
-            build_grpc_client(options.node_url()).expect("Failed to create SuiGrpcClient"),
+            build_grpc_client(options.node_url(), options.rpc_config.timeout)
+                .expect("Failed to create SuiGrpcClient"),
             options.rpc_config.retry_config.clone(),
             metrics
                 .as_ref()

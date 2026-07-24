@@ -67,3 +67,4 @@ move-package-alt = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
 wiremock = "0.5"
+tokio-stream = "0.1"

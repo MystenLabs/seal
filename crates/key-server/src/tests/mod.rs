@@ -144,8 +144,8 @@ impl SealTestCluster {
             .with_num_validators(1)
             .build()
             .await;
-        let grpc_client =
-            build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
+        let grpc_client = build_grpc_client(cluster.rpc_url(), Duration::from_secs(30))
+            .expect("Failed to create SuiGrpcClient");
         let registry = Self::publish_internal(&cluster, module, vec![]).await;
         Self {
             cluster,
@@ -311,8 +311,8 @@ impl SealTestCluster {
         path: PathBuf,
         deps: Vec<(&str, ObjectID)>,
     ) -> (ObjectID, ObjectID) {
-        let mut grpc_client =
-            build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
+        let mut grpc_client = build_grpc_client(cluster.rpc_url(), Duration::from_secs(30))
+            .expect("Failed to create SuiGrpcClient");
         // Use ephemeral package loader. This skips Published.toml and uses an ephemeral publication
         // file instead.
         let chain_id = {

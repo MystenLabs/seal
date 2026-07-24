@@ -79,10 +79,12 @@ const ENV_FULL_NODE_RPC_API_NAME: &str = "FULL_NODE_RPC_API_NAME";
 const ENV_FULL_NODE_RPC_API_KEY: &str = "FULL_NODE_RPC_API_KEY";
 
 /// Build a Sui gRPC client for the given node URL. If `FULL_NODE_RPC_API_NAME` and `FULL_NODE_RPC_API_KEY`
-/// are present as env var, use them for all grpc calls.
-pub fn build_grpc_client(node_url: &str) -> RpcResult<SuiGrpcClient> {
+/// are present as env var, use them for all grpc calls. A per-request timeout is applied to every RPC;
+/// when it expires, the call fails with `DeadlineExceeded` (which is retriable).
+pub fn build_grpc_client(node_url: &str, timeout: Duration) -> RpcResult<SuiGrpcClient> {
     let client = SuiGrpcClient::new(node_url)
-        .map_err(|e| RpcError::new(&format!("Failed to create SuiGrpcClient: {e}")))?;
+        .map_err(|e| RpcError::new(&format!("Failed to create SuiGrpcClient: {e}")))?
+        .with_response_headers_timeout(timeout);
     match (
         std::env::var(ENV_FULL_NODE_RPC_API_NAME).ok(),
         std::env::var(ENV_FULL_NODE_RPC_API_KEY).ok(),
@@ -802,5 +804,59 @@ mod tests {
             assert_eq!(input.version, None);
             assert_eq!(input.digest, None);
         }
+    }
+
+    /// Regression test: `build_grpc_client` must apply the configured per-request
+    /// timeout so that a stalled fullnode cannot hold an RPC open indefinitely.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_build_grpc_client_applies_timeout() {
+        use sui_rpc::proto::sui::rpc::v2::ledger_service_server::{
+            LedgerService, LedgerServiceServer,
+        };
+        use sui_rpc::proto::sui::rpc::v2::{GetObjectRequest, GetObjectResponse};
+        use tonic::{transport::Server, Request, Response, Status};
+
+        #[derive(Default)]
+        struct HangingLedger;
+
+        #[tonic::async_trait]
+        impl LedgerService for HangingLedger {
+            async fn get_object(
+                &self,
+                _request: Request<GetObjectRequest>,
+            ) -> Result<Response<GetObjectResponse>, Status> {
+                // Simulate a stalled fullnode: never respond.
+                futures::future::pending::<()>().await;
+                unreachable!()
+            }
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(LedgerServiceServer::new(HangingLedger))
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .await
+                .unwrap();
+        });
+
+        let timeout = Duration::from_millis(500);
+        let mut client = super::build_grpc_client(&format!("http://{addr}"), timeout)
+            .expect("Failed to create SuiGrpcClient");
+
+        let start = std::time::Instant::now();
+        let result = client
+            .ledger_client()
+            .get_object(GetObjectRequest::default())
+            .await;
+        let elapsed = start.elapsed();
+
+        let status = result.expect_err("request to a hanging fullnode must fail");
+        assert_eq!(status.code(), tonic::Code::DeadlineExceeded);
+        assert!(
+            elapsed >= timeout && elapsed < Duration::from_secs(10),
+            "expected the call to fail after ~{timeout:?}, took {elapsed:?}"
+        );
     }
 }

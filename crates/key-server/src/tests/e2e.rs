@@ -36,6 +36,7 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 use sui_sdk_types::Address as NewObjectID;
 use sui_types::base_types::ObjectID;
 use sui_types::crypto::get_key_pair_from_rng;
@@ -388,7 +389,8 @@ async fn test_e2e_permissioned() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
+    let grpc_client = build_grpc_client(cluster.rpc_url(), Duration::from_secs(30))
+        .expect("Failed to create SuiGrpcClient");
     // Publish the seal package first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
@@ -519,7 +521,8 @@ async fn test_e2e_imported_key() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
+    let grpc_client = build_grpc_client(cluster.rpc_url(), Duration::from_secs(30))
+        .expect("Failed to create SuiGrpcClient");
     // Publish seal first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])
         .await
@@ -683,7 +686,8 @@ async fn test_e2e_committee_mode_with_rotation() {
         .with_num_validators(1)
         .build()
         .await;
-    let grpc_client = build_grpc_client(cluster.rpc_url()).expect("Failed to create SuiGrpcClient");
+    let grpc_client = build_grpc_client(cluster.rpc_url(), Duration::from_secs(30))
+        .expect("Failed to create SuiGrpcClient");
 
     // Publish the seal package first, then patterns
     let seal_package = SealTestCluster::publish_internal(&cluster, "seal", vec![])

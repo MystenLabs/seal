@@ -767,8 +767,8 @@ async fn load_committee_state(
     options: AggregatorOptions,
     metrics: Arc<AggregatorMetrics>,
 ) -> Result<AppState> {
-    let grpc_client =
-        build_grpc_client(options.node_url()).context("Failed to create SuiGrpcClient")?;
+    let grpc_client = build_grpc_client(options.node_url(), options.rpc_config.timeout)
+        .context("Failed to create SuiGrpcClient")?;
     let sui_rpc_client = SuiRpcClient::new(
         grpc_client,
         options.rpc_config.retry_config.clone(),
@@ -987,7 +987,8 @@ mod tests {
         };
         let registry = Registry::new();
         let metrics = Arc::new(AggregatorMetrics::new(&registry));
-        let grpc_client = build_grpc_client(options.node_url()).unwrap();
+        let grpc_client =
+            build_grpc_client(options.node_url(), options.rpc_config.timeout).unwrap();
         let sui_rpc_client =
             SuiRpcClient::new(grpc_client, options.rpc_config.retry_config.clone(), None);
         let http_client = reqwest::Client::new();
