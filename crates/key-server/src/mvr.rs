@@ -18,7 +18,7 @@ use crate::errors::InternalError;
 use crate::errors::InternalError::{Failure, InvalidMVRName, InvalidPackage};
 use crate::key_server_options::KeyServerOptions;
 use crate::types::Network;
-use key_server::sui_rpc_client::SuiRpcClient;
+use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use moka::sync::Cache;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -30,7 +30,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::{Address, StructTag as SdkStructTag, TypeTag as SdkTypeTag};
 use sui_types::base_types::ObjectID;
 use sui_types::collection_types::Table;
@@ -163,8 +162,11 @@ pub(crate) async fn mvr_forward_resolution(
             let networks: HashMap<_, _> = get_from_mvr_registry(
                 mvr_name,
                 &SuiRpcClient::new(
-                    SuiGrpcClient::new(Network::Mainnet.default_node_url())
-                        .expect("Failed to create SuiGrpcClient"),
+                    build_grpc_client(
+                        Network::Mainnet.default_node_url(),
+                        key_server_options.rpc_config.timeout,
+                    )
+                    .expect("Failed to create SuiGrpcClient"),
                     key_server_options.rpc_config.retry_config.clone(),
                     sui_rpc_client.request_duration_millis(),
                 ),
