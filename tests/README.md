@@ -9,7 +9,7 @@ If your server is in permissioned mode, ensure the following package IDs are all
 | Network | Package ID                                                           |
 | ------- | -------------------------------------------------------------------- |
 | Testnet | `0x58dce5d91278bceb65d44666ffa225ab397fc3ae9d8398c8c779c5530bd978c2` |
-| Mainnet | `0x7dea8cca3f9970e8c52813d7a0cfb6c8e481fd92e9186834e1e3b58db2068029` |
+| Mainnet | `0x4852d0fde1fa84729b223045e8100adad5e801c593d45717030dc1aa96776fbc` |
 
 ## Running Tests
 
