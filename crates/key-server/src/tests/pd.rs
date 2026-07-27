@@ -22,12 +22,13 @@ use tracing_test::traced_test;
 async fn test_pd() {
     let mut tc = SealTestCluster::new(2, "seal").await;
 
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc
         .publish_with_deps("patterns", vec![("seal", seal_package)])
         .await;
 
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     // create PrivateData with nonce=package_id, owned by addr1
     let (pd, version, digest) =

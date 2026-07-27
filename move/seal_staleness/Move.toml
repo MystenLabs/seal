@@ -1,0 +1,3 @@
+[package]
+name = "seal_staleness"
+edition = "2024"

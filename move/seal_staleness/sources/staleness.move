@@ -1,6 +1,4 @@
-#[deprecated(note = b"Deprecated: use the standalone seal_staleness package instead.")]
-#[allow(deprecated_usage)]
-module seal::time;
+module seal_staleness::time;
 
 use sui::clock;
 

@@ -20,13 +20,14 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_whitelist() {
     let mut tc = SealTestCluster::new(2, "seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc
         .publish_with_deps("patterns", vec![("seal", seal_package)])
         .await;
 
-    tc.add_open_server(seal_package).await;
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
+    tc.add_open_server(staleness_package).await;
 
     let (whitelist, cap, initial_shared_version) =
         create_whitelist(tc.test_cluster(), package_id).await;
@@ -54,8 +55,8 @@ async fn test_whitelist() {
 #[tokio::test]
 async fn test_whitelist_with_upgrade() {
     let mut tc = SealTestCluster::new(1, "seal").await;
-    let (seal_package, _) = tc.publish("seal").await;
-    tc.add_open_server(seal_package).await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
+    tc.add_open_server(staleness_package).await;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/tests/whitelist_v1");
     let (package_id_1, upgrade_cap) = tc.publish_path(path).await;

@@ -22,12 +22,13 @@ use tracing_test::traced_test;
 #[tokio::test]
 async fn test_tle_policy() {
     let mut tc = SealTestCluster::new(1, "seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc
         .publish_with_deps("patterns", vec![("seal", seal_package)])
         .await;
 
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     {
         // old time
@@ -98,11 +99,12 @@ async fn test_tle_policy() {
 #[tokio::test]
 async fn test_tle_certificate() {
     let mut tc = SealTestCluster::new(1, "seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc
         .publish_with_deps("patterns", vec![("seal", seal_package)])
         .await;
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     let ptb = tle_create_ptb(package_id, 1);
     let (_, pk, vk) = elgamal::genkey(&mut thread_rng());
@@ -217,11 +219,12 @@ async fn test_tle_certificate() {
 #[tokio::test]
 async fn test_tle_signed_request() {
     let mut tc = SealTestCluster::new(1, "seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
     let (package_id, _) = tc
         .publish_with_deps("patterns", vec![("seal", seal_package)])
         .await;
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     let ptb = tle_create_ptb(package_id, 1);
     let (_, pk, vk) = elgamal::genkey(&mut thread_rng());

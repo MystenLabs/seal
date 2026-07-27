@@ -49,9 +49,9 @@ use tokio::net::TcpListener;
 async fn test_rgp_updater() {
     let mut tc = SealTestCluster::new(0, "seal").await;
 
-    let (seal_package, _) = tc.publish("seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
 
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     let mut receiver = tc.server().spawn_reference_gas_price_updater(None).await.0;
 
@@ -65,9 +65,9 @@ async fn test_rgp_updater() {
 #[tokio::test]
 async fn test_server_background_task_monitor() {
     let mut tc = SealTestCluster::new(0, "seal").await;
-    let (seal_package, _) = tc.publish("seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
 
-    tc.add_open_server(seal_package).await;
+    tc.add_open_server(staleness_package).await;
 
     let metrics_registry = Registry::default();
     let metrics = Arc::new(KeyServerMetrics::new(&metrics_registry));
@@ -444,8 +444,9 @@ async fn test_fetch_key() {
 #[tokio::test]
 async fn test_staleness_check() {
     let mut tc = SealTestCluster::new(1, "seal").await;
+    let (staleness_package, _) = tc.publish("seal_staleness").await;
     let (seal_package, _) = tc.publish("seal").await;
-    tc.add_open_server_with_allowed_staleness(seal_package, Duration::from_secs(2))
+    tc.add_open_server_with_allowed_staleness(staleness_package, Duration::from_secs(2))
         .await;
 
     let (examples_package_id, _) = tc
