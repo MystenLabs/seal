@@ -883,8 +883,11 @@ mod tests {
         use sui_sdk_types::Address;
 
         let sui_rpc_client = SuiRpcClient::new(
-            build_grpc_client("https://fullnode.testnet.sui.io:443", Duration::from_secs(30))
-                .expect("Failed to create SuiGrpcClient"),
+            build_grpc_client(
+                "https://fullnode.testnet.sui.io:443",
+                Duration::from_secs(30),
+            )
+            .expect("Failed to create SuiGrpcClient"),
             RetryConfig::default(),
             None,
         );
