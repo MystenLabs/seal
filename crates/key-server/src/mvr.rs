@@ -26,7 +26,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str::FromStr;
-use sui_rpc::client::Client as SuiGrpcClient;
 use sui_sdk_types::{Address, StructTag, TypeTag};
 use tonic::Code;
 use tracing::debug;
