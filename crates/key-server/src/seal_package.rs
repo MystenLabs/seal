@@ -13,9 +13,9 @@ use sui_types::transaction::{Argument, CallArg, Command, ObjectArg, Programmable
 use sui_types::SUI_CLOCK_OBJECT_ID;
 
 const TESTNET_PACKAGE_ID: &str =
-    "0xdccbeb87767be2b2346af5575eb139807205e4c23ec53dc616f951fe1d814112";
+    "0x8c1870cb43a490564f7e0df516098c74c5aa43c6c1b61b17dc99bc6a0bd9436d";
 const MAINNET_PACKAGE_ID: &str =
-    "0x931739224160073d8e391c9aa6e7ade9818e9814b4907066b7efa058636c4e45";
+    "0xbabb2b101000d2f3926ddc2e2b435f4e4c2c634f70eb5671919b0a907df9f2cf";
 
 /// These should be equal to the corresponding error codes from the staleness Seal Move package.
 pub const STALE_FULLNODE_ERROR_CODE: u64 = 93492;
