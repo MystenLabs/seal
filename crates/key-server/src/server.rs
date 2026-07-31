@@ -560,6 +560,12 @@ impl Server {
             return Err(InternalError::NoAccess(msg));
         }
 
+        if status.success_opt() != Some(true) {
+            return Err(InternalError::NoAccess(
+                "Simulation did not report a successful execution".to_string(),
+            ));
+        }
+
         // all good!
         Ok(())
     }
