@@ -4,6 +4,10 @@
 
 When using Seal to manage encrypted data and access policies, it's important to understand and mitigate certain risks associated with key management, data availability, and operational trust. This section outlines recommendations for developers to follow when integrating Seal into production systems, especially for use cases involving sensitive or long-lived data.
 
+## Fetched keys can be used for future decryptions
+
+A key id is the identity you encrypt to. The key server derives one fixed key per id, and that key opens everything anyone ever encrypts to the id, including content that does not exist yet. Revoking access onchain stops future key requests, but cannot take back keys a user already fetched. When designing your identity namespace, decide whether previously fetched keys can or must not decrypt future encryptions, and choose key ids accordingly. See the [example patterns](/ExamplePatterns) (in particular [allowlist](/ExamplePatterns#allowlist) and [private data](/ExamplePatterns#private-data)) for concrete approaches.
+
 ## Choose an appropriate threshold configuration
 
 Seal supports **threshold encryption** using multiple independent key servers. When encrypting data, developers must select a threshold configuration (for example, `2-of-3` or `3-of-5`) based on the sensitivity of the data and how long it needs to remain accessible.

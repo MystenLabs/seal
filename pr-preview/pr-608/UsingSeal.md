@@ -15,7 +15,7 @@ Read the [Seal Design document](/Design) first to understand the underlying arch
 Packages should define `seal_approve*` functions in their modules to control access to the keys associated with their identity namespace. Guidelines for defining `seal_approve*` functions:
 
 - A package can include multiple `seal_approve*` functions, each implementing different access control logic and accepting different input parameters.
-- The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`.
+- The first parameter must be the requested identity, excluding the package ID prefix. For example: `id: vector<u8>`. See more security best practices at [Fetched keys can be used for future decryptions](/SecurityBestPractices#fetched-keys-can-be-used-for-future-decryptions).
 - If access is not granted, the function should abort without returning a value.
 - To support future upgrades and maintain backward compatibility, define `seal_approve*` functions as non-public `entry` functions when possible, and either version your shared objects or use a versioned shared global object with the latest version (see [allowlist](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move) and [subscription](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/subscription.move) examples).
 
@@ -89,7 +89,8 @@ Each key server (whether independent or decentralized) counts as one server in y
 Use a single decentralized server to get built-in distributed trust and rotation support.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -111,7 +112,8 @@ const client = new SealClient({
 Direct operator model with simpler infrastructure relationships.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -137,7 +139,8 @@ const client = new SealClient({
 Flexible trust distribution and cost control.
 
 ```typescript
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+const suiClient = useCurrentClient();
 
 const client = new SealClient({
   suiClient,
@@ -242,11 +245,14 @@ Decryption involves a few additional steps:
 
 Once initialized, the session key can be used to retrieve multiple decryption keys for the specified package without requiring further user confirmation.
 ```typescript
+
+const suiClient = useCurrentClient();
+
 const sessionKey = await SessionKey.create({
     address: suiAddress,
     packageId,
     ttlMin: 10, // TTL of 10 minutes
-    suiClient: new SuiClient({ url: getFullnodeUrl('testnet') }),
+    suiClient,
 });
 const message = sessionKey.getPersonalMessage();
 const { signature } = await keypair.signPersonalMessage(message); // User confirms in wallet
