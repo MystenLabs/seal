@@ -230,7 +230,7 @@ async fn test_e2e_decrypt_all_objects() {
         server_pk_map.insert(service_id_sdk, public_key);
     }
 
-    let encrypted_objects = vec![encryption1, encryption2];
+    let encrypted_objects = [encryption1, encryption2];
 
     // Decrypt all keys from all servers at once
     let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
@@ -356,7 +356,7 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
     // Scenario A - One server is missing, but threshold (=2) is still reached
     seal_responses.remove(0);
 
-    let encrypted_objects = vec![encryption1.clone(), encryption2.clone()];
+    let encrypted_objects = [encryption1.clone(), encryption2.clone()];
 
     // Decrypt all keys from remaining servers at once
     let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();
@@ -373,7 +373,7 @@ async fn test_e2e_decrypt_all_objects_missing_servers() {
     // Scenario B - A second server is missing, threshold no longer reached
     seal_responses.remove(0);
 
-    let encrypted_objects = vec![encryption1, encryption2];
+    let encrypted_objects = [encryption1, encryption2];
 
     // Only 1 server remaining - not enough for threshold=2
     let cached_keys = decrypt_seal_responses(&eg_sk, &seal_responses, &server_pk_map).unwrap();

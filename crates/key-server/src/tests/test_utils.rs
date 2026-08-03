@@ -98,7 +98,7 @@ pub(crate) async fn create_committee_servers(
 ) -> Vec<Server> {
     let mut servers = Vec::new();
 
-    for (member_address, vars) in member_addresses.into_iter().zip(vars_list.into_iter()) {
+    for (member_address, vars) in member_addresses.into_iter().zip(vars_list) {
         let vars_refs: Vec<(&str, &[u8])> = vars.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let server = create_test_server(
             grpc_client.clone(),
