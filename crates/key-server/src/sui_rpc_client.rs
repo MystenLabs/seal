@@ -113,6 +113,7 @@ pub trait RetriableError {
 impl RetriableError for RpcError {
     fn is_retriable_error(&self) -> bool {
         // Retry only transient gRPC statuses; `code: None` (local decode failures) is deterministic.
+        // `Cancelled` is safe to retry here for all read only endpoints.
         self.code.is_some_and(|code| {
             matches!(
                 code,
@@ -120,6 +121,7 @@ impl RetriableError for RpcError {
                     | tonic::Code::DeadlineExceeded
                     | tonic::Code::ResourceExhausted
                     | tonic::Code::Aborted
+                    | tonic::Code::Cancelled
             )
         })
     }
