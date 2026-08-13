@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use sui_keys::keystore::{AccountKeystore, GenerateOptions};
 use sui_move_build::BuildConfig;
-use sui_package_alt::{mainnet_environment, testnet_environment};
+use sui_package_alt::{mainnet_environment, testnet_environment, SuiFlavor};
 use sui_rpc::proto::sui::rpc::v2::GetObjectRequest;
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::wallet_context::WalletContext;
@@ -396,6 +396,7 @@ async fn main() -> Result<()> {
                 .dependency_ids
                 .published
                 .into_values()
+                .map(|dep| dep.published_at)
                 .collect();
 
             let mut builder = ProgrammableTransactionBuilder::new();
@@ -1184,6 +1185,7 @@ async fn main() -> Result<()> {
                 .dependency_ids
                 .published
                 .into_values()
+                .map(|dep| dep.published_at)
                 .collect();
 
             // Build upgrade transaction: authorize + upgrade + commit.
@@ -2245,6 +2247,7 @@ fn create_build_config(network: &Network) -> BuildConfig {
         run_bytecode_verifier: true,
         print_diags_to_stderr: true,
         environment,
+        flavor: SuiFlavor::new(),
     }
 }
 

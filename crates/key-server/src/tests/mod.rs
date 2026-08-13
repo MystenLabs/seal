@@ -348,6 +348,7 @@ impl SealTestCluster {
             Some("testnet".to_string()),
             chain_id.clone(),
             ephemeral_pub_file.clone(),
+            sui_package_alt::SuiFlavor::new(),
         )
         .load()
         .await
