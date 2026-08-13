@@ -999,7 +999,12 @@ async fn handle_fetch_key_internal(
     req_id: Option<&str>,
     sdk_version: &str,
 ) -> Result<(Address, Vec<KeyId>), InternalError> {
-    let valid_ptb = ValidPtb::try_from_base64(&payload.ptb)?;
+    let valid_ptb = ValidPtb::try_from_base64(&payload.ptb).tap_err(|e| {
+        info!(
+            "Check request failed with error {e:?}: {}",
+            json!({ "user": payload.certificate.user, "req_id": req_id, "sdk_version": sdk_version })
+        )
+    })?;
 
     // Report the number of id's in the request to the metrics.
     app_state
@@ -1007,6 +1012,7 @@ async fn handle_fetch_key_internal(
         .requests_per_number_of_ids
         .observe(valid_ptb.inner_ids().len() as f64);
 
+    let start = std::time::Instant::now();
     app_state
         .server
         .check_request(
@@ -1022,9 +1028,9 @@ async fn handle_fetch_key_internal(
         )
         .await
         .tap(|r| {
-            let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "ids": valid_ptb.inner_ids().iter().map(Hex::encode).collect::<Vec<_>>(), "req_id": req_id, "sdk_version": sdk_version });
+            let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "ids": valid_ptb.inner_ids().iter().map(Hex::encode).collect::<Vec<_>>(), "mvr_name": payload.certificate.mvr_name, "cert_creation_time": payload.certificate.creation_time, "cert_ttl_min": payload.certificate.ttl_min, "elapsed_ms": start.elapsed().as_millis() as u64, "req_id": req_id, "sdk_version": sdk_version });
             match r {
-                Ok(_) => info!("Valid request: {request_info}"),
+                Ok((first_pkg_id, _)) => info!("Valid request, keys served for package {first_pkg_id}: {request_info}"),
                 Err(InternalError::Failure(s)) => warn!("Check request failed with debug message '{s}': {request_info}"),
                 Err(e) => info!("Check request failed with error {e:?}: {request_info}"),
             }
