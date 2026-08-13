@@ -186,11 +186,21 @@ where
             continue;
         }
 
-        tracing::debug!(
-            "RPC call to {} failed with error: {:?}. No more attempts remaining.",
-            label,
-            result.as_ref().err().expect("should be error")
-        );
+        let error = result.as_ref().err().expect("should be error");
+        if error.is_retriable_error() {
+            tracing::warn!(
+                "RPC call to {} failed after {} attempts: {:?}",
+                label,
+                rpc_config.max_retries,
+                error
+            );
+        } else {
+            tracing::debug!(
+                "RPC call to {} failed with non-retriable error: {:?}",
+                label,
+                error
+            );
+        }
 
         observe_attempt(RPC_STATUS_ERROR, start_time.elapsed().as_millis() as f64);
 

@@ -396,9 +396,9 @@ impl Server {
         // Check if the address has aliases enabled - if so, reject verification
         match has_address_aliases(&self.sui_rpc_client, cert.user).await {
             Ok(true) => {
-                debug!(
-                    "Address has aliases enabled, rejecting signature verification (req_id: {:?})",
-                    req_id
+                info!(
+                    "Address {} has aliases enabled, rejecting signature verification (req_id: {:?})",
+                    cert.user, req_id
                 );
                 return Err(InternalError::InvalidSignature);
             }
@@ -453,12 +453,6 @@ impl Server {
         req_id: Option<&str>,
         metrics: Option<&KeyServerMetrics>,
     ) -> Result<(), InternalError> {
-        debug!(
-            "Checking policy for ptb: {:?} (req_id: {:?})",
-            vptb.ptb(),
-            req_id
-        );
-
         // Add a staleness check as the first command in the PTB
         let ptb = self
             .options
@@ -631,10 +625,6 @@ impl Server {
         ids: Vec<KeyId>,
         enc_key: &ElGamalPublicKey,
     ) -> FetchKeyResponse {
-        debug!(
-            "Creating response for ids: {:?}",
-            ids.iter().map(Hex::encode).collect::<Vec<_>>()
-        );
         let master_key = self
             .master_keys
             .get_key_for_package(&first_pkg_id)
@@ -851,8 +841,6 @@ impl Server {
 
         // Spawn the background task that subscribes to rotation events.
         tokio::spawn(async move {
-            info!("Committee rotation event monitor task started");
-
             loop {
                 // Fetch current committee ID and package ID from key server object.
                 let (committee_id, committee_pkg_id) = match sui_rpc_client
@@ -903,7 +891,7 @@ impl Server {
                     }
                 };
 
-                debug!("Committee rotation event subscription established");
+                info!("Committee rotation event subscription established");
                 loop {
                     match stream.message().await {
                         Ok(Some(frame)) => {
@@ -1034,11 +1022,11 @@ async fn handle_fetch_key_internal(
         )
         .await
         .tap(|r| {
-            let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "req_id": req_id, "sdk_version": sdk_version });
+            let request_info = json!({ "user": payload.certificate.user, "package_id": valid_ptb.pkg_id(), "ids": valid_ptb.inner_ids().iter().map(Hex::encode).collect::<Vec<_>>(), "req_id": req_id, "sdk_version": sdk_version });
             match r {
                 Ok(_) => info!("Valid request: {request_info}"),
                 Err(InternalError::Failure(s)) => warn!("Check request failed with debug message '{s}': {request_info}"),
-                Err(e) => debug!("Check request failed with error {e:?}: {request_info}"),
+                Err(e) => info!("Check request failed with error {e:?}: {request_info}"),
             }
         })
 }
@@ -1189,7 +1177,7 @@ async fn handle_request_headers(
     let version = request.headers().get(HEADER_CLIENT_SDK_VERSION);
     let sdk_type_header = request.headers().get(HEADER_CLIENT_SDK_TYPE);
 
-    info!(
+    debug!(
         "Request id: {:?}, SDK version: {:?}, SDK type: {:?}, Target API version: {:?}",
         request
             .headers()

@@ -20,8 +20,6 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
     type Error = InternalError;
 
     fn try_from(ptb: ProgrammableTransaction) -> Result<Self, Self::Error> {
-        debug!("Creating vptb from: {:?}", ptb);
-
         // Restriction: The PTB must not have more than MAX_COMMANDS commands (MAX_COMMANDS may
         // increase in the future).
         if ptb.commands.len() > MAX_COMMANDS {

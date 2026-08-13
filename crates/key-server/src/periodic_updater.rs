@@ -5,7 +5,7 @@ use key_server::sui_rpc_client::{RpcResult, SuiRpcClient};
 use std::time::Duration;
 use tokio::sync::watch::{channel, Receiver};
 use tokio::task::JoinHandle;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Helper function to spawn a thread that periodically fetches a value and sends it to a [Receiver].
 /// If a duration_callback is provided, it will be called with the duration of each fetch operation.
@@ -43,7 +43,7 @@ where
                         .expect("Channel closed, this should never happen");
                     debug!("{} updated to: {:?}", value_name, new_value);
                 }
-                Err(e) => debug!("Failed to get {}: {:?}", value_name, e),
+                Err(e) => warn!("Failed to get {}: {:?}", value_name, e),
             }
             interval.tick().await;
         }
