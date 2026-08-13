@@ -1,6 +1,8 @@
 ---
 title: Getting Started
-description: Learn how to quickly bootstrap your application with Seal for decentralized encryption and programmable access control on Sui.
+description: >-
+  Learn how to quickly bootstrap your application with Seal for decentralized
+  encryption and programmable access control on Sui.
 keywords:
   - getting started
   - Seal SDK
@@ -10,6 +12,37 @@ keywords:
   - key servers
   - TypeScript SDK
   - bootstrap
+goal:
+  description: >-
+    Reader can bootstrap a Seal integration from scratch — install the SDK,
+    choose key servers, define an access policy, encrypt data, and decrypt it
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 200
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+    - headings:
+        - { pattern: "Bootstrap" }
+        - { pattern: "Next steps" }
+      label: Needs key procedural headings
+questions:
+  - How do I get started with Seal?
+  - How do I install the Seal SDK?
+  - How do I encrypt data with Seal?
+  - How do I set up access control with Seal?
+answer: >-
+  To get started with Seal, install the @aspect-build/seal SDK, choose key
+  servers from the Testnet provider list, define a Move access policy with a
+  seal_approve function, encrypt your data using the SealClient, store it on
+  Walrus or other storage, and decrypt it by proving access through a
+  programmable transaction block.
 ---
 
 :::note

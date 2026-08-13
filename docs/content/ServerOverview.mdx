@@ -1,6 +1,8 @@
 ---
 title: Seal Server Overview
-description: Learn about different Seal server types and setup for both clients and operators.
+description: >-
+  Learn about different Seal server types and setup for both clients and
+  operators.
 keywords:
   - seal server overview
   - key server operations
@@ -12,6 +14,34 @@ keywords:
   - permissioned mode
   - server architecture
   - deployment options
+goal:
+  description: >-
+    Reader understands the two Seal server types (Decentralized and
+    Independent), their trade-offs, and can choose the right one for their
+    use case
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 200
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What Seal server types are available?
+  - What is the difference between Decentralized and Independent Seal servers?
+  - How do I choose the right Seal server type?
+  - What is committee mode in Seal?
+answer: >-
+  Seal supports two server types: Decentralized (committee mode), where key
+  shares are distributed across multiple members with a stable onchain
+  identity and support for member rotation, and Independent, where a single
+  operator manages keys in either Open mode (all packages) or Permissioned
+  mode (per-client allowlisting).
 ---
 
 Seal supports two server types for key management: **Decentralized** (committee mode) and **Independent**.

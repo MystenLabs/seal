@@ -1,6 +1,9 @@
 ---
 title: Key Server Operations for Decentralized Server Type
-description: Learn how to set up and operate a key server as a decentralized (committee mode) server type, including DKG ceremonies, key rotation, and aggregator configuration.
+description: >-
+  Learn how to set up and operate a key server as a decentralized (committee
+  mode) server type, including DKG ceremonies, key rotation, and aggregator
+  configuration.
 keywords:
   - key server operations
   - decentralized key server
@@ -12,6 +15,37 @@ keywords:
   - MPC committee
   - coordinator
   - committee members
+goal:
+  description: >-
+    Reader can set up and operate a decentralized (committee mode) key server,
+    run DKG ceremonies, rotate keys, and configure an aggregator
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 500
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+    - steps_present: 3
+      label: Needs numbered steps for procedural content
+questions:
+  - How do I set up a decentralized Seal key server?
+  - How does DKG work in Seal committee mode?
+  - How do I rotate keys in a Seal committee?
+  - What is the coordinator role in Seal committee mode?
+  - How do I configure a Seal aggregator server?
+answer: >-
+  To operate a decentralized Seal key server, form a committee of members who
+  run a Distributed Key Generation (DKG) ceremony in three phases —
+  registration, message creation, and finalization — coordinated by a
+  designated coordinator. The resulting key shares are distributed across
+  members, and an aggregator server collects and combines partial decryption
+  shares from the committee to serve client requests.
 ---
 
 import InfrastructureRequirements from './_InfrastructureRequirements.mdx';

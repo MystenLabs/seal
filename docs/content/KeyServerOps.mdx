@@ -1,6 +1,9 @@
 ---
 title: Key Server Operations for Independent Server Type
-description: Learn how to operate a Seal key server as an independent server type in Open or Permissioned mode as a service provider or for your own development and testing.
+description: >-
+  Learn how to operate a Seal key server as an independent server type in Open
+  or Permissioned mode as a service provider or for your own development and
+  testing.
 keywords:
   - key server operations
   - independent server type
@@ -13,6 +16,36 @@ keywords:
   - key import
   - CORS configuration
   - infrastructure requirements
+goal:
+  description: >-
+    Reader can deploy and operate an independent Seal key server in Open or
+    Permissioned mode, manage client registrations, and export/import keys
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 500
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+    - steps_present: 3
+      label: Needs numbered steps for procedural content
+questions:
+  - How do I run an independent Seal key server?
+  - What is the difference between Open and Permissioned mode?
+  - How do I register clients on a Permissioned key server?
+  - How do I export and import Seal key server keys?
+  - How do I deploy a Seal key server with Docker?
+answer: >-
+  An independent Seal key server runs as a single operator with a master key
+  and supports two modes: Open mode (serves all packages with one key) and
+  Permissioned mode (per-client keys with an allowlist). Operators can
+  register clients, export and import keys for backup, configure CORS, and
+  deploy using Docker.
 ---
 
 import InfrastructureRequirements from './_InfrastructureRequirements.mdx';

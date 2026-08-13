@@ -1,6 +1,9 @@
 ---
 title: Aggregator Server
-description: Learn how the Aggregator Server acts as a gateway between clients and Seal decentralized (committee mode) key servers, aggregating encrypted partial key shares.
+description: >-
+  Learn how the Aggregator Server acts as a gateway between clients and Seal
+  decentralized (committee mode) key servers, aggregating encrypted partial
+  key shares.
 keywords:
   - aggregator server
   - Seal MPC
@@ -11,6 +14,33 @@ keywords:
   - DKG
   - API credentials
   - Lagrange interpolation
+goal:
+  description: >-
+    Reader understands the aggregator server's role and can deploy and
+    configure one for a Seal committee
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 200
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is the Seal aggregator server?
+  - How does the aggregator server work with committee key servers?
+  - How do I deploy a Seal aggregator server?
+  - What is Lagrange interpolation in Seal?
+answer: >-
+  The Seal aggregator server acts as a gateway between clients and
+  decentralized (committee mode) key servers. It collects encrypted partial
+  key shares from committee members, verifies their signatures, and combines
+  them using Lagrange interpolation to produce the final decryption key for
+  the client.
 ---
 
 import InfrastructureRequirements from './_InfrastructureRequirements.mdx';

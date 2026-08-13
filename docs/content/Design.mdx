@@ -1,6 +1,8 @@
 ---
 title: Seal Design
-description: Learn how Seal uses Identity-Based Encryption (IBE) to provide secure, policy-driven data encryption with decentralized key management on Sui.
+description: >-
+  Learn how Seal uses Identity-Based Encryption (IBE) to provide secure,
+  policy-driven data encryption with decentralized key management on Sui.
 keywords:
   - Seal design
   - identity-based encryption
@@ -13,6 +15,34 @@ keywords:
   - MPC committee
   - threshold encryption
   - decentralization
+goal:
+  description: >-
+    Reader understands Seal's cryptographic design — IBE, onchain access
+    policies, key server architecture, and the trust model
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 500
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How does Seal's Identity-Based Encryption work?
+  - What is Seal's cryptographic design?
+  - How do Seal key servers manage decryption keys?
+  - What is the trust model for Seal?
+  - How does Seal handle access policies onchain?
+answer: >-
+  Seal uses Identity-Based Encryption (IBE) with BLS12-381 curves so that
+  data can be encrypted to an identity derived from onchain access policies
+  without needing the recipient's public key in advance. Key servers hold
+  master keys and release user-specific decryption keys only after verifying
+  that a Sui programmable transaction block satisfies the access policy.
 ---
 
 > For a comprehensive technical analysis and formal security proofs, see the [Seal Whitepaper](./Seal_White_Paper_v2.pdf). The latest version (v2) incorporates the design and analysis of MPC committees for the decentralized mode key server. 

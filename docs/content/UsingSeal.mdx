@@ -1,6 +1,8 @@
 ---
 title: Using Seal
-description: Learn how to protect your app and user data with Seal, including access control management, encryption, decryption, and performance optimization.
+description: >-
+  Learn how to protect your app and user data with Seal, including access
+  control management, encryption, decryption, and performance optimization.
 keywords:
   - using Seal
   - access control
@@ -12,6 +14,34 @@ keywords:
   - onchain decryption
   - performance optimization
   - envelope encryption
+goal:
+  description: >-
+    Reader can integrate Seal into their application — set up SealClient,
+    define access policies, encrypt and decrypt data, and optimize performance
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 500
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I use Seal to encrypt and decrypt data?
+  - How do I set up the SealClient?
+  - How do I write a seal_approve function in Move?
+  - How does onchain decryption work with Seal?
+  - How do I optimize Seal performance with session keys?
+answer: >-
+  To use Seal, define a Move access policy with a seal_approve function, set
+  up a SealClient in TypeScript with your chosen key servers, encrypt data
+  using the client, and decrypt by constructing a programmable transaction
+  block that calls your seal_approve function. Session keys and envelope
+  encryption patterns can optimize performance for repeated operations.
 ---
 
 import SealPackageIds from './_SealPackageIds.mdx';

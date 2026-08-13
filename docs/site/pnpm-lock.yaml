@@ -63,6 +63,9 @@ importers:
       '@docusaurus/types':
         specifier: 3.9.2
         version: 3.9.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      ajv:
+        specifier: ^8.17.1
+        version: 8.17.1
 
 packages:
 

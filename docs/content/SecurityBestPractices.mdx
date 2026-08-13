@@ -1,6 +1,9 @@
 ---
 title: Security Best Practices and Risk Mitigations
-description: Learn security best practices for using Seal, including threshold configuration, key server selection, encryption strategies, and risk mitigation approaches.
+description: >-
+  Learn security best practices for using Seal, including threshold
+  configuration, key server selection, encryption strategies, and risk
+  mitigation approaches.
 keywords:
   - security best practices
   - risk mitigation
@@ -13,6 +16,35 @@ keywords:
   - audit logging
   - revocation
   - identity namespace
+goal:
+  description: >-
+    Reader understands key security considerations when using Seal and can
+    apply best practices for threshold config, key server selection, and
+    encryption strategies
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What are the security best practices for Seal?
+  - How should I configure threshold encryption in Seal?
+  - How do I choose key server providers for Seal?
+  - What is envelope encryption in Seal?
+  - How do I mitigate key leakage risks with Seal?
+answer: >-
+  Key security best practices for Seal include designing identity namespaces
+  carefully (fetched keys can decrypt future content matching the same
+  identity), configuring appropriate threshold values for multi-key-server
+  setups, vetting key server providers, using layered or envelope encryption
+  for sensitive data, and implementing audit logging.
 ---
 
 # Security best practices and risk mitigations

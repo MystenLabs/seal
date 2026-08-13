@@ -1,6 +1,8 @@
 ---
 title: What is Seal?
-description: Seal is a decentralized secrets management service that uses access control policies on Sui to secure sensitive data at rest on decentralized storage.
+description: >-
+  Seal is a decentralized secrets management service that uses access control
+  policies on Sui to secure sensitive data at rest on decentralized storage.
 keywords:
   - Seal
   - decentralized secrets management
@@ -15,6 +17,33 @@ keywords:
   - decentralized key server
   - committee mode key server
   - threshold encryption
+goal:
+  description: >-
+    Reader understands what Seal is, its core capabilities, supported use cases,
+    and how it fits into the Sui ecosystem
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Seal?
+  - What is decentralized secrets management on Sui?
+  - How does Seal encrypt and decrypt data?
+  - What are Seal's main use cases?
+  - How does Seal use Identity-Based Encryption?
+answer: >-
+  Seal is a decentralized secrets management (DSM) service on Sui that uses
+  Identity-Based Encryption and onchain access control policies to let
+  developers encrypt sensitive data at rest on decentralized storage like
+  Walrus, with decryption gated by programmable policies validated on Sui.
 ---
 
 Seal is a decentralized secrets management (DSM) service that relies on access control policies defined and validated on [Sui](https://docs.sui.io/concepts/components). Application developers and users can use Seal to secure sensitive data at rest on decentralized storage like [Walrus](https://docs.wal.app/), or on any other onchain or off-chain storage.

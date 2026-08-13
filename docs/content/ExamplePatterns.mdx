@@ -1,6 +1,8 @@
 ---
 title: Access Policy Example Patterns
-description: Explore common Seal access policy patterns including private data, allowlists, subscriptions, time-lock encryption, and secure voting implementations.
+description: >-
+  Explore common Seal access policy patterns including private data, allowlists,
+  subscriptions, time-lock encryption, and secure voting implementations.
 keywords:
   - access policy
   - Seal patterns
@@ -11,6 +13,35 @@ keywords:
   - secure voting
   - encrypted content
   - IBE
+goal:
+  description: >-
+    Reader can identify and implement the right Seal access policy pattern for
+    their use case — private data, allowlists, subscriptions, time-lock, or
+    voting
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What access policy patterns does Seal support?
+  - How do I implement an allowlist with Seal?
+  - How do I create a subscription-based access policy?
+  - How does time-lock encryption work in Seal?
+  - How do I implement secure voting with Seal?
+answer: >-
+  Seal provides several access policy patterns implemented as Move modules:
+  private data (owner-only access via owned objects), allowlists (creator-managed
+  address lists), subscriptions (time-limited access with payments), time-lock
+  encryption (automatic unlock at a specified time), and secure voting
+  (encrypted ballots revealed only after voting closes).
 ---
 
 # Access policy example patterns

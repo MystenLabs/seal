@@ -1,6 +1,8 @@
 ---
 title: Seal CLI
-description: Learn how to use the Seal CLI to generate keys, encrypt and decrypt data, inspect encrypted objects, and interact with key servers.
+description: >-
+  Learn how to use the Seal CLI to generate keys, encrypt and decrypt data,
+  inspect encrypted objects, and interact with key servers.
 keywords:
   - Seal CLI
   - seal-cli
@@ -11,6 +13,37 @@ keywords:
   - symmetric key
   - AES encryption
   - IBE
+goal:
+  description: >-
+    Reader can use the seal-cli tool to generate keys, encrypt and decrypt
+    data, inspect encrypted objects, and interact with key servers
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 200
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+    - headings:
+        - { pattern: "ncrypt" }
+        - { pattern: "ecrypt" }
+      label: Needs key procedural headings
+questions:
+  - How do I use the Seal CLI?
+  - How do I encrypt data with the Seal CLI?
+  - How do I decrypt data with the Seal CLI?
+  - How do I generate keys with seal-cli?
+  - How do I inspect encrypted objects with seal-cli?
+answer: >-
+  The Seal CLI (seal-cli) is a command-line tool for generating IBE key
+  pairs, encrypting data with AES, decrypting with symmetric keys, extracting
+  user secret keys, performing threshold decryption, inspecting encrypted
+  objects, and interacting with key servers to encrypt data and fetch keys.
 ---
 
 # Seal CLI
