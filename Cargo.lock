@@ -9660,8 +9660,6 @@ dependencies = [
 [[package]]
 name = "sui-crypto"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7b8f54c4405002c9ece67cb848479f80837185a55a59d8c0a105240f737d0da"
 dependencies = [
  "base64ct",
  "ed25519-dalek",
@@ -10564,8 +10562,6 @@ dependencies = [
 [[package]]
 name = "sui-rpc"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617504d5c6b748af0494b73db80fb893840522329788c48c826d8298e7edb0aa"
 dependencies = [
  "base64 0.22.1",
  "bcs 0.1.6",
@@ -10757,8 +10753,6 @@ dependencies = [
 [[package]]
 name = "sui-sdk-types"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a22266119e43d3da1a8bc9945c8b569a513e7682f561265d70ef8b6e198dd664"
 dependencies = [
  "base64ct",
  "bcs 0.1.6",
