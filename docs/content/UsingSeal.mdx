@@ -380,18 +380,35 @@ Use one of the published Seal package IDs as the `SEAL_PACKAGE_ID`:
 
 To decrypt an encrypted object in a Move package, follow these steps:
 
-- **on-chain app initialization**
-    - Retrieve public keys with `client.getPublicKeys` and convert them with `bf_hmac_encryption::new_public_key`.
-    - Store the key server public keys onchain.
-    - The dapp or users should verify the correctness of those public keys before uploading their encryptions.
+- **Pin the trusted public keys, once, at app initialization**
+    - Retrieve the public keys with `client.getPublicKeys` and verify them against the key servers' `KeyServer` objects onchain, before anything is encrypted to them.
+    - Hardcode the resulting `(key server ID, public key)` pairs in your Move package, or store them in an object your package controls, and convert them with `bf_hmac_encryption::new_public_key` when decrypting. See the warning below.
 - **Verify derived keys**
     - Use the Seal SDK client to fetch derived keys through `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
     - Convert bytes to `Element<G1>` or `Element<G2>` with [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes).
     - Call `bf_hmac_encryption::verify_derived_keys` with the raw keys, package ID, identity, and the vector of key server public keys.
     - The function returns a vector of `VerifiedDerivedKey` objects.          
 - **Perform decryption**
-    - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of public keys.
+    - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of pinned public keys.
     - The function returns an `Option<vector<u8>>`. If decryption fails, the return value will be `None`.
+
+:::warning[Public keys are a trusted input]
+
+Seal cannot tell a genuine key server public key from one an attacker made up: `new_public_key` wraps whatever bytes it is given, and `verify_derived_keys` only checks a derived key against the public key passed next to it. An attacker supplying both halves of their own key pair passes both checks and gets back a plaintext of their choosing. The share consistency check inside `decrypt` is no substitute - it covers only key servers without a supplied derived key, so it passes trivially when one derived key per key server is given.
+
+Your package must therefore supply the public keys itself, from hardcoded constants or an object it controls:
+
+```move
+// DO: derived keys come from the caller, public keys come from the package.
+public fun reveal(obj: &EncryptedObject, derived_keys: &vector<vector<u8>>): Option<vector<u8>>
+
+// DON'T: the caller picks the keys, so the caller picks the plaintext.
+public fun reveal(obj: &EncryptedObject, derived_keys: &vector<vector<u8>>, public_keys: vector<vector<u8>>): Option<vector<u8>>
+```
+
+See [`patterns::voting`](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/voting.move), where `finalize_vote` reads the public keys from the `Vote` object they were fixed in.
+
+:::
 
 #### Onchain decryption with the TypeScript SDK
 
