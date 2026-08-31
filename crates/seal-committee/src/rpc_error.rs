@@ -18,9 +18,20 @@ pub struct RpcError {
 impl RpcError {
     /// Build from a gRPC status; produces `code: Some(...)`.
     pub fn from_grpc(status: tonic::Status) -> Self {
+        // tonic maps some HTTP/2 connection failures to `Internal`, make them retriable.
+        let code = if status.code() == tonic::Code::Internal
+            && std::error::Error::source(&status)
+                .and_then(|error| error.downcast_ref::<tonic::transport::Error>())
+                .is_some()
+        {
+            tonic::Code::Unavailable
+        } else {
+            status.code()
+        };
+
         Self {
             message: status.message().to_string(),
-            code: Some(status.code()),
+            code: Some(code),
         }
     }
 
