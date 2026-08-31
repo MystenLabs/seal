@@ -9,8 +9,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "3273734b9791df0c3d1655509476e10a49978528", features = ["aes"] }
-fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "3273734b9791df0c3d1655509476e10a49978528" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "a9f994cd6b2882c7e916786943712fce1f2b6013", features = ["aes"] }
+fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "a9f994cd6b2882c7e916786943712fce1f2b6013" }
 bcs = "0.2.1"
 serde = "1.0.210"
 serde_json = "1.0.150"
@@ -39,19 +39,19 @@ snap = "1.1.0"
 git-version = "0.3.9"
 
 # Sui dependencies
-sui_types = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-types"}
-mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548" }
-sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-sdk"}
-shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "shared-crypto" }
-move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "51d177ad7d65102fc368b582408f466d97b31548" }
-prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "prometheus-closure-metric" }
-sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-move-build" }
-test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "test-cluster" }
-move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "move-package-alt" }
-move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "move-package-alt-compilation" }
-sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-package-alt" }
-sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-rpc-api" }
-sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "51d177ad7d65102fc368b582408f466d97b31548", package = "sui-keys" }
+sui_types = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-types"}
+mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9" }
+sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-sdk"}
+shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "shared-crypto" }
+move-core-types = { git = "https://github.com/MystenLabs/sui.git", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9" }
+prometheus_closure_metric = { git = "https://github.com/MystenLabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "prometheus-closure-metric" }
+sui-move-build = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-move-build" }
+test-cluster = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "test-cluster" }
+move-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "move-package-alt" }
+move-package-alt-compilation = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "move-package-alt-compilation" }
+sui-package-alt = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-package-alt" }
+sui-rpc-api = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-rpc-api" }
+sui_keys = { git = "https://github.com/mystenlabs/sui", rev = "6f6f095c246733e7b155abebb63a4e64d64e17b9", package = "sui-keys" }
 
 sui-sdk-types = { version = "0.3.2", features = ["serde"] }
 sui-rpc = "0.3.2"
