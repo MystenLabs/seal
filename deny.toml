@@ -44,6 +44,15 @@ ignore = [
     # bitmaps is unmaintained; the GitHub repository was archived on 2026-05-03.
     # Pulled in transitively via fastcrypto-zkp <- Sui crates; no safe upgrade.
     { id = "RUSTSEC-2026-0247", reason = "unmaintained bitmaps pulled in transitively via im <- fastcrypto-zkp <- Sui crates; no safe upgrade" },
+    # bitmaps 3.2.1 can construct invalid backing values through TryFrom<&[u8]> and AsMut<[u8]>.
+    # It is pulled in through imbl <- fastcrypto-zkp; Seal does not use those APIs and no fixed release exists.
+    { id = "RUSTSEC-2025-0167", reason = "unsound bitmaps 3.2.1 APIs pulled in transitively via imbl <- fastcrypto-zkp; affected APIs are not used by Seal and no safe upgrade exists" },
+    # rand 0.7.3 is unsound only when a custom logger calls rand::rng() during a reseed.
+    # It is pulled in through fail <- move-vm-runtime and that trigger is not reachable in Seal.
+    { id = "RUSTSEC-2026-0097", reason = "unsound rand 0.7.3 pulled in transitively via Sui's move-vm-runtime; the custom-logger trigger is not reachable in Seal and no safe upgrade exists" },
+    # lru 0.7.8 and 0.16.3 are not panic-safe if a stored key's Drop implementation panics in pop().
+    # They are pinned transitively by fastcrypto/Sui; Seal's stored key types do not have panicking Drop implementations.
+    { id = "RUSTSEC-2026-0253", reason = "lru pop panic-safety issue in versions pinned by fastcrypto/Sui; Seal does not store keys with panicking Drop implementations and no complete safe upgrade exists" },
     # quick-xml 0.38.4 quadratic attribute-duplicate check (CPU DoS on untrusted XML).
     # Pulled in transitively via object_store <- Sui's sui-config; object_store 0.13.1 pins quick-xml ^0.38, so no safe upgrade. We do not parse untrusted XML.
     { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 quadratic attribute check pulled in transitively via object_store <- Sui's sui-config; object_store pins ^0.38, no safe upgrade; we do not parse untrusted XML" },
