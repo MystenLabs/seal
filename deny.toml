@@ -43,7 +43,13 @@ ignore = [
     "RUSTSEC-2025-0141",
     # bitmaps is unmaintained; the GitHub repository was archived on 2026-05-03.
     # Pulled in transitively via fastcrypto-zkp <- Sui crates; no safe upgrade.
-    { id = "RUSTSEC-2026-0247", reason = "unmaintained bitmaps pulled in transitively via im <- fastcrypto-zkp <- Sui crates; no safe upgrade" },
+    { id = "RUSTSEC-2026-0247", reason = "unmaintained bitmaps pulled in transitively via imbl <- fastcrypto-zkp <- Sui crates; no maintained replacement is available" },
+    # rand 0.7.3 is unsound only when a custom logger calls rand::rng() during a reseed.
+    # It is pulled in through fail <- move-vm-runtime and that trigger is not reachable in Seal.
+    { id = "RUSTSEC-2026-0097", reason = "unsound rand 0.7.3 pulled in transitively via Sui's move-vm-runtime; the custom-logger trigger is not reachable in Seal and no safe upgrade exists" },
+    # lru 0.7.8 and 0.16.3 are not panic-safe in LruCache::pop(). They are pinned transitively by
+    # fastcrypto/Sui, but their consumers (reed-solomon-erasure and num-prime) do not call pop().
+    { id = "RUSTSEC-2026-0253", reason = "lru pop panic-safety issue in versions pinned by fastcrypto/Sui; the upstream consumers do not call LruCache::pop and no complete safe upgrade exists" },
     # quick-xml 0.38.4 quadratic attribute-duplicate check (CPU DoS on untrusted XML).
     # Pulled in transitively via object_store <- Sui's sui-config; object_store 0.13.1 pins quick-xml ^0.38, so no safe upgrade. We do not parse untrusted XML.
     { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 quadratic attribute check pulled in transitively via object_store <- Sui's sui-config; object_store pins ^0.38, no safe upgrade; we do not parse untrusted XML" },
