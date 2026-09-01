@@ -15,14 +15,14 @@ jobs:
         working-directory: examples/frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v4
         with:
           fetch-depth: 2
-      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pin@v6.0.10
         with:
           version: 10.17.0
       - name: Install Nodejs
-        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # pin@v6.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pin@v7.0.0
         with:
           node-version: '20'
           cache: 'pnpm'
