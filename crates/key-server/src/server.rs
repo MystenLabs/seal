@@ -890,12 +890,7 @@ impl Server {
                 });
                 let mut stream = sui_rpc_client.subscribe_events(
                     event_filter,
-                    &[
-                        "contents",
-                        "checkpoint",
-                        "transaction_index",
-                        "event_index",
-                    ],
+                    &["contents", "checkpoint", "transaction_index", "event_index"],
                     next_stream_start.clone(),
                     stream_config,
                 );
