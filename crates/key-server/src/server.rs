@@ -844,6 +844,10 @@ impl Server {
         tokio::spawn(async move {
             info!("Committee rotation event monitor task started");
 
+            let stream_config = sui_rpc_client.ledger_stream_config().with_observer({
+                let metrics = metrics.clone();
+                move |event| metrics.observe_ledger_stream_event(event)
+            });
             let mut next_stream_start = EventStreamStart::Tip;
             loop {
                 // Fetch current committee ID and package ID from key server object.
@@ -884,15 +888,11 @@ impl Server {
 
                 // Follow rotation events from the current tip. The logical stream repairs
                 // subscription gaps with ListEvents and keeps retrying transient failures.
-                let stream_config = sui_rpc_client.ledger_stream_config().with_observer({
-                    let metrics = metrics.clone();
-                    move |event| metrics.observe_ledger_stream_event(event)
-                });
                 let mut stream = sui_rpc_client.subscribe_events(
                     event_filter,
                     &["contents", "checkpoint", "transaction_index", "event_index"],
                     next_stream_start.clone(),
-                    stream_config,
+                    stream_config.clone(),
                 );
 
                 info!("Committee rotation event subscription established");
