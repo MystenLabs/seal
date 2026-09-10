@@ -1,9 +1,9 @@
 # Start with a Rust base image
-FROM rust:1.90-bullseye  AS builder
+FROM rust:1.90-trixie AS builder
 
 ARG PROFILE=release
 
-WORKDIR work
+WORKDIR /work
 
 COPY ./crates ./crates
 COPY ./Cargo.toml ./Cargo.lock ./
@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --bin aggregator-server --profile $PROFILE --config net.git-fetch-with-cli=true \
     && cp /work/target/release/aggregator-server /work/aggregator-server
 
-FROM debian:bullseye-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 EXPOSE 2024
 
