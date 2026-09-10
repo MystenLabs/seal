@@ -10,6 +10,11 @@ use prometheus::{
 };
 use std::sync::Arc;
 use std::time::Instant;
+use sui_rpc::client::{
+    LedgerStreamEvent, LedgerStreamFamily, LedgerStreamOperation, LedgerStreamStage,
+};
+use tonic::Code;
+use tracing::{error, info, warn};
 
 /// Known valid routes for metrics labeling.
 /// Any route not in this list will be normalized to "unknown" to prevent
@@ -70,6 +75,8 @@ pub struct KeyServerMetrics {
 
     /// Sui RPC request duration by label
     pub sui_rpc_request_duration_millis: HistogramVec,
+    /// Resumable ledger stream retries, recoveries, and interruptions
+    sui_ledger_stream_state_transitions_total: IntCounterVec,
 
     /// Dry run gas cost per package
     pub dry_run_gas_cost_per_package: HistogramVec,
@@ -174,6 +181,13 @@ impl KeyServerMetrics {
                 registry
             )
             .unwrap(),
+            sui_ledger_stream_state_transitions_total: register_int_counter_vec_with_registry!(
+                "sui_ledger_stream_state_transitions_total",
+                "Sui resumable ledger stream retries, recoveries, and interruptions",
+                &["family", "event", "status"],
+                registry
+            )
+            .unwrap(),
             dry_run_gas_cost_per_package: register_histogram_vec_with_registry!(
                 "dry_run_gas_cost_per_package",
                 "Dry run gas cost per package",
@@ -225,6 +239,214 @@ impl KeyServerMetrics {
 
     pub fn observe_error(&self, error_type: &str) {
         self.errors.with_label_values(&[error_type]).inc();
+    }
+
+    pub fn observe_ledger_stream_event(&self, event: LedgerStreamEvent) {
+        match event {
+            LedgerStreamEvent::RpcResponse {
+                family,
+                operation,
+                code,
+                elapsed,
+                ..
+            } => {
+                self.sui_rpc_request_duration_millis
+                    .with_label_values(&[
+                        ledger_stream_rpc_method(family, operation),
+                        grpc_code_label(code),
+                    ])
+                    .observe(elapsed.as_secs_f64() * 1_000.0);
+            }
+            LedgerStreamEvent::RetryScheduled {
+                family,
+                operation,
+                stage,
+                status,
+                consecutive_failures,
+                delay,
+                ..
+            } => {
+                self.observe_ledger_stream_transition(
+                    family,
+                    "retry_scheduled",
+                    grpc_code_label(status.code()),
+                );
+                warn!(
+                    family = ledger_stream_family_label(family),
+                    operation = ledger_stream_operation_label(operation),
+                    stage = ledger_stream_stage_label(stage),
+                    code = grpc_code_label(status.code()),
+                    status_message = status.message(),
+                    consecutive_failures,
+                    delay_ms = delay.as_secs_f64() * 1_000.0,
+                    "Sui ledger stream retry scheduled"
+                );
+            }
+            LedgerStreamEvent::RetryRecovered {
+                family,
+                operation,
+                started_in,
+                consecutive_failures,
+                elapsed,
+                ..
+            } => {
+                self.observe_ledger_stream_transition(family, "retry_recovered", "ok");
+                info!(
+                    family = ledger_stream_family_label(family),
+                    operation = ledger_stream_operation_label(operation),
+                    started_in = ledger_stream_stage_label(started_in),
+                    consecutive_failures,
+                    elapsed_ms = elapsed.as_secs_f64() * 1_000.0,
+                    "Sui ledger stream retry recovered"
+                );
+            }
+            LedgerStreamEvent::SubscriptionStreamInterrupted {
+                family,
+                stage,
+                status,
+                ..
+            } => {
+                self.observe_ledger_stream_transition(
+                    family,
+                    "subscription_interrupted",
+                    grpc_code_label(status.code()),
+                );
+                warn!(
+                    family = ledger_stream_family_label(family),
+                    stage = ledger_stream_stage_label(stage),
+                    code = grpc_code_label(status.code()),
+                    status_message = status.message(),
+                    "Sui ledger subscription interrupted"
+                );
+            }
+            LedgerStreamEvent::GapRecoveryStarted { family, .. } => {
+                self.observe_ledger_stream_transition(family, "gap_recovery_started", "none");
+                info!(
+                    family = ledger_stream_family_label(family),
+                    "Sui ledger stream gap recovery started"
+                );
+            }
+            LedgerStreamEvent::SubscriptionBufferLimitReached {
+                family,
+                buffered_items,
+                limit,
+                ..
+            } => {
+                self.observe_ledger_stream_transition(family, "buffer_limit_reached", "none");
+                warn!(
+                    family = ledger_stream_family_label(family),
+                    buffered_items, limit, "Sui ledger stream buffer limit reached"
+                );
+            }
+            LedgerStreamEvent::TerminalError { family, status, .. } => {
+                self.observe_ledger_stream_transition(
+                    family,
+                    "terminal_error",
+                    grpc_code_label(status.code()),
+                );
+                error!(
+                    family = ledger_stream_family_label(family),
+                    code = grpc_code_label(status.code()),
+                    status_message = status.message(),
+                    "Sui ledger stream terminated"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn observe_ledger_stream_transition(
+        &self,
+        family: LedgerStreamFamily,
+        event: &'static str,
+        status: &'static str,
+    ) {
+        self.sui_ledger_stream_state_transitions_total
+            .with_label_values(&[ledger_stream_family_label(family), event, status])
+            .inc();
+    }
+}
+
+fn ledger_stream_family_label(family: LedgerStreamFamily) -> &'static str {
+    match family {
+        LedgerStreamFamily::Checkpoint => "checkpoint",
+        LedgerStreamFamily::Transaction => "transaction",
+        LedgerStreamFamily::Event => "event",
+        _ => "unknown",
+    }
+}
+
+fn ledger_stream_operation_label(operation: LedgerStreamOperation) -> &'static str {
+    match operation {
+        LedgerStreamOperation::List => "list",
+        LedgerStreamOperation::GetServiceInfo => "get_service_info",
+        LedgerStreamOperation::Subscribe => "subscribe",
+        _ => "unknown",
+    }
+}
+
+fn ledger_stream_stage_label(stage: LedgerStreamStage) -> &'static str {
+    match stage {
+        LedgerStreamStage::List => "list",
+        LedgerStreamStage::InitialReplay => "initial_replay",
+        LedgerStreamStage::LiveTipStartup => "live_tip_startup",
+        LedgerStreamStage::PollingBaseline => "polling_baseline",
+        LedgerStreamStage::PollingTail => "polling_tail",
+        LedgerStreamStage::GapRecovery => "gap_recovery",
+        LedgerStreamStage::LiveSubscription => "live_subscription",
+        _ => "unknown",
+    }
+}
+
+fn ledger_stream_rpc_method(
+    family: LedgerStreamFamily,
+    operation: LedgerStreamOperation,
+) -> &'static str {
+    match (family, operation) {
+        (LedgerStreamFamily::Checkpoint, LedgerStreamOperation::List) => "stream_checkpoints_list",
+        (LedgerStreamFamily::Checkpoint, LedgerStreamOperation::GetServiceInfo) => {
+            "stream_checkpoints_get_service_info"
+        }
+        (LedgerStreamFamily::Checkpoint, LedgerStreamOperation::Subscribe) => {
+            "stream_checkpoints_subscribe"
+        }
+        (LedgerStreamFamily::Transaction, LedgerStreamOperation::List) => {
+            "stream_transactions_list"
+        }
+        (LedgerStreamFamily::Transaction, LedgerStreamOperation::GetServiceInfo) => {
+            "stream_transactions_get_service_info"
+        }
+        (LedgerStreamFamily::Transaction, LedgerStreamOperation::Subscribe) => {
+            "stream_transactions_subscribe"
+        }
+        (LedgerStreamFamily::Event, LedgerStreamOperation::List) => "stream_events_list",
+        (LedgerStreamFamily::Event, LedgerStreamOperation::GetServiceInfo) => {
+            "stream_events_get_service_info"
+        }
+        (LedgerStreamFamily::Event, LedgerStreamOperation::Subscribe) => "stream_events_subscribe",
+        _ => "stream_unknown",
+    }
+}
+
+fn grpc_code_label(code: Code) -> &'static str {
+    match code {
+        Code::Ok => "ok",
+        Code::Cancelled => "cancelled",
+        Code::Unknown => "unknown",
+        Code::InvalidArgument => "invalid_argument",
+        Code::DeadlineExceeded => "deadline_exceeded",
+        Code::NotFound => "not_found",
+        Code::AlreadyExists => "already_exists",
+        Code::PermissionDenied => "permission_denied",
+        Code::ResourceExhausted => "resource_exhausted",
+        Code::FailedPrecondition => "failed_precondition",
+        Code::Aborted => "aborted",
+        Code::OutOfRange => "out_of_range",
+        Code::Unimplemented => "unimplemented",
+        Code::Internal => "internal",
+        Code::Unavailable => "unavailable",
+        Code::DataLoss => "data_loss",
+        Code::Unauthenticated => "unauthenticated",
     }
 }
 

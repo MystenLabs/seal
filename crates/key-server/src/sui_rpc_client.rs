@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Shared gRPC client wrapper used by both the key-server and aggregator binaries.
-//! All public methods retry via [`sui_rpc_with_retries`] and observe per-call
-//! metrics through the optional `sui_rpc_request_duration_millis` histogram.
+//! Unary methods retry via [`sui_rpc_with_retries`]; ledger streams use the SDK's
+//! resumable retry and gap-recovery state machine.
 
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use prometheus::HistogramVec;
 use prost_types::FieldMask;
 use seal_committee::grpc_helper::{
@@ -20,13 +22,13 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use sui_rpc::client::Client as SuiGrpcClient;
 use sui_rpc::client::HeadersInterceptor;
+use sui_rpc::client::{EventStreamFrame, EventStreamRequest, EventStreamStart, LedgerStreamConfig};
 use sui_rpc::field::FieldMaskUtil;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
     Bcs, EventFilter, GetEpochRequest, GetObjectRequest, GetPackageRequest,
     ListPackageVersionsRequest, SimulateTransactionRequest, SimulateTransactionResponse,
-    SubscribeEventsRequest, SubscribeEventsResponse, Transaction, UserSignature,
-    VerifySignatureRequest,
+    Transaction, UserSignature, VerifySignatureRequest,
 };
 use sui_sdk_types::Address;
 
@@ -246,6 +248,16 @@ impl SuiRpcClient {
     /// Returns a clone of the request-duration histogram (if any).
     pub fn request_duration_millis(&self) -> Option<HistogramVec> {
         self.request_duration_millis.clone()
+    }
+    /// Builds stream retry settings from this client's retry delays.
+    ///
+    /// Ledger streams recover indefinitely; `RetryConfig::max_retries` applies only to
+    /// finite unary RPC calls.
+    pub fn ledger_stream_config(&self) -> LedgerStreamConfig {
+        let mut config = LedgerStreamConfig::default();
+        config.base_retry_delay = self.rpc_retry_config.min_delay;
+        config.max_retry_delay = self.rpc_retry_config.max_delay;
+        config
     }
 
     /// Call grpc through retry and metrics.
@@ -505,30 +517,22 @@ impl SuiRpcClient {
         .await
     }
 
-    /// Subscribes to events matching `filter` via the fullnode's gRPC event
-    /// subscription and returns the response stream. `read_mask_paths` selects
-    /// the `Event` fields present on each frame.
-    pub async fn subscribe_events(
+    /// Streams events matching `filter` through the SDK's resumable Subscribe/List
+    /// state machine.
+    pub fn subscribe_events(
         &self,
         filter: EventFilter,
         read_mask_paths: &[&str],
-    ) -> RpcResult<tonic::Streaming<SubscribeEventsResponse>> {
-        let request = SubscribeEventsRequest::default()
+        start: EventStreamStart,
+        config: LedgerStreamConfig,
+    ) -> BoxStream<'static, Result<EventStreamFrame, tonic::Status>> {
+        let request = EventStreamRequest::new()
             .with_read_mask(FieldMask::from_paths(read_mask_paths))
-            .with_filter(filter);
-
-        self.run_grpc_with_retries("subscribe_events", move |mut grpc_client| {
-            let request = request.clone();
-            async move {
-                grpc_client
-                    .subscription_client()
-                    .subscribe_events(request)
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(RpcError::from_grpc)
-            }
-        })
-        .await
+            .with_filter(filter)
+            .with_start(start);
+        self.sui_grpc_client
+            .stream_events_with_config(request, config)
+            .boxed()
     }
 
     /// Returns the current reference gas price via gRPC.

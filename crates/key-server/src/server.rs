@@ -29,7 +29,7 @@ use errors::InternalError;
 use fastcrypto::ed25519::Ed25519Signature;
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::traits::VerifyingKey;
-use futures::future::pending;
+use futures::{future::pending, StreamExt};
 use key_server::sui_rpc_client::{build_grpc_client, SuiRpcClient};
 use key_server_options::KeyServerOptions;
 use master_keys::{CommitteeKeyState, MasterKeys};
@@ -53,6 +53,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sui_crypto::{UserSignatureVerifier, Verifier};
+use sui_rpc::client::EventStreamStart;
 use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_rpc::proto::sui::rpc::v2::{filter, Event, EventFilter};
 use sui_sdk_types::{
@@ -841,6 +842,13 @@ impl Server {
 
         // Spawn the background task that subscribes to rotation events.
         tokio::spawn(async move {
+            info!("Committee rotation event monitor task started");
+
+            let stream_config = sui_rpc_client.ledger_stream_config().with_observer({
+                let metrics = metrics.clone();
+                move |event| metrics.observe_ledger_stream_event(event)
+            });
+            let mut next_stream_start = EventStreamStart::Tip;
             loop {
                 // Fetch current committee ID and package ID from key server object.
                 let (committee_id, committee_pkg_id) = match sui_rpc_client
@@ -878,23 +886,20 @@ impl Server {
                 };
                 let event_filter = rotation_event_filter(&event_pkg_id);
 
-                // Subscribe to new rotation events from the current chain tip.
-                let mut stream = match sui_rpc_client
-                    .subscribe_events(event_filter, &["contents"])
-                    .await
-                {
-                    Ok(stream) => stream,
-                    Err(e) => {
-                        warn!("Failed to subscribe to committee rotation events: {}", e);
-                        tokio::time::sleep(EVENT_MONITOR_RETRY_DELAY).await;
-                        continue;
-                    }
-                };
+                // Follow rotation events from the current tip. The logical stream repairs
+                // subscription gaps with ListEvents and keeps retrying transient failures.
+                let mut stream = sui_rpc_client.subscribe_events(
+                    event_filter,
+                    &["contents", "checkpoint", "transaction_index", "event_index"],
+                    next_stream_start.clone(),
+                    stream_config.clone(),
+                );
 
                 info!("Committee rotation event subscription established");
                 loop {
-                    match stream.message().await {
-                        Ok(Some(frame)) => {
+                    match stream.next().await {
+                        Some(Ok(frame)) => {
+                            next_stream_start = EventStreamStart::Resume(frame.cursor.clone());
                             if let Some(event) = &frame.event {
                                 handle_rotation_event(event, &committee_id, &metrics);
                                 // The rotation changes the committee id (and possibly
@@ -903,12 +908,12 @@ impl Server {
                                 break;
                             }
                         }
-                        Ok(None) => {
-                            warn!("Committee rotation event subscription ended");
+                        Some(Err(e)) => {
+                            warn!("Committee rotation event subscription error: {}", e);
                             break;
                         }
-                        Err(e) => {
-                            warn!("Committee rotation event subscription error: {}", e);
+                        None => {
+                            warn!("Committee rotation event subscription ended");
                             break;
                         }
                     }
