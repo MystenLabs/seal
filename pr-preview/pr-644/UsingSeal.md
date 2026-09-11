@@ -361,7 +361,7 @@ See [`patterns::voting`](https://github.com/MystenLabs/seal/blob/main/move/patte
 
 Onchain decryption usually means storing the output of `parse_encrypted_object` in one of your own structs, the way [`patterns::voting`](https://github.com/MystenLabs/seal/blob/main/move/patterns/sources/voting.move) stores a `vector<Option<EncryptedObject>>` in `Vote`. Reading that struct back offchain does not need a BCS layout: request the object with `showContent` and the full node renders the nested Move struct as JSON.
 
-Do not reach for the SDK's `EncryptedObject` here. That one describes the ciphertext bytes on the wire, which is a different shape from the Move struct: the wire format carries a version byte, pairs each service with its share index, and puts the shares and the ciphertext in enums, while the Move struct flattens all of it into separate fields.
+Do not reach for the SDK's `EncryptedObject` here. That one describes the ciphertext bytes on the wire, which is a different shape from the Move struct.
 
 :::
 
