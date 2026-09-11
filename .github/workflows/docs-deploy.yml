@@ -20,15 +20,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # pin@v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # pin@v4.2.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pin@v6.0.10
         with:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # pin@v6.2.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pin@v7.0.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -41,7 +41,7 @@ jobs:
         run: cd docs/site && pnpm run build
 
       - name: Deploy to Walrus
-        uses: MystenLabs/walrus-sites-github-actions/deploy@554cf074616fdc211991c2c57d034baea2a13fb8 # v3
+        uses: MystenLabs/walrus-sites-github-actions/deploy@6cac4a54984385a9c00b35d80d5a5c15a69f10e9 # v4
         with:
           SUI_BECH32_PRIVATE_KEY: "${{ secrets.SEAL_WALLET_PRIVATE_KEY }}"
           SUI_NETWORK: mainnet
@@ -62,7 +62,7 @@ jobs:
     steps:
       - name: dispatch failure notification to slack
         continue-on-error: true
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
         with:
           repository: MystenLabs/sui-operations
           token: ${{ secrets.DOCS_DEPLOY_DISPATCH_TOKEN }}
