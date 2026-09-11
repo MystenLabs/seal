@@ -330,7 +330,6 @@ To decrypt an encrypted object in a Move package, follow these steps:
 - **Pin the trusted public keys, once, at app initialization**
     - Retrieve the public keys with `client.getPublicKeys` and verify them against the key servers' `KeyServer` objects onchain, before anything is encrypted to them.
     - Hardcode the resulting `(key server ID, public key)` pairs in your Move package, or store them in an object your package controls, and convert them with `bf_hmac_encryption::new_public_key` when decrypting. See the warning below.
-    - Pinning cannot go stale. A key server's master public key is fixed when its `KeyServer` object is created, and no function in `seal::key_server` changes it. A key server that rotates its master key registers a new `KeyServer` object with a new ID, so pinned pairs keep decrypting objects that were encrypted to them. For a committee key server, `update_partial_key_servers` rotates the committee members' partial public keys, but the key server's own public key is unchanged, and it is the one you pin.
 - **Verify derived keys**
     - Use the Seal SDK client to fetch derived keys through `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
     - Convert bytes to `Element<G1>` or `Element<G2>` with [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes).
