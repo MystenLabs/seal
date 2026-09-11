@@ -333,8 +333,8 @@ To decrypt an encrypted object in a Move package, follow these steps:
 - **Verify derived keys**
     - Use the Seal SDK client to fetch derived keys through `client.getDerivedKeys`, which returns a map of key server object IDs to their derived keys.
     - Convert bytes to `Element<G1>` or `Element<G2>` with [`from_bytes`](https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes).
-    - Call `bf_hmac_encryption::verify_derived_keys_for_key_servers` with the raw keys, the IDs of the key servers that derived them, the package ID, the identity, and the vector of pinned public keys. Each derived key is matched with the public key of the key server that derived it, so the public keys may be given in any order and may cover key servers that did not provide a derived key. This lets you pass the same vector of public keys to `decrypt`.
-    - `bf_hmac_encryption::verify_derived_keys` does the same, but expects the derived keys and the public keys to be given in matching order, and no others. Pairing them is then up to you.
+    - Call `bf_hmac_encryption::verify_derived_keys_for_key_servers` with the raw keys, the IDs of the key servers that derived them, the package ID, the identity, and the vector of pinned public keys. Each derived key is matched with the public key of the key server that derived it, so the public keys may be given in any order and may cover key servers that did not provide a derived key. The same vector of public keys can then be passed to `decrypt`.
+    - `bf_hmac_encryption::verify_derived_keys` does the same, but expects the derived keys and the public keys to be given in matching order, and no others. Pairing them is then up to the caller.
     - Both functions return a vector of `VerifiedDerivedKey` objects.
 - **Perform decryption**
     - Call `bf_hmac_encryption::decrypt` with the encrypted object, the verified derived keys, and the vector of pinned public keys.

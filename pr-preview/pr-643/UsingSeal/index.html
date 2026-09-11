@@ -7,7 +7,7 @@
 
 <meta name="algolia-site-verification" content="BCA21DA2879818D2">
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="7438bf10-b3e3-4208-9f2e-4b87cda6e3ca" data-project-name="Seal Knowledge" data-project-color="#92a4ff" data-button-hide="true" data-modal-title="Ask Seal AI" data-modal-ask-ai-input-placeholder="Ask me anything about Seal!" data-modal-example-questions="How do I encrypt data with Seal?,What is threshold encryption?,How do I create an access policy?,What are key servers?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#92a4ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" data-mcp-enabled="true" data-mcp-server-url="https://sui.mcp.kapa.ai" data-mcp-button-text="Use Seal MCP Server" async></script><link rel="stylesheet" href="/seal/pr-preview/pr-643/assets/css/styles.c3a7b549.css">
-<script src="/seal/pr-preview/pr-643/assets/js/runtime~main.70c8c043.js" defer="defer"></script>
+<script src="/seal/pr-preview/pr-643/assets/js/runtime~main.ce533ef7.js" defer="defer"></script>
 <script src="/seal/pr-preview/pr-643/assets/js/main.41f19fdd.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -139,8 +139,8 @@ Building and publishing the code can be done using the <a href="https://docs.sui
 <ul>
 <li class="">Use the Seal SDK client to fetch derived keys through <code>client.getDerivedKeys</code>, which returns a map of key server object IDs to their derived keys.</li>
 <li class="">Convert bytes to <code>Element&lt;G1&gt;</code> or <code>Element&lt;G2&gt;</code> with <a href="https://docs.sui.io/references/framework/sui/group_ops#sui_group_ops_from_bytes" target="_blank" rel="noopener noreferrer" class=""><code>from_bytes</code></a>.</li>
-<li class="">Call <code>bf_hmac_encryption::verify_derived_keys_for_key_servers</code> with the raw keys, the IDs of the key servers that derived them, the package ID, the identity, and the vector of pinned public keys. Each derived key is matched with the public key of the key server that derived it, so the public keys may be given in any order and may cover key servers that did not provide a derived key. This lets you pass the same vector of public keys to <code>decrypt</code>.</li>
-<li class=""><code>bf_hmac_encryption::verify_derived_keys</code> does the same, but expects the derived keys and the public keys to be given in matching order, and no others. Pairing them is then up to you.</li>
+<li class="">Call <code>bf_hmac_encryption::verify_derived_keys_for_key_servers</code> with the raw keys, the IDs of the key servers that derived them, the package ID, the identity, and the vector of pinned public keys. Each derived key is matched with the public key of the key server that derived it, so the public keys may be given in any order and may cover key servers that did not provide a derived key. The same vector of public keys can then be passed to <code>decrypt</code>.</li>
+<li class=""><code>bf_hmac_encryption::verify_derived_keys</code> does the same, but expects the derived keys and the public keys to be given in matching order, and no others. Pairing them is then up to the caller.</li>
 <li class="">Both functions return a vector of <code>VerifiedDerivedKey</code> objects.</li>
 </ul>
 </li>
