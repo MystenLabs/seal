@@ -881,10 +881,8 @@ mod tests {
             .map(|(i, service)| {
                 let (master_secret_key, master_public_key) =
                     id_ml_kem::seal::derive_master_key(&[i as u8; 32], 0);
-                let sampler = id_ml_kem::klein::TrapdoorSampler::new(&master_secret_key);
                 let user_secret_key = id_ml_kem::seal::extract_for_id(
                     &master_secret_key,
-                    &sampler,
                     &master_public_key,
                     &full_id,
                 );
@@ -1280,15 +1278,15 @@ mod tests {
             .map(|i| {
                 let (master_secret_key, master_public_key) =
                     id_ml_kem::seal::derive_master_key(&[i; 32], 0);
-                let sampler = id_ml_kem::klein::TrapdoorSampler::new(&master_secret_key);
                 let user_secret_key = id_ml_kem::seal::extract_for_id(
                     &master_secret_key,
-                    &sampler,
                     &master_public_key,
                     &full_id,
                 );
+                // Only the first key server keeps its master secret key (and its cached ~110 MB
+                // trapdoor sampler) for the extraction benchmark.
                 if i == 0 {
-                    first_server = Some((master_secret_key, master_public_key.clone(), sampler));
+                    first_server = Some((master_secret_key, master_public_key.clone()));
                 }
                 let service = NewObjectID::new(ObjectID::random().into_bytes());
                 (service, master_public_key, user_secret_key)
@@ -1299,14 +1297,9 @@ mod tests {
             "setup + Gram-Schmidt",
             fmt(setup_start.elapsed() / max_n as u32)
         );
-        let (master_secret_key, master_public_key, sampler) = first_server.unwrap();
+        let (master_secret_key, master_public_key) = first_server.unwrap();
         bench("extract (1 user key)", 5, || {
-            id_ml_kem::seal::extract_for_id(
-                &master_secret_key,
-                &sampler,
-                &master_public_key,
-                &full_id,
-            )
+            id_ml_kem::seal::extract_for_id(&master_secret_key, &master_public_key, &full_id)
         });
 
         for (n, t) in configs {
