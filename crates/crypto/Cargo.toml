@@ -15,7 +15,8 @@ bcs.workspace = true
 itertools.workspace = true
 serde_with.workspace = true
 sui-sdk-types.workspace = true
-fastcrypto-lattice = { git = "https://github.com/MystenLabs/fastcrypto-lattice", rev = "e6cdc18" }
+# Local checkout of the (not yet hosted) id-ml-kem crate; replace with a git dependency once it is published.
+id-ml-kem = { path = "../../../../../../id-ml-kem", features = ["serde"] }
 
 typenum = "1.20.1"
 

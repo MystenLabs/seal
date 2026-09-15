@@ -714,11 +714,11 @@ impl Display for ParseOutput {
                     serializable_to_string(&encapsulation)
                 )?;
             }
-            IBEEncryptions::Falcon512 {
+            IBEEncryptions::IdMlKemMntru {
                 encrypted_shares: shares,
                 encrypted_randomness,
             } => {
-                writeln!(f, "  Type: Falcon-512")?;
+                writeln!(f, "  Type: ID-ML-KEM_MNTRU")?;
                 writeln!(f, "  Shares: {} encrypted ciphertexts", shares.len())?;
                 write!(
                     f,
