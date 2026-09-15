@@ -12,7 +12,6 @@ use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto_lattice::falcon::falcon_field::Felt;
 use fastcrypto_lattice::falcon::polynomial::Polynomial;
 use fastcrypto_lattice::falcon::signature;
-use fastcrypto_lattice::ibe::sample_polynomial_from_seed;
 use itertools::Itertools;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -247,7 +246,7 @@ pub fn seal_encrypt(
 ///
 /// @param encrypted_object The encrypted object. See `seal_encrypt`.
 /// @param user_secret_keys The user secret keys. It's assumed that these are validated. Otherwise, the decryption will fail or, eg. in the case of using `Plain` mode, the derived key will be wrong.
-/// @param public_keys The public keys of the key servers. If provided, all shares will be decrypted and checked for consistency.
+/// @param public_keys The public keys of the key servers. If provided, all shares will be decrypted and checked for consistency. Required for Falcon-512 encryptions, since their consistency check re-encrypts every share under the public keys.
 /// @return The decrypted plaintext or, if `Plain` mode was used, the derived key.
 pub fn seal_decrypt(
     encrypted_object: &EncryptedObject,
@@ -266,6 +265,11 @@ pub fn seal_decrypt(
     } = encrypted_object;
 
     if *version != 0 {
+        return Err(InvalidInput);
+    }
+
+    // Falcon ciphertexts can only be verified by re-encrypting under the public keys.
+    if matches!(encrypted_shares, IBEEncryptions::Falcon512 { .. }) && public_keys.is_none() {
         return Err(InvalidInput);
     }
 
@@ -350,7 +354,8 @@ pub fn seal_decrypt(
                 })
                 .collect_vec()
         }
-        _ => panic!("This shouldn't happen: It's not checked above that this secret"),
+        // The user secret keys are for a different IBE scheme than the encryption.
+        _ => return Err(InvalidInput),
     };
 
     // Create the base key from the shares
@@ -406,6 +411,14 @@ const DST_FALCON_SHARE_RANDOMNESS: &[u8] = b"SUI-SEAL-IBE-FALCON512-SHARE-RAND-0
 /// Derive the four small polynomials needed by [`fastcrypto_lattice::ibe::FalconIBE::encrypt_deterministic`]
 /// from a global seed, the share index, the recipient's public key, and the full id.
 /// Corresponds to `Hash(r, i, A_i, H(ID))` in the protocol.
+///
+/// The derivation must be reproducible across implementations (e.g. the TypeScript SDK), since
+/// decryption re-derives it to verify the ciphertexts. Each polynomial is therefore sampled from
+/// the byte stream `SHA3-256(prefix || counter)`, `counter = 0, 1, ...` (as `u32` little-endian),
+/// where `prefix = DST || tag || seed || index || bcs(pk) || full_id` and `tag` is `0..=3` for
+/// `k`, `r`, `e1`, `e2` respectively. `k` has coefficients in `{0, 1}` (the lowest bit of each
+/// byte), and `r`, `e1`, `e2` have coefficients uniform in `{-1, 0, 1}` (`byte % 3 - 1`, skipping
+/// bytes equal to 255).
 fn derive_falcon_share_randomness(
     seed: &[u8; KEY_SIZE],
     index: u8,
@@ -419,24 +432,52 @@ fn derive_falcon_share_randomness(
 ) {
     const N: usize = 512;
     let pk_bytes = bcs::to_bytes(pk).expect("serializable");
-    let make = |tag: &[u8], range: std::ops::RangeInclusive<i32>| {
-        let seed_input = [
+    let make = |tag: u8, sample: fn(u8) -> Option<i32>| {
+        let prefix = [
             DST_FALCON_SHARE_RANDOMNESS,
-            tag,
+            &[tag],
             seed,
             &[index],
             &pk_bytes,
             full_id,
         ]
         .concat();
-        sample_polynomial_from_seed(N, &seed_input, range)
+        sample_small_polynomial(&prefix, N, sample)
     };
+    let binary = |b: u8| Some((b & 1) as i32);
+    let ternary = |b: u8| (b < 255).then(|| (b % 3) as i32 - 1);
     (
-        make(b"k", 0..=1),
-        make(b"r", -1..=1),
-        make(b"e1", -1..=1),
-        make(b"e2", -1..=1),
+        make(0, binary),
+        make(1, ternary),
+        make(2, ternary),
+        make(3, ternary),
     )
+}
+
+/// Sample a polynomial with `n` coefficients from the byte stream `SHA3-256(prefix || counter)`,
+/// mapping each byte to a coefficient with `sample` and skipping bytes for which it returns `None`.
+fn sample_small_polynomial(
+    prefix: &[u8],
+    n: usize,
+    sample: fn(u8) -> Option<i32>,
+) -> Polynomial<Felt> {
+    let mut coefficients = Vec::with_capacity(n);
+    let mut counter = 0u32;
+    while coefficients.len() < n {
+        let mut hash = Sha3_256::new();
+        hash.update(prefix);
+        hash.update(counter.to_le_bytes());
+        coefficients.extend(
+            hash.finalize()
+                .digest
+                .into_iter()
+                .filter_map(sample)
+                .map(Felt::new),
+        );
+        counter += 1;
+    }
+    coefficients.truncate(n);
+    Polynomial::new(coefficients)
 }
 
 /// Derive a key for a specific purpose from the base key.
@@ -527,8 +568,9 @@ impl IBEEncryptions {
                 verify_nonce(&randomness, nonce)?;
             }
             IBEEncryptions::Falcon512 { .. } => {
-                // No nonce to verify; the encrypted randomness only matters when
-                // `combine_and_check_share_consistency` is called with the public keys.
+                // Falcon ciphertexts can only be verified with the public keys, so
+                // `seal_decrypt` rejects this case before getting here.
+                return Err(InvalidInput);
             }
         }
         Ok(base_key)
@@ -909,14 +951,47 @@ mod tests {
             })
             .collect();
 
+        let user_secret_keys = IBEUserSecretKeys::Falcon512(user_secret_keys);
+
+        // Falcon decryption requires the public keys.
+        assert!(seal_decrypt(&encrypted, &user_secret_keys, None).is_err());
+
+        // User secret keys for another scheme are rejected rather than panicking.
+        assert!(seal_decrypt(
+            &encrypted,
+            &IBEUserSecretKeys::BonehFranklinBLS12381(HashMap::new()),
+            Some(&public_keys),
+        )
+        .is_err());
+
         assert_eq!(
             b"Hello, World!".to_vec(),
-            seal_decrypt(
-                &encrypted,
-                &IBEUserSecretKeys::Falcon512(user_secret_keys),
-                None,
-            )
-            .unwrap()
+            seal_decrypt(&encrypted, &user_secret_keys, Some(&public_keys)).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_derive_falcon_share_randomness_regression() {
+        let pk = signature::PublicKey::<512> {
+            h: Polynomial::new((0..512).map(Felt::new).collect()),
+        };
+        let (k, r, e1, e2) = derive_falcon_share_randomness(&[7u8; KEY_SIZE], 3, &pk, b"full id");
+
+        assert!(k.coefficients.iter().all(|c| c.value() <= 1));
+        assert!([&r, &e1, &e2]
+            .iter()
+            .all(|p| p.coefficients.iter().all(|c| c.balanced_value().abs() <= 1)));
+
+        let mut hash = Sha3_256::new();
+        for p in [&k, &r, &e1, &e2] {
+            assert_eq!(p.coefficients.len(), 512);
+            for c in &p.coefficients {
+                hash.update(c.value().to_le_bytes());
+            }
+        }
+        assert_eq!(
+            hex::encode(hash.finalize().digest),
+            "e31b41f6207f117dce9f8fee6102f3cdf1fa96cac4e7bc408d3626c542116083"
         );
     }
 
