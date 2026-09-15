@@ -369,6 +369,27 @@ public fun verify_derived_keys(
     })
 }
 
+/// A variant of `verify_derived_keys` where the public keys may be given in any order and may include key servers
+/// which did not provide a derived key, e.g. the same vector given to `decrypt`. The key servers and the derived keys
+/// must be given in the same order.
+///
+/// It is up to the caller to ensure that the given public keys are from the correct key servers.
+public fun verify_derived_keys_for_key_servers(
+    derived_keys: &vector<Element<G1>>,
+    key_servers: &vector<ID>,
+    package_id: address,
+    id: vector<u8>,
+    public_keys: &vector<PublicKey>,
+): vector<VerifiedDerivedKey> {
+    let matching_public_keys = key_servers.map_ref!(|key_server| {
+        let index = public_keys.find_index!(|pk| pk.key_server == *key_server);
+        assert!(index.is_some(), EWrongPublicKeys);
+        let public_key = &public_keys[index.destroy_some()];
+        PublicKey { key_server: *key_server, pk: public_key.pk }
+    });
+    verify_derived_keys(derived_keys, package_id, id, &matching_public_keys)
+}
+
 fun verify_derived_key(
     derived_key: &Element<G1>,
     gid: &Element<G1>,
@@ -1321,4 +1342,46 @@ fun test_zero_index() {
     let encrypted_object =
         x"000000000000000000000000000000000000000000000000000000000000000000040102030403000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000201000000000000000000000000000000000000000000000000000000000000000302020099c6cb593df84708ef4aad86c70c6daf08f4d32b1718fc8a6a9837a127d8c13dd36785d94a80fde73feecaa86d7d9aa50d0bb8b93d5420785dd38857767eb4b980483dd1c9acf20fa9b1297082fe06affb9afdef449b4a9fe5a167d2d3c52944036fa57743a90f01e0d0eb566cbd2f5d7040262241be51b8a9e34d889162e808bc3c393b844e8de5cde6d28286a315d220494f20556c45d22dba66a63b51d8b98704a00331b9fa10d6d958236af6e9cd5add7dff83410a7830ff9efbea7a9a14c3e07cea42b96c8cf80c704ef89f21b6d98de9c5a4d48185f036112e168f7c7d7f011704191015aff28b80290585f1ddafd9ff2baf9d6837617b010401020304f316f4c2f79358a759f7a2602db32c84699a4305cd22e4912cf5e7c2ba0d0f68";
     parse_encrypted_object(encrypted_object);
+}
+
+#[test]
+fun test_decryption_for_key_servers() {
+    use sui::bls12381::g1_from_bytes;
+
+    // The test vector of `test_decryption`, with the public keys and the derived keys given out of order.
+    let pk0 =
+        x"a58bfa576a8efe2e2730bc664b3dbe70257d8e35106e4af7353d007dba092d722314a0aeb6bca5eed735466bbf471aef01e4da8d2efac13112c51d1411f6992b8604656ea2cf6a33ec10ce8468de20e1d7ecbfed8688a281d462f72a41602161";
+    let pk1 =
+        x"a9ce55cfa7009c3116ea29341151f3c40809b816f4ad29baa4f95c1bb23085ef02a46cf1ae5bd570d99b0c6e9faf525306224609300b09e422ae2722a17d2a969777d53db7b52092e4d12014da84bffb1e845c2510e26b3c259ede9e42603cd6";
+    let pk2 =
+        x"93b3220f4f3a46fb33074b590cda666c0ebc75c7157d2e6492c62b4aebc452c29f581361a836d1abcbe1386268a5685103d12dec04aadccaebfa46d4c92e2f2c0381b52d6f2474490d02280a9e9d8c889a3fce2753055e06033f39af86676651";
+    let usk0 =
+        x"8cb19351dbd351d02292a77a18e2f0f4ec0d3becf23f37cc87e4870bf35522c3e59487e0ee5023d5e2e383e40b77bd98";
+    let usk1 =
+        x"a7f6b22719b8ca2e3bfc07bf22ea59245b4aec7a394020cf826199b3cc71e58045e5d6b52506145851e71370e524c362";
+
+    let encrypted_object = parse_encrypted_object(
+        x"00000000000000000000000000000000000000000000000000000000000000000020381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f40903034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab9601d726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97030200b687baf3e9b78786fa50237861cb07f5f25febd790769eec41859f353deed5ab6301cbbf4e2616effe8a04a0b46dd2101531117eed7514e59f9ddbf33119eaeb2fd85c35e9c01cccc5a1d20c7000afbc4ad95ff11de52e098ee129be51d6b63b034693204591c2f2904595850da29007772266e36faecf2385c19daca728d8cd4fa354f4cb57faee6f19bff2d7f2736646bb07048a9355869a6975f0c338030d6d422ddfc436e3d077be2c53b521dd73416e9c57ccf53003456d9bc18c1e9b6020825d9248023240d255fe4897349d2e0a0f5a1c32c68a48c45eba309fd5fa8510010d59416fff28cf98412a42787bbc012000000000000000000000000000000000000000000000000000000000000000017b70af332dbf79873c7fa4996aceec9e9507210e34f0bc3066e7328beedeabc8",
+    );
+
+    // The public keys of all key servers, in an order unrelated to the encrypted object.
+    let public_keys = vector[
+        new_public_key(encrypted_object.services[2].to_id(), pk2),
+        new_public_key(encrypted_object.services[0].to_id(), pk0),
+        new_public_key(encrypted_object.services[1].to_id(), pk1),
+    ];
+
+    // Only two of the three key servers provided a derived key, and not in the order they appear in
+    // the encrypted object.
+    let vdks = verify_derived_keys_for_key_servers(
+        &vector[g1_from_bytes(&usk1), g1_from_bytes(&usk0)],
+        &vector[encrypted_object.services[1].to_id(), encrypted_object.services[0].to_id()],
+        @0x0,
+        x"381dd9078c322a4663c392761a0211b527c127b29583851217f948d62131f409",
+        &public_keys,
+    );
+
+    // The same vector of public keys can be reused for the decryption.
+    let decrypted = decrypt(&encrypted_object, &vdks, &public_keys);
+    assert_eq!(decrypted.destroy_some(), b"Hello, world!");
 }

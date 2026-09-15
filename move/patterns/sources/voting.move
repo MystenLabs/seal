@@ -19,7 +19,7 @@ use seal::bf_hmac_encryption::{
     PublicKey,
     decrypt,
     new_public_key,
-    verify_derived_keys,
+    verify_derived_keys_for_key_servers,
     parse_encrypted_object,
 };
 use sui::bls12381::g1_from_bytes;
@@ -153,21 +153,18 @@ public fun finalize_vote(
     assert!(key_servers.length() == derived_keys.length());
     assert!(derived_keys.length() as u8 >= vote.threshold, ENotEnoughKeys);
 
-    // Public keys for the given derived keys
-    // Verify the derived keys
-    let verified_derived_keys: vector<VerifiedDerivedKey> = verify_derived_keys(
-        &derived_keys.map_ref!(|k| g1_from_bytes(k)),
-        @0x0,
-        vote.id(),
-        &key_servers
-            .map_ref!(|ks1| vote.key_servers.find_index!(|ks2| ks1 == ks2).destroy_some())
-            .map!(|i| new_public_key(vote.key_servers[i].to_id(), vote.public_keys[i])),
-    );
-
-    // Public keys for all key servers
-    let all_public_keys: vector<PublicKey> = vote
+    // The public keys of all key servers, as they were pinned when the vote was created.
+    let public_keys: vector<PublicKey> = vote
         .key_servers
         .zip_map!(vote.public_keys, |ks, pk| new_public_key(ks.to_id(), pk));
+
+    let verified_derived_keys: vector<VerifiedDerivedKey> = verify_derived_keys_for_key_servers(
+        &derived_keys.map_ref!(|k| g1_from_bytes(k)),
+        &key_servers.map_ref!(|ks| (*ks).to_id()),
+        @0x0,
+        vote.id(),
+        &public_keys,
+    );
 
     // This aborts if there are not enough keys or if they are invalid, e.g. if they were derived for a different purpose.
     // However, in case the keys are valid but some of the encrypted objects, aka the votes, are invalid, decrypt will just return none for these votes.
@@ -176,7 +173,7 @@ public fun finalize_vote(
         .votes
         .do_ref!(
             |v| v
-                .and_ref!(|v| decrypt(v, &verified_derived_keys, &all_public_keys))
+                .and_ref!(|v| decrypt(v, &verified_derived_keys, &public_keys))
                 .do_ref!(|decrypted| {
                     if (decrypted.length() == 1 && decrypted[0] < vote.options) {
                         let option = decrypted[0] as u64;
