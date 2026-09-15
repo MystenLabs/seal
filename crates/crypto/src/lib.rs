@@ -1265,7 +1265,7 @@ mod tests {
         println!();
         println!("=== ID-ML-KEM_MNTRU (n=1024, q=8380417, k=2) ===");
         // Key servers are generated once for the largest configuration (Setup and the Gram-Schmidt
-        // orthogonalization take ~25 s each), and every configuration uses a prefix of them.
+        // orthogonalization take ~10 s each), and every configuration uses a prefix of them.
         let package_id = ObjectID::random();
         let new_package_id = NewObjectID::new(package_id.into_bytes());
         let id = vec![1, 2, 3, 4];
