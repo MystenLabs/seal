@@ -4136,6 +4136,7 @@ name = "id-ml-kem"
 version = "0.1.0"
 dependencies = [
  "num-bigint 0.5.1",
+ "num-complex",
  "num-integer",
  "num-traits",
  "rand_chacha 0.9.0",
