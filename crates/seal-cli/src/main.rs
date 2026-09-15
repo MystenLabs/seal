@@ -714,6 +714,18 @@ impl Display for ParseOutput {
                     serializable_to_string(&encapsulation)
                 )?;
             }
+            IBEEncryptions::IdMlKemMntru {
+                encrypted_shares: shares,
+                encrypted_randomness,
+            } => {
+                writeln!(f, "  Type: ID-ML-KEM_MNTRU")?;
+                writeln!(f, "  Shares: {} encrypted ciphertexts", shares.len())?;
+                write!(
+                    f,
+                    "  Encrypted randomness: {}",
+                    DefaultEncoding::encode(encrypted_randomness)
+                )?;
+            }
         };
         Ok(())
     }
