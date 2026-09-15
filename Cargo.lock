@@ -4380,6 +4380,7 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 [[package]]
 name = "id-ml-kem"
 version = "0.1.0"
+source = "git+https://github.com/jonas-lj/id-ml-kem?rev=3b681ef#3b681ef5b609f3332ef68d392fbf6723e3939798"
 dependencies = [
  "faer",
  "num-bigint 0.5.1",
