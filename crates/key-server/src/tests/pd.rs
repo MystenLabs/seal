@@ -5,7 +5,7 @@ use crate::tests::externals::get_key;
 use crate::tests::{to_sdk_ptb, ExecutedTransactionTestExt, SealTestCluster};
 use fastcrypto::ed25519::Ed25519KeyPair;
 use shared_crypto::intent::{Intent, IntentMessage};
-use sui_sdk::json::SuiJsonValue;
+use sui_json::SuiJsonValue;
 use sui_sdk_types::ProgrammableTransaction;
 use sui_types::base_types::{ObjectDigest, SequenceNumber};
 use sui_types::crypto::Signature;
