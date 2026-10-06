@@ -15,7 +15,8 @@ use seal_committee::grpc_helper::{
     fetch_upgrade_proposal as grpc_fetch_upgrade_proposal,
 };
 use seal_committee::move_types::{
-    KeyServerV2, PartialKeyServer, PartialKeyServerInfo, SealCommittee, ServerType, UpgradeProposal,
+    KeyServerV2, PartialKeyServer, PartialKeyServerInfo, SealCommittee, ServerType, UidStruct,
+    UpgradeProposal, VecSet,
 };
 pub use seal_committee::{RpcError, RpcResult};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,17 @@ use sui_rpc::proto::sui::rpc::v2::{
     ListPackageVersionsRequest, SimulateTransactionRequest, SimulateTransactionResponse,
     Transaction, UserSignature, VerifySignatureRequest,
 };
-use sui_sdk_types::Address;
+use sui_sdk_types::{Address, StructTag, TypeTag};
+
+/// Object id of the onchain address alias state object.
+const SUI_ADDRESS_ALIAS_STATE_OBJECT_ID: Address = Address::from_static("0xa");
+
+#[derive(Deserialize)]
+struct AddressAliases {
+    #[allow(dead_code)]
+    id: UidStruct,
+    aliases: VecSet<Address>,
+}
 
 /// Configuration for the retry logic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,6 +379,26 @@ impl SuiRpcClient {
             grpc_fetch_object::<T>(&mut grpc, &object_id).await
         })
         .await
+    }
+
+    /// Fetches all addresses authorized as aliases for an address if alias enabled.
+    /// If aliasing is not enabled, returns only the address itself.
+    pub async fn get_address_aliases(&self, address: Address) -> RpcResult<Vec<Address>> {
+        let alias_key_type = TypeTag::Struct(Box::new(StructTag::new(
+            Address::TWO,
+            "address_alias".parse().expect("valid identifier"),
+            "AliasKey".parse().expect("valid identifier"),
+            vec![],
+        )));
+        let key_bytes = bcs::to_bytes(&address).expect("BCS serialization should not fail");
+        let address_aliases_id =
+            SUI_ADDRESS_ALIAS_STATE_OBJECT_ID.derive_object_id(&alias_key_type, &key_bytes);
+
+        match self.get_object::<AddressAliases>(address_aliases_id).await {
+            Ok(address_aliases) => Ok(address_aliases.aliases.contents),
+            Err(error) if error.code == Some(tonic::Code::NotFound) => Ok(vec![address]),
+            Err(error) => Err(error),
+        }
     }
 
     /// Returns true if an object exists.
