@@ -3,7 +3,7 @@ FROM rust:1.90-trixie AS builder
 
 ARG PROFILE=release
 
-WORKDIR work
+WORKDIR /work
 
 COPY ./crates ./crates
 COPY ./Cargo.toml ./Cargo.lock ./
