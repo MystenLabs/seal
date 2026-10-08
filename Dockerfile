@@ -1,5 +1,5 @@
 # Start with a Rust base image
-FROM rust:1.90-bullseye  AS builder
+FROM rust:1.90-trixie AS builder
 
 ARG PROFILE=release
 
@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/work/target,sharing=locked \
     cargo build --bin key-server --profile $PROFILE --config net.git-fetch-with-cli=true \
     && cp /work/target/release/key-server /work/key-server
-FROM debian:bullseye-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 EXPOSE 2024
 
