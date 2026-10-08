@@ -5,7 +5,7 @@ use super::externals::get_key;
 use crate::tests::{to_sdk_ptb, ExecutedTransactionTestExt, SealTestCluster};
 use serde_json::json;
 use std::path::PathBuf;
-use sui_sdk::json::SuiJsonValue;
+use sui_json::SuiJsonValue;
 use sui_sdk_types::ProgrammableTransaction;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},

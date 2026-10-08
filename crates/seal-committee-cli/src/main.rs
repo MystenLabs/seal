@@ -15,7 +15,7 @@ use fastcrypto_tbls::dkg_v1::Party;
 use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
 use fastcrypto_tbls::nodes::{Node, Nodes};
 use fastcrypto_tbls::random_oracle::RandomOracle;
-use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use move_package_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{
     build_new_to_old_map, create_grpc_client_with_url, fetch_committee_data,
