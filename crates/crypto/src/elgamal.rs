@@ -6,8 +6,8 @@ use fastcrypto::groups::{GroupElement, Scalar};
 use fastcrypto::traits::AllowedRng;
 use fastcrypto_tbls::polynomial::Poly;
 use fastcrypto_tbls::types::IndexedValue;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::num::NonZeroU16;
 
 #[derive(Serialize, Deserialize)]
@@ -57,38 +57,27 @@ pub fn aggregate_encrypted<G: GroupElement>(
     threshold: u16,
     encrypted_shares: &[(u16, Encryption<G>)],
 ) -> FastCryptoResult<Encryption<G>> {
-    // Validate threshold and shares count.
+    // Validate threshold, shares count, party IDs and check for duplicates.
     if threshold == 0
-        || encrypted_shares.len() > u16::MAX as usize
-        || (encrypted_shares.len() as u16) < threshold
+        || encrypted_shares.len() != threshold as usize
+        || encrypted_shares.iter().any(|(id, _)| *id == u16::MAX)
+        || !encrypted_shares.iter().map(|(id, _)| id).all_unique()
     {
         return Err(FastCryptoError::InvalidInput);
     }
 
-    let mut seen_ids = HashSet::new();
-    let mut c1_shares = Vec::with_capacity(encrypted_shares.len());
-    let mut c2_shares = Vec::with_capacity(encrypted_shares.len());
+    let index = |id: &u16| NonZeroU16::new(id + 1).expect("Checked above");
+    let c1_shares = encrypted_shares.iter().map(|(id, enc)| IndexedValue {
+        index: index(id),
+        value: enc.0,
+    });
+    let c2_shares = encrypted_shares.iter().map(|(id, enc)| IndexedValue {
+        index: index(id),
+        value: enc.1,
+    });
 
-    for (id, enc) in encrypted_shares.iter() {
-        // Validate party ID < u16::MAX and check for duplicates.
-        if *id == u16::MAX || !seen_ids.insert(id) {
-            return Err(FastCryptoError::InvalidInput);
-        }
-
-        // Convert to IndexedValue.
-        let index = NonZeroU16::new(id + 1).expect("Checked above");
-        c1_shares.push(IndexedValue {
-            index,
-            value: enc.0,
-        });
-        c2_shares.push(IndexedValue {
-            index,
-            value: enc.1,
-        });
-    }
-
-    let result_c1 = Poly::<G>::recover_c0(threshold, c1_shares.into_iter())?;
-    let result_c2 = Poly::<G>::recover_c0(threshold, c2_shares.into_iter())?;
+    let result_c1 = Poly::<G>::recover_c0(threshold, c1_shares)?;
+    let result_c2 = Poly::<G>::recover_c0(threshold, c2_shares)?;
 
     Ok(Encryption(result_c1, result_c2))
 }
