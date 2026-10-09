@@ -137,7 +137,7 @@ fn split_byte<R: AllowedRng>(
     let mut coefficients = Vec::with_capacity(threshold as usize);
     coefficients.push(GF256::from(secret));
     coefficients.extend(repeat_with(|| GF256::rand(rng)).take((threshold - 1) as usize));
-    let polynomial = Polynomial(coefficients);
+    let polynomial = Polynomial::new(coefficients);
     Ok(indices
         .iter()
         .map(|i| polynomial.evaluate(&i.into()).into())

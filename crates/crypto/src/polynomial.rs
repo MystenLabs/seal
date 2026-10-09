@@ -11,9 +11,14 @@ use std::{unreachable, vec};
 /// This represents a polynomial over the Galois Field GF256.
 /// See [gf256](crate::gf256) for more details.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Polynomial(pub(crate) Vec<GF256>);
+pub struct Polynomial(Vec<GF256>);
 
 impl Polynomial {
+    /// Create a polynomial from its coefficients, constant term first.
+    pub fn new(coefficients: Vec<GF256>) -> Self {
+        Self(coefficients).strip_trailing_zeros()
+    }
+
     /// Returns the degree of this polynomial. Returns 0 for the zero polynomial.
     pub fn degree(&self) -> usize {
         if self.0.is_empty() {
