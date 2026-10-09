@@ -66,13 +66,13 @@ pub fn aggregate_encrypted<G: GroupElement>(
         return Err(FastCryptoError::InvalidInput);
     }
 
-    let index = |id: &u16| NonZeroU16::new(id + 1).expect("Checked above");
+    let id_to_index = |id: &u16| NonZeroU16::new(id + 1).expect("Checked above");
     let c1_shares = encrypted_shares.iter().map(|(id, enc)| IndexedValue {
-        index: index(id),
+        index: id_to_index(id),
         value: enc.0,
     });
     let c2_shares = encrypted_shares.iter().map(|(id, enc)| IndexedValue {
-        index: index(id),
+        index: id_to_index(id),
         value: enc.1,
     });
 
