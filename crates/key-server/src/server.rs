@@ -58,8 +58,7 @@ use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_rpc::proto::sui::rpc::v2::{filter, Event, EventFilter};
 use sui_sdk_types::{
     Address, GasPayment, MultisigMemberPublicKey, PersonalMessage, ProgrammableTransaction,
-    SimpleSignature, StructTag, Transaction, TransactionExpiration, TransactionKind, TypeTag,
-    UserSignature,
+    SimpleSignature, Transaction, TransactionExpiration, TransactionKind, UserSignature,
 };
 use tap::tap::TapFallible;
 use tap::Tap;
@@ -104,36 +103,12 @@ const MAX_REQUEST_SIZE: usize = 180 * 1024;
 /// Default encoding used for master and public keys for the key server.
 type DefaultEncoding = PrefixedHex;
 
-/// Object id of the onchain address alias state object.
-const SUI_ADDRESS_ALIAS_STATE_OBJECT_ID: Address = Address::from_static("0xa");
-
 #[derive(Clone)]
 struct Server {
     sui_rpc_client: SuiRpcClient,
     master_keys: Arc<MasterKeys>,
     key_server_oid_to_pop: Arc<RwLock<HashMap<Address, MasterKeyPOP>>>,
     options: KeyServerOptions,
-}
-
-async fn has_address_aliases(
-    sui_rpc_client: &SuiRpcClient,
-    address: Address,
-) -> Result<bool, InternalError> {
-    let alias_key_type = TypeTag::Struct(Box::new(StructTag::new(
-        Address::TWO,
-        "address_alias".parse().expect("valid identifier"),
-        "AliasKey".parse().expect("valid identifier"),
-        vec![],
-    )));
-
-    let key_bytes = bcs::to_bytes(&address).expect("BCS serialization should not fail");
-    let address_aliases_id =
-        SUI_ADDRESS_ALIAS_STATE_OBJECT_ID.derive_object_id(&alias_key_type, &key_bytes);
-
-    sui_rpc_client
-        .object_exists(address_aliases_id)
-        .await
-        .map_err(|e| InternalError::Failure(format!("Failed to check address aliases: {}", e)))
 }
 
 async fn fetch_and_validate_committee_partial_pk(
@@ -169,30 +144,39 @@ fn may_contain_zklogin(signature: &UserSignature) -> bool {
     }
 }
 
-/// Locally verifies a non-zkLogin personal message signature and that it was
-/// produced by the given address.
+/// Returns the first address derived from the signature that belongs to the authorized alias set.
+/// A zkLogin signature may produce both a padded and a legacy unpadded address.
+fn authorized_signer(signature: &UserSignature, aliases: &[Address]) -> Result<Address, String> {
+    let addresses = match signature {
+        UserSignature::Simple(simple) => match simple {
+            SimpleSignature::Ed25519 { public_key, .. } => vec![public_key.derive_address()],
+            SimpleSignature::Secp256k1 { public_key, .. } => vec![public_key.derive_address()],
+            SimpleSignature::Secp256r1 { public_key, .. } => vec![public_key.derive_address()],
+            _ => return Err("unknown signature scheme".to_string()),
+        },
+        UserSignature::Multisig(multisig) => vec![multisig.committee().derive_address()],
+        UserSignature::ZkLogin(zklogin) => {
+            let public_identifier = zklogin.inputs.public_identifier();
+            vec![
+                public_identifier.derive_address_padded(),
+                public_identifier.derive_address_unpadded(),
+            ]
+        }
+        UserSignature::Passkey(passkey) => vec![passkey.public_key().derive_address()],
+        _ => return Err("unsupported signature scheme".to_string()),
+    };
+
+    addresses
+        .into_iter()
+        .find(|address| aliases.contains(address))
+        .ok_or_else(|| "signature is not from an authorized alias".to_string())
+}
+
+/// Locally verifies a non-zkLogin personal message signature.
 fn verify_personal_message_signature_locally(
     signature: &UserSignature,
     message: &[u8],
-    address: &Address,
 ) -> Result<(), String> {
-    let derived_address = match signature {
-        UserSignature::Simple(simple) => match simple {
-            SimpleSignature::Ed25519 { public_key, .. } => public_key.derive_address(),
-            SimpleSignature::Secp256k1 { public_key, .. } => public_key.derive_address(),
-            SimpleSignature::Secp256r1 { public_key, .. } => public_key.derive_address(),
-            _ => return Err("unknown signature scheme".to_string()),
-        },
-        UserSignature::Multisig(multisig) => multisig.committee().derive_address(),
-        UserSignature::Passkey(passkey) => passkey.public_key().derive_address(),
-        _ => return Err("unsupported signature scheme".to_string()),
-    };
-    if derived_address != *address {
-        return Err(format!(
-            "signature does not match address {address}, derived address {derived_address}"
-        ));
-    }
-
     UserSignatureVerifier::new()
         .verify(&PersonalMessage(message.into()).signing_digest(), signature)
         .map_err(|e| e.to_string())
@@ -394,20 +378,18 @@ impl Server {
             msg, req_id
         );
 
-        // Check if the address has aliases enabled - if so, reject verification
-        match has_address_aliases(&self.sui_rpc_client, cert.user).await {
-            Ok(true) => {
-                info!(
-                    "Address {} has aliases enabled, rejecting signature verification (req_id: {:?})",
-                    cert.user, req_id
-                );
-                return Err(InternalError::InvalidSignature);
-            }
-            Ok(false) => {} // no alias
-            Err(e) => {
-                return Err(e);
-            }
-        }
+        let aliases = self
+            .sui_rpc_client
+            .get_address_aliases(cert.user)
+            .await
+            .map_err(|e| InternalError::Failure(format!("Failed to fetch address aliases: {e}")))?;
+        let signer = authorized_signer(&cert.signature, &aliases).map_err(|e| {
+            debug!(
+                "Failed to authorize signature for {}: {} (req_id: {:?})",
+                cert.user, e, req_id
+            );
+            InternalError::InvalidSignature
+        })?;
 
         // Signatures that are or contain a zkLogin signature need onchain state
         // (epoch, JWKs) so they are verified via the fullnode; all other schemes
@@ -417,12 +399,12 @@ impl Server {
                 .verify_personal_message_signature(
                     msg.as_bytes(),
                     &cert.signature.to_bytes(),
-                    cert.user.to_string(),
+                    signer.to_string(),
                 )
                 .await
                 .map_err(|e| e.to_string())
         } else {
-            verify_personal_message_signature_locally(&cert.signature, msg.as_bytes(), &cert.user)
+            verify_personal_message_signature_locally(&cert.signature, msg.as_bytes())
         };
         verification_result
             .tap_err(|e| {
@@ -1460,6 +1442,11 @@ pub(crate) async fn app() -> Result<(JoinHandle<Result<()>>, Router)> {
 #[cfg(test)]
 mod sdk_validation_tests {
     use super::*;
+    use fastcrypto::ed25519::Ed25519KeyPair;
+    use shared_crypto::intent::{Intent, IntentMessage};
+    use sui_types::base_types::SuiAddress;
+    use sui_types::crypto::{get_key_pair, Signature};
+    use sui_types::signature::GenericSignature;
 
     #[test]
     fn key_server_validates_sdk_versions_by_type() {
@@ -1499,5 +1486,51 @@ mod sdk_validation_tests {
             validate("not-semver", ClientSdkType::Other),
             Err(InvalidSDKVersion)
         );
+    }
+
+    #[test]
+    fn signature_must_be_from_an_authorized_alias() {
+        let message = IntentMessage::new(
+            Intent::personal_message(),
+            shared_crypto::intent::PersonalMessage {
+                message: b"hello".to_vec(),
+            },
+        );
+        let (signer, keypair): (SuiAddress, Ed25519KeyPair) = get_key_pair();
+        let (canonical, _): (SuiAddress, Ed25519KeyPair) = get_key_pair();
+        let (unrelated, _): (SuiAddress, Ed25519KeyPair) = get_key_pair();
+        let signature = GenericSignature::Signature(Signature::new_secure(&message, &keypair));
+        let signature = UserSignature::from_bytes(signature.as_ref()).unwrap();
+
+        assert_eq!(
+            authorized_signer(
+                &signature,
+                &[
+                    Address::new(canonical.to_inner()),
+                    Address::new(signer.to_inner())
+                ]
+            ),
+            Ok(Address::new(signer.to_inner()))
+        );
+        assert!(authorized_signer(&signature, &[Address::new(unrelated.to_inner())]).is_err());
+
+        let (_, zklogin_signature) =
+            sui_types::utils::sign_zklogin_personal_msg(shared_crypto::intent::PersonalMessage {
+                message: b"hello".to_vec(),
+            });
+        let zklogin_signature = UserSignature::from_bytes(zklogin_signature.as_ref()).unwrap();
+        let UserSignature::ZkLogin(zklogin) = &zklogin_signature else {
+            panic!("expected zkLogin signature");
+        };
+        let public_identifier = zklogin.inputs.public_identifier();
+        for address in [
+            public_identifier.derive_address_padded(),
+            public_identifier.derive_address_unpadded(),
+        ] {
+            assert_eq!(
+                authorized_signer(&zklogin_signature, &[address]),
+                Ok(address)
+            );
+        }
     }
 }

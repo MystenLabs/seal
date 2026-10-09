@@ -1,18 +1,18 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::externals::get_key;
+use super::externals::{get_key, get_key_as};
 use crate::tests::{to_sdk_ptb, ExecutedTransactionTestExt, SealTestCluster};
 use serde_json::json;
 use std::path::PathBuf;
 use sui_sdk::json::SuiJsonValue;
-use sui_sdk_types::ProgrammableTransaction;
+use sui_sdk_types::{Address, ProgrammableTransaction};
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     effects::TransactionEffectsAPI,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{ObjectArg, SharedObjectMutability},
-    Identifier,
+    Identifier, SUI_ADDRESS_ALIAS_STATE_OBJECT_ID, SUI_FRAMEWORK_PACKAGE_ID,
 };
 use test_cluster::TestCluster;
 use tracing_test::traced_test;
@@ -42,14 +42,101 @@ async fn test_whitelist() {
             .await
             .is_ok()
     );
-    assert!(get_key(tc.server(), &package_id, ptb, &tc.users[1].keypair)
-        .await
-        .is_err());
+    assert!(
+        get_key(tc.server(), &package_id, ptb.clone(), &tc.users[1].keypair)
+            .await
+            .is_err()
+    );
 
-    let ptb = whitelist_create_ptb(package_id, whitelist, initial_shared_version);
-    assert!(get_key(tc.server(), &package_id, ptb, &tc.users[1].keypair)
+    let canonical = tc.test_cluster().get_address_0();
+    let canonical_sdk = Address::new(canonical.to_inner());
+    let alias = tc.users[0].address;
+    let revoked_alias = tc.users[1].address;
+    add_user_to_whitelist(tc.test_cluster(), package_id, whitelist, cap, canonical).await;
+
+    // The alias cannot sign for the canonical address before aliasing is enabled.
+    assert!(get_key_as(
+        tc.server(),
+        &package_id,
+        ptb.clone(),
+        &tc.users[0].keypair,
+        canonical_sdk,
+    )
+    .await
+    .is_err());
+
+    let builder = tc.test_cluster().grpc_client().transaction_builder();
+    let enable = builder
+        .move_call(
+            canonical,
+            SUI_FRAMEWORK_PACKAGE_ID,
+            "address_alias",
+            "enable",
+            vec![],
+            vec![SuiJsonValue::from_object_id(
+                SUI_ADDRESS_ALIAS_STATE_OBJECT_ID,
+            )],
+            None,
+            50_000_000,
+            None,
+        )
         .await
-        .is_err());
+        .unwrap();
+    let response = tc
+        .test_cluster()
+        .sign_and_execute_transaction(&enable)
+        .await;
+    assert!(response.status_ok().unwrap());
+    let aliases = response
+        .find_created_object_by_type("AddressAliases")
+        .expect("AddressAliases should be created");
+
+    replace_address_aliases(
+        tc.test_cluster(),
+        aliases,
+        vec![canonical, alias, revoked_alias],
+    )
+    .await;
+    // Both configured aliases can now sign for the canonical address.
+    assert!(get_key_as(
+        tc.server(),
+        &package_id,
+        ptb.clone(),
+        &tc.users[0].keypair,
+        canonical_sdk,
+    )
+    .await
+    .is_ok());
+    assert!(get_key_as(
+        tc.server(),
+        &package_id,
+        ptb.clone(),
+        &tc.users[1].keypair,
+        canonical_sdk,
+    )
+    .await
+    .is_ok());
+
+    replace_address_aliases(tc.test_cluster(), aliases, vec![alias]).await;
+    // Replacing the set preserves the retained alias and immediately revokes the other.
+    assert!(get_key_as(
+        tc.server(),
+        &package_id,
+        ptb.clone(),
+        &tc.users[0].keypair,
+        canonical_sdk,
+    )
+    .await
+    .is_ok());
+    assert!(get_key_as(
+        tc.server(),
+        &package_id,
+        ptb,
+        &tc.users[1].keypair,
+        canonical_sdk,
+    )
+    .await
+    .is_err());
 }
 
 #[traced_test]
@@ -265,6 +352,34 @@ pub(crate) async fn add_user_to_whitelist(
                 SuiJsonValue::from_object_id(whitelist),
                 SuiJsonValue::from_object_id(cap),
                 SuiJsonValue::new(json!(user)).unwrap(),
+            ],
+            None,
+            50_000_000,
+            None,
+        )
+        .await
+        .unwrap();
+    let response = cluster.sign_and_execute_transaction(&tx).await;
+    assert!(response.status_ok().unwrap());
+}
+
+async fn replace_address_aliases(
+    cluster: &TestCluster,
+    aliases: ObjectID,
+    new_aliases: Vec<SuiAddress>,
+) {
+    let tx = cluster
+        .grpc_client()
+        .transaction_builder()
+        .move_call(
+            cluster.get_address_0(),
+            SUI_FRAMEWORK_PACKAGE_ID,
+            "address_alias",
+            "replace_all",
+            vec![],
+            vec![
+                SuiJsonValue::from_object_id(aliases),
+                SuiJsonValue::new(json!(new_aliases)).unwrap(),
             ],
             None,
             50_000_000,

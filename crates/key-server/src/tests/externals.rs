@@ -30,6 +30,29 @@ pub(super) fn sign(
     creation_time: u64,
     ttl_min: u16,
 ) -> (Certificate, Ed25519Signature) {
+    sign_as(
+        pkg_id,
+        ptb,
+        eg_pk,
+        eg_vk,
+        kp,
+        Address::new(SuiAddress::from(kp.public()).to_inner()),
+        creation_time,
+        ttl_min,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn sign_as(
+    pkg_id: &ObjectID,
+    ptb: &ProgrammableTransaction,
+    eg_pk: &ElGamalPublicKey,
+    eg_vk: &ElgamalVerificationKey,
+    kp: &Ed25519KeyPair,
+    user: Address,
+    creation_time: u64,
+    ttl_min: u16,
+) -> (Certificate, Ed25519Signature) {
     // We use the same eddsa keypair for both the certificate and the request signature
 
     // create the cert
@@ -45,7 +68,7 @@ pub(super) fn sign(
     let msg_with_intent = IntentMessage::new(Intent::personal_message(), personal_msg.clone());
     let cert_sig = GenericSignature::Signature(Signature::new_secure(&msg_with_intent, kp));
     let cert = Certificate {
-        user: Address::new(SuiAddress::from(kp.public()).to_inner()),
+        user,
         session_vk: kp.public().clone(),
         creation_time,
         ttl_min,
@@ -56,6 +79,36 @@ pub(super) fn sign(
     let signed_msg = signed_request(ptb, eg_pk, eg_vk);
     let request_sig = kp.sign(&signed_msg);
     (cert, request_sig)
+}
+
+pub(crate) async fn get_key_as(
+    server: &Server,
+    pkg_id: &ObjectID,
+    ptb: ProgrammableTransaction,
+    kp: &Ed25519KeyPair,
+    user: Address,
+) -> Result<G1Element, InternalError> {
+    let (sk, pk, vk) = elgamal::genkey(&mut thread_rng());
+    let (cert, req_sig) = sign_as(pkg_id, &ptb, &pk, &vk, kp, user, current_epoch_time(), 1);
+    server
+        .check_request(
+            &ValidPtb::try_from(ptb).unwrap(),
+            &pk,
+            &vk,
+            &req_sig,
+            &cert,
+            1000,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map(|(pkg_id, ids)| {
+            elgamal::decrypt(
+                &sk,
+                &server.create_response(pkg_id, ids, &pk).decryption_keys[0].encrypted_key,
+            )
+        })
 }
 
 pub(crate) async fn get_key(
