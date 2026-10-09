@@ -14,8 +14,11 @@ use std::{unreachable, vec};
 pub struct Polynomial(pub(crate) Vec<GF256>);
 
 impl Polynomial {
-    /// Returns the degree of this polynomial.
+    /// Returns the degree of this polynomial. Returns 0 for the zero polynomial.
     pub fn degree(&self) -> usize {
+        if self.0.is_empty() {
+            return 0;
+        }
         self.0.len() - 1
     }
 
@@ -113,12 +116,14 @@ impl Mul for &Polynomial {
     type Output = Polynomial;
 
     fn mul(self, other: &Polynomial) -> Self::Output {
+        if self.0.is_empty() || other.0.is_empty() {
+            return Polynomial::zero();
+        }
         let degree = self.degree() + other.degree();
         Polynomial(
             (0..=degree)
                 .map(|i| {
-                    (0..=i)
-                        .filter(|j| j <= &self.degree() && i - j <= other.degree())
+                    (i.saturating_sub(other.degree())..=i.min(self.degree()))
                         .map(|j| &self.0[j] * &other.0[i - j])
                         .sum()
                 })
@@ -178,6 +183,27 @@ mod tests {
             &p1 * &p3,
             Polynomial(vec![GF256::from(2), GF256::from(4), GF256::from(6)])
         );
+        assert_eq!(
+            &p1 * &p2,
+            Polynomial(vec![
+                GF256::from(4),
+                GF256::from(13),
+                GF256::from(6),
+                GF256::from(15)
+            ])
+        );
+    }
+
+    #[test]
+    fn test_zero_polynomial() {
+        let zero = Polynomial::zero();
+        let p = Polynomial(vec![GF256::from(1), GF256::from(2), GF256::from(3)]);
+        assert_eq!(zero.degree(), 0);
+        assert_eq!(&zero * &p, zero);
+        assert_eq!(&p * &zero, zero);
+        assert_eq!(&zero * &zero, zero);
+        assert_eq!(&zero + &p, p);
+        assert_eq!(p.clone() * &GF256::zero(), zero);
     }
 
     #[test]
