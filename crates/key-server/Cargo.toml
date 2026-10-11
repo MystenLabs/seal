@@ -59,11 +59,12 @@ mvr_types = { git = "https://github.com/MystenLabs/mvr", rev = "b4771074967c733e
 tracing-test = "0.2.5"
 sui_types.workspace = true
 sui_sdk.workspace = true
+sui-json.workspace = true
 shared_crypto.workspace = true
 sui-rpc-api.workspace = true
 test-cluster = { workspace = true }
 sui-move-build = { workspace = true }
-move-package-alt = { workspace = true }
+move-package = { workspace = true }
 sui-package-alt = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
 fastcrypto-tbls = { workspace = true }
