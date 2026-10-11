@@ -16,6 +16,9 @@ pub struct ValidPtb(ProgrammableTransaction);
 // Should only increase this with time.
 const MAX_COMMANDS: usize = 100;
 
+/// Inner id of the ciphertexts holding secret arguments. Keys for it are never released.
+pub const SECRET_CUSTODY_ID: &[u8] = b"seal-secret-v1";
+
 impl TryFrom<ProgrammableTransaction> for ValidPtb {
     type Error = InternalError;
 
@@ -73,7 +76,14 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
             }
 
             // Restriction: The first argument to the move call must be a non-empty id.
-            let _ = get_key_id(&ptb, cmd)?;
+            // Restriction: The id must not be the custody id for secret arguments.
+            if get_key_id(&ptb, cmd)? == SECRET_CUSTODY_ID {
+                return_err!(
+                    InternalError::InvalidPTB("Reserved id".to_string()),
+                    "Reserved id {:?}",
+                    cmd
+                );
+            }
 
             // Restriction: The called function must start with the prefix seal_approve.
             // Restriction: All commands in the PTB must use the same package id.

@@ -86,11 +86,13 @@ mod metrics_push;
 mod mvr;
 mod periodic_updater;
 mod seal_package;
+mod secret_arguments;
 #[cfg(test)]
 pub mod tests;
 mod time;
 
 use seal_package::Staleness;
+use secret_arguments::SecretArguments;
 
 const MAX_COMPUTATION_UNITS: u64 = 55_000; // 50K tier + 10% extra buffer
 const EVENT_MONITOR_RETRY_DELAY: Duration = Duration::from_secs(30);
@@ -431,17 +433,41 @@ impl Server {
     async fn check_policy(
         &self,
         sender: Address,
+        first_pkg_id: Address,
         vptb: &ValidPtb,
         gas_price: u64,
         req_id: Option<&str>,
         metrics: Option<&KeyServerMetrics>,
     ) -> Result<(), InternalError> {
+        // Fill in secret arguments, if any
+        let master_key = match self.is_committee_mode() {
+            true => None,
+            false => Some(self.master_keys.get_key_for_package(&first_pkg_id)?),
+        };
+        let (ptb, uses_secret_arguments) = match secret_arguments::resolve(
+            &self.sui_rpc_client,
+            master_key,
+            first_pkg_id,
+            vptb.ptb(),
+            sender,
+            gas_price,
+        )
+        .await?
+        {
+            SecretArguments::NotUsed => (vptb.ptb().clone(), false),
+            SecretArguments::InvalidCustody => {
+                debug!("Invalid secret arguments, granting access (req_id: {req_id:?})");
+                return Ok(());
+            }
+            SecretArguments::Resolved(ptb) => (ptb, true),
+        };
+
         // Add a staleness check as the first command in the PTB
         let ptb = self
             .options
             .network
             .seal_package()
-            .add_staleness_check_to_ptb(self.options.allowed_staleness, vptb.ptb().clone())?;
+            .add_staleness_check_to_ptb(self.options.allowed_staleness, ptb)?;
 
         // Evaluate the `seal_approve*` function
         let gas_budget = MAX_COMPUTATION_UNITS * gas_price;
@@ -534,6 +560,10 @@ impl Server {
                 "Simulate transaction execution asserted (req_id: {:?}) error: {:?}",
                 req_id, error
             );
+            // Don't leak details about the secret arguments through the error
+            if uses_secret_arguments {
+                return Err(InternalError::NoAccess("Access denied".to_string()));
+            }
             return Err(InternalError::NoAccess(msg));
         }
 
@@ -593,8 +623,15 @@ impl Server {
         .await?;
 
         call_with_duration(metrics.map(|m| &m.check_policy_duration), || async {
-            self.check_policy(certificate.user, valid_ptb, gas_price, req_id, metrics)
-                .await
+            self.check_policy(
+                certificate.user,
+                first_pkg_id,
+                valid_ptb,
+                gas_price,
+                req_id,
+                metrics,
+            )
+            .await
         })
         .await?;
 

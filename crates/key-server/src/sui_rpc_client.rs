@@ -315,6 +315,7 @@ impl SuiRpcClient {
                         paths: vec![
                             "transaction.effects.status".to_string(),
                             "transaction.effects.gas_used".to_string(),
+                            "command_outputs".to_string(),
                         ],
                     });
 
