@@ -4,9 +4,9 @@
 //! Secret arguments for `seal_approve*` functions.
 //!
 //! A `seal_approve<suffix>` function takes secret arguments as parameters of type
-//! `seal::secret::Secret<T>`, where `T` is a primitive type. It has a matching public function
-//! `seal_secret_arguments<suffix>`, taking all non-secret arguments of `seal_approve<suffix>`. It
-//! returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
+//! `seal::secret::Secret<T>`, where `T` is a primitive type. The requester's PTB calls a matching
+//! function `seal_secret_arguments<suffix>(id, ...)` right before it, with the same id and any
+//! other arguments. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
 //! servers, and whether access should be granted if that ciphertext is invalid. The plaintext is
 //! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values, in order.
 //!
@@ -28,7 +28,7 @@ use crypto::{
 };
 use fastcrypto::serde_helpers::ToFromByteArray;
 use key_server::sui_rpc_client::SuiRpcClient;
-use key_server::valid_ptb::SECRET_CUSTODY_ID;
+use key_server::valid_ptb::{SEAL_APPROVE_PREFIX, SECRET_ARGUMENTS_PREFIX, SECRET_CUSTODY_ID};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -42,8 +42,6 @@ use sui_sdk_types::{
 };
 use tonic::Code;
 
-const SEAL_APPROVE_PREFIX: &str = "seal_approve";
-const SECRET_ARGUMENTS_PREFIX: &str = "seal_secret_arguments";
 const SECRET_MODULE: &str = "secret";
 const SECRET_STRUCT: &str = "Secret";
 const SECRET_CONSTRUCTOR: &str = "new";
@@ -109,11 +107,21 @@ pub async fn resolve(
         commands: vec![],
     };
     let mut uses_secret_arguments = false;
+    // The `seal_secret_arguments*` call preceding the current command, if any
+    let mut secret_arguments_call: Option<&MoveCall> = None;
     for cmd in &ptb.commands {
         let Command::MoveCall(call) = cmd else {
             resolved.commands.push(cmd.clone());
             continue;
         };
+        if call.function.as_str().starts_with(SECRET_ARGUMENTS_PREFIX) {
+            if secret_arguments_call.replace(call).is_some() {
+                return Err(unpaired());
+            }
+            continue;
+        }
+        let secret_call = secret_arguments_call.take();
+
         let params = fetch_params(sui_rpc_client, call, seal_package).await?;
         let secret_types = params
             .iter()
@@ -123,9 +131,16 @@ pub async fn resolve(
             })
             .collect::<Vec<_>>();
         if secret_types.is_empty() {
+            if secret_call.is_some() {
+                return Err(unpaired());
+            }
             resolved.commands.push(cmd.clone());
             continue;
         }
+        let Some(secret_call) = secret_call.filter(|secret_call| is_pair(ptb, secret_call, call))
+        else {
+            return Err(unpaired());
+        };
         uses_secret_arguments = true;
         let Some(master_key) = master_key else {
             return Err(InternalError::InvalidPTB(
@@ -134,7 +149,7 @@ pub async fn resolve(
         };
 
         let (custody, open_if_invalid) =
-            fetch_custody(sui_rpc_client, ptb, call, sender, gas_price).await?;
+            fetch_custody(sui_rpc_client, ptb, secret_call, sender, gas_price).await?;
         let values = decrypt_custody(sui_rpc_client, &custody, master_key, &first_pkg_id)
             .await?
             .and_then(|values| {
@@ -156,10 +171,35 @@ pub async fn resolve(
             Err(_) => return Err(InternalError::NoAccess("Access denied".to_string())),
         }
     }
+    if secret_arguments_call.is_some() {
+        return Err(unpaired());
+    }
     Ok(Resolved {
         ptb: resolved,
         uses_secret_arguments,
     })
+}
+
+fn unpaired() -> InternalError {
+    InternalError::InvalidPTB(
+        "Each seal_approve<suffix> with secret arguments must directly follow a \
+         seal_secret_arguments<suffix> call with the same id"
+            .to_string(),
+    )
+}
+
+/// Whether `secret_call` is `seal_secret_arguments<suffix>` for `call` = `seal_approve<suffix>`
+/// in the same module, with the same id.
+fn is_pair(ptb: &ProgrammableTransaction, secret_call: &MoveCall, call: &MoveCall) -> bool {
+    let id = |call: &MoveCall| match call.arguments.first() {
+        Some(Argument::Input(i)) => ptb.inputs.get(*i as usize),
+        _ => None,
+    };
+    secret_call.package == call.package
+        && secret_call.module == call.module
+        && secret_call.function == secret_arguments_function(&call.function)
+        && id(secret_call).is_some()
+        && id(secret_call) == id(call)
 }
 
 /// Fetch the parameters of the function called by `call`.
@@ -299,8 +339,8 @@ fn is_valid_value(t: &TypeTag, mut value: &[u8]) -> bool {
     consume(t, &mut value).is_some() && value.is_empty()
 }
 
-/// Call `seal_secret_arguments<suffix>` with the requester's arguments to `call`, i.e., all
-/// non-secret arguments. Returns the custody ciphertext and whether an invalid one grants access.
+/// Simulate the requester's `seal_secret_arguments*` call. Returns the custody ciphertext and
+/// whether an invalid one grants access.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
@@ -308,14 +348,11 @@ async fn fetch_custody(
     sender: Address,
     gas_price: u64,
 ) -> Result<(Vec<u8>, bool), InternalError> {
-    let function = secret_arguments_function(&call.function);
+    let function = &call.function;
     let transaction = Transaction {
         kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
             inputs: ptb.inputs.clone(),
-            commands: vec![Command::MoveCall(MoveCall {
-                function: function.clone(),
-                ..call.clone()
-            })],
+            commands: vec![Command::MoveCall(call.clone())],
         }),
         sender,
         gas_payment: GasPayment {
@@ -601,6 +638,37 @@ mod tests {
             &bcs::to_bytes(&vec![1u64, 2]).unwrap()
         ));
         assert!(!is_valid_value(&u64_vec, &[2, 0, 0, 0, 0, 0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_is_pair() {
+        let call = |function: &str, id: u16| MoveCall {
+            package: Address::ZERO,
+            module: Identifier::from_str("m").unwrap(),
+            function: Identifier::from_str(function).unwrap(),
+            type_arguments: vec![],
+            arguments: vec![Argument::Input(id)],
+        };
+        let ptb = ProgrammableTransaction {
+            inputs: vec![
+                Input::Pure(vec![1]),
+                Input::Pure(vec![1]),
+                Input::Pure(vec![2]),
+            ],
+            commands: vec![],
+        };
+        let approve = call("seal_approve_x", 0);
+        assert!(is_pair(&ptb, &call("seal_secret_arguments_x", 0), &approve));
+        // Same id bytes in another input
+        assert!(is_pair(&ptb, &call("seal_secret_arguments_x", 1), &approve));
+        // Different id
+        assert!(!is_pair(
+            &ptb,
+            &call("seal_secret_arguments_x", 2),
+            &approve
+        ));
+        // Different suffix
+        assert!(!is_pair(&ptb, &call("seal_secret_arguments", 0), &approve));
     }
 
     #[test]

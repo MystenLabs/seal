@@ -19,6 +19,14 @@ const MAX_COMMANDS: usize = 100;
 /// Inner id of the ciphertexts holding secret arguments. Keys for it are never released.
 pub const SECRET_CUSTODY_ID: &[u8] = b"seal-secret-v1";
 
+pub const SEAL_APPROVE_PREFIX: &str = "seal_approve";
+/// Functions returning the encrypted secret arguments of the `seal_approve*` call that follows.
+pub const SECRET_ARGUMENTS_PREFIX: &str = "seal_secret_arguments";
+
+fn is_seal_approve(cmd: &MoveCall) -> bool {
+    cmd.function.as_str().starts_with(SEAL_APPROVE_PREFIX)
+}
+
 impl TryFrom<ProgrammableTransaction> for ValidPtb {
     type Error = InternalError;
 
@@ -85,9 +93,12 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
                 );
             }
 
-            // Restriction: The called function must start with the prefix seal_approve.
+            // Restriction: The called function must start with the prefix seal_approve or
+            // seal_secret_arguments.
             // Restriction: All commands in the PTB must use the same package id.
-            if !cmd.function.as_str().starts_with("seal_approve") || cmd.package != pkg_id {
+            if !(is_seal_approve(cmd) || cmd.function.as_str().starts_with(SECRET_ARGUMENTS_PREFIX))
+                || cmd.package != pkg_id
+            {
                 return_err!(
                     InternalError::InvalidPTB("Invalid function or package id".to_string()),
                     "Invalid function or package id {:?}",
@@ -143,11 +154,11 @@ impl ValidPtb {
         self.0
             .commands
             .iter()
-            .map(|cmd| {
+            .filter_map(|cmd| {
                 let Command::MoveCall(cmd) = cmd else {
                     unreachable!()
                 };
-                get_key_id(&self.0, cmd).expect("checked above")
+                is_seal_approve(cmd).then(|| get_key_id(&self.0, cmd).expect("checked above"))
             })
             .collect()
     }
@@ -216,6 +227,30 @@ mod tests {
 
         assert_eq!(valid_ptb.inner_ids(), vec![id.clone(), id]);
         assert_eq!(valid_ptb.pkg_id(), to_sdk_address(pkgid));
+    }
+
+    #[test]
+    fn test_secret_arguments_ids_not_granted() {
+        let mut builder = ProgrammableTransactionBuilder::new();
+        let id = builder.pure(vec![1u8]).unwrap();
+        let other_id = builder.pure(vec![2u8]).unwrap();
+        let pkgid = ObjectID::random();
+        builder.programmable_move_call(
+            pkgid,
+            Identifier::new("bla").unwrap(),
+            Identifier::new("seal_secret_arguments").unwrap(),
+            vec![],
+            vec![other_id],
+        );
+        builder.programmable_move_call(
+            pkgid,
+            Identifier::new("bla").unwrap(),
+            Identifier::new("seal_approve").unwrap(),
+            vec![],
+            vec![id],
+        );
+        let valid_ptb = ValidPtb::try_from(to_sdk_ptb(builder.finish())).unwrap();
+        assert_eq!(valid_ptb.inner_ids(), vec![vec![1u8]]);
     }
 
     #[test]
