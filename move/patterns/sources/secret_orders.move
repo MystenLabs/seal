@@ -8,9 +8,9 @@
 ///   which decrypts the order on-chain and executes it.
 ///
 /// Secret arguments: Before evaluating `seal_approve<suffix>`, the key servers call the matching
-/// `seal_secret_arguments<suffix>` to get the encrypted secret values and pass them as the first
-/// arguments after the id. An invalid secret
-/// lets key servers release the key, so `seal_secret_arguments` must only return secrets set by
+/// `seal_secret_arguments<suffix>` with the requester's arguments to get the encrypted secret
+/// values, and insert them right after the id. This policy lets an invalid secret release the key,
+/// so the owner cannot block execution, and `seal_secret_arguments` only returns secrets set by
 /// the owner of the id.
 ///
 /// Key format: [pkg id][owner address][nonce]. Only the owner can create orders for these ids.
@@ -100,18 +100,19 @@ public fun create_order(
     });
 }
 
-/// Called by the key servers with the id and the object arguments of `seal_approve`.
-/// Returns the number of secret arguments and their encryption.
+/// Called by the key servers with the requester's arguments to `seal_approve`. Returns the
+/// encrypted secret arguments, and that an invalid encryption should release the key.
 public fun seal_secret_arguments(
     id: vector<u8>,
     order: &Order,
     feed: &PriceFeed,
-): (u64, vector<u8>) {
+): (vector<u8>, bool) {
     assert!(id == order.key_id && object::id(feed) == order.feed, ENoAccess);
-    (1, order.secret_arguments)
+    (order.secret_arguments, true)
 }
 
-/// `secret_min_price` is filled in by the key servers.
+/// Requesters call `seal_approve(id, order, feed)`. `secret_min_price` is inserted by the key
+/// servers.
 entry fun seal_approve(id: vector<u8>, secret_min_price: u64, order: &Order, feed: &PriceFeed) {
     assert!(id == order.key_id, ENoAccess);
     assert!(object::id(feed) == order.feed, ENoAccess);
@@ -190,8 +191,8 @@ fun test_seal_approve() {
     let ctx = &mut tx_context::dummy();
     let (cap, mut feed, order) = new_for_testing(ctx);
 
-    let (k, secret) = seal_secret_arguments(order.key_id, &order, &feed);
-    assert!(k == 1 && secret == x"0102");
+    let (secret, open_if_invalid) = seal_secret_arguments(order.key_id, &order, &feed);
+    assert!(secret == x"0102" && open_if_invalid);
 
     set_price(&cap, &mut feed, 100);
     seal_approve(order.key_id, 100, &order, &feed);

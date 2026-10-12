@@ -4,20 +4,19 @@
 //! Secret arguments for `seal_approve*` functions.
 //!
 //! A function `seal_approve<suffix>` with secret arguments has a matching public function
-//! `seal_secret_arguments<suffix>(id: vector<u8>, <objects>): (u64, vector<u8>)`, taking the id
-//! and the object arguments of the `seal_approve<suffix>` call. It returns the number k of secret
-//! arguments and an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to
-//! all key servers. The plaintext is `bcs(vector<vector<u8>>)`: the BCS encodings of the k secret
-//! values.
+//! `seal_secret_arguments<suffix>` taking the same arguments as the requester's call. It returns
+//! an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key servers,
+//! and whether access should be granted if that ciphertext is invalid. The plaintext is
+//! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values.
 //!
-//! The key server decrypts the secret values and uses them as arguments 1..=k (right after the
-//! id) of the `seal_approve<suffix>` call before evaluating the PTB. Functions without a matching
+//! The requester omits the secret arguments. The key server decrypts them and inserts them right
+//! after the id before evaluating the PTB. Functions without a matching
 //! `seal_secret_arguments<suffix>` have no secret arguments.
 //!
-//! If the custody ciphertext is invalid, every key server comes to the same conclusion (share
-//! consistency is checked) and grants access. This way, the encryptor cannot block decryption by
-//! withholding or corrupting the secret. `seal_secret_arguments*` must therefore only return
-//! ciphertexts set by whoever controls the id.
+//! Share consistency is checked, so all key servers decrypt the same values or all find the
+//! ciphertext invalid. If the policy opts in, an invalid ciphertext grants access to that call's
+//! id, so the encryptor cannot block decryption by corrupting the secret. Such a policy must only
+//! return ciphertexts set by whoever controls the id.
 
 use crate::cache::default_lru_cache;
 use crate::errors::InternalError;
@@ -57,16 +56,24 @@ fn secret_arguments_function(seal_approve: &Identifier) -> Identifier {
     Identifier::from_str(&format!("{SECRET_ARGUMENTS_PREFIX}{suffix}")).expect("valid identifier")
 }
 
-pub enum SecretArguments {
-    /// No call in the PTB has secret arguments.
-    NotUsed,
-    /// A custody ciphertext is invalid, so access is granted without evaluating the PTB.
-    InvalidCustody,
-    /// The PTB with the secret values filled in.
-    Resolved(ProgrammableTransaction),
+pub struct Resolved {
+    /// The PTB with secret arguments inserted. Calls whose invalid custody grants access are
+    /// removed, so their ids are not evaluated. If no calls remain, access is granted.
+    pub ptb: ProgrammableTransaction,
+    /// Whether any call uses secret arguments.
+    pub uses_secret_arguments: bool,
 }
 
-/// Fill in the secret arguments of the `seal_approve*` calls in `ptb`. `master_key` is `None` if
+/// Why a custody ciphertext could not be used.
+#[derive(Debug, PartialEq)]
+enum InvalidCustody {
+    /// The ciphertext is invalid for all key servers.
+    Invalid,
+    /// This key server is not one of the recipients.
+    NotListed,
+}
+
+/// Insert the secret arguments of the `seal_approve*` calls in `ptb`. `master_key` is `None` if
 /// this key server cannot decrypt custody ciphertexts (committee mode).
 pub async fn resolve(
     sui_rpc_client: &SuiRpcClient,
@@ -75,74 +82,67 @@ pub async fn resolve(
     ptb: &ProgrammableTransaction,
     sender: Address,
     gas_price: u64,
-) -> Result<SecretArguments, InternalError> {
-    let mut resolved: Option<ProgrammableTransaction> = None;
-    for (index, cmd) in ptb.commands.iter().enumerate() {
-        let Command::MoveCall(cmd) = cmd else {
+) -> Result<Resolved, InternalError> {
+    let mut resolved = ProgrammableTransaction {
+        inputs: ptb.inputs.clone(),
+        commands: vec![],
+    };
+    let mut uses_secret_arguments = false;
+    for cmd in &ptb.commands {
+        let Command::MoveCall(call) = cmd else {
+            resolved.commands.push(cmd.clone());
             continue;
         };
-        let Some((k, custody)) = fetch_custody(sui_rpc_client, ptb, cmd, sender, gas_price).await?
+        let Some((custody, open_if_invalid)) =
+            fetch_custody(sui_rpc_client, ptb, call, sender, gas_price).await?
         else {
+            resolved.commands.push(cmd.clone());
             continue;
         };
+        uses_secret_arguments = true;
         let Some(master_key) = master_key else {
             return Err(InternalError::InvalidPTB(
                 "Secret arguments are not supported by committee key servers".to_string(),
             ));
         };
-        let Ok(custody) = bcs::from_bytes::<EncryptedObject>(&custody) else {
-            return Ok(SecretArguments::InvalidCustody);
-        };
-        let Some(public_keys) = fetch_public_keys(sui_rpc_client, &custody).await? else {
-            return Ok(SecretArguments::InvalidCustody);
-        };
-        let values = match decrypt_custody(&custody, &public_keys, master_key, &first_pkg_id) {
-            Some(values) if values.len() as u64 == k => values,
-            _ => return Ok(SecretArguments::InvalidCustody),
-        };
-        resolved = Some(fill_in_secret_arguments(
-            resolved.as_ref().unwrap_or(ptb),
-            index,
-            values,
-        )?);
+        match decrypt_custody(sui_rpc_client, &custody, master_key, &first_pkg_id).await? {
+            Ok(values) => {
+                resolved
+                    .commands
+                    .push(insert_secret_arguments(&mut resolved.inputs, call, values)?)
+            }
+            // Grant access to this call's id by not evaluating it
+            Err(InvalidCustody::Invalid) if open_if_invalid => {}
+            Err(_) => return Err(InternalError::NoAccess("Access denied".to_string())),
+        }
     }
-    Ok(resolved.map_or(SecretArguments::NotUsed, SecretArguments::Resolved))
+    Ok(Resolved {
+        ptb: resolved,
+        uses_secret_arguments,
+    })
 }
 
-/// Call `seal_secret_arguments<suffix>` with the id and object arguments of `cmd`. Returns `None`
-/// if it is not defined or if there are no secret arguments.
+/// Call `seal_secret_arguments<suffix>` with the arguments of `call`. Returns `None` if it is not
+/// defined, and otherwise the custody ciphertext and whether an invalid one grants access.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
-    cmd: &MoveCall,
+    call: &MoveCall,
     sender: Address,
     gas_price: u64,
-) -> Result<Option<(u64, Vec<u8>)>, InternalError> {
-    let function = secret_arguments_function(&cmd.function);
-    let key = (cmd.package, cmd.module.clone(), cmd.function.clone());
+) -> Result<Option<(Vec<u8>, bool)>, InternalError> {
+    let function = secret_arguments_function(&call.function);
+    let key = (call.package, call.module.clone(), call.function.clone());
     if NO_SECRET_ARGUMENTS.contains_key(&key) {
         return Ok(None);
     }
 
-    // The id and all object arguments
-    let arguments = cmd
-        .arguments
-        .iter()
-        .enumerate()
-        .filter(|(i, arg)| {
-            *i == 0 || !matches!(arg, Argument::Input(j) if matches!(ptb.inputs.get(*j as usize), Some(Input::Pure(_))))
-        })
-        .map(|(_, arg)| *arg)
-        .collect();
     let transaction = Transaction {
         kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
             inputs: ptb.inputs.clone(),
             commands: vec![Command::MoveCall(MoveCall {
-                package: cmd.package,
-                module: cmd.module.clone(),
                 function: function.clone(),
-                type_arguments: cmd.type_arguments.clone(),
-                arguments,
+                ..call.clone()
             })],
         }),
         sender,
@@ -166,7 +166,8 @@ async fn fetch_custody(
         }
         return Err(InternalError::NoAccess("Access denied".to_string()));
     }
-    let invalid = || InternalError::InvalidPTB(format!("{function} must return (u64, vector<u8>)"));
+    let invalid =
+        || InternalError::InvalidPTB(format!("{function} must return (vector<u8>, bool)"));
     let return_value = |i: usize| {
         response
             .command_outputs
@@ -176,9 +177,30 @@ async fn fetch_custody(
             .and_then(|bcs| bcs.value.as_ref())
             .ok_or_else(invalid)
     };
-    let k: u64 = bcs::from_bytes(return_value(0)?).map_err(|_| invalid())?;
-    let custody = bcs::from_bytes(return_value(1)?).map_err(|_| invalid())?;
-    Ok(Some((k, custody)).filter(|_| k > 0))
+    let custody = bcs::from_bytes(return_value(0)?).map_err(|_| invalid())?;
+    let open_if_invalid = bcs::from_bytes(return_value(1)?).map_err(|_| invalid())?;
+    Ok(Some((custody, open_if_invalid)))
+}
+
+/// Decrypt a custody ciphertext, checking that the shares of all key servers are consistent.
+async fn decrypt_custody(
+    sui_rpc_client: &SuiRpcClient,
+    custody: &[u8],
+    master_key: &IbeMasterKey,
+    first_pkg_id: &Address,
+) -> Result<Result<Vec<Vec<u8>>, InvalidCustody>, InternalError> {
+    let Ok(custody) = bcs::from_bytes::<EncryptedObject>(custody) else {
+        return Ok(Err(InvalidCustody::Invalid));
+    };
+    let Some(public_keys) = fetch_public_keys(sui_rpc_client, &custody).await? else {
+        return Ok(Err(InvalidCustody::Invalid));
+    };
+    Ok(decrypt_with_public_keys(
+        &custody,
+        &public_keys,
+        master_key,
+        first_pkg_id,
+    ))
 }
 
 /// Fetch the public keys of the key servers in the custody ciphertext. Returns `None` if one of
@@ -191,7 +213,7 @@ async fn fetch_public_keys(
     for (key_server, _) in &custody.services {
         let pk = match sui_rpc_client.fetch_key_server_by_id(key_server).await {
             Ok(key_server) => key_server.pk,
-            Err(e) if matches!(e.code, Some(Code::NotFound | Code::InvalidArgument) | None) => {
+            Err(e) if matches!(e.code, Some(Code::NotFound | Code::InvalidArgument)) => {
                 return Ok(None)
             }
             Err(e) => {
@@ -213,19 +235,19 @@ async fn fetch_public_keys(
 }
 
 /// Decrypt the custody ciphertext with this key server's key and check that the shares of all
-/// key servers are consistent. Returns `None` if the ciphertext is invalid.
-fn decrypt_custody(
+/// key servers are consistent.
+fn decrypt_with_public_keys(
     custody: &EncryptedObject,
     public_keys: &[IbePublicKey],
     master_key: &IbeMasterKey,
     first_pkg_id: &Address,
-) -> Option<Vec<Vec<u8>>> {
+) -> Result<Vec<Vec<u8>>, InvalidCustody> {
     if custody.package_id != *first_pkg_id
         || custody.id != SECRET_CUSTODY_ID
         || custody.threshold != 1
         || matches!(custody.ciphertext, Ciphertext::Plain)
     {
-        return None;
+        return Err(InvalidCustody::Invalid);
     }
 
     // This key server may appear more than once in the services if it is weighted.
@@ -242,43 +264,38 @@ fn decrypt_custody(
         .map(|((key_server, _), _)| (*key_server, usk))
         .collect();
     if user_secret_keys.is_empty() {
-        return None;
+        return Err(InvalidCustody::NotListed);
     }
 
-    let plaintext = seal_decrypt(
+    seal_decrypt(
         custody,
         &IBEUserSecretKeys::BonehFranklinBLS12381(user_secret_keys),
         Some(&IBEPublicKeys::BonehFranklinBLS12381(public_keys.to_vec())),
     )
-    .ok()?;
-    bcs::from_bytes(&plaintext).ok()
+    .ok()
+    .and_then(|plaintext| bcs::from_bytes(&plaintext).ok())
+    .ok_or(InvalidCustody::Invalid)
 }
 
-/// Add the secret values as new inputs and use them as arguments 1..=k of the command at
-/// `index`. New inputs are used so the values cannot flow into other arguments.
-fn fill_in_secret_arguments(
-    ptb: &ProgrammableTransaction,
-    index: usize,
+/// Add the secret values as new inputs and insert them right after the id of `call`. New inputs
+/// are used so the values cannot flow into other arguments.
+fn insert_secret_arguments(
+    inputs: &mut Vec<Input>,
+    call: &MoveCall,
     values: Vec<Vec<u8>>,
-) -> Result<ProgrammableTransaction, InternalError> {
-    let mut ptb = ptb.clone();
-    let k = values.len();
-    let first_input = ptb.inputs.len();
-    ptb.inputs.extend(values.into_iter().map(Input::Pure));
-    let Some(Command::MoveCall(cmd)) = ptb.commands.get_mut(index) else {
-        return Err(InternalError::InvalidPTB("Invalid command".to_string()));
-    };
-    if cmd.arguments.len() <= k {
-        return Err(InternalError::InvalidPTB(
-            "Too few arguments for secret arguments".to_string(),
-        ));
-    }
-    for i in 0..k {
-        let input = u16::try_from(first_input + i)
+) -> Result<Command, InternalError> {
+    let mut arguments = vec![call.arguments[0]];
+    for value in values {
+        inputs.push(Input::Pure(value));
+        let index = u16::try_from(inputs.len() - 1)
             .map_err(|_| InternalError::InvalidPTB("Too many inputs".to_string()))?;
-        cmd.arguments[i + 1] = Argument::Input(input);
+        arguments.push(Argument::Input(index));
     }
-    Ok(ptb)
+    arguments.extend_from_slice(&call.arguments[1..]);
+    Ok(Command::MoveCall(MoveCall {
+        arguments,
+        ..call.clone()
+    }))
 }
 
 #[cfg(test)]
@@ -327,17 +344,29 @@ mod tests {
         let (custody, pks) = encrypt_custody(package_id, SECRET_CUSTODY_ID, &master_keys, &values);
         for master_key in &master_keys {
             assert_eq!(
-                decrypt_custody(&custody, &pks, master_key, &package_id),
-                Some(values.clone())
+                decrypt_with_public_keys(&custody, &pks, master_key, &package_id),
+                Ok(values.clone())
             );
         }
 
-        // Wrong package, wrong id or an unknown key server is invalid.
-        assert!(decrypt_custody(&custody, &pks, &master_keys[0], &Address::ZERO).is_none());
+        // Wrong package or wrong id is invalid.
+        let invalid = Err(InvalidCustody::Invalid);
+        assert_eq!(
+            decrypt_with_public_keys(&custody, &pks, &master_keys[0], &Address::ZERO),
+            invalid
+        );
         let (wrong_id, pks) = encrypt_custody(package_id, b"other", &master_keys, &values);
-        assert!(decrypt_custody(&wrong_id, &pks, &master_keys[0], &package_id).is_none());
+        assert_eq!(
+            decrypt_with_public_keys(&wrong_id, &pks, &master_keys[0], &package_id),
+            invalid
+        );
+
+        // A key server that is not a recipient cannot decrypt.
         let other_key = ibe::generate_key_pair(&mut thread_rng()).0;
-        assert!(decrypt_custody(&custody, &pks, &other_key, &package_id).is_none());
+        assert_eq!(
+            decrypt_with_public_keys(&custody, &pks, &other_key, &package_id),
+            Err(InvalidCustody::NotListed)
+        );
 
         // Inconsistent shares are invalid for every key server.
         let mut inconsistent = custody.clone();
@@ -346,7 +375,10 @@ mod tests {
         } = &mut inconsistent.encrypted_shares;
         encrypted_shares[2][0] ^= 1;
         for master_key in &master_keys {
-            assert!(decrypt_custody(&inconsistent, &pks, master_key, &package_id).is_none());
+            assert_eq!(
+                decrypt_with_public_keys(&inconsistent, &pks, master_key, &package_id),
+                invalid
+            );
         }
     }
 
@@ -364,33 +396,30 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_in_secret_arguments() {
-        let call = || {
-            Command::MoveCall(MoveCall {
-                package: Address::ZERO,
-                module: Identifier::from_str("m").unwrap(),
-                function: Identifier::from_str("seal_approve").unwrap(),
-                type_arguments: vec![],
-                arguments: vec![Argument::Input(0), Argument::Input(1), Argument::Input(1)],
-            })
+    fn test_insert_secret_arguments() {
+        let call = MoveCall {
+            package: Address::ZERO,
+            module: Identifier::from_str("m").unwrap(),
+            function: Identifier::from_str("seal_approve").unwrap(),
+            type_arguments: vec![],
+            arguments: vec![Argument::Input(0), Argument::Input(1)],
         };
-        let ptb = ProgrammableTransaction {
-            inputs: vec![Input::Pure(vec![1]), Input::Pure(vec![0])],
-            commands: vec![call(), call()],
-        };
+        let mut inputs = vec![Input::Pure(vec![1]), Input::Pure(vec![0])];
 
-        let filled = fill_in_secret_arguments(&ptb, 0, vec![vec![9]]).unwrap();
-        assert_eq!(filled.inputs.len(), 3);
-        let Command::MoveCall(secret) = &filled.commands[0] else {
+        let Command::MoveCall(inserted) =
+            insert_secret_arguments(&mut inputs, &call, vec![vec![8], vec![9]]).unwrap()
+        else {
             panic!()
         };
         assert_eq!(
-            secret.arguments,
-            vec![Argument::Input(0), Argument::Input(2), Argument::Input(1)]
+            inserted.arguments,
+            vec![
+                Argument::Input(0),
+                Argument::Input(2),
+                Argument::Input(3),
+                Argument::Input(1)
+            ]
         );
-        // Other calls are untouched.
-        assert_eq!(filled.commands[1], ptb.commands[1]);
-
-        assert!(fill_in_secret_arguments(&ptb, 0, vec![vec![1], vec![2], vec![3]]).is_err());
+        assert_eq!(inputs[2..], [Input::Pure(vec![8]), Input::Pure(vec![9])]);
     }
 }

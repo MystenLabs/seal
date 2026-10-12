@@ -92,7 +92,6 @@ pub mod tests;
 mod time;
 
 use seal_package::Staleness;
-use secret_arguments::SecretArguments;
 
 const MAX_COMPUTATION_UNITS: u64 = 55_000; // 50K tier + 10% extra buffer
 const EVENT_MONITOR_RETRY_DELAY: Duration = Duration::from_secs(30);
@@ -444,7 +443,10 @@ impl Server {
             true => None,
             false => Some(self.master_keys.get_key_for_package(&first_pkg_id)?),
         };
-        let (ptb, uses_secret_arguments) = match secret_arguments::resolve(
+        let secret_arguments::Resolved {
+            ptb,
+            uses_secret_arguments,
+        } = secret_arguments::resolve(
             &self.sui_rpc_client,
             master_key,
             first_pkg_id,
@@ -452,15 +454,11 @@ impl Server {
             sender,
             gas_price,
         )
-        .await?
-        {
-            SecretArguments::NotUsed => (vptb.ptb().clone(), false),
-            SecretArguments::InvalidCustody => {
-                debug!("Invalid secret arguments, granting access (req_id: {req_id:?})");
-                return Ok(());
-            }
-            SecretArguments::Resolved(ptb) => (ptb, true),
-        };
+        .await?;
+        if ptb.commands.is_empty() {
+            debug!("All calls granted due to invalid secret arguments (req_id: {req_id:?})");
+            return Ok(());
+        }
 
         // Add a staleness check as the first command in the PTB
         let ptb = self
