@@ -21,7 +21,7 @@ pub const SECRET_CUSTODY_ID: &[u8] = b"seal-secret-v1";
 
 pub const SEAL_APPROVE_PREFIX: &str = "seal_approve";
 /// Functions returning the encrypted secret arguments of the `seal_approve*` call that follows.
-pub const SECRET_ARGUMENTS_PREFIX: &str = "seal_secret_arguments";
+pub const SECRET_ARGUMENTS_PREFIX: &str = "seal_secret_args";
 
 fn is_seal_approve(cmd: &MoveCall) -> bool {
     cmd.function.as_str().starts_with(SEAL_APPROVE_PREFIX)
@@ -94,7 +94,7 @@ impl TryFrom<ProgrammableTransaction> for ValidPtb {
             }
 
             // Restriction: The called function must start with the prefix seal_approve or
-            // seal_secret_arguments.
+            // seal_secret_args.
             // Restriction: All commands in the PTB must use the same package id.
             if !(is_seal_approve(cmd) || cmd.function.as_str().starts_with(SECRET_ARGUMENTS_PREFIX))
                 || cmd.package != pkg_id
@@ -238,7 +238,7 @@ mod tests {
         builder.programmable_move_call(
             pkgid,
             Identifier::new("bla").unwrap(),
-            Identifier::new("seal_secret_arguments").unwrap(),
+            Identifier::new("seal_secret_args").unwrap(),
             vec![],
             vec![other_id],
         );

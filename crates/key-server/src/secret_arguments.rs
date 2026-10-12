@@ -5,7 +5,7 @@
 //!
 //! A `seal_approve<suffix>` function takes secret arguments as parameters of type
 //! `seal::secret::Secret<T>`, where `T` is a primitive type. The requester's PTB calls a matching
-//! function `seal_secret_arguments<suffix>(id, ...)` right before it, with the same id and any
+//! function `seal_secret_args<suffix>(id, ...)` right before it, with the same id and any
 //! other arguments. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
 //! servers, and whether access should be granted if that ciphertext is invalid. The plaintext is
 //! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values, in order.
@@ -64,7 +64,7 @@ type FunctionKey = (Address, Identifier, Identifier);
 static SIGNATURES: Lazy<Cache<FunctionKey, Arc<Vec<Param>>>> = Lazy::new(default_lru_cache);
 
 /// The function holding the secret arguments of `seal_approve<suffix>` is
-/// `seal_secret_arguments<suffix>`.
+/// `seal_secret_args<suffix>`.
 fn secret_arguments_function(seal_approve: &Identifier) -> Identifier {
     let suffix = seal_approve
         .as_str()
@@ -107,7 +107,7 @@ pub async fn resolve(
         commands: vec![],
     };
     let mut uses_secret_arguments = false;
-    // The `seal_secret_arguments*` call preceding the current command, if any
+    // The `seal_secret_args*` call preceding the current command, if any
     let mut secret_arguments_call: Option<&MoveCall> = None;
     for cmd in &ptb.commands {
         let Command::MoveCall(call) = cmd else {
@@ -183,12 +183,12 @@ pub async fn resolve(
 fn unpaired() -> InternalError {
     InternalError::InvalidPTB(
         "Each seal_approve<suffix> with secret arguments must directly follow a \
-         seal_secret_arguments<suffix> call with the same id"
+         seal_secret_args<suffix> call with the same id"
             .to_string(),
     )
 }
 
-/// Whether `secret_call` is `seal_secret_arguments<suffix>` for `call` = `seal_approve<suffix>`
+/// Whether `secret_call` is `seal_secret_args<suffix>` for `call` = `seal_approve<suffix>`
 /// in the same module, with the same id.
 fn is_pair(ptb: &ProgrammableTransaction, secret_call: &MoveCall, call: &MoveCall) -> bool {
     let id = |call: &MoveCall| match call.arguments.first() {
@@ -339,7 +339,7 @@ fn is_valid_value(t: &TypeTag, mut value: &[u8]) -> bool {
     consume(t, &mut value).is_some() && value.is_empty()
 }
 
-/// Simulate the requester's `seal_secret_arguments*` call. Returns the custody ciphertext and
+/// Simulate the requester's `seal_secret_args*` call. Returns the custody ciphertext and
 /// whether an invalid one grants access.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
@@ -616,11 +616,11 @@ mod tests {
         let name = |s: &str| Identifier::from_str(s).unwrap();
         assert_eq!(
             secret_arguments_function(&name("seal_approve")),
-            name("seal_secret_arguments")
+            name("seal_secret_args")
         );
         assert_eq!(
             secret_arguments_function(&name("seal_approve_owner")),
-            name("seal_secret_arguments_owner")
+            name("seal_secret_args_owner")
         );
     }
 
@@ -658,17 +658,13 @@ mod tests {
             commands: vec![],
         };
         let approve = call("seal_approve_x", 0);
-        assert!(is_pair(&ptb, &call("seal_secret_arguments_x", 0), &approve));
+        assert!(is_pair(&ptb, &call("seal_secret_args_x", 0), &approve));
         // Same id bytes in another input
-        assert!(is_pair(&ptb, &call("seal_secret_arguments_x", 1), &approve));
+        assert!(is_pair(&ptb, &call("seal_secret_args_x", 1), &approve));
         // Different id
-        assert!(!is_pair(
-            &ptb,
-            &call("seal_secret_arguments_x", 2),
-            &approve
-        ));
+        assert!(!is_pair(&ptb, &call("seal_secret_args_x", 2), &approve));
         // Different suffix
-        assert!(!is_pair(&ptb, &call("seal_secret_arguments", 0), &approve));
+        assert!(!is_pair(&ptb, &call("seal_secret_args", 0), &approve));
     }
 
     #[test]

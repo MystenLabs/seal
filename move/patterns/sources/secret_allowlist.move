@@ -6,7 +6,7 @@
 ///   learn who is on the list.
 /// - The admin encrypts `bcs(vector[bcs(members)])` to all key servers with threshold 1 under the
 ///   id [pkg id]["seal-secret-v1"], and stores the ciphertext in the `Allowlist`.
-/// - Requesters call `seal_secret_arguments(id, allowlist)` followed by
+/// - Requesters call `seal_secret_args(id, allowlist)` followed by
 ///   `seal_approve(id, allowlist)`. The key servers decrypt the members and pass them to
 ///   `seal_approve` as a `Secret<vector<address>>`.
 ///
@@ -48,7 +48,7 @@ public fun set_members(allowlist: &mut Allowlist, cap: &Cap, encrypted_members: 
 
 /// Called in the requester's PTB right before `seal_approve`. Returns the encrypted members, and
 /// that an invalid encryption should deny access.
-entry fun seal_secret_arguments(id: vector<u8>, allowlist: &Allowlist): (vector<u8>, bool) {
+entry fun seal_secret_args(id: vector<u8>, allowlist: &Allowlist): (vector<u8>, bool) {
     assert!(has_prefix(&id, &allowlist.id.to_bytes()), ENoAccess);
     (allowlist.encrypted_members, false)
 }
@@ -85,7 +85,7 @@ fun test_seal_approve() {
     let mut id = allowlist.id.to_bytes();
     id.push_back(7);
 
-    let (encrypted, open_if_invalid) = seal_secret_arguments(id, &allowlist);
+    let (encrypted, open_if_invalid) = seal_secret_args(id, &allowlist);
     assert!(encrypted == x"0102" && !open_if_invalid);
 
     seal_approve(id, seal::secret::new(vector[@0xB, ctx.sender()]), &allowlist, ctx);
