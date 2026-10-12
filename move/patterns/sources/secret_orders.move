@@ -9,7 +9,7 @@
 ///   which decrypts the order on-chain and executes it.
 ///
 /// Secret arguments: `seal_approve` takes the minimum price as a `Secret<u64>`. The key servers get
-/// its encryption from `seal_secret_arguments(id, condition)`. This policy lets an invalid secret
+/// its encryption from `seal_secret_arguments`, which takes the other arguments of `seal_approve`. This policy lets an invalid secret
 /// release the key, so the owner cannot block execution, and `seal_secret_arguments` only returns
 /// secrets set by the owner of the id.
 ///
@@ -111,9 +111,14 @@ public fun create_order(
     });
 }
 
-/// Called by the key servers. Returns the encrypted secret arguments, and that an invalid
-/// encryption should release the key.
-public fun seal_secret_arguments(id: vector<u8>, condition: &Condition): (vector<u8>, bool) {
+/// Called by the key servers with the non-secret arguments of `seal_approve`. Returns the encrypted
+/// secret arguments, and that an invalid encryption should release the key.
+#[allow(lint(unused_object_with_fields))]
+public fun seal_secret_arguments(
+    id: vector<u8>,
+    condition: &Condition,
+    _feed: &PriceFeed,
+): (vector<u8>, bool) {
     assert!(id == condition.key_id, ENoAccess);
     (condition.encrypted_arguments, true)
 }
@@ -199,7 +204,7 @@ fun test_seal_approve() {
     let ctx = &mut tx_context::dummy();
     let (cap, mut feed, condition) = new_for_testing(ctx);
 
-    let (secret, open_if_invalid) = seal_secret_arguments(condition.key_id, &condition);
+    let (secret, open_if_invalid) = seal_secret_arguments(condition.key_id, &condition, &feed);
     assert!(secret == x"0102" && open_if_invalid);
 
     set_price(&cap, &mut feed, 100);

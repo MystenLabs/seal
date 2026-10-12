@@ -5,8 +5,8 @@
 //!
 //! A `seal_approve<suffix>` function takes secret arguments as parameters of type
 //! `seal::secret::Secret<T>`, where `T` is a primitive type. It has a matching public function
-//! `seal_secret_arguments<suffix>`, taking the id and the first of the requester's other
-//! arguments, as many as it declares. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
+//! `seal_secret_arguments<suffix>`, taking all non-secret arguments of `seal_approve<suffix>`. It
+//! returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
 //! servers, and whether access should be granted if that ciphertext is invalid. The plaintext is
 //! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values, in order.
 //!
@@ -134,7 +134,7 @@ pub async fn resolve(
         };
 
         let (custody, open_if_invalid) =
-            fetch_custody(sui_rpc_client, ptb, call, seal_package, sender, gas_price).await?;
+            fetch_custody(sui_rpc_client, ptb, call, sender, gas_price).await?;
         let values = decrypt_custody(sui_rpc_client, &custody, master_key, &first_pkg_id)
             .await?
             .and_then(|values| {
@@ -299,40 +299,22 @@ fn is_valid_value(t: &TypeTag, mut value: &[u8]) -> bool {
     consume(t, &mut value).is_some() && value.is_empty()
 }
 
-/// Call `seal_secret_arguments<suffix>` with the id and as many of the requester's other
-/// arguments to `call` as it takes, in order. Returns the custody ciphertext and whether an
-/// invalid one grants access.
+/// Call `seal_secret_arguments<suffix>` with the requester's arguments to `call`, i.e., all
+/// non-secret arguments. Returns the custody ciphertext and whether an invalid one grants access.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
     call: &MoveCall,
-    seal_package: Address,
     sender: Address,
     gas_price: u64,
 ) -> Result<(Vec<u8>, bool), InternalError> {
     let function = secret_arguments_function(&call.function);
-    let secret_call = MoveCall {
-        function: function.clone(),
-        ..call.clone()
-    };
-    let params = fetch_params(sui_rpc_client, &secret_call, seal_package).await?;
-    if params.iter().any(|p| matches!(p, Param::Secret(_))) {
-        return Err(InternalError::InvalidPTB(format!(
-            "{function} cannot take secret arguments"
-        )));
-    }
-    let arity = params.iter().filter(|p| **p == Param::Other).count();
-    let arguments = call
-        .arguments
-        .get(..arity)
-        .ok_or_else(|| InternalError::InvalidPTB(format!("Too many parameters in {function}")))?
-        .to_vec();
     let transaction = Transaction {
         kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
             inputs: ptb.inputs.clone(),
             commands: vec![Command::MoveCall(MoveCall {
-                arguments,
-                ..secret_call
+                function: function.clone(),
+                ..call.clone()
             })],
         }),
         sender,
