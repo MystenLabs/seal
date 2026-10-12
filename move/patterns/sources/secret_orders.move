@@ -113,7 +113,7 @@ public fun create_order(
 
 /// Called in the requester's PTB right before `seal_approve`. Returns the encrypted secret
 /// arguments, and that an invalid encryption should release the key.
-public fun seal_secret_arguments(id: vector<u8>, condition: &Condition): (vector<u8>, bool) {
+entry fun seal_secret_arguments(id: vector<u8>, condition: &Condition): (vector<u8>, bool) {
     assert!(id == condition.key_id, ENoAccess);
     (condition.encrypted_arguments, true)
 }
