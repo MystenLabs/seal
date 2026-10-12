@@ -27,9 +27,9 @@ use sui_rpc::client::{EventStreamFrame, EventStreamRequest, EventStreamStart, Le
 use sui_rpc::field::FieldMaskUtil;
 use sui_rpc::proto::sui::rpc::v2::transaction_kind::Data as TransactionKindData;
 use sui_rpc::proto::sui::rpc::v2::{
-    Bcs, EventFilter, GetEpochRequest, GetObjectRequest, GetPackageRequest,
-    ListPackageVersionsRequest, SimulateTransactionRequest, SimulateTransactionResponse,
-    Transaction, UserSignature, VerifySignatureRequest,
+    Bcs, EventFilter, FunctionDescriptor, GetEpochRequest, GetFunctionRequest, GetObjectRequest,
+    GetPackageRequest, ListPackageVersionsRequest, SimulateTransactionRequest,
+    SimulateTransactionResponse, Transaction, UserSignature, VerifySignatureRequest,
 };
 use sui_sdk_types::{Address, StructTag, TypeTag};
 
@@ -519,6 +519,32 @@ impl SuiRpcClient {
                     })
             },
         )
+        .await
+    }
+
+    /// Fetches the signature of a Move function.
+    pub async fn get_function(
+        &self,
+        package_id: Address,
+        module: String,
+        function: String,
+    ) -> RpcResult<FunctionDescriptor> {
+        self.run_grpc_with_retries("get_function", move |mut grpc_client| {
+            let mut request = GetFunctionRequest::default();
+            request.package_id = Some(package_id.to_string());
+            request.module_name = Some(module.clone());
+            request.name = Some(function.clone());
+            async move {
+                grpc_client
+                    .package_client()
+                    .get_function(request)
+                    .await
+                    .map_err(RpcError::from_grpc)?
+                    .into_inner()
+                    .function
+                    .ok_or_else(|| RpcError::new("Function not found"))
+            }
+        })
         .await
     }
 

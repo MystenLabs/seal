@@ -7,11 +7,10 @@
 /// - Once the price feed reaches the secret price, anyone can fetch the keys and call `execute`,
 ///   which decrypts the order on-chain and executes it.
 ///
-/// Secret arguments: Before evaluating `seal_approve<suffix>`, the key servers call the matching
-/// `seal_secret_arguments<suffix>` with the requester's arguments to get the encrypted secret
-/// values, and insert them right after the id. This policy lets an invalid secret release the key,
-/// so the owner cannot block execution, and `seal_secret_arguments` only returns secrets set by
-/// the owner of the id.
+/// Secret arguments: `seal_approve` takes the minimum price as a `Secret<u64>`, which only the key
+/// servers learn. They get its encryption from `seal_secret_arguments`, called with the
+/// requester's arguments. This policy lets an invalid secret release the key, so the owner cannot
+/// block execution, and `seal_secret_arguments` only returns secrets set by the owner of the id.
 ///
 /// Key format: [pkg id][owner address][nonce]. Only the owner can create orders for these ids.
 ///
@@ -21,6 +20,7 @@
 /// examples of versioning.
 module patterns::secret_orders;
 
+use seal::secret::Secret;
 use seal::bf_hmac_encryption::{
     PublicKey,
     decrypt,
@@ -111,12 +111,11 @@ public fun seal_secret_arguments(
     (order.secret_arguments, true)
 }
 
-/// Requesters call `seal_approve(id, order, feed)`. `secret_min_price` is inserted by the key
-/// servers.
-entry fun seal_approve(id: vector<u8>, secret_min_price: u64, order: &Order, feed: &PriceFeed) {
+/// Requesters call `seal_approve(id, order, feed)`. `min_price` is filled in by the key servers.
+entry fun seal_approve(id: vector<u8>, min_price: Secret<u64>, order: &Order, feed: &PriceFeed) {
     assert!(id == order.key_id, ENoAccess);
     assert!(object::id(feed) == order.feed, ENoAccess);
-    assert!(feed.price >= secret_min_price, ENoAccess);
+    assert!(feed.price >= min_price.get(), ENoAccess);
 }
 
 /// Decrypt and execute the order using the derived keys from the key servers, given in the same
@@ -195,7 +194,7 @@ fun test_seal_approve() {
     assert!(secret == x"0102" && open_if_invalid);
 
     set_price(&cap, &mut feed, 100);
-    seal_approve(order.key_id, 100, &order, &feed);
+    seal_approve(order.key_id, seal::secret::new(100), &order, &feed);
     destroy_for_testing(cap, feed, order, ctx);
 }
 
@@ -205,6 +204,6 @@ fun test_seal_approve_price_too_low() {
     let (cap, mut feed, order) = new_for_testing(ctx);
 
     set_price(&cap, &mut feed, 99);
-    seal_approve(order.key_id, 100, &order, &feed);
+    seal_approve(order.key_id, seal::secret::new(100), &order, &feed);
     destroy_for_testing(cap, feed, order, ctx);
 }

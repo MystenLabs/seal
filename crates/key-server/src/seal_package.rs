@@ -111,7 +111,17 @@ impl SealPackage {
             arguments: vec![now, allowed_staleness, clock],
         });
 
-        // This shifts all commands by 1 but that's okay since their results cannot be used as inputs
+        // This shifts all commands by 1, so results used as arguments are shifted too
+        for cmd in &mut ptb.commands {
+            if let Command::MoveCall(call) = cmd {
+                for arg in &mut call.arguments {
+                    match arg {
+                        Argument::Result(i) | Argument::NestedResult(i, _) => *i += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
         ptb.commands.insert(0, staleness_check);
         Ok(ptb)
     }

@@ -450,6 +450,7 @@ impl Server {
             &self.sui_rpc_client,
             master_key,
             first_pkg_id,
+            self.options.network.seal_package().package_id(),
             vptb.ptb(),
             sender,
             gas_price,
