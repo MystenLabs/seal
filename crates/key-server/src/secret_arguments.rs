@@ -5,8 +5,8 @@
 //!
 //! A `seal_approve<suffix>` function takes secret arguments as parameters of type
 //! `seal::secret::Secret<T>`, where `T` is a primitive type. It has a matching public function
-//! `seal_secret_arguments<suffix>`, taking the same arguments as the requester's call, which
-//! returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
+//! `seal_secret_arguments<suffix>`, taking the id and the first of the requester's other
+//! arguments, as many as it declares. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
 //! servers, and whether access should be granted if that ciphertext is invalid. The plaintext is
 //! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values, in order.
 //!
@@ -34,7 +34,6 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use sui_rpc::proto::sui::rpc::v2::execution_error::ExecutionErrorKind;
 use sui_rpc::proto::sui::rpc::v2::open_signature_body::Type;
 use sui_rpc::proto::sui::rpc::v2::{FunctionDescriptor, OpenSignatureBody};
 use sui_sdk_types::{
@@ -135,7 +134,7 @@ pub async fn resolve(
         };
 
         let (custody, open_if_invalid) =
-            fetch_custody(sui_rpc_client, ptb, call, sender, gas_price).await?;
+            fetch_custody(sui_rpc_client, ptb, call, seal_package, sender, gas_price).await?;
         let values = decrypt_custody(sui_rpc_client, &custody, master_key, &first_pkg_id)
             .await?
             .and_then(|values| {
@@ -181,9 +180,9 @@ async fn fetch_params(
         )
         .await
         .map_err(|e| match e.code {
-            Some(Code::NotFound) => InternalError::InvalidPTB(
-                "The seal_approve function was not found on the module".to_string(),
-            ),
+            Some(Code::NotFound) => {
+                InternalError::InvalidPTB(format!("Function {} not found", call.function))
+            }
             _ => InternalError::Failure(format!("Failed to fetch function: {e}")),
         })?;
     let params = Arc::new(parse_params(sui_rpc_client, &function, seal_package).await?);
@@ -300,22 +299,40 @@ fn is_valid_value(t: &TypeTag, mut value: &[u8]) -> bool {
     consume(t, &mut value).is_some() && value.is_empty()
 }
 
-/// Call `seal_secret_arguments<suffix>` with the arguments of `call`. Returns the custody
-/// ciphertext and whether an invalid one grants access.
+/// Call `seal_secret_arguments<suffix>` with the id and as many of the requester's other
+/// arguments to `call` as it takes, in order. Returns the custody ciphertext and whether an
+/// invalid one grants access.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
     call: &MoveCall,
+    seal_package: Address,
     sender: Address,
     gas_price: u64,
 ) -> Result<(Vec<u8>, bool), InternalError> {
     let function = secret_arguments_function(&call.function);
+    let secret_call = MoveCall {
+        function: function.clone(),
+        ..call.clone()
+    };
+    let params = fetch_params(sui_rpc_client, &secret_call, seal_package).await?;
+    if params.iter().any(|p| matches!(p, Param::Secret(_))) {
+        return Err(InternalError::InvalidPTB(format!(
+            "{function} cannot take secret arguments"
+        )));
+    }
+    let arity = params.iter().filter(|p| **p == Param::Other).count();
+    let arguments = call
+        .arguments
+        .get(..arity)
+        .ok_or_else(|| InternalError::InvalidPTB(format!("Too many parameters in {function}")))?
+        .to_vec();
     let transaction = Transaction {
         kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
             inputs: ptb.inputs.clone(),
             commands: vec![Command::MoveCall(MoveCall {
-                function: function.clone(),
-                ..call.clone()
+                arguments,
+                ..secret_call
             })],
         }),
         sender,
@@ -332,12 +349,7 @@ async fn fetch_custody(
         .await
         .map_err(|e| InternalError::Failure(format!("Failed to fetch secret arguments: {e}")))?;
 
-    if let Some(error) = &response.transaction().effects().status().error {
-        if error.kind() == ExecutionErrorKind::FunctionNotFound {
-            return Err(InternalError::InvalidPTB(format!(
-                "Secret arguments require {function}"
-            )));
-        }
+    if response.transaction().effects().status().error.is_some() {
         return Err(InternalError::NoAccess("Access denied".to_string()));
     }
     let invalid =

@@ -8,9 +8,9 @@
 ///   which decrypts the order on-chain and executes it.
 ///
 /// Secret arguments: `seal_approve` takes the minimum price as a `Secret<u64>`, which only the key
-/// servers learn. They get its encryption from `seal_secret_arguments`, called with the
-/// requester's arguments. This policy lets an invalid secret release the key, so the owner cannot
-/// block execution, and `seal_secret_arguments` only returns secrets set by the owner of the id.
+/// servers learn. They get its encryption from `seal_secret_arguments(id, order)`. This policy
+/// lets an invalid secret release the key, so the owner cannot block execution, and
+/// `seal_secret_arguments` only returns secrets set by the owner of the id.
 ///
 /// Key format: [pkg id][owner address][nonce]. Only the owner can create orders for these ids.
 ///
@@ -100,14 +100,10 @@ public fun create_order(
     });
 }
 
-/// Called by the key servers with the requester's arguments to `seal_approve`. Returns the
-/// encrypted secret arguments, and that an invalid encryption should release the key.
-public fun seal_secret_arguments(
-    id: vector<u8>,
-    order: &Order,
-    feed: &PriceFeed,
-): (vector<u8>, bool) {
-    assert!(id == order.key_id && object::id(feed) == order.feed, ENoAccess);
+/// Called by the key servers with the id and the order. Returns the encrypted secret arguments,
+/// and that an invalid encryption should release the key.
+public fun seal_secret_arguments(id: vector<u8>, order: &Order): (vector<u8>, bool) {
+    assert!(id == order.key_id, ENoAccess);
     (order.secret_arguments, true)
 }
 
@@ -190,7 +186,7 @@ fun test_seal_approve() {
     let ctx = &mut tx_context::dummy();
     let (cap, mut feed, order) = new_for_testing(ctx);
 
-    let (secret, open_if_invalid) = seal_secret_arguments(order.key_id, &order, &feed);
+    let (secret, open_if_invalid) = seal_secret_arguments(order.key_id, &order);
     assert!(secret == x"0102" && open_if_invalid);
 
     set_price(&cap, &mut feed, 100);
