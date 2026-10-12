@@ -7,8 +7,9 @@
 /// - Once the price feed reaches the secret price, anyone can fetch the keys and call `execute`,
 ///   which decrypts the order on-chain and executes it.
 ///
-/// Secret arguments: The key servers call `seal_secret_arguments` to get the encrypted secret
-/// values and pass them as the first arguments after the id to `seal_approve`. An invalid secret
+/// Secret arguments: Before evaluating `seal_approve<suffix>`, the key servers call the matching
+/// `seal_secret_arguments<suffix>` to get the encrypted secret values and pass them as the first
+/// arguments after the id. An invalid secret
 /// lets key servers release the key, so `seal_secret_arguments` must only return secrets set by
 /// the owner of the id.
 ///

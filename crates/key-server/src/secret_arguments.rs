@@ -3,19 +3,20 @@
 
 //! Secret arguments for `seal_approve*` functions.
 //!
-//! A module with secret arguments defines a public function
-//! `seal_secret_arguments(id: vector<u8>, <objects>): (u64, vector<u8>)`, taking the id and the
-//! object arguments of the `seal_approve*` call. It returns the number k of secret arguments and an
-//! [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key servers.
-//! The plaintext is `bcs(vector<vector<u8>>)`: the BCS encodings of the k secret values.
+//! A function `seal_approve<suffix>` with secret arguments has a matching public function
+//! `seal_secret_arguments<suffix>(id: vector<u8>, <objects>): (u64, vector<u8>)`, taking the id
+//! and the object arguments of the `seal_approve<suffix>` call. It returns the number k of secret
+//! arguments and an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to
+//! all key servers. The plaintext is `bcs(vector<vector<u8>>)`: the BCS encodings of the k secret
+//! values.
 //!
 //! The key server decrypts the secret values and uses them as arguments 1..=k (right after the
-//! id) of the `seal_approve*` call before evaluating the PTB. Modules without
-//! `seal_secret_arguments` have no secret arguments.
+//! id) of the `seal_approve<suffix>` call before evaluating the PTB. Functions without a matching
+//! `seal_secret_arguments<suffix>` have no secret arguments.
 //!
 //! If the custody ciphertext is invalid, every key server comes to the same conclusion (share
 //! consistency is checked) and grants access. This way, the encryptor cannot block decryption by
-//! withholding or corrupting the secret. `seal_secret_arguments` must therefore only return
+//! withholding or corrupting the secret. `seal_secret_arguments*` must therefore only return
 //! ciphertexts set by whoever controls the id.
 
 use crate::cache::default_lru_cache;
@@ -39,10 +40,22 @@ use sui_sdk_types::{
 };
 use tonic::Code;
 
-const SECRET_ARGUMENTS_FUNCTION: &str = "seal_secret_arguments";
+const SEAL_APPROVE_PREFIX: &str = "seal_approve";
+const SECRET_ARGUMENTS_PREFIX: &str = "seal_secret_arguments";
 
-/// Modules known not to define `seal_secret_arguments`.
-static NO_SECRET_ARGUMENTS: Lazy<Cache<(Address, Identifier), ()>> = Lazy::new(default_lru_cache);
+/// Functions known not to have a matching `seal_secret_arguments*` function.
+static NO_SECRET_ARGUMENTS: Lazy<Cache<(Address, Identifier, Identifier), ()>> =
+    Lazy::new(default_lru_cache);
+
+/// The function holding the secret arguments of `seal_approve<suffix>` is
+/// `seal_secret_arguments<suffix>`.
+fn secret_arguments_function(seal_approve: &Identifier) -> Identifier {
+    let suffix = seal_approve
+        .as_str()
+        .strip_prefix(SEAL_APPROVE_PREFIX)
+        .expect("checked by ValidPtb");
+    Identifier::from_str(&format!("{SECRET_ARGUMENTS_PREFIX}{suffix}")).expect("valid identifier")
+}
 
 pub enum SecretArguments {
     /// No call in the PTB has secret arguments.
@@ -96,8 +109,8 @@ pub async fn resolve(
     Ok(resolved.map_or(SecretArguments::NotUsed, SecretArguments::Resolved))
 }
 
-/// Call `seal_secret_arguments` with the id and object arguments of `cmd`. Returns `None` if the
-/// module does not define it or if there are no secret arguments.
+/// Call `seal_secret_arguments<suffix>` with the id and object arguments of `cmd`. Returns `None`
+/// if it is not defined or if there are no secret arguments.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
@@ -105,7 +118,8 @@ async fn fetch_custody(
     sender: Address,
     gas_price: u64,
 ) -> Result<Option<(u64, Vec<u8>)>, InternalError> {
-    let key = (cmd.package, cmd.module.clone());
+    let function = secret_arguments_function(&cmd.function);
+    let key = (cmd.package, cmd.module.clone(), cmd.function.clone());
     if NO_SECRET_ARGUMENTS.contains_key(&key) {
         return Ok(None);
     }
@@ -126,7 +140,7 @@ async fn fetch_custody(
             commands: vec![Command::MoveCall(MoveCall {
                 package: cmd.package,
                 module: cmd.module.clone(),
-                function: Identifier::from_str(SECRET_ARGUMENTS_FUNCTION).expect("valid"),
+                function: function.clone(),
                 type_arguments: cmd.type_arguments.clone(),
                 arguments,
             })],
@@ -152,11 +166,7 @@ async fn fetch_custody(
         }
         return Err(InternalError::NoAccess("Access denied".to_string()));
     }
-    let invalid = || {
-        InternalError::InvalidPTB(format!(
-            "{SECRET_ARGUMENTS_FUNCTION} must return (u64, vector<u8>)"
-        ))
-    };
+    let invalid = || InternalError::InvalidPTB(format!("{function} must return (u64, vector<u8>)"));
     let return_value = |i: usize| {
         response
             .command_outputs
@@ -338,6 +348,19 @@ mod tests {
         for master_key in &master_keys {
             assert!(decrypt_custody(&inconsistent, &pks, master_key, &package_id).is_none());
         }
+    }
+
+    #[test]
+    fn test_secret_arguments_function() {
+        let name = |s: &str| Identifier::from_str(s).unwrap();
+        assert_eq!(
+            secret_arguments_function(&name("seal_approve")),
+            name("seal_secret_arguments")
+        );
+        assert_eq!(
+            secret_arguments_function(&name("seal_approve_owner")),
+            name("seal_secret_arguments_owner")
+        );
     }
 
     #[test]
