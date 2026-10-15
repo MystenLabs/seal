@@ -5,18 +5,19 @@
 //!
 //! A `seal_approve<suffix>` function takes secret arguments as parameters of type
 //! `seal::secret::Secret<T>`, where `T` is a primitive type. The requester's PTB calls a matching
-//! function `seal_secret_args<suffix>(id, ...)` right before it, with the same id and any
-//! other arguments. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1, encrypted to all key
-//! servers, and whether access should be granted if that ciphertext is invalid. The plaintext is
-//! `bcs(vector<vector<u8>>)`: the BCS encodings of the secret values, in order.
+//! function `seal_secret_args<suffix>(id, ...)` right before it, with the same id and any other
+//! arguments. It returns an [EncryptedObject] with id [SECRET_CUSTODY_ID] and threshold 1,
+//! encrypted to all key servers. The plaintext is `bcs(vector<vector<u8>>)`: the BCS encodings of
+//! the secret values, in order.
 //!
 //! The requester omits the secret arguments. The key server decrypts them and passes them as
 //! `seal::secret::new<T>(value)` results when evaluating the PTB.
 //!
 //! Share consistency is checked, so all key servers decrypt the same values or all find the
-//! ciphertext invalid. If the policy opts in, an invalid ciphertext grants access to that call's
-//! id, so the encryptor cannot block decryption by corrupting the secret. Such a policy must only
-//! return ciphertexts set by whoever controls the id.
+//! ciphertext invalid. If it is invalid, the secrets are passed as `seal::secret::none<T>()`, and
+//! `seal_approve` decides whether to grant access. A policy granting access in that case, so the
+//! encryptor cannot block decryption by corrupting the secret, must only return ciphertexts set by
+//! whoever controls the id.
 
 use crate::cache::default_lru_cache;
 use crate::common::fetch_first_pkg_id;
@@ -45,6 +46,7 @@ use tonic::Code;
 const SECRET_MODULE: &str = "secret";
 const SECRET_STRUCT: &str = "Secret";
 const SECRET_CONSTRUCTOR: &str = "new";
+const SECRET_NONE: &str = "none";
 
 /// A parameter of a `seal_approve*` function.
 #[derive(Clone, Debug, PartialEq)]
@@ -74,8 +76,7 @@ fn secret_arguments_function(seal_approve: &Identifier) -> Identifier {
 }
 
 pub struct Resolved {
-    /// The PTB with secret arguments filled in. Calls whose invalid custody grants access are
-    /// removed, so their ids are not evaluated. If no calls remain, access is granted.
+    /// The PTB with secret arguments filled in, and without the `seal_secret_args*` calls.
     pub ptb: ProgrammableTransaction,
     /// Whether any call uses secret arguments.
     pub uses_secret_arguments: bool,
@@ -148,8 +149,7 @@ pub async fn resolve(
             ));
         };
 
-        let (custody, open_if_invalid) =
-            fetch_custody(sui_rpc_client, ptb, secret_call, sender, gas_price).await?;
+        let custody = fetch_custody(sui_rpc_client, ptb, secret_call, sender, gas_price).await?;
         let values = decrypt_custody(sui_rpc_client, &custody, master_key, &first_pkg_id)
             .await?
             .and_then(|values| {
@@ -165,10 +165,16 @@ pub async fn resolve(
                 }
             });
         match values {
-            Ok(values) => build_call(&mut resolved, call, &params, values, seal_package)?,
-            // Grant access to this call's id by not evaluating it
-            Err(InvalidCustody::Invalid) if open_if_invalid => {}
-            Err(_) => return Err(InternalError::NoAccess("Access denied".to_string())),
+            Ok(values) => build_call(&mut resolved, call, &params, Some(values), seal_package)?,
+            // All key servers agree that the custody is invalid, so `seal_approve` gets empty
+            // secrets and decides.
+            Err(InvalidCustody::Invalid) => {
+                build_call(&mut resolved, call, &params, None, seal_package)?
+            }
+            // This may differ between key servers, so deny.
+            Err(InvalidCustody::NotListed) => {
+                return Err(InternalError::NoAccess("Access denied".to_string()))
+            }
         }
     }
     if secret_arguments_call.is_some() {
@@ -339,15 +345,14 @@ fn is_valid_value(t: &TypeTag, mut value: &[u8]) -> bool {
     consume(t, &mut value).is_some() && value.is_empty()
 }
 
-/// Simulate the requester's `seal_secret_args*` call. Returns the custody ciphertext and
-/// whether an invalid one grants access.
+/// Simulate the requester's `seal_secret_args*` call. Returns the custody ciphertext.
 async fn fetch_custody(
     sui_rpc_client: &SuiRpcClient,
     ptb: &ProgrammableTransaction,
     call: &MoveCall,
     sender: Address,
     gas_price: u64,
-) -> Result<(Vec<u8>, bool), InternalError> {
+) -> Result<Vec<u8>, InternalError> {
     let function = &call.function;
     let transaction = Transaction {
         kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
@@ -371,8 +376,7 @@ async fn fetch_custody(
     if response.transaction().effects().status().error.is_some() {
         return Err(InternalError::NoAccess("Access denied".to_string()));
     }
-    let invalid =
-        || InternalError::InvalidPTB(format!("{function} must return (vector<u8>, bool)"));
+    let invalid = || InternalError::InvalidPTB(format!("{function} must return vector<u8>"));
     let return_value = |i: usize| {
         response
             .command_outputs
@@ -382,9 +386,7 @@ async fn fetch_custody(
             .and_then(|bcs| bcs.value.as_ref())
             .ok_or_else(invalid)
     };
-    let custody = bcs::from_bytes(return_value(0)?).map_err(|_| invalid())?;
-    let open_if_invalid = bcs::from_bytes(return_value(1)?).map_err(|_| invalid())?;
-    Ok((custody, open_if_invalid))
+    bcs::from_bytes(return_value(0)?).map_err(|_| invalid())
 }
 
 /// Decrypt a custody ciphertext, checking that the shares of all key servers are consistent.
@@ -482,13 +484,14 @@ fn decrypt_with_public_keys(
     .ok_or(InvalidCustody::Invalid)
 }
 
-/// Append `call` to `ptb` with the secret values passed as `seal::secret::new<T>(value)` results
-/// and the requester's arguments in the other positions.
+/// Append `call` to `ptb` with the secret values passed as `seal::secret::new<T>(value)` results,
+/// or `seal::secret::none<T>()` if they are `None`, and the requester's arguments in the other
+/// positions.
 fn build_call(
     ptb: &mut ProgrammableTransaction,
     call: &MoveCall,
     params: &[Param],
-    values: Vec<Vec<u8>>,
+    values: Option<Vec<Vec<u8>>>,
     seal_package: Address,
 ) -> Result<(), InternalError> {
     let wrong_arguments =
@@ -497,19 +500,26 @@ fn build_call(
         u16::try_from(i).map_err(|_| InternalError::InvalidPTB("Too large PTB".to_string()))
     };
     let mut public = call.arguments.iter();
-    let mut values = values.into_iter();
+    let mut values = values.map(Vec::into_iter);
     let mut arguments = vec![];
     for param in params {
         match param {
             Param::Secret(t) => {
-                ptb.inputs
-                    .push(Input::Pure(values.next().ok_or_else(wrong_arguments)?));
+                let (function, secret_arguments) = match values.as_mut() {
+                    Some(values) => {
+                        ptb.inputs
+                            .push(Input::Pure(values.next().ok_or_else(wrong_arguments)?));
+                        let input = Argument::Input(index(ptb.inputs.len() - 1)?);
+                        (SECRET_CONSTRUCTOR, vec![input])
+                    }
+                    None => (SECRET_NONE, vec![]),
+                };
                 ptb.commands.push(Command::MoveCall(MoveCall {
                     package: seal_package,
                     module: Identifier::from_str(SECRET_MODULE).expect("valid"),
-                    function: Identifier::from_str(SECRET_CONSTRUCTOR).expect("valid"),
+                    function: Identifier::from_str(function).expect("valid"),
                     type_arguments: vec![t.clone()],
-                    arguments: vec![Argument::Input(index(ptb.inputs.len() - 1)?)],
+                    arguments: secret_arguments,
                 }));
                 arguments.push(Argument::Result(index(ptb.commands.len() - 1)?));
             }
@@ -689,7 +699,14 @@ mod tests {
         };
         let value = bcs::to_bytes(&100u64).unwrap();
 
-        build_call(&mut ptb, &call, &params, vec![value.clone()], Address::TWO).unwrap();
+        build_call(
+            &mut ptb,
+            &call,
+            &params,
+            Some(vec![value.clone()]),
+            Address::TWO,
+        )
+        .unwrap();
         assert_eq!(ptb.inputs[2], Input::Pure(value));
         let Command::MoveCall(new) = &ptb.commands[0] else {
             panic!()
@@ -706,8 +723,28 @@ mod tests {
         // Wrong number of public arguments
         let short = MoveCall {
             arguments: vec![Argument::Input(0)],
-            ..call
+            ..call.clone()
         };
-        assert!(build_call(&mut ptb, &short, &params, vec![vec![0; 8]], Address::TWO).is_err());
+        assert!(build_call(
+            &mut ptb,
+            &short,
+            &params,
+            Some(vec![vec![0; 8]]),
+            Address::TWO
+        )
+        .is_err());
+
+        // Invalid custody: empty secrets
+        let mut ptb = ProgrammableTransaction {
+            inputs: vec![Input::Pure(vec![1]), Input::Pure(vec![0])],
+            commands: vec![],
+        };
+        build_call(&mut ptb, &call, &params, None, Address::TWO).unwrap();
+        assert_eq!(ptb.inputs.len(), 2);
+        let Command::MoveCall(none) = &ptb.commands[0] else {
+            panic!()
+        };
+        assert_eq!(none.function.as_str(), "none");
+        assert!(none.arguments.is_empty());
     }
 }

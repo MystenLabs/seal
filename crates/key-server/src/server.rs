@@ -456,11 +456,6 @@ impl Server {
             gas_price,
         )
         .await?;
-        if ptb.commands.is_empty() {
-            debug!("All calls granted due to invalid secret arguments (req_id: {req_id:?})");
-            return Ok(());
-        }
-
         // Add a staleness check as the first command in the PTB
         let ptb = self
             .options
