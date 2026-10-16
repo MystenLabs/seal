@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// A secret argument of a `seal_approve*` function. Only key servers learn its value: they decrypt
-/// it from the ciphertext returned by the matching `seal_secret_args*` function and pass it
+/// it from the ciphertext returned by the matching `seal_encrypted_args*` function and pass it
 /// as a `Secret<T>` when evaluating the policy. `T` must be a primitive type, e.g. `u64`,
 /// `address` or `vector<u8>`.
 ///

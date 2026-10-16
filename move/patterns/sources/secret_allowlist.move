@@ -4,9 +4,9 @@
 /// Secret allowlist pattern:
 /// - Like the whitelist pattern, but the members are a secret argument: only the key servers
 ///   learn who is on the list.
-/// - The admin encrypts `bcs(vector[bcs(members)])` to all key servers with threshold 1 under the
+/// - The admin encrypts `bcs(members)` to all key servers with threshold 1 under the
 ///   id [pkg id]["seal-secret-v1"], and stores the ciphertext in the `Allowlist`.
-/// - Requesters call `seal_secret_args(id, allowlist)` followed by
+/// - Requesters call `seal_encrypted_args(id, allowlist)` followed by
 ///   `seal_approve(id, allowlist)`. The key servers decrypt the members and pass them to
 ///   `seal_approve` as a `Secret<vector<address>>`.
 ///
@@ -47,10 +47,11 @@ public fun set_members(allowlist: &mut Allowlist, cap: &Cap, encrypted_members: 
     allowlist.encrypted_members = encrypted_members;
 }
 
-/// Called in the requester's PTB right before `seal_approve`. Returns the encrypted members.
-entry fun seal_secret_args(id: vector<u8>, allowlist: &Allowlist): vector<u8> {
+/// Called in the requester's PTB right before `seal_approve`. Returns one ciphertext per secret
+/// argument of `seal_approve`, here the encrypted members.
+entry fun seal_encrypted_args(id: vector<u8>, allowlist: &Allowlist): vector<vector<u8>> {
     assert!(has_prefix(&id, &allowlist.id.to_bytes()), ENoAccess);
-    allowlist.encrypted_members
+    vector[allowlist.encrypted_members]
 }
 
 /// `members` is filled in by the key servers.
@@ -85,7 +86,7 @@ fun test_seal_approve() {
     let mut id = allowlist.id.to_bytes();
     id.push_back(7);
 
-    assert!(seal_secret_args(id, &allowlist) == x"0102");
+    assert!(seal_encrypted_args(id, &allowlist) == vector[x"0102"]);
 
     seal_approve(id, seal::secret::new(vector[@0xB, ctx.sender()]), &allowlist, ctx);
     destroy_for_testing(allowlist, cap);
