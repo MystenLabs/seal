@@ -10,7 +10,7 @@
 ///   `seal_approve(id, allowlist)`. The key servers decrypt the members and pass them to
 ///   `seal_approve` as a `Secret<vector<address>>`.
 ///
-/// If the ciphertext is invalid, `members` is empty and access is denied, since an allowlist
+/// If the ciphertext is invalid, `members.value()` aborts and access is denied, since an allowlist
 /// should fail closed.
 ///
 /// This pattern does NOT implement versioning, please see other patterns for
@@ -61,7 +61,7 @@ entry fun seal_approve(
     ctx: &TxContext,
 ) {
     assert!(has_prefix(&id, &allowlist.id.to_bytes()), ENoAccess);
-    assert!(members.get().is_some_and!(|list| list.contains(&ctx.sender())), ENoAccess);
+    assert!(members.value().contains(&ctx.sender()), ENoAccess);
 }
 
 fun has_prefix(id: &vector<u8>, prefix: &vector<u8>): bool {
@@ -102,7 +102,7 @@ fun test_seal_approve_not_member() {
     destroy_for_testing(allowlist, cap);
 }
 
-#[test, expected_failure(abort_code = ENoAccess)]
+#[test, expected_failure(abort_code = 1, location = seal::secret)]
 fun test_seal_approve_invalid_ciphertext() {
     let ctx = &mut tx_context::dummy();
     let allowlist = Allowlist { id: object::new(ctx), encrypted_members: vector[] };
