@@ -1708,7 +1708,7 @@ dependencies = [
  "tonic-prost",
  "tonic-rustls",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.11",
  "tracing",
  "typed-store",
 ]
@@ -2304,7 +2304,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab67060fc6b8ef687992d439ca0fa36e7ed17e9a0b16b25b601e8757df720de"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4419,7 +4419,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic 0.14.6",
- "tower-http",
+ "tower-http 0.7.1",
  "tracing",
  "tracing-test",
  "wiremock",
@@ -5888,7 +5888,7 @@ dependencies = [
  "tokio-rustls",
  "tonic 0.14.6",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.11",
  "tracing",
 ]
 
@@ -7140,7 +7140,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7767,7 +7767,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util 0.7.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -8252,7 +8252,7 @@ dependencies = [
  "snap",
  "tokio",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
 ]
@@ -9974,7 +9974,7 @@ dependencies = [
  "tonic-health",
  "tonic-prost",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.11",
  "tracing",
  "url",
  "zstd",
@@ -10031,7 +10031,7 @@ dependencies = [
  "tokio",
  "tonic-rustls",
  "tower 0.5.3",
- "tower-http",
+ "tower-http 0.6.11",
  "tracing",
  "typed-store",
 ]
@@ -11647,6 +11647,25 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "tower-http"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
+dependencies = [
+ "bitflags 2.11.0",
+ "bytes",
+ "http",
+ "http-body",
+ "http-body-util",
+ "percent-encoding",
+ "pin-project-lite",
+ "tokio",
+ "tower-layer",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]
