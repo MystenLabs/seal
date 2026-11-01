@@ -1,0 +1,20 @@
+# Seal Documentation for LLMs
+
+> Seal is a decentralized secrets management protocol on the Sui blockchain. It enables secure encryption and access control for onchain data using threshold cryptography.
+
+## Top Level Navigation
+
+- [Aggregator — Aggregator](https://seal-docs.wal.app/Aggregator.md)
+- [Design — Design](https://seal-docs.wal.app/Design.md)
+- [ExamplePatterns — ExamplePatterns](https://seal-docs.wal.app/ExamplePatterns.md)
+- [GettingStarted — GettingStarted](https://seal-docs.wal.app/GettingStarted.md)
+- [KeyServerCommitteeOps —
+    KeyServerCommitteeOps](https://seal-docs.wal.app/KeyServerCommitteeOps.md)
+- [KeyServerOps — KeyServerOps](https://seal-docs.wal.app/KeyServerOps.md)
+- [Pricing — Pricing](https://seal-docs.wal.app/Pricing.md)
+- [SealCLI — SealCLI](https://seal-docs.wal.app/SealCLI.md)
+- [SecurityBestPractices —
+    SecurityBestPractices](https://seal-docs.wal.app/SecurityBestPractices.md)
+- [ServerOverview — ServerOverview](https://seal-docs.wal.app/ServerOverview.md)
+- [TermsOfService — TermsOfService](https://seal-docs.wal.app/TermsOfService.md)
+- [UsingSeal — UsingSeal](https://seal-docs.wal.app/UsingSeal.md)
