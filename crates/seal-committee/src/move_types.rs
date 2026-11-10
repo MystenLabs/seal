@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
 use fastcrypto::groups::bls12381::{G1Element, G2Element};
-use fastcrypto_tbls::ecies_v1::PublicKey;
+use fastcrypto_threshold::ecies_v1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_sdk_types::Address;

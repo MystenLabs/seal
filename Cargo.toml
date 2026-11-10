@@ -9,8 +9,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "076bf5ad8cea140dc7cf5c5861c24a36acdf64ce", features = ["aes"] }
-fastcrypto-tbls = { git = "https://github.com/MystenLabs/fastcrypto", rev = "076bf5ad8cea140dc7cf5c5861c24a36acdf64ce" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "a58b2984d6ac827b40c48fc0f2478a46569b5b17", features = ["aes"] }
+fastcrypto-threshold = { git = "https://github.com/MystenLabs/fastcrypto", rev = "a58b2984d6ac827b40c48fc0f2478a46569b5b17" }
 bcs = "0.2.1"
 serde = "1.0.210"
 serde_json = "1.0.150"
