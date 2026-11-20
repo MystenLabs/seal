@@ -67,6 +67,6 @@ sui-move-build = { workspace = true }
 move-package = { workspace = true }
 sui-package-alt = { workspace = true }
 temp-env = { version = "0.3", features = ["async_closure"] }
-fastcrypto-tbls = { workspace = true }
+fastcrypto-threshold = { workspace = true }
 wiremock = "0.6"
 tokio-stream = "0.1"

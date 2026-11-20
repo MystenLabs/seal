@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 fastcrypto.workspace = true
-fastcrypto-tbls.workspace = true
+fastcrypto-threshold.workspace = true
 rand.workspace = true
 serde.workspace = true
 hex.workspace = true

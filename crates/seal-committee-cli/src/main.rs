@@ -11,10 +11,10 @@ use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::groups::GroupElement;
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use fastcrypto::traits::KeyPair as _;
-use fastcrypto_tbls::dkg_v1::Party;
-use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
-use fastcrypto_tbls::nodes::{Node, Nodes};
-use fastcrypto_tbls::random_oracle::RandomOracle;
+use fastcrypto_threshold::dkg_v1::Party;
+use fastcrypto_threshold::ecies_v1::{PrivateKey, PublicKey};
+use fastcrypto_threshold::nodes::{Node, Nodes};
+use fastcrypto_threshold::random_oracle::RandomOracle;
 use move_package_compilation::build_config::BuildConfig as MoveBuildConfig;
 use rand::thread_rng;
 use seal_committee::{
@@ -2304,7 +2304,7 @@ fn process_dkg_messages(
     mut messages: Vec<SignedMessage>,
     local_keys: &KeysFile,
 ) -> Result<(
-    fastcrypto_tbls::dkg_v1::Output<G2Element, G1Element>,
+    fastcrypto_threshold::dkg_v1::Output<G2Element, G1Element>,
     Vec<u8>,
 )> {
     println!("Processing {} message(s)...", messages.len());

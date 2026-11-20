@@ -8,10 +8,10 @@ use fastcrypto::bls12381::min_sig::{BLS12381PrivateKey, BLS12381PublicKey, BLS12
 use fastcrypto::encoding::{Encoding, Hex};
 use fastcrypto::groups::bls12381::{G1Element, G2Element, Scalar as G2Scalar};
 use fastcrypto::traits::{Signer, VerifyingKey};
-use fastcrypto_tbls::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMessages};
-use fastcrypto_tbls::ecies_v1::{PrivateKey, PublicKey};
-use fastcrypto_tbls::nizk::DLNizk;
-use fastcrypto_tbls::nodes::Nodes;
+use fastcrypto_threshold::dkg_v1::{Message, Output, ProcessedMessage, UsedProcessedMessages};
+use fastcrypto_threshold::ecies_v1::{PrivateKey, PublicKey};
+use fastcrypto_threshold::nizk::DLNizk;
+use fastcrypto_threshold::nodes::Nodes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{fs, path::Path};
@@ -111,7 +111,7 @@ pub struct DkgState {
     pub processed_messages: Vec<ProcessedMessage<G2Element, G1Element>>,
     /// Confirmation and used messages.
     pub confirmation: Option<(
-        fastcrypto_tbls::dkg_v1::Confirmation<G1Element>,
+        fastcrypto_threshold::dkg_v1::Confirmation<G1Element>,
         UsedProcessedMessages<G2Element, G1Element>,
     )>,
     /// Final output (if completed).

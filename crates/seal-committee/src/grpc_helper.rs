@@ -322,7 +322,7 @@ mod tests {
     use fastcrypto::bls12381::min_sig::BLS12381PublicKey;
     use fastcrypto::encoding::{Encoding, Hex};
     use fastcrypto::groups::bls12381::{G1Element, G2Element};
-    use fastcrypto_tbls::ecies_v1::PublicKey;
+    use fastcrypto_threshold::ecies_v1::PublicKey;
     use std::str::FromStr;
 
     /// Helper to deserialize from hex string.

@@ -2,6 +2,9 @@ module seal_staleness::time;
 
 use sui::clock;
 
+#[test_only]
+use sui::test_scenario;
+
 const EStaleFullnode: u64 = 93492;
 const EStaleKeyServer: u64 = 93493;
 
@@ -23,43 +26,38 @@ public fun check_staleness(now: u64, allowed_staleness_in_ms: u64, clock: &clock
 #[test]
 #[expected_failure(abort_code = EStaleFullnode)]
 fun test_is_stale() {
-    let mut ctx = tx_context::dummy();
-    let clock = clock::create_for_testing(&mut ctx);
-
     // Clock is zero, so this should fail
-    check_staleness(10, 9, &clock);
-
-    clock.destroy_for_testing();
+    check_staleness(10, 9, clock::borrow());
 }
 
 #[test]
 #[expected_failure(abort_code = EStaleKeyServer)]
 fun test_key_server_is_stale() {
-    let mut ctx = tx_context::dummy();
-    let mut clock = clock::create_for_testing(&mut ctx);
-
     // `now` lags the on-chain time by more than the allowed key server staleness
-    clock.increment_for_testing(ALLOWED_KEY_SERVER_STALENESS_IN_MS + 1);
-    check_staleness(0, 9, &clock);
-
-    clock.destroy_for_testing();
+    let tx = test_scenario::ctx_builder_from_sender(@0x0).set_clock_timestamp(
+        ALLOWED_KEY_SERVER_STALENESS_IN_MS + 1,
+    );
+    let scenario = test_scenario::begin_with_context(tx);
+    check_staleness(0, 9, clock::borrow());
+    scenario.end();
 }
 
 #[test]
 fun test_is_ok() {
-    let mut ctx = tx_context::dummy();
-    let mut clock = clock::create_for_testing(&mut ctx);
+    let mut scenario = test_scenario::begin(@0x0);
 
-    check_staleness(9, 10, &clock);
-    check_staleness(99, 100, &clock);
+    check_staleness(9, 10, clock::borrow());
+    check_staleness(99, 100, clock::borrow());
 
     // `now` slightly in the past should also work
-    clock.increment_for_testing(10);
-    check_staleness(9, 0, &clock);
+    let tx = scenario.ctx_builder().set_clock_timestamp(10);
+    scenario.next_with_context(tx);
+    check_staleness(9, 0, clock::borrow());
 
     // `now` at exactly the allowed key server staleness limit should pass
-    clock.increment_for_testing(ALLOWED_KEY_SERVER_STALENESS_IN_MS - 10);
-    check_staleness(0, 0, &clock);
+    let tx = scenario.ctx_builder().set_clock_timestamp(ALLOWED_KEY_SERVER_STALENESS_IN_MS);
+    scenario.next_with_context(tx);
+    check_staleness(0, 0, clock::borrow());
 
-    clock.destroy_for_testing();
+    scenario.end();
 }

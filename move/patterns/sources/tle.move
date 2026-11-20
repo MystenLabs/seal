@@ -41,20 +41,21 @@ entry fun seal_approve(id: vector<u8>, c: &clock::Clock) {
 
 #[test]
 fun test_approve() {
-    let ctx = &mut tx_context::dummy();
-    let mut c = clock::create_for_testing(ctx); // time = 0
+    use sui::test_scenario;
+
+    let mut scenario = test_scenario::begin(@0x0);
     let t = 1u64;
     let id = bcs::to_bytes(&t);
 
     // 0 < 1
-    assert!(!check_policy(id, &c), 0);
+    assert!(!check_policy(id, clock::borrow()), 0);
 
     // 1 == 1
-    c.increment_for_testing(1);
-    assert!(check_policy(id, &c), 0);
+    scenario.next_tx(@0x0);
+    assert!(check_policy(id, clock::borrow()), 0);
     // 2 > 1
-    c.increment_for_testing(1);
-    assert!(check_policy(id, &c), 0);
+    scenario.next_tx(@0x0);
+    assert!(check_policy(id, clock::borrow()), 0);
 
-    c.destroy_for_testing();
+    scenario.end();
 }

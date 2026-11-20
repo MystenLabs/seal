@@ -4,8 +4,8 @@
 use fastcrypto::error::{FastCryptoError, FastCryptoResult};
 use fastcrypto::groups::{GroupElement, Scalar};
 use fastcrypto::traits::AllowedRng;
-use fastcrypto_tbls::polynomial::Poly;
-use fastcrypto_tbls::types::IndexedValue;
+use fastcrypto_threshold::polynomial::Poly;
+use fastcrypto_threshold::types::IndexedValue;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU16;
@@ -87,7 +87,7 @@ mod tests {
     use super::*;
     use fastcrypto::groups::bls12381::{G1Element, Scalar};
     use fastcrypto::groups::Scalar as _;
-    use fastcrypto_tbls::polynomial::Poly as TblsPoly;
+    use fastcrypto_threshold::polynomial::Poly as TblsPoly;
     use rand::thread_rng;
     #[test]
     fn test_aggregate_encrypted_with_polynomial_shares() {
