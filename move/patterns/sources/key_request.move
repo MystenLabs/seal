@@ -117,14 +117,13 @@ module patterns::key_request_whitelist_test {
         use sui::clock;
 
         let ctx = &mut tx_context::dummy(); // sender = 0x0
-        let c = clock::create_for_testing(ctx); // time = 0
+        let c = clock::borrow(); // time = 0
 
         let wl = create_whitelist(vector[@0x0, @0x1], ctx);
-        let kr = request_access(&wl, &c, ctx);
-        seal_approve(object::id(&wl).to_bytes(), &kr, &c, ctx);
+        let kr = request_access(&wl, c, ctx);
+        seal_approve(object::id(&wl).to_bytes(), &kr, c, ctx);
 
         kr.destroy();
         destroy_for_testing(wl);
-        c.destroy_for_testing();
     }
 }

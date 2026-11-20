@@ -175,27 +175,29 @@ entry fun seal_approve(
 fun test_approve() {
     use sui::clock;
     use sui::coin;
+    use sui::test_scenario;
 
-    let ctx = &mut tx_context::dummy();
-    let mut c = clock::create_for_testing(ctx); // time = 0
+    let mut scenario = test_scenario::begin(@0x0);
+    let ctx = scenario.ctx();
     let coin = coin::mint_for_testing<SUI>(10, ctx);
     let (pkg_version, _pkg_version_cap) = create_for_testing(ctx);
 
     let ser = create_service(10, 2, ctx);
-    let sub = subscribe(coin, &ser, &c, ctx);
+    let sub = subscribe(coin, &ser, clock::borrow(), ctx);
 
     let mut obj_id = object::id(&ser).to_bytes();
     obj_id.push_back(11);
 
     // Work for time 0
-    assert!(check_policy(obj_id, &pkg_version, &sub, &ser, &c));
-    c.increment_for_testing(1);
-    assert!(check_policy(obj_id, &pkg_version, &sub, &ser, &c));
+    assert!(check_policy(obj_id, &pkg_version, &sub, &ser, clock::borrow()));
+    scenario.next_tx(@0x0);
+    assert!(check_policy(obj_id, &pkg_version, &sub, &ser, clock::borrow()));
     // time 3 should fail
-    c.increment_for_testing(2);
-    assert!(!check_policy(obj_id, &pkg_version, &sub, &ser, &c));
+    let tx = scenario.ctx_builder().increment_clock_timestamp(2);
+    scenario.next_with_context(tx);
+    assert!(!check_policy(obj_id, &pkg_version, &sub, &ser, clock::borrow()));
 
     destroy_for_testing(ser, sub);
     destroy_versions_for_testing(pkg_version, _pkg_version_cap);
-    c.destroy_for_testing();
+    scenario.end();
 }

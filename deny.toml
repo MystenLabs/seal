@@ -60,6 +60,8 @@ ignore = [
     # Pulled in transitively via object_store <- Sui's sui-config; object_store 0.13.1 pins quick-xml ^0.38, so no safe upgrade. We do not parse untrusted XML.
     { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4 unbounded NsReader namespace allocation pulled in transitively via object_store <- Sui's sui-config; object_store pins ^0.38, no safe upgrade; we do not parse untrusted XML" },
     { id = "RUSTSEC-2026-0283", reason = "unmaintained clear_on_drop pulled in transitively via bulletproofs <- fastcrypto; no maintained bulletproofs release drops it" },
+    { id = "RUSTSEC-2026-0542", reason = "unmaintained humantime used by console-subscriber in Sui telemetry; removal requires an upstream migration" },
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained chrono remains in the graph through Sui and key-server dependencies; removal requires upstream migrations" },
     # Match Fastcrypto's exception until its elliptic-curve dependencies upgrade.
     # Timing leakage depends on the algorithm, compiler and target CPU.
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.4/0.5 used by Fastcrypto/Sui's elliptic-curve dependencies; the fix requires crypto-bigint >=0.7.6 and an upstream elliptic-curve migration" },
