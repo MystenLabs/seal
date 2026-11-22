@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "docker/seal-proxy/local-test/metrics-generator"]
+members = ["crates/*"]
 
 [workspace.package]
 version = "0.6.16"

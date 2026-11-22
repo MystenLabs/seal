@@ -3,7 +3,7 @@ FROM rust:1.90-bullseye  AS builder
 WORKDIR /usr/src/app
 
 COPY Cargo.toml Cargo.lock ./
-COPY docker/seal-proxy/local-test/metrics-generator docker/seal-proxy/local-test/metrics-generator
+COPY crates/metrics-generator crates/metrics-generator
 RUN cargo build --release -p metrics-generator
 
 FROM debian:bookworm-slim
