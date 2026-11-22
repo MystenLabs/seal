@@ -1,14 +1,11 @@
 // Copyright (c), Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::{Registry, Encoder};
+use crate::EnableMetricsPush;
+use prometheus::{Encoder, Registry};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json;
-use reqwest;
-use anyhow;
-use serde::{Deserialize, Serialize};
-use crate::EnableMetricsPush;
 
 #[derive(Debug, Deserialize, Serialize)]
 /// MetricPayload holds static labels and metric data
@@ -49,7 +46,11 @@ pub async fn push_metrics(
     encoder.encode(&metric_families, &mut buf)?;
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
-    let serialized = serde_json::to_vec(&MetricPayload { labels: mp_config.config.labels, buf }).inspect_err(|error| {
+    let serialized = serde_json::to_vec(&MetricPayload {
+        labels: mp_config.config.labels,
+        buf,
+    })
+    .inspect_err(|error| {
         tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
@@ -60,7 +61,10 @@ pub async fn push_metrics(
 
     let response = client
         .post(&mp_config.config.push_url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", mp_config.bearer_token))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", mp_config.bearer_token),
+        )
         .header(reqwest::header::CONTENT_ENCODING, "snappy")
         .body(compressed)
         .send()
@@ -78,6 +82,9 @@ pub async fn push_metrics(
             body
         ));
     }
-    tracing::debug!("successfully pushed metrics to {}", mp_config.config.push_url);
+    tracing::debug!(
+        "successfully pushed metrics to {}",
+        mp_config.config.push_url
+    );
     Ok(())
 }
