@@ -41,7 +41,6 @@ git-version = "0.3.9"
 # Sui dependencies
 sui_types = { git = "https://github.com/mystenlabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28", package = "sui-types"}
 mysten-service = { git = "https://github.com/mystenlabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28" }
-mysten-metrics = { git = "https://github.com/mystenlabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28" }
 sui_sdk = { git = "https://github.com/mystenlabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28", package = "sui-sdk"}
 sui-json = { git = "https://github.com/mystenlabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28", package = "sui-json" }
 shared_crypto = { git = "https://github.com/MystenLabs/sui", rev = "0b4dc93fb40ab66c2a2d7328ba509c07929d1d28", package = "shared-crypto" }

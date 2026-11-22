@@ -59,7 +59,7 @@ services:
     container_name: metrics-generator
     build:
       context: ../../..
-      dockerfile: crates/metrics-generator/Dockerfile
+      dockerfile: docker/seal-proxy/local-test/metrics-generator/Dockerfile
     depends_on:
       seal-proxy:
         condition: service_started

@@ -4,10 +4,10 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use prometheus::{Histogram, IntGauge, IntGaugeVec, Registry};
 use rand::Rng;
-use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
+use std::collections::HashMap;
+use prometheus::{Registry, IntGauge, IntGaugeVec, Histogram};
 
 mod metrics_push;
 
@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
 
     metric_push_handle.await?;
     Ok(())
+
 }
 
 struct Metrics {
@@ -84,21 +85,23 @@ struct Metrics {
 
 fn create_metrics(registry: &Registry) -> Metrics {
     let current_time_opts = prometheus::opts!("current_time", "Current time");
-    let current_time = prometheus::register_int_gauge_with_registry!(current_time_opts, registry)
-        .expect("metric registration should succeed");
+    let current_time = prometheus::register_int_gauge_with_registry!(
+        current_time_opts,
+        registry
+    )
+    .expect("metric registration should succeed");
 
     let build_info_opts = prometheus::opts!("seal_build_info", "Seal binary info");
-    let seal_build_info =
-        prometheus::register_int_gauge_vec_with_registry!(build_info_opts, &["version"], registry)
-            .expect("metric registration should succeed");
+    let seal_build_info = prometheus::register_int_gauge_vec_with_registry!(
+        build_info_opts,
+        &["version"],
+        registry
+    )
+    .expect("metric registration should succeed");
 
-    let histogram_opts =
-        prometheus::HistogramOpts::new("seal_request_duration", "Seal request duration").buckets(
-            vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY],
-        );
-    let seal_request_duration =
-        prometheus::register_histogram_with_registry!(histogram_opts, registry)
-            .expect("metric registration should succeed");
+    let histogram_opts = prometheus::HistogramOpts::new("seal_request_duration", "Seal request duration")
+        .buckets(vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY]);
+    let seal_request_duration = prometheus::register_histogram_with_registry!(histogram_opts, registry).expect("metric registration should succeed");
 
     Metrics {
         current_time,
@@ -115,13 +118,15 @@ fn generate_metrics(metrics: &Metrics) {
     tracing::info!("generating metrics: {}", timestamp);
 
     let version = "0.1.0";
-    metrics.seal_build_info.with_label_values(&[version]).set(1);
+    metrics
+        .seal_build_info
+        .with_label_values(&[version])
+        .set(1);
 
     // populate histogram with random duration
     let duration = Duration::from_millis(rand::thread_rng().gen_range(1..10000));
-    metrics
-        .seal_request_duration
-        .observe(duration.as_secs_f64());
+    metrics.seal_request_duration.observe(duration.as_secs_f64());
+
 }
 
 /// Create a request client builder that is used to push metrics to mimir.

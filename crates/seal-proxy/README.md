@@ -23,7 +23,7 @@ A reusable library that allows clients to:
 
 ---
 
-### 2. Sample Client Setup: [location](../metrics-generator/src/main.rs)
+### 2. Sample Client Setup: [location](../../docker/seal-proxy/local-test/metrics-generator/src/main.rs)
 
 #### Metrics Generator
 - A sample application that uses the client library to generate and push metrics.
