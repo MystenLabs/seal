@@ -2,6 +2,7 @@
 FROM rust:1.90-trixie AS builder
 
 ARG PROFILE=release
+ARG TARGETARCH
 
 WORKDIR /work
 
@@ -12,11 +13,13 @@ ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 
 # BuildKit cargo cache mounts: registry/git/target persist on the mp3
-# stateful-pool PVC across commits. Cache-mount contents aren't committed to
-# the image layer, so copy the binary out to a stable path in the same RUN.
+# stateful-pool PVC across commits. Target artifacts are ABI-sensitive, so keep
+# its cache ID in sync with the builder image and architecture. Cache-mount
+# contents aren't committed to the image layer, so copy the binary out to a
+# stable path in the same RUN.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/work/target,sharing=locked \
+    --mount=type=cache,target=/work/target,id=seal-aggregator-rust-1.90-trixie-${TARGETARCH},sharing=locked \
     cargo build --bin aggregator-server --profile $PROFILE --config net.git-fetch-with-cli=true \
     && cp /work/target/release/aggregator-server /work/aggregator-server
 
